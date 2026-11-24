@@ -146,8 +146,18 @@ pub(crate) fn begin_background(
     model: Option<&str>,
     account: Option<&str>,
 ) -> Result<String> {
+    begin_background_on(&store.db.locked(), bot, job, model, account)
+}
+
+pub(crate) fn begin_background_on(
+    db: &Connection,
+    bot: &str,
+    job: &str,
+    model: Option<&str>,
+    account: Option<&str>,
+) -> Result<String> {
     let id = uuid::Uuid::new_v4().to_string();
-    store.db.locked().execute(
+    db.execute(
         "INSERT INTO donna_turn_usage(id,bot_id,chat_id,session_id,parent_session_id,account_id,model,at,
          input_tokens,cached_read_tokens,cached_write_tokens,output_tokens,amount,currency,source)
          VALUES(?1,?2,?2,?3,NULL,?4,?5,?6,NULL,NULL,NULL,NULL,NULL,NULL,'fundo')",

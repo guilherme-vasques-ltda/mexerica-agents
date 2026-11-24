@@ -60,10 +60,11 @@ impl Account {
         })
     }
     pub(crate) fn bind_catalog(&mut self) {
+        let api = crate::fork::background_anthropic::slot(self).is_some();
         let Some(meta) = &mut self.managed else { return };
         meta.catalog = if self.backend == Backend::Claude
             && self.state == State::Connected
-            && self.subscription_proof.is_some()
+            && (self.subscription_proof.is_some() || api)
             && !self.models.is_empty()
         {
             meta.principal.as_ref().map(|principal| CatalogBinding {
@@ -235,6 +236,7 @@ pub(crate) fn secure_files(directory: &Path) -> Result<()> {
 }
 
 impl Registry {
+    #[cfg(test)]
     pub(crate) fn persist(&self, store: &Store) -> Result<()> {
         store.kv_set(super::SLOT, &serde_json::to_string(self)?)?;
         // MEX-1355: mudança no cadastro tira a função de fundo da parada.

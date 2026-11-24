@@ -22,6 +22,13 @@ pub(crate) struct Resolved {
     identity: Option<String>,
     launch: LaunchReference,
     proof: Option<crate::fork::engine_accounts::SubscriptionProof>,
+    pub(super) api: Option<(String, String)>,
+}
+
+impl Resolved {
+    pub(crate) fn paid_api(&self) -> bool {
+        self.api.is_some()
+    }
 }
 
 pub(crate) fn resolve(store: &Store, original: &BotConfig, function: FunctionId) -> Result<Resolved> {
@@ -51,13 +58,19 @@ pub(crate) fn resolve(store: &Store, original: &BotConfig, function: FunctionId)
     if account.state != State::Connected {
         return Err(disconnected(store, &binding.account_id).unwrap_or(Problem::NoClaude).into());
     }
-    if account.billing == Billing::PaidApi {
-        return Err(Problem::Api.into());
-    }
+    let api = if account.billing == Billing::PaidApi {
+        let slot = super::background_anthropic::slot(account).ok_or(Problem::Api)?;
+        ensure!(matches!(selected, Selection::Custom { .. }), Problem::Api);
+        let (sealed, _) = super::background_anthropic::credential(store, slot)
+            .map_err(|_| Problem::AccountDisconnected { label: account.dto().label })?;
+        Some((slot.to_owned(), sealed))
+    } else {
+        None
+    };
     if account.backend == Backend::Codex {
         return Err(Problem::Codex.into());
     }
-    if account.billing != Billing::Subscription || !account.subscription_verified() {
+    if api.is_none() && !account.subscription_verified() {
         return Err(Problem::NoClaude.into());
     }
     let mut cfg = original.clone();
@@ -87,6 +100,7 @@ pub(crate) fn resolve(store: &Store, original: &BotConfig, function: FunctionId)
         identity: account.quota_identity.clone(),
         launch: account.launch.clone(),
         proof: account.subscription_proof.clone(),
+        api,
     })
 }
 
@@ -98,8 +112,7 @@ fn disconnected(store: &Store, id: &str) -> Option<Problem> {
         .then_some(Problem::AccountDisconnected { label: account.label })
 }
 
-/// MB-3: a assinatura Claude já vinculada ao próprio bot, com as mesmas guardas de `resolve`.
-/// Codex, chave de API e outros motores são recusados sem abrir o caminho de fundo.
+/// A conta vinculada ao próprio bot é revalidada sem herdar a seleção global.
 pub(crate) fn resolve_own(store: &Store, original: &BotConfig) -> Result<Resolved> {
     if original.backend == "codex" {
         return Err(Problem::Codex.into());
@@ -140,6 +153,7 @@ pub(crate) fn resolve_own(store: &Store, original: &BotConfig) -> Result<Resolve
         identity: account.quota_identity.clone(),
         launch: account.launch.clone(),
         proof: account.subscription_proof.clone(),
+        api: None,
     })
 }
 
@@ -166,14 +180,24 @@ pub(crate) fn revalidate(store: &Store, resolved: &Resolved) -> Result<()> {
         || account.quota_identity != resolved.identity
         || account.launch != resolved.launch
         || account.subscription_proof != resolved.proof
-        || !account.subscription_verified()
+        || match &resolved.api {
+            Some((slot, sealed)) => {
+                super::background_anthropic::slot(account) != Some(slot)
+                    || store.kv_read(slot)?.as_ref() != Some(sealed)
+            }
+            None => !account.subscription_verified(),
+        }
     {
         return Err(Problem::AccountChanged.into());
     }
-    crate::fork::engine_accounts::managed::validate_selection(store, &resolved.config)
+    crate::fork::engine_accounts::managed::validate_selection_in(&registry, &resolved.config)
 }
 
 pub(crate) async fn verify_identity(store: &Store, resolved: &Resolved) -> Result<()> {
+    if let Some((slot, expected)) = &resolved.api {
+        ensure!(super::background_anthropic::credential(store, slot)?.0 == *expected, Problem::AccountChanged);
+        return revalidate(store, resolved);
+    }
     let registry = Registry::load(store)?;
     let id =
         resolved.config.fork_editor.engine_account_id.as_deref().ok_or_else(|| anyhow::anyhow!("Conta ausente."))?;

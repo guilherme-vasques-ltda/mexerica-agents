@@ -20,6 +20,7 @@ pub(crate) mod armazenamento;
 #[allow(dead_code, reason = "Fonte 19.1a publicada antes dos consumidores; sem runtime novo.")]
 pub mod atividades;
 pub(crate) mod background_adapter;
+pub(crate) mod background_anthropic;
 pub(crate) mod background_completion;
 pub(crate) mod background_executor;
 pub(crate) mod background_history;

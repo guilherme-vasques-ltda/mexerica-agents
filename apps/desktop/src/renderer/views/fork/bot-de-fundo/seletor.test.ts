@@ -69,9 +69,12 @@ test('função que não aceita motor: Codex fica recusado com o motivo; as conta
   assert.deepEqual(v.contas.map((c) => c.id), ['a', 'x'])
 })
 
-test('memória e títulos só aceitam assinatura confirmada; chave de API e assinatura não confirmada ficam de fora com o motivo', () => {
+test('memória e títulos oferecem API Anthropic gerenciada, com modelo selecionável', () => {
   assert.equal(motivoDaConta(conta('a'), 'memory_consolidation'), null)
   assert.equal(motivoDaConta(conta('a', { billing: 'paid_api' }), 'bot_naming'), 'apiEmBreve')
+  assert.equal(motivoDaConta(conta('a', { billing: 'paid_api', origin: 'managed' }), 'bot_naming'), null)
+  assert.equal(motivoDaConta(conta('a', { billing: 'paid_api', origin: 'managed', models: [] }), 'memory_consolidation'), 'semModelo')
+  assert.equal(motivoDaConta(conta('a', { billing: 'paid_api', origin: 'managed' }), 'vision'), 'apiEmBreve')
   assert.equal(motivoDaConta(conta('a', { billing: 'unverified' }), 'memory_consolidation'), 'semAssinatura')
 })
 

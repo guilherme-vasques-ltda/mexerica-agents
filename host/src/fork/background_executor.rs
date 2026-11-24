@@ -117,8 +117,8 @@ fn check_send_boundary(
     selected: &crate::fork::background_selection::Resolved,
     boundary: Option<MemoryBoundary<'_>>,
 ) -> Result<()> {
+    crate::fork::background_selection::revalidate(&hub.store, selected)?;
     if let Some(boundary) = boundary {
-        crate::fork::background_selection::revalidate(&hub.store, selected)?;
         (boundary.verify)(selected)?;
     }
     Ok(())
@@ -236,7 +236,7 @@ where
                     resolved
                 }
             };
-            if crate::fork::assinatura_pessoal::claude(&resolved.config.backend) {
+            if resolved.api.is_none() && crate::fork::assinatura_pessoal::claude(&resolved.config.backend) {
                 return Err(crate::fork::background_notice::Problem::PersonalSubscription.into());
             }
             // Não ler/materializar o pedido antes de resolver a conta real. A
@@ -263,7 +263,7 @@ where
             )
             .await
             .map_err(|_| crate::fork::background_notice::Problem::Timeout)?
-            .map_err(|error| classify_error(error, true))?;
+            .map_err(|error| classify_error(error, resolved.api.is_none()))?;
             anyhow::ensure!(!*exposed, "O trabalhador solicitou uma ferramenta.");
             failure_stage = FailureStage::Revalidation;
             crate::fork::background_selection::verify_identity(&hub.store, &resolved).await?;
@@ -376,6 +376,47 @@ async fn execute(
     job: &'static str,
 ) -> Result<String> {
     let cfg = &selected.config;
+    if let Some((slot, expected)) = &selected.api {
+        let model = cfg.model.as_deref().ok_or(super::background_notice::Problem::Model)?;
+        let (key, send) = {
+            let team = hub.store.team_lock.lock().await;
+            let lock = super::engine_accounts::MUTATION.lock().await;
+            check_send_boundary(hub, selected, boundary)?;
+            anyhow::ensure!(
+                hub.store.bot(&cfg.id)?.is_some_and(|row| !row.deleted
+                    && row.config.space_id == super::spaces::PERSONAL
+                    && !row.config.is_group()),
+                super::background_notice::Problem::Space
+            );
+            let (sealed, credential) = super::background_anthropic::credential(&hub.store, slot)?;
+            anyhow::ensure!(sealed == *expected, super::background_notice::Problem::AccountChanged);
+            let request = super::background_anthropic::request(credential.clone(), model, system, user)?;
+            observed.sent = Some(crate::fork::teto::background_boundary(hub, &cfg.id, job, |db| {
+                crate::fork::custo::begin_background_on(
+                    db,
+                    &cfg.id,
+                    job,
+                    Some(model),
+                    cfg.fork_editor.engine_account_id.as_deref(),
+                )
+            })?);
+            let mut send = Box::pin(request.send());
+            let first = std::future::poll_fn(|cx| std::task::Poll::Ready(send.as_mut().poll(cx))).await;
+            drop(lock);
+            drop(team);
+            (credential, async move {
+                match first {
+                    std::task::Poll::Ready(result) => result,
+                    std::task::Poll::Pending => send.await,
+                }
+            })
+        };
+        let (text, usage) = super::background_anthropic::complete(send.await, &key, model).await?;
+        observed.backend = Some("anthropic".into());
+        observed.models = vec![model.to_owned()];
+        observed.usage = Some(usage);
+        return Ok(text);
+    }
     check_send_boundary(hub, selected, boundary)?;
     anyhow::ensure!(system.len().saturating_add(user.len()) <= 128_000, "A tarefa de fundo é grande demais.");
     let prepared = crate::fork::background_isolation::prepare_job(hub, cfg, system).await?;
@@ -629,6 +670,184 @@ async fn collect(
 #[cfg(test)]
 mod history_tests {
     use super::*;
+    use std::collections::BTreeMap;
+
+    #[derive(Clone, Copy)]
+    enum TitleCase {
+        Cut,
+        Rotate,
+        ChangeSelection,
+        MissingStop,
+        Success,
+    }
+
+    #[tokio::test]
+    async fn api_registra_envio_antes_da_resposta_e_preserva_no_reinicio() {
+        api_resposta_pendente(TitleCase::Cut).await;
+    }
+
+    #[tokio::test]
+    async fn api_descarta_resposta_quando_a_chave_muda_durante_o_envio() {
+        api_resposta_pendente(TitleCase::Rotate).await;
+    }
+
+    #[tokio::test]
+    async fn api_aplica_titulo_so_com_conclusao_e_selecao_vigente() {
+        for case in [TitleCase::Success, TitleCase::MissingStop, TitleCase::ChangeSelection] {
+            api_resposta_pendente(case).await;
+        }
+    }
+
+    async fn api_resposta_pendente(case: TitleCase) {
+        use crate::LockExt;
+        use crate::fork::{
+            background_anthropic,
+            background_notice::Problem,
+            engine_accounts,
+            modelos_funcao::{catalogo::FunctionId, config},
+        };
+        use crate::{remote::identity::Identity, store::Store};
+
+        let fixture = concat!("sk-ant-api", "-fixture-credential-not-live");
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("background.db");
+        let store = Store::open(&path).unwrap();
+        *store.secret_key.locked() = Some(zeroize::Zeroizing::new(vec![7; 32]));
+        let cfg: BotConfig =
+            serde_json::from_value(json!({"id":"b", "name":"Bot", "backend":"claude", "autoName":true})).unwrap();
+        store.save_bot(&cfg).unwrap();
+        let id = format!("ac_{}", "d".repeat(64));
+        let slot = format!("agent-account:{id}");
+        let model = "claude-fixture";
+        let raw = json!({"salt":uuid::Uuid::new_v4().to_string(), "accounts":[{
+            "id":id,"backend":"claude","billing":"paid_api","state":"connected","scope":"owner",
+            "launch":{"kind":"vault_profile","slot":slot},"models":[{"id":model,"options":[]}],
+            "managed":{"label":"API de teste","revision":1,"generation":0,"enabled":true,
+                "requestId":"fixture","principal":id,"profile":null,"setupRequest":null}
+        }]});
+        let mut registry: engine_accounts::Registry = serde_json::from_value(raw).unwrap();
+        registry.accounts[0].bind_catalog();
+        registry.persist(&store).unwrap();
+        crate::market::vault::write(&store, &slot, &json!({"ANTHROPIC_API_KEY":fixture}).to_string()).unwrap();
+        config::initialize(&store).unwrap();
+        let doc = config::load(&store).unwrap();
+        config::save(
+            &store,
+            doc.revision,
+            Some(FunctionId::BotNaming),
+            Some(config::SelectionInput::Custom {
+                binding: config::Binding {
+                    account_id: id.clone(),
+                    model_id: model.into(),
+                    model_options: BTreeMap::new(),
+                },
+            }),
+        )
+        .unwrap();
+        let hub = Hub::new(store, "teste".into(), Identity::load_or_create(dir.path()).unwrap(), "teste".into(), 0);
+        hub.start().unwrap();
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let endpoint = format!("http://{}/v1/messages", listener.local_addr().unwrap());
+        let seen = Arc::new(tokio::sync::Notify::new());
+        let respond = Arc::new(tokio::sync::Notify::new());
+        let server = {
+            let seen = seen.clone();
+            let respond = respond.clone();
+            tokio::spawn(async move {
+                let routes = axum::Router::new().route(
+                    "/v1/messages",
+                    axum::routing::post(
+                        move |headers: axum::http::HeaderMap, axum::Json(body): axum::Json<serde_json::Value>| {
+                            let seen = seen.clone();
+                            let respond = respond.clone();
+                            async move {
+                                assert!(headers.get("x-api-key").is_some_and(|value| value == fixture));
+                                assert_eq!(body["model"], model);
+                                assert!(body.get("tools").is_none());
+                                assert!(body["messages"][0]["content"].as_str().unwrap().contains("texto"));
+                                seen.notify_one();
+                                respond.notified().await;
+                                let stop = (!matches!(case, TitleCase::MissingStop)).then_some("end_turn");
+                                axum::Json(
+                                    json!({"type":"message", "role":"assistant", "stop_reason":stop,"model":model,
+                                    "content":[{"type":"text","text":"Name: Nome de teste"}],
+                                    "usage":{"input_tokens":3,"output_tokens":4}}),
+                                )
+                            }
+                        },
+                    ),
+                );
+                axum::serve(listener, routes).await.unwrap();
+            })
+        };
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        {
+            let run = background_anthropic::test_transport::ENDPOINT.scope((client, endpoint), async {
+                for at in 1..=3 {
+                    crate::chat::naming::observe(
+                        &hub,
+                        &cfg.id,
+                        crate::chat::naming::Turn { user: "texto".into(), agent: "resposta".into(), at },
+                    )
+                    .await?;
+                }
+                Ok::<_, anyhow::Error>(())
+            });
+            tokio::pin!(run);
+            tokio::time::timeout(Duration::from_secs(5), async {
+                tokio::select! {
+                    () = seen.notified() => {},
+                    _ = &mut run => panic!("o pedido não chegou à API fictícia"),
+                }
+            })
+            .await
+            .unwrap();
+            if matches!(case, TitleCase::Rotate) {
+                let new_key = ["sk-ant-api", "-fixture-replacement-not-live"].concat();
+                crate::market::vault::write(&hub.store, &slot, &json!({"ANTHROPIC_API_KEY":new_key}).to_string())
+                    .unwrap();
+            }
+            if matches!(case, TitleCase::ChangeSelection) {
+                let doc = config::load(&hub.store).unwrap();
+                config::save(&hub.store, doc.revision, Some(FunctionId::BotNaming), None).unwrap();
+            }
+            if !matches!(case, TitleCase::Cut) {
+                respond.notify_one();
+                let result = tokio::time::timeout(Duration::from_secs(5), &mut run).await.unwrap();
+                let history = serde_json::to_value(crate::fork::background_history::read(&hub.store).unwrap()).unwrap();
+                let current = hub.store.bot(&cfg.id).unwrap().unwrap();
+                if matches!(case, TitleCase::Success) {
+                    result.unwrap();
+                    assert_eq!(history[0]["status"], "applied");
+                    assert_eq!(current.config.name, "Nome de teste");
+                } else {
+                    let error = result.unwrap_err();
+                    assert_eq!(history[0]["status"], "failed");
+                    assert_eq!(current.config.name, cfg.name);
+                    if matches!(case, TitleCase::Rotate | TitleCase::ChangeSelection) {
+                        assert!(matches!(error.downcast_ref::<Problem>(), Some(Problem::AccountChanged)));
+                        assert_eq!(history[0]["failureStage"], "revalidation");
+                    } else {
+                        assert_eq!(history[0]["failureStage"], "execution");
+                    }
+                }
+            }
+        }
+        server.abort();
+        hub.shutdown().await;
+        drop(hub);
+        let db = Store::open(&path).unwrap();
+        let entry = db
+            .db
+            .locked()
+            .query_row(
+                "SELECT account_id, session_id, input_tokens IS NULL AND output_tokens IS NULL FROM donna_turn_usage",
+                [],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, bool>(2)?)),
+            )
+            .unwrap();
+        assert_eq!(entry, (id, "background:titles".into(), matches!(case, TitleCase::Cut | TitleCase::MissingStop)));
+    }
 
     #[tokio::test]
     async fn terceiro_trabalho_aguarda_vaga_sem_falha() {
