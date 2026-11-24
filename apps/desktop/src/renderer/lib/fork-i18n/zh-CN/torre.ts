@@ -2,6 +2,7 @@ import type { Traducao } from '../index.ts'
 import type { textos as fonte } from '../pt-BR/torre.ts'
 
 export const textos: Traducao<typeof fonte> = {
+  "torre.demo.step.unknown": "无法识别的步骤",
   "torre.demo.badge": "模拟 · 虚构数据",
   "torre.demo.title": "检查草稿",
   "torre.demo.description": "收到消息时，先准备回复并展示给我，确认后再发送。",

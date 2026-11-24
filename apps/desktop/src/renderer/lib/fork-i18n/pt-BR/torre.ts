@@ -1,4 +1,5 @@
 export const textos = {
+  "torre.demo.step.unknown": "Etapa não reconhecida",
   "torre.demo.badge": "SIMULAÇÃO · DADOS FICTÍCIOS",
   "torre.demo.title": "Revisar rascunho",
   "torre.demo.description": "Quando chegar uma mensagem, prepare uma resposta e mostre antes de enviar.",

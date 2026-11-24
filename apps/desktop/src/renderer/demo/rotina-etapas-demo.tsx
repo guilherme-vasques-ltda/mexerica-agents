@@ -18,7 +18,7 @@ function RoutineCard() {
       <div className="routine-demo__top"><div><span className="routine-demo__badge">{t('torre.demo.badge')}</span><h2>{t('torre.demo.name')}</h2></div><span className="routine-demo__status">{t('torre.demo.status')}</span></div>
       <p className="routine-demo__summary">{t('torre.demo.arrived')} <code>caixa@example.invalid</code>. {t('torre.demo.snapshot')}</p>
       <ol className="routine-demo__steps">{session.steps.map((step, index) => <li key={step.id} className={`routine-demo__step is-${step.state}`}>
-        <span className="routine-demo__number">{step.state === 'done' ? '✓' : index + 1}</span><span>{t(stepLabelKey(step.id))}</span>
+        <span className="routine-demo__number">{step.state === 'done' ? '✓' : index + 1}</span><span>{t(stepTitleKey(step.id))}</span>
         <small>{stepLabel(step.state)}</small>
       </li>)}</ol>
       <div className="routine-demo__draft"><b>{t('torre.demo.draft')}</b><p>{t('torre.demo.draft.text')}</p><small>{t('torre.demo.draft.note')}</small></div>
@@ -29,13 +29,13 @@ function RoutineCard() {
   </main>
 }
 
-function stepLabelKey(id: string) {
+function stepTitleKey(id: string) {
   switch (id) {
     case 'read': return 'torre.demo.step.read'
     case 'draft': return 'torre.demo.step.draft'
     case 'review': return 'torre.demo.step.review'
     case 'send': return 'torre.demo.step.send'
-    default: return 'torre.demo.step.next'
+    default: return 'torre.demo.step.unknown'
   }
 }
 
