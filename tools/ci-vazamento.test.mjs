@@ -301,7 +301,8 @@ test('contrato do workflow: scanner aprovado, testes sem secret e ci-ok obrigat√
   assert.ok(testJob.includes('tools/ci-vazamento.test.mjs'));
   assert.ok(!testJob.includes('secrets.'), 'VM dos testes n√£o recebe secrets');
   assert.ok(!testJob.includes('VAZAMENTO_TERMOS'));
-  assert.match(ci, /needs: \[leves, vazamento, hub, desktop\]/);
+  const ciOk = ci.split('\n  ci-ok:\n')[1];
+  assert.match(ciOk, /^    needs: \[leves, vazamento, hub, desktop, screen-linux\]$/m);
   assert.match(ci, /\.vazamento.result == "success"/);
 });
 
