@@ -13,10 +13,15 @@
 //! papel registrado, vínculo e `userId` ligado à concessão atual do aparelho. Uma renovação da
 //! sessão não prolonga pedido já admitido.
 //!
+//! O vínculo só é gravado por [`gravacao`]: um subcomando do binário, com o Hub parado, a âncora
+//! de confiança fixada na build e a prova Clerk do dono. Nenhum RPC grava o vínculo. Fica atrás de
+//! [`GRAVACAO_VINCULO_LIBERADA`], desligado.
+//!
 //! Hub sem vínculo (`personal:unbound`): nada muda para os aparelhos pareados. Negar o remoto sem
 //! vínculo é um interruptor desligado ([`NEGAR_REMOTO_SEM_VINCULO`]).
 //!
 //! Identidade nunca vem do corpo do pedido: `userId`, `orgId` e `role` no corpo são ignorados.
+pub(crate) mod gravacao;
 pub(crate) mod jwks;
 pub(crate) mod matriz;
 pub(crate) mod posse;
@@ -48,6 +53,9 @@ pub(crate) const NEGAR_REMOTO_SEM_VINCULO: bool = false;
 /// Interruptor de produto: vínculo `team`. Desligado até existir conversa por membro; com ele
 /// desligado, um vínculo `team` nega todo o acesso remoto e não pode ser gravado. O pessoal segue.
 pub(crate) const VINCULO_TIME_LIBERADO: bool = false;
+/// Interruptor de produto: gravar o vínculo (o subcomando de [`gravacao`]). Desligado: o vínculo
+/// segue sem ativação até a prova com tokens reais dos clientes.
+pub(crate) const GRAVACAO_VINCULO_LIBERADA: bool = false;
 /// Num Hub com vínculo, o canal sem sessão fecha depois disto.
 pub(crate) const ESPERA_SESSAO_MS: i64 = 30_000;
 
@@ -205,10 +213,10 @@ async fn verificar(hub: &Arc<Hub>, v: &Vinculo, b: &Value) -> Result<Verificado,
     let token = b[CAMPO_TOKEN].as_str().ok_or(Recusa::AuthInvalid)?;
     let partes = token::separar(token)?;
     let jwks::Resolvida { chave, ate: jwks_ate, renovar } =
-        hub.sessao_clerk.jwks.chave(&v.jwks, &partes.kid, Instant::now()).await?;
+        hub.sessao_clerk.jwks.chave(&v.alvo(), &partes.kid, Instant::now()).await?;
     if renovar {
-        let (hub, url) = (hub.clone(), v.jwks.clone());
-        tokio::spawn(async move { hub.sessao_clerk.jwks.renovar(&url, Instant::now()).await });
+        let (hub, alvo) = (hub.clone(), v.alvo());
+        tokio::spawn(async move { hub.sessao_clerk.jwks.renovar(&alvo, Instant::now()).await });
     }
     let agora = now_ms();
     let afirmacoes = token::conferir(&partes, &chave, v, agora.div_euclid(1000))?;
@@ -304,13 +312,41 @@ fn registrar_na_prova(
     })
 }
 
-/// O que o `pair` verificou, para a Tx da gravação conferir de novo.
+/// O que o `pair` verificou, para a Tx da gravação conferir de novo: a versão do vínculo usado na
+/// verificação, o epoch e a geração da concessão do aparelho de antes dela.
 pub(crate) struct Pareamento {
     sub: String,
     iat: i64,
     papel: Papel,
     limite: Limite,
-    workspace_id: String,
+    versao: String,
+    epoch: u64,
+    geracao: Option<i64>,
+}
+
+#[cfg(test)]
+impl Pareamento {
+    /// Provas: o que o `pair` teria verificado agora, com o vínculo `v`, para a chave `dk`.
+    pub(crate) fn de_prova(
+        hub: &Hub,
+        v: &Vinculo,
+        dk: &str,
+        sub: &str,
+        iat: i64,
+        papel: Papel,
+        limite: Limite,
+    ) -> Self {
+        let db = hub.store.db.locked();
+        Self {
+            sub: sub.into(),
+            iat,
+            papel,
+            limite,
+            versao: v.versao.clone(),
+            epoch: crate::fork::workspace::epoch_on(&db).expect("epoch"),
+            geracao: crate::fork::autoridade::Autoridade::geracao_atual(&db, dk),
+        }
+    }
 }
 
 /// `pair` num Hub com vínculo: prova de posse e token de quem pareia. Nada é registrado aqui.
@@ -321,9 +357,22 @@ pub(crate) async fn autenticar_pareamento(
     mut posse: Posse<'_>,
     pedido: &Value,
 ) -> Result<Pareamento, Recusa> {
+    let (epoch, geracao) = {
+        let db = hub.store.db.locked();
+        let epoch = crate::fork::workspace::epoch_on(&db).map_err(|_| Recusa::AuthInvalid)?;
+        (epoch, crate::fork::autoridade::Autoridade::geracao_atual(&db, dk))
+    };
     posse.conferir(hub, dk, "pair", &pedido["pop"])?;
     let Verificado { afirmacoes, papel, limite } = verificar(hub, v, &pedido["b"]).await?;
-    Ok(Pareamento { sub: afirmacoes.sub, iat: afirmacoes.iat, papel: papel?, limite, workspace_id: v.workspace_id() })
+    Ok(Pareamento {
+        sub: afirmacoes.sub,
+        iat: afirmacoes.iat,
+        papel: papel?,
+        limite,
+        versao: v.versao.clone(),
+        epoch,
+        geracao,
+    })
 }
 
 /// Todo pedido remoto num Hub com vínculo, menos `sessionAuthenticate`: sessão viva, prova de
@@ -566,13 +615,20 @@ pub(crate) fn desligar_on(c: &Connection, dk: &str) -> Result<()> {
     Ok(())
 }
 
-/// Pareamento por código num Hub com vínculo. Na mesma Tx: relê o vínculo e o prazo do token,
-/// registra o papel (com troca, o epoch sobe no mesmo commit), libera o bloqueio, grava o aparelho
-/// e liga o `userId` à geração nova da concessão. O erro de fora é do banco; o de dentro, a recusa.
+/// Pareamento por código num Hub com vínculo. Na mesma Tx: relê o vínculo (a mesma versão), o
+/// epoch e a geração da concessão de antes da verificação e o prazo do token, registra o papel (com
+/// troca, o epoch sobe no mesmo commit), libera o bloqueio, grava o aparelho e liga o `userId` à
+/// geração nova da concessão. O erro de fora é do banco; o de dentro, a recusa.
 pub(crate) fn readmitir_vinculado(hub: &Hub, device: &Device, par: &Pareamento) -> Result<Result<(), Recusa>> {
     let mut db = hub.store.db.locked();
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    if !vinculo_igual(hub, &tx, &par.workspace_id) || par.limite.vencido() {
+    let mesmo_vinculo = matches!(vinculo::ler_on(&tx), vinculo::Estado::Vinculado(v)
+        if v.versao == par.versao && (v.kind() != "team" || hub.sessao_clerk.time_liberado()));
+    if !mesmo_vinculo
+        || crate::fork::workspace::epoch_on(&tx)? != par.epoch
+        || crate::fork::autoridade::Autoridade::geracao_atual(&tx, &device.key) != par.geracao
+        || par.limite.vencido()
+    {
         return Ok(Err(Recusa::AuthInvalid));
     }
     let mudou = match registrar_papel_on(&tx, &par.sub, par.iat, Some(par.papel)) {

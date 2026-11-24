@@ -11,7 +11,7 @@ use crate::{
     remote::cloud::CloudStatus,
     store::{Scope, Store, now_ms},
 };
-use anyhow::Result;
+use anyhow::{Result, ensure};
 use futures::{Stream, StreamExt, stream};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::Serialize;
@@ -281,7 +281,9 @@ pub(crate) fn epoch_on(c: &Connection) -> Result<u64> {
 }
 
 /// Sobe o epoch na Tx do chamador. Quem chama publica em RAM só depois do commit.
-fn bump_on(c: &Connection) -> Result<u64> {
+/// Sobe o epoch gravado. Sem Hub vivo (a gravação do vínculo, com o Hub parado), só isto basta: o
+/// Hub lê o epoch do banco ao abrir.
+pub(crate) fn bump_on(c: &Connection) -> Result<u64> {
     let proximo = epoch_on(c)?
         .checked_add(1)
         .filter(|n| i64::try_from(*n).is_ok())
@@ -425,6 +427,13 @@ pub(crate) fn liberar_pareamento_on(c: &Connection, key: &str) -> Result<()> {
 pub(crate) fn readmitir_pareado(store: &Store, device: &crate::store::Device) -> Result<()> {
     let mut db = store.db.locked();
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    ensure!(
+        matches!(
+            crate::fork::sessao_clerk::vinculo::ler_on(&tx),
+            crate::fork::sessao_clerk::vinculo::Estado::SemVinculo
+        ),
+        "not_allowed: o Hub ganhou vínculo durante o pareamento"
+    );
     liberar_pareamento_on(&tx, &device.key)?;
     crate::fork::sessao_clerk::desligar_on(&tx, &device.key)?;
     crate::store::put_device_on(&tx, device)?;

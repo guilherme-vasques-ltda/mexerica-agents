@@ -1,5 +1,7 @@
-//! Vínculo do Hub com um workspace, só leitura nesta fatia: quem grava ou troca o vínculo é outra
-//! etapa. Sem vínculo gravado, o Hub segue `personal:unbound`. Vínculo ilegível nega o acesso remoto.
+//! Vínculo do Hub com um workspace. Só [`super::gravacao`] grava (um subcomando local, atrás de um
+//! interruptor desligado). Sem vínculo gravado, o Hub segue `personal:unbound`. Vínculo ilegível
+//! nega o acesso remoto. A versão do vínculo é o hash do registro gravado inteiro: qualquer campo
+//! regravado muda a versão.
 use super::Recusa;
 use super::token::Afirmacoes;
 use crate::LockExt;
@@ -28,9 +30,11 @@ pub(crate) struct Vinculo {
     /// `iss` exato da instância Clerk.
     pub(crate) emissor: String,
     /// JWKS fixada, no mesmo host do emissor.
-    pub(crate) jwks: reqwest::Url,
+    pub(crate) jwks: Box<reqwest::Url>,
     /// Valores aceitos de `azp`, por igualdade exata.
     pub(crate) azp: Vec<String>,
+    /// SHA-256 do registro gravado, em hexadecimal.
+    pub(crate) versao: String,
 }
 
 pub(crate) enum Estado {
@@ -66,6 +70,11 @@ impl Vinculo {
             Tipo::Pessoal { .. } => "personal",
             Tipo::Time { .. } => "team",
         }
+    }
+
+    /// O conjunto de chaves deste vínculo: a JWKS fixada e a versão que a fixou.
+    pub(crate) fn alvo(&self) -> super::jwks::Alvo {
+        super::jwks::Alvo { url: (*self.jwks).clone(), versao: self.versao.clone() }
     }
 
     pub(crate) fn workspace_id(&self) -> String {
@@ -112,11 +121,13 @@ fn texto(v: Option<String>) -> Option<String> {
     v.filter(|s| !s.is_empty() && s.len() <= 256)
 }
 
-/// `https`, com host, sem credencial, consulta nem fragmento.
+/// `https`, com host por nome (nunca IP literal), sem credencial, consulta nem fragmento.
 fn https(raw: &str) -> Option<reqwest::Url> {
     let url = reqwest::Url::parse(raw).ok()?;
     let limpa = url.scheme() == "https"
-        && url.host_str().is_some_and(|h| !h.is_empty())
+        && url
+            .host_str()
+            .is_some_and(|h| !h.is_empty() && !h.starts_with('[') && h.parse::<std::net::IpAddr>().is_err())
         && url.username().is_empty()
         && url.password().is_none()
         && url.query().is_none()
@@ -126,7 +137,6 @@ fn https(raw: &str) -> Option<reqwest::Url> {
 
 /// Porta da gravação do vínculo (a etapa que grava passa por aqui): o `team` é recusado enquanto
 /// [`super::VINCULO_TIME_LIBERADO`] estiver desligado.
-#[allow(dead_code, reason = "a gravação do vínculo é a etapa seguinte; ela tem de passar por esta porta")]
 pub(crate) fn conferir_gravacao(v: &Vinculo, time_liberado: bool) -> Result<(), Recusa> {
     match v.tipo {
         Tipo::Time { .. } if !time_liberado => Err(Recusa::WorkspaceForbidden),
@@ -157,7 +167,8 @@ pub(crate) fn interpretar(raw: &str) -> Option<Vinculo> {
     if g.authorized_parties.is_empty() || g.authorized_parties.iter().any(|a| a.is_empty() || a.len() > 512) {
         return None;
     }
-    Some(Vinculo { tipo, emissor: g.issuer, jwks, azp: g.authorized_parties })
+    let versao = crate::computers::xlsx::hex(&crate::remote::crypto::sha256(&[raw.as_bytes()]));
+    Some(Vinculo { tipo, emissor: g.issuer, jwks: Box::new(jwks), azp: g.authorized_parties, versao })
 }
 
 pub(crate) fn ler(hub: &Hub) -> Estado {
@@ -175,7 +186,7 @@ pub(crate) fn ler_on(db: &Connection) -> Estado {
     }
 }
 
-/// Fixture de prova: esta fatia não tem caminho de gravação do vínculo.
+/// Fixture de prova: grava o vínculo direto, sem a prova do dono de [`super::gravacao`].
 #[cfg(test)]
 pub(crate) fn gravar_para_prova(hub: &Hub, raw: &str) {
     hub.store

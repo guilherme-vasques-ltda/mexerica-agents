@@ -140,7 +140,7 @@ pub(crate) fn aparelho_com_sessao(
     use super::{Guarda, Limite, Pareamento, Prazo, Sessao};
     let super::vinculo::Estado::Vinculado(v) = super::vinculo::ler(hub) else { panic!("Hub sem vínculo") };
     let limite = Limite::em(60_000);
-    let par = Pareamento { sub: sub.into(), iat: now_ms() / 1000, papel, limite, workspace_id: v.workspace_id() };
+    let par = Pareamento::de_prova(hub, &v, &device.key, sub, now_ms() / 1000, papel, limite);
     super::readmitir_vinculado(hub, device, &par).unwrap().unwrap();
     let (_, caller) = crate::fork::autoridade::autenticar(hub, &device.key).unwrap();
     let crate::api::devices::Caller::Device { key, scopes, autoridade: Some(original) } = caller else {

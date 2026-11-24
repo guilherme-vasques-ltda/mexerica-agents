@@ -206,6 +206,11 @@ enum Sub {
         #[command(subcommand)]
         action: fork::personal_link::installation::Acao,
     },
+    /// Vínculo do Hub com um workspace: estado e gravação pelo dono, com o Hub parado.
+    Workspace {
+        #[command(subcommand)]
+        action: fork::sessao_clerk::gravacao::Acao,
+    },
     /// Install one signed grant from standard input, against the installed trusted root.
     Bootstrap {
         #[command(subcommand)]
@@ -547,7 +552,7 @@ fn self_command() -> String {
 }
 
 /// `~/.mexerica/token` (0600) for local helpers like the statusline command.
-fn open_store() -> Result<(store::Store, String, String)> {
+pub(crate) fn open_store() -> Result<(store::Store, String, String)> {
     let dir = service::data_dir();
     environment::ensure_own_data_dir(&service::home(), &dir)?;
     #[cfg(unix)]
@@ -660,6 +665,7 @@ async fn main() -> Result<()> {
         Sub::Executor { action } => computers::helper::main(action).await,
         Sub::Runner { action } => fork::onde_roda::runner::run(action).await,
         Sub::PersonalLink { action } => fork::personal_link::installation::executar(action).await,
+        Sub::Workspace { action } => fork::sessao_clerk::gravacao::executar(action).await,
         Sub::Bootstrap { action: BootstrapAction::ControlHealth { port } } => {
             let value = local_call(port, "controlHealth", json!({})).await?;
             println!("{}", serde_json::to_string(&value)?);
@@ -1158,11 +1164,11 @@ fn read_typed_code() -> Result<String> {
 
 /// Eco do terminal da entrada padrão desligado enquanto vive; o estado anterior volta no `Drop`, inclusive com erro.
 #[cfg(unix)]
-struct SemEco(libc::termios);
+pub(crate) struct SemEco(libc::termios);
 
 #[cfg(unix)]
 impl SemEco {
-    fn ligar() -> Result<Self> {
+    pub(crate) fn ligar() -> Result<Self> {
         // SAFETY: termios zerado e preenchido por tcgetattr no descritor 0, conferido pelo retorno.
         let antes = unsafe {
             let mut t: libc::termios = std::mem::zeroed();
