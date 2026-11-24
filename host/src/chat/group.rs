@@ -79,24 +79,22 @@ impl Rooms {
     }
 
     /// Stop that first runs `cancel` under the epochs' lock: a room turn already running sees the stop only after
-    /// `cancel`, and a message that starts later gets a newer epoch.
+    /// `cancel` is saved, and a message that starts later gets a newer epoch, queued on each member after the
+    /// cancellation. When `cancel` fails nothing stops, so no running turn is confirmed by a stop that didn't happen.
     pub(crate) fn stop_after(&self, hub: &Hub, group: &str, cancel: impl FnOnce() -> Result<()>) -> Result<()> {
-        let (saved, running) = {
-            let mut map = self.0.locked();
-            let saved = cancel();
-            let mut running = false;
-            for epoch in map.iter_mut().filter(|(lane, _)| lane.chat == group).map(|(_, epoch)| epoch) {
-                *epoch += 1;
-                running = true;
-            }
-            (saved, running)
-        };
+        let mut map = self.0.locked();
+        cancel()?;
+        let mut running = false;
+        for epoch in map.iter_mut().filter(|(lane, _)| lane.chat == group).map(|(_, epoch)| epoch) {
+            *epoch += 1;
+            running = true;
+        }
         if running && let Ok(Some(row)) = hub.store.bot(group) {
             for member in &row.config.members {
                 let _ = hub.send_cmd(member, Cmd::CancelGroup { chat: group.to_owned() });
             }
         }
-        saved
+        Ok(())
     }
 }
 

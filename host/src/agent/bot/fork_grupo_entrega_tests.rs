@@ -620,5 +620,36 @@ async fn sala_que_falha_no_meio_da_classificacao_nao_retoma_nada() {
     assert_eq!(f.prompts().len(), 0, "nada é entregue numa sala bloqueada");
     assert_eq!(hub.store.entry(&resumable).unwrap().data["status"], "sending");
     hub.shutdown().await;
+    // Corrigida a falha, o boot seguinte ainda retoma a mensagem: a sala bloqueada não gastou a retomada.
+    Store::open(&f.dir.join("test.db")).unwrap().db.locked().execute_batch("DROP TRIGGER reject_session").unwrap();
+    let again = reopen(&f.dir);
+    f.until(|| again.store.entry(&resumable).unwrap().data["status"] == "sent").await;
+    assert!(f.prompts()[0].to_string().contains("Oi, sala"));
+    again.shutdown().await;
+    let _ = std::fs::remove_dir_all(&f.dir);
+}
+
+/// O Stop que não consegue gravar a interrupção não para nada: a rodada em andamento não vê um Stop que não
+/// aconteceu e não confirma a mensagem por causa dele.
+#[tokio::test]
+async fn stop_que_falha_ao_gravar_nao_encerra_a_rodada() {
+    let f = Fixture::new();
+    room(&f);
+    f.hub.shutdown().await;
+    let id = pending(&f.dir, None);
+    let lane = Lane::main(ROOM);
+    let epoch = f.hub.groups.reserve_epoch_for_test(&lane);
+    f.hub
+        .store
+        .db
+        .locked()
+        .execute_batch(&format!(
+            "CREATE TRIGGER reject_stop BEFORE UPDATE ON entries WHEN OLD.bot_id = '{ROOM}'
+             BEGIN SELECT RAISE(ABORT, 'falha simulada'); END"
+        ))
+        .unwrap();
+    crate::fork::grupo_entrega::stop(&f.hub, ROOM).expect_err("a falha ao gravar chega a quem pediu o Stop");
+    assert!(f.hub.groups.current(&lane, epoch), "a rodada não é encerrada por um Stop que não foi gravado");
+    assert_eq!(f.hub.store.entry(&id).unwrap().data["status"], "sending");
     let _ = std::fs::remove_dir_all(&f.dir);
 }

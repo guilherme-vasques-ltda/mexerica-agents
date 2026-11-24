@@ -252,10 +252,13 @@ fn recover_room(hub: &Arc<Hub>, group: &BotConfig) -> Result<()> {
         }
         delivery.resumed = true;
         delivery.upto = Some(entry.seq);
-        delivery.save(hub, &group.id)?;
         resumes.push((lane, delivery));
     }
-    // Só depois de a sala inteira estar classificada: uma sala que falha no meio não retoma nada.
+    // Só depois de a sala inteira estar classificada: uma sala que falha no meio não retoma nem gasta a retomada, e
+    // nenhuma começa antes de todas estarem marcadas.
+    for (_, delivery) in &resumes {
+        delivery.save(hub, &group.id)?;
+    }
     for (lane, delivery) in resumes {
         crate::chat::group::start(hub, group, lane, delivery);
     }
