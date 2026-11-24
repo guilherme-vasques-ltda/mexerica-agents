@@ -113,12 +113,13 @@ pub(crate) fn next_rev(c: &Connection) -> Result<i64> {
 
 impl Store {
     /// O `team_lock` de um pedido admitido; nas provas, avisa quando o pedido já está na fila do
-    /// mutex (ou já o tomou).
+    /// mutex (ou já o tomou). Sem o orçamento cooperativo do Tokio, o primeiro poll sempre entra na
+    /// fila.
     pub(crate) async fn travar_equipe(&self) -> tokio::sync::MutexGuard<'_, ()> {
         let pedido = self.team_lock.lock();
         #[cfg(test)]
         let pedido = {
-            let mut pedido = Box::pin(pedido);
+            let mut pedido = Box::pin(tokio::task::unconstrained(pedido));
             let pronto = futures::poll!(pedido.as_mut());
             self.espera_equipe.notify_one();
             if let std::task::Poll::Ready(guarda) = pronto {

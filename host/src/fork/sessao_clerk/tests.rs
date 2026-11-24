@@ -373,7 +373,7 @@ async fn quatro_casos_de_frescor_pelo_http() {
     let cliente = jwks::cliente(false).unwrap();
     let validade = async |p: &str| {
         let em = reqwest::Url::parse(&format!("http://127.0.0.1:{porta}{p}")).unwrap();
-        jwks::buscar_com(&cliente, &em).await.map(|(_, v, _)| v)
+        jwks::buscar_com(&cliente, &em).await.map(|(_, v)| v)
     };
     assert_eq!(validade("/max-age").await.unwrap(), Duration::from_secs(600), "max-age");
     assert_eq!(validade("/sem").await.unwrap(), jwks::SEM_FRESCOR, "sem cabeçalho");
@@ -1085,7 +1085,7 @@ async fn validade_conta_do_envio_e_resposta_que_chega_vencida_conta_como_falha()
     let frescor = Arc::new(Mutex::new(Duration::from_secs(2)));
     let f = frescor.clone();
     j.servir_com_frescor(move || Ok((jwks_padrao(), *f.lock().unwrap())));
-    // Relógio controlado: o GET leva 5 s até os cabeçalhos, mais que a validade de 2 s.
+    // Relógio controlado: o GET leva 5 s, mais que a validade de 2 s.
     j.demorar(Duration::from_secs(5));
     let t0 = Instant::now();
     assert_eq!(j.chave(&url(), KID, t0).await.err(), Some(Recusa::AuthInvalid), "chegou vencida: recusa");
@@ -1098,6 +1098,58 @@ async fn validade_conta_do_envio_e_resposta_que_chega_vencida_conta_como_falha()
     *frescor.lock().unwrap() = Duration::from_secs(60);
     let depois = t0 + jwks::INTERVALO;
     assert_eq!(j.chave(&url(), KID, depois).await.unwrap().ate, depois + Duration::from_secs(60));
+    assert_eq!(j.buscas(), 2);
+}
+
+#[tokio::test]
+async fn resposta_que_vence_durante_a_leitura_do_corpo_nao_troca_o_conjunto() {
+    let j = Arc::new(jwks::Jwks::default());
+    j.servir_com_frescor(|| Ok((jwks_padrao(), Duration::from_secs(600))));
+    let t0 = Instant::now();
+    assert_eq!(j.chave(&url(), KID, t0).await.unwrap().ate, t0 + Duration::from_secs(600));
+    // Cabeçalhos com 2 s de validade, e o corpo leva 3 s para terminar de chegar.
+    let fraca = Arc::downgrade(&j);
+    j.servir_com_frescor(move || {
+        if let Some(j) = fraca.upgrade() {
+            j.avancar(Duration::from_secs(3));
+        }
+        Ok((jwks_padrao(), Duration::from_secs(2)))
+    });
+    let depois = t0 + jwks::INTERVALO;
+    assert_eq!(j.chave(&url(), "kid-novo", depois).await.err(), Some(Recusa::AuthInvalid));
+    assert_eq!(j.buscas(), 2);
+    let anterior = j.chave(&url(), KID, depois + ms(1)).await.unwrap();
+    assert_eq!(anterior.ate, t0 + Duration::from_secs(600), "vencida no fim do corpo: o conjunto anterior segue");
+    // E conta como falha: o intervalo vale para a próxima busca.
+    assert_eq!(j.chave(&url(), "kid-novo", depois + ms(2)).await.err(), Some(Recusa::AuthInvalid));
+    assert_eq!(j.buscas(), 2);
+}
+
+#[tokio::test]
+async fn busca_cancelada_em_voo_conta_como_tentativa_falha() {
+    let j = jwks::Jwks::default();
+    j.servir(|| Ok(jwks_padrao()));
+    let t0 = Instant::now();
+    let rede = j.segurar_envio().await;
+    {
+        let endereco = url();
+        let pedido = j.chave(&endereco, KID, t0);
+        tokio::pin!(pedido);
+        // Barreira: o GET está em voo, com a tentativa já anotada.
+        tokio::select! {
+            biased;
+            r = &mut pedido => panic!("não esperou o GET: {:?}", r.is_ok()),
+            () = std::future::ready(()) => {}
+        }
+        assert_eq!(j.buscas(), 1);
+    }
+    // O pedido foi cancelado no meio: a tentativa conta e o intervalo vale.
+    drop(rede);
+    let quase = t0 + jwks::INTERVALO.saturating_sub(ms(1));
+    assert_eq!(j.chave(&url(), KID, quase).await.err(), Some(Recusa::AuthInvalid));
+    assert_eq!(j.buscas(), 1, "cancelamento não é tentativa grátis");
+    let depois = t0 + jwks::INTERVALO;
+    assert_eq!(j.chave(&url(), KID, depois).await.unwrap().ate, depois + jwks::TETO);
     assert_eq!(j.buscas(), 2);
 }
 
