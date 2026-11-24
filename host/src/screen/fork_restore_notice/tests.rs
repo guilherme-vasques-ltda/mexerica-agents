@@ -191,6 +191,34 @@ fn status_repetido_so_e_deduplicado_para_helper_linux() {
 }
 
 #[test]
+fn status_de_vinculo_substituido_nao_altera_estado_nem_emite() {
+    let (tx, mut events) = tokio::sync::broadcast::channel(8);
+    let screen = crate::screen::Screen::new(Some(true), tx);
+    let (previous, _) = link(1);
+    let (current, _) = link(1);
+    let status = json!({"platform":"linux","capture":true,"displays":[{"id":0,"name":"Fixture","width":800.0,"height":600.0,"main":true}]});
+
+    screen.attach_viewer_link(previous.clone());
+    previous.accept_status(&screen, &status);
+    assert_eq!(events.try_recv().expect("first status from original link")["screen"]["capture"], true);
+    screen.attach_viewer_link(current.clone());
+    let between = screen.state();
+    assert_eq!(between["capture"], false);
+    assert_eq!(between["displays"], json!([]));
+    assert!(matches!(events.try_recv(), Err(tokio::sync::broadcast::error::TryRecvError::Empty)));
+
+    current.accept_status(&screen, &status);
+    let successor = events.try_recv().expect("first status from successor");
+    assert_eq!(successor["screen"]["capture"], true);
+    assert_eq!(successor["screen"]["displays"], status["displays"]);
+
+    previous.accept_status(&screen, &json!({"platform":"linux","capture":false}));
+    current.accept_status(&screen, &status);
+    assert_eq!(screen.state(), successor["screen"]);
+    assert!(matches!(events.try_recv(), Err(tokio::sync::broadcast::error::TryRecvError::Empty)));
+}
+
+#[test]
 fn aviso_portal_nao_reaparece_apos_corte_de_close_all() {
     let mut notice = LinkNotice::default();
     let status = json!({"platform":"linux","portalRestoreNotice":"stateDirectoryNotPrivate"});

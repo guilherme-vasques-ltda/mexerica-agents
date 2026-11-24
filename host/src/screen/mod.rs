@@ -184,8 +184,10 @@ impl Screen {
 
     /// What clients show: availability, permissions, displays, who's in control.
     pub fn state(&self) -> Value {
-        let st = self.status.locked().clone();
-        let connected = self.link.locked().is_some();
+        let (st, connected) = {
+            let link = self.link.locked();
+            (self.status.locked().clone(), link.is_some())
+        };
         let viewers = self
             .sessions
             .locked()

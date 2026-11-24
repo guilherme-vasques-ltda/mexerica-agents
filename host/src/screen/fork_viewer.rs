@@ -287,7 +287,11 @@ impl Screen {
     pub(super) fn attach_viewer_link(&self, next: Arc<Link>) {
         let mut sessions = self.sessions.locked();
         let mut slot = self.link.locked();
+        if slot.as_ref().is_some_and(|link| Arc::ptr_eq(link, &next)) {
+            return;
+        }
         if let Some(previous) = slot.replace(next) {
+            *self.status.locked() = super::HelperStatus::default();
             retire(&mut sessions, &previous);
         }
         drop(slot);
@@ -299,13 +303,13 @@ impl Screen {
     }
 
     pub(super) fn detach_viewer_link(&self, source: &Arc<Link>) {
-        let current = {
+        {
             let mut sessions = self.sessions.locked();
             let mut slot = self.link.locked();
             retire(&mut sessions, source);
-            let current = slot.as_ref().is_some_and(|link| Arc::ptr_eq(link, source));
-            if current {
+            if slot.as_ref().is_some_and(|link| Arc::ptr_eq(link, source)) {
                 *slot = None;
+                *self.status.locked() = super::HelperStatus::default();
             }
             drop(slot);
             #[cfg(test)]
@@ -313,10 +317,6 @@ impl Screen {
             if !sessions.rows.values().any(|v| v.locked().state != ViewerState::Uncertain) {
                 self.control.locked().user = false;
             }
-            current
-        };
-        if current {
-            *self.status.locked() = super::HelperStatus::default();
         }
         self.emit();
     }

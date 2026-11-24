@@ -42,7 +42,12 @@ pub(super) struct Link {
 impl Link {
     #[cfg(unix)]
     pub(super) fn accept_status(&self, screen: &Screen, params: &Value) {
-        if let Ok(st) = serde_json::from_value::<HelperStatus>(params.clone()) {
+        let status = serde_json::from_value::<HelperStatus>(params.clone());
+        let slot = screen.link.locked();
+        if !slot.as_deref().is_some_and(|current| std::ptr::eq(current, self)) {
+            return;
+        }
+        if let Ok(st) = status {
             #[cfg(target_os = "linux")]
             {
                 let mut notice = self.restore_notice.locked();
@@ -53,6 +58,7 @@ impl Link {
                 }
             }
             *screen.status.locked() = st;
+            drop(slot);
             screen.emit();
         } else {
             #[cfg(target_os = "linux")]
