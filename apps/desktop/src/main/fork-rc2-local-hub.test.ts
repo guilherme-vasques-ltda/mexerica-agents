@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { test } from 'node:test'
 import { runInNewContext } from 'node:vm'
 import ts from 'typescript'
@@ -47,11 +48,14 @@ test('bootstrap exige pin compilado, metadados coerentes e bytes exatos antes de
   assert.throws(() => validateRc2Bootstrap({ ...bootstrap, readManifest: () => Buffer.concat([compiled.bytes, Buffer.from('\n')]) }), /invalid_rc2_profile/)
   assert.throws(() => validateRc2Bootstrap({ ...bootstrap, compiledPin: '0'.repeat(64) }), /invalid_rc2_profile/)
   assert.deepEqual(validateRc2Bootstrap(bootstrap), profile)
-  assert.deepEqual(rc2Paths('/fixture/profile', '/appdata'), {
-    userData: '/appdata/Mexerica RC 2', sessionData: '/appdata/Mexerica RC 2/session',
-    cache: '/appdata/Mexerica RC 2/cache', logs: '/appdata/Mexerica RC 2/logs',
-    crashDumps: '/appdata/Mexerica RC 2/crashDumps', temp: '/appdata/Mexerica RC 2/tmp',
-    hubRoot: '/fixture/profile/.mexerica-rc2',
+  const home = '/fixture/profile'
+  const appData = '/appdata'
+  const userData = join(appData, profile.name)
+  assert.deepEqual(rc2Paths(home, appData), {
+    userData,
+    sessionData: join(userData, 'session'), cache: join(userData, 'cache'), logs: join(userData, 'logs'),
+    crashDumps: join(userData, 'crashDumps'), temp: join(userData, 'tmp'),
+    hubRoot: join(home, '.mexerica-rc2'),
   })
 })
 
@@ -182,12 +186,20 @@ test('suspensão corta o stream e descarta respostas que chegam após a troca de
   const f = fixture()
   const reply = deferred<{ computerId: string; hostId: string }>()
   const event = deferred<string>()
-  f.transport({ ...f.connection, hello: () => reply.promise, async *events() { yield await event.promise } })
+  const enteredHello = deferred<void>()
+  const enteredEvents = deferred<void>()
+  f.transport({
+    ...f.connection,
+    hello: () => { enteredHello.resolve(); return reply.promise },
+    async *events() { enteredEvents.resolve(); yield await event.promise },
+  })
   f.session({})
   assert.equal(await f.lifecycle.start(), true)
   const pendingHello = f.lifecycle.hello()
   const stream = f.lifecycle.events()
   const pendingEvent = stream.next()
+  await enteredHello.promise
+  await enteredEvents.promise
   f.session({})
   assert.deepEqual(await collect(f.lifecycle.events()), [])
   assert.equal(await f.lifecycle.hello(), null)
@@ -198,6 +210,24 @@ test('suspensão corta o stream e descarta respostas que chegam após a troca de
   assert.equal(await pendingHello, null)
   assert.equal((await pendingEvent).done, true)
   await stopped
+})
+
+test('retomar o stream depois da troca de sessão não pede outro evento à fonte', async () => {
+  const f = fixture()
+  let pulls = 0
+  f.transport({
+    ...f.connection,
+    async *events() { pulls++; yield '{"type":"first"}'; pulls++; yield '{"type":"second"}' },
+  })
+  f.session({})
+  assert.equal(await f.lifecycle.start(), true)
+  const stream = f.lifecycle.events()
+  assert.deepEqual(await stream.next(), { value: '{"type":"first"}', done: false })
+  assert.equal(pulls, 1)
+  f.session({})
+  assert.equal((await stream.next()).done, true)
+  assert.equal(pulls, 1)
+  assert.equal(await f.lifecycle.stop(), true)
 })
 
 test('aguarda fechar conexão de início cancelado antes de admitir nova geração', async () => {
