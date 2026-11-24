@@ -363,10 +363,15 @@ pub(super) async fn call(
                 data["replyTo"] = reply;
             }
             data["contentOrigin"] = crate::guard_hub::origem::capture(caller, &b, &data);
-            let mut effective = row.config.clone();
-            if !row.config.is_group() {
-                crate::fork::sessoes::admissao::apply_configured(&hub.store.db.locked(), &lane, &mut effective)?;
-            }
+            let (lane, effective) = {
+                let db = hub.store.db.locked();
+                let lane = crate::fork::sessoes::api::send_lane(&db, bot, &b)?;
+                let mut effective = row.config.clone();
+                if !row.config.is_group() {
+                    crate::fork::sessoes::admissao::apply_configured(&db, &lane, &mut effective)?;
+                }
+                (lane, effective)
+            };
             let antigravity_owner = if crate::agent::backends::is_antigravity(&effective.backend) {
                 crate::fork::antigravity::config(&effective)?;
                 data[crate::fork::antigravity::ENTRY_MARKER] = json!(true);
@@ -376,17 +381,16 @@ pub(super) async fn call(
             };
             crate::fork::idioma_app::carimbar(&hub.store, caller, &mut data); // D395
             // MB-1b: a mensagem humana responde, na mesma transação, as perguntas pendentes desta conversa.
-            let (lane, turn, e) = if let Some(delivery) = mailbox {
-                let Some(new) = crate::fork::owner_question::add_mailbox_message(hub, &delivery, bot, &b, &data)?
+            let (turn, e) = if let Some(delivery) = mailbox {
+                let Some(new) = crate::fork::owner_question::add_mailbox_message(hub, &delivery, &lane, &b, &data)?
                 else {
                     return Ok(ControlFlow::Break(json!({})));
                 };
                 new
             } else {
-                let lane = crate::fork::sessoes::api::send_lane(&hub.store.db.locked(), bot, &b)?;
                 let turn = hub.store.alloc_turn(bot)?;
                 match crate::fork::owner_question::add_human_message(hub, &lane, turn, &data)? {
-                    crate::fork::owner_question::Human::New(e) => (lane, turn, e),
+                    crate::fork::owner_question::Human::New(e) => (turn, e),
                     crate::fork::owner_question::Human::Replayed(e) => {
                         return Ok(ControlFlow::Break(json!({"entry": e})));
                     }

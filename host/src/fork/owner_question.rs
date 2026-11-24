@@ -353,20 +353,20 @@ pub(crate) fn add_human_message(hub: &Hub, lane: &Lane, turn: i64, data: &Value)
 pub(crate) fn add_mailbox_message(
     hub: &Hub,
     delivery: &crate::fork::mailbox::Delivery,
-    bot: &str,
+    lane: &Lane,
     body: &Value,
     data: &Value,
-) -> Result<Option<(Lane, i64, Entry)>> {
+) -> Result<Option<(i64, Entry)>> {
     #[cfg(test)]
     crate::fork::sessoes::call_tests::before_effect(&hub.store, "mailbox_commit");
     publish_commit(hub, || {
         Ok(delivery
-            .with_db(hub, bot, |tx, owner| {
-                let lane = crate::fork::sessoes::api::send_lane(tx, bot, body)?;
-                let turn = crate::store::alloc_turn_on(tx, bot)?;
-                let (entry, entries) = insert_human_on(tx, &lane, turn, data)?;
+            .with_db(hub, &lane.chat, |tx, owner| {
+                ensure!(crate::fork::sessoes::api::send_lane(tx, &lane.chat, body)? == *lane, "session_changed");
+                let turn = crate::store::alloc_turn_on(tx, &lane.chat)?;
+                let (entry, entries) = insert_human_on(tx, lane, turn, data)?;
                 delivery.record(tx, hub, owner)?;
-                Ok((Some((lane, turn, entry)), entries))
+                Ok((Some((turn, entry)), entries))
             })?
             .unwrap_or_default())
     })
