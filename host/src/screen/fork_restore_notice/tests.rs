@@ -167,6 +167,30 @@ fn aviso_portal_nao_altera_cadencia_ou_bytes_dos_eventos_de_tela() {
 }
 
 #[test]
+fn status_repetido_so_e_deduplicado_para_helper_linux() {
+    let (tx, mut events) = tokio::sync::broadcast::channel(8);
+    let screen = crate::screen::Screen::new(Some(true), tx);
+    let (current, _) = link(1);
+    screen.attach_viewer_link(current.clone());
+
+    let fixture = json!({"platform":"fixture","capture":true,"input":true});
+    for _ in 0..2 {
+        current.accept_status(&screen, &fixture);
+        let event = events.try_recv().expect("each fixture status emits a screen event");
+        assert!(event["screen"].get("portalRestoreNotice").is_none());
+    }
+
+    let mut linux = json!({"platform":"linux","capture":true,"input":true});
+    current.accept_status(&screen, &linux);
+    let event = events.try_recv().expect("first Linux status emits a screen event");
+    assert!(event["screen"].get("portalRestoreNotice").is_none());
+    linux["portalRestoreNotice"] = json!("stateDirectoryNotPrivate");
+    current.accept_status(&screen, &linux);
+    assert!(screen.portal_restore_notice().is_some());
+    assert!(matches!(events.try_recv(), Err(tokio::sync::broadcast::error::TryRecvError::Empty)));
+}
+
+#[test]
 fn aviso_portal_nao_reaparece_apos_corte_de_close_all() {
     let mut notice = LinkNotice::default();
     let status = json!({"platform":"linux","portalRestoreNotice":"stateDirectoryNotPrivate"});

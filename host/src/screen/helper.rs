@@ -47,7 +47,8 @@ impl Link {
             {
                 let mut notice = self.restore_notice.locked();
                 notice.observe(params);
-                if !notice.new_public_status(&st) {
+                let changed = notice.new_public_status(&st);
+                if st.platform == "linux" && !changed {
                     return;
                 }
             }
