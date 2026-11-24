@@ -877,10 +877,20 @@ impl Actor {
         };
         let subscription_refused = e.downcast_ref::<crate::fork::assinatura_pessoal::Refusal>().is_some();
         let mut observed = crate::fork::rotina_resultado::Observed::failed(reason);
-        observed.terminal = subscription_refused;
-        self.finish_routine(observed, Some(format!("Could not start routine: {e:#}")), None);
+        let platform_refused = e.is::<crate::fork::anthropic_automation::UnsupportedPlatform>();
+        observed.terminal = subscription_refused || platform_refused;
+        let platform_notice = platform_refused.then_some(crate::fork::anthropic_automation::UNAVAILABLE);
+        self.finish_routine(
+            observed,
+            Some(platform_notice.map_or_else(|| format!("Could not start routine: {e:#}"), str::to_owned)),
+            None,
+        );
         self.complete_request(
-            Err(anyhow!("couldn't start recipient: {e:#}")),
+            Err(if platform_refused {
+                crate::fork::anthropic_automation::UnsupportedPlatform.into()
+            } else {
+                anyhow!("couldn't start recipient: {e:#}")
+            }),
             false,
             crate::fork::retornos::Fim::FalhaInicio,
         );
@@ -907,7 +917,7 @@ impl Actor {
                 if e.is::<crate::fork::antigravity::ModeUnconfirmed>() {
                     crate::fork::antigravity::MODE_UNCONFIRMED
                 } else {
-                    &text
+                    platform_notice.unwrap_or(&text)
                 },
                 NoticeStyle::Error,
             );

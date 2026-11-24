@@ -306,6 +306,7 @@ export const textos = {
   "contas.assinaturaSoChat": "A assinatura Claude só funciona no chat. Use uma chave de API da Anthropic ou outro motor para automações. Nenhuma outra conta foi usada.",
   "contas.assinaturaSemTroca": "A assinatura Claude não troca de conta automaticamente. Escolha a conta manualmente para continuar.",
   "contas.assinaturaFundoIndisponivel": "Esta tarefa de fundo está indisponível. Ela não aceita assinatura pessoal nem tem outra conexão compatível disponível. Nenhuma outra conta foi usada.",
+  "contas.automacaoAnthropicIndisponivel": "Rotinas e delegação com chave de API da Anthropic ainda não estão disponíveis neste sistema. Nenhuma outra conta foi usada.",
   "contas.apiDireta.erro.semPermissao": "A chave não tem permissão para listar os modelos. Confira as permissões dela no painel do fornecedor.",
   "contas.apiDireta.erro.limite": "O fornecedor recusou por limite de uso ou falta de crédito. Tente de novo mais tarde.",
   "contas.apiDireta.erro.fornecedorFalhou": "O fornecedor respondeu com erro. Tente de novo em alguns minutos.",

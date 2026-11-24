@@ -11,6 +11,7 @@ export function subscriptionNoticeText(t: Tradutor, text: string): string {
   if (text.startsWith('personal_subscription_no_fallback: ')) return t('contas.assinaturaSemTroca')
   if (text.startsWith('meta_standard_unverified: ')) return t('contas.apiDireta.erro.metaStandard')
   if (text.startsWith('background_subscription_unavailable: ')) return t('contas.assinaturaFundoIndisponivel')
+  if (text.startsWith('anthropic_automation_platform: ')) return t('contas.automacaoAnthropicIndisponivel')
   return text
 }
 

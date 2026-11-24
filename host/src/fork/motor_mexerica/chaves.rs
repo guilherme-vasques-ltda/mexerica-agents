@@ -397,6 +397,9 @@ pub(crate) fn owner_vault(hub: Arc<Hub>, cfg: &crate::store::BotConfig) -> Vault
         if !execucao_pessoal || !bot_pessoal(&hub.store, &bot)? {
             return Ok(None);
         }
+        if slot == credential_slot("anthropic") {
+            return crate::fork::anthropic_automation::vault_key(&hub.store).map(|key| key.map(|key| key.to_string()));
+        }
         crate::market::vault::read(&hub.store, slot)
     })
 }

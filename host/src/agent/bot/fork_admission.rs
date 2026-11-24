@@ -418,6 +418,9 @@ impl Actor {
             None
         };
         let hub = self.hub.clone();
+        if self.active_routine.is_some() || self.active_request.is_some() {
+            crate::fork::anthropic_automation::check(&hub.store, &self.cfg)?;
+        }
         let personal_lane =
             self.active_group.is_none() && self.active_request.is_none() && self.active_routine.is_none();
         if let Err(error) = crate::fork::assinatura_pessoal::turn(

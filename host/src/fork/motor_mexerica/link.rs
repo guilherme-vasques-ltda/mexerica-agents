@@ -801,10 +801,16 @@ impl Link {
             let sid_events = sid.clone();
             let seen = delivered.clone();
             let collect = finished.clone();
-            let mut on_event = move |event: &Value| {
+            let mut usage = super::fork_anthropic_usage::Usage::default();
+            let anthropic = provider == "anthropic";
+            let mut on_event = |event: &Value| {
                 seen.store(true, Ordering::Relaxed);
                 if event["type"] == "message_end" {
-                    collect.locked().push(&event["message"]);
+                    let message = &event["message"];
+                    collect.locked().push(message);
+                    if anthropic {
+                        usage.observe(message);
+                    }
                 }
                 conn.forward_event(&sid_events, event);
             };
@@ -866,7 +872,11 @@ impl Link {
                     drop(owned);
                 }
             }
-            return Ok(json!({"stopReason": if alive { "end_turn" } else { "cancelled" }}));
+            let mut reply = json!({"stopReason": if alive { "end_turn" } else { "cancelled" }});
+            if alive {
+                usage.include(&mut reply);
+            }
+            return Ok(reply);
         }
     }
 

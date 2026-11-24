@@ -257,14 +257,19 @@ impl Fixture {
     }
 
     fn with_backend(backend: &str) -> Self {
+        Self::with_config(backend, |_| {})
+    }
+
+    fn with_config(backend: &str, configure: impl FnOnce(&mut BotConfig)) -> Self {
         let dir = crate::store::private_fixture_dir("donnabot-limit");
         let store = Store::open(&dir.join("test.db")).unwrap();
         let agent = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/subscription_agent.py");
-        let cfg: BotConfig = serde_json::from_value(json!({
+        let mut cfg: BotConfig = serde_json::from_value(json!({
             "id": "bot", "name": "Bot", "backend": backend, "cwd": dir,
             "command": crate::shell::python(&agent), "notify": false, "permission":"ask",
         }))
         .unwrap();
+        configure(&mut cfg);
         if backend == "claude" {
             std::fs::write(dir.join("claude"), "").unwrap();
         }
@@ -2085,6 +2090,167 @@ async fn assinatura_pessoal_rotina_para_antes_do_motor() {
     assert_eq!(f.prompts(), [] as [Value; 0]);
     assert!(!f.dir.join("session-count").exists());
     assert!(!f.waiting_checkpoint_published());
+    f.hub.shutdown().await;
+    let _ = std::fs::remove_dir_all(&f.dir);
+}
+
+#[tokio::test]
+async fn rotina_anthropic_sem_motor_isolado_ou_chave_nao_envia_prompt() {
+    let f = Fixture::with_backend("mexerica");
+    let mut bot = f.hub.store.bot("bot").unwrap().unwrap().config;
+    bot.command = None;
+    bot.model = Some("anthropic/claude-fixture".into());
+    f.hub.store.save_bot(&bot).unwrap();
+    let routine = f
+        .hub
+        .routines
+        .save(
+            &f.hub,
+            "bot",
+            &json!({
+                "name":"Rotina", "instruction":"Não enviar", "triggers":[{"type":"webhook"}]
+            }),
+        )
+        .unwrap();
+    let run = f.enqueue(routine["routine"]["id"].as_str().unwrap(), "test", true).await;
+    f.hub.send_cmd("bot", super::Cmd::Routine(run["run"]["id"].as_str().unwrap().into())).unwrap();
+    f.until(|| f.hub.routines.list("bot")["runs"][0]["status"] == "failed").await;
+    assert_eq!(f.prompts(), [] as [Value; 0]);
+    assert!(!f.waiting_checkpoint_published());
+    if !cfg!(target_os = "linux") {
+        f.until(|| {
+            f.hub
+                .store
+                .history_in_session("bot", Some("bot"), i64::MAX, 30)
+                .unwrap()
+                .iter()
+                .any(|entry| entry.data["text"] == crate::fork::anthropic_automation::UNAVAILABLE)
+        })
+        .await;
+    }
+    f.hub.shutdown().await;
+    let _ = std::fs::remove_dir_all(&f.dir);
+}
+
+#[tokio::test]
+#[cfg(target_os = "linux")]
+async fn rotina_e_delegacao_anthropic_usam_a_chave_do_cofre() {
+    let Some(case) = crate::fork::motor_exec::test_support::case(
+        "agent::bot::waiting_tests::rotina_e_delegacao_anthropic_usam_a_chave_do_cofre",
+    ) else {
+        return;
+    };
+    let entry = case.dir.join("motor-anthropic-fixture.cjs");
+    std::fs::write(
+        &entry,
+        r"
+const fs = require('node:fs');
+const net = require('node:net');
+const readline = require('node:readline');
+const wire = new net.Socket({fd: 3});
+let keyOk = false;
+const credential = new Promise((resolve) => {
+  readline.createInterface({input:wire}).once('line', (line) => {
+    const key = JSON.parse(line).result?.key;
+    keyOk = key === ['sk-ant-api', '-automation-fixture-not-live'].join('');
+    resolve();
+  });
+  wire.write(JSON.stringify({id:1,method:'credential.read',params:{providerId:'anthropic'}}) + '\n');
+});
+const emit = (m) => console.log(JSON.stringify(m));
+readline.createInterface({input:process.stdin}).on('line', async (line) => {
+  const m = JSON.parse(line);
+  if (m.type === 'set_model') {
+    await credential;
+    const key = ['sk-ant-api', '-automation-fixture-not-live'].join('');
+    if (!keyOk || m.provider !== 'anthropic' || m.modelId !== 'claude-haiku-4-5' ||
+        [...process.argv, ...Object.values(process.env)].some((value) => value.includes(key))) process.exit(1);
+  }
+  emit({type:'response',id:m.id,success:true,result:{disposition:'started'}});
+  if (m.type === 'prompt') {
+    const origin = m.message.includes('ROTINA-ANTHROPIC-FIXTURE') ? 'rotina' :
+      m.message.includes('DELEGACAO-ANTHROPIC-FIXTURE') ? 'delegacao' : '';
+    if (!keyOk || !origin) process.exit(1);
+    fs.appendFileSync(require('node:path').join(__dirname, origin), 'ok');
+    const message = {role:'assistant',stopReason:'end',content:[{type:'text',text:'Resposta de prova'}],
+      usage:{input:10,cacheRead:3,cacheWrite:4,output:5}};
+    emit({type:'message_update',assistantMessageEvent:{type:'text_delta',delta:'Resposta de prova'}});
+    emit({type:'message_end',message});
+    emit({type:'agent_end',messages:[message]});
+  }
+});
+",
+    )
+    .unwrap();
+    // SAFETY: o helper isola esta prova em um subprocesso exclusivo.
+    unsafe {
+        std::env::set_var(crate::fork::motor_mexerica::ENTRY_ENV, &entry);
+        std::env::set_var("MEXERICA_HOME", case.dir.join("hub"));
+    }
+    crate::fork::motor_mexerica::ACTOR_FAUX.store(true, std::sync::atomic::Ordering::Relaxed);
+    let f = Fixture::with_config("mexerica", |bot| {
+        bot.command = None;
+        bot.model = Some("anthropic/claude-haiku-4-5".into());
+        bot.cwd = crate::service::data_dir().join("bots/bot/workspace").to_string_lossy().into_owned();
+        std::fs::create_dir_all(&bot.cwd).unwrap();
+    });
+    let mut source = f.hub.store.bot("bot").unwrap().unwrap().config;
+    source.id = "source".into();
+    source.name = "Remetente".into();
+    source.backend = "codex".into();
+    source.model = None;
+    f.hub.store.save_bot(&source).unwrap();
+    let _source_commands = f.hub.test_bot_commands(&source.id);
+    *f.hub.store.secret_key.locked() = Some(zeroize::Zeroizing::new(vec![5; 32]));
+    let slot = crate::fork::motor_mexerica::credential_slot("anthropic");
+    let key = concat!("sk-ant-api", "-automation-fixture-not-live");
+    crate::market::vault::write(&f.hub.store, &slot, key).unwrap();
+    let routine = f
+        .hub
+        .routines
+        .save(
+            &f.hub,
+            "bot",
+            &json!({
+                "name":"Rotina", "instruction":"ROTINA-ANTHROPIC-FIXTURE", "triggers":[{"type":"webhook"}]
+            }),
+        )
+        .unwrap();
+    let run = f.enqueue(routine["routine"]["id"].as_str().unwrap(), "test", true).await;
+    f.hub.send_cmd("bot", super::Cmd::Routine(run["run"]["id"].as_str().unwrap().into())).unwrap();
+    f.until(|| case.dir.join("rotina").exists()).await;
+    f.hub.team.start_turn(&source.id, None);
+    crate::chat::team::call(
+        &f.hub,
+        &source.id,
+        "message_bot",
+        &json!({"botId":"bot", "message":"DELEGACAO-ANTHROPIC-FIXTURE"}),
+    )
+    .await
+    .unwrap();
+    f.until(|| case.dir.join("delegacao").exists()).await;
+    f.until(|| {
+        f.hub
+            .store
+            .db
+            .locked()
+            .query_row(
+                "SELECT COUNT(*) FROM donna_turn_usage WHERE model='anthropic/claude-haiku-4-5'
+              AND input_tokens=10 AND cached_read_tokens=3 AND cached_write_tokens=4 AND output_tokens=5
+              AND amount>0 AND currency='USD' AND source='estimado'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap()
+            == 2
+    })
+    .await;
+    f.hub.store.kv_set("donna.spend-ceiling.v1", &json!({"enabled":true,"tokens":1}).to_string()).unwrap();
+    let run = f.enqueue(routine["routine"]["id"].as_str().unwrap(), "test", true).await;
+    f.hub.send_cmd("bot", super::Cmd::Routine(run["run"]["id"].as_str().unwrap().into())).unwrap();
+    f.until(|| crate::fork::teto::turn_holds_of(&f.hub.store.db.locked(), "bot").is_ok_and(|holds| !holds.is_empty()))
+        .await;
+    assert_eq!(std::fs::read_to_string(case.dir.join("rotina")).unwrap(), "ok");
     f.hub.shutdown().await;
     let _ = std::fs::remove_dir_all(&f.dir);
 }
