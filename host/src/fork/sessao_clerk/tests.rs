@@ -365,6 +365,7 @@ async fn quatro_casos_de_frescor_pelo_http() {
         .route("/sem", com(None))
         .route("/no-cache", com(Some("no-cache")))
         .route("/no-store", com(Some("no-store")))
+        .route("/vencido", com(Some("max-age=0")))
         .route("/falha", get(|| async { StatusCode::SERVICE_UNAVAILABLE }));
     let ouvinte = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let porta = ouvinte.local_addr().unwrap().port();
@@ -378,6 +379,7 @@ async fn quatro_casos_de_frescor_pelo_http() {
     assert_eq!(validade("/sem").await.unwrap(), jwks::SEM_FRESCOR, "sem cabeçalho");
     assert_eq!(validade("/no-cache").await.unwrap(), jwks::SEM_FRESCOR, "no-cache");
     assert_eq!(validade("/no-store").await.unwrap(), jwks::SEM_FRESCOR, "no-store: só em memória");
+    assert_eq!(validade("/vencido").await.unwrap(), Duration::ZERO, "max-age explícito e vencido");
     assert!(validade("/falha").await.is_err(), "falha não dá validade");
 }
 
@@ -396,9 +398,13 @@ fn frescor_respeita_max_age_age_e_sem_frescor_vale_uma_hora() {
     };
     assert_eq!(com(Some("public, max-age=600"), None), Duration::from_secs(600));
     assert_eq!(com(Some("max-age=600"), Some("100")), Duration::from_secs(500));
-    assert_eq!(com(Some("max-age=600"), Some("900")), jwks::SEM_FRESCOR, "vencido pelo Age");
+    assert_eq!(com(Some("max-age=600"), Some("900")), Duration::ZERO, "vencido pelo Age");
+    assert_eq!(com(Some("max-age=600"), Some("600")), Duration::ZERO, "Age igual ao max-age");
+    assert_eq!(com(Some("public, max-age=0"), None), Duration::ZERO, "max-age=0");
     assert_eq!(com(Some("max-age=999999"), None), jwks::TETO, "teto de 24 h");
-    for sem in ["no-cache", "no-store, max-age=600", "max-age=0", "public", "max-age=abc", "max-age=1, max-age=2"] {
+    for sem in
+        ["no-cache", "no-store, max-age=600", "no-cache, max-age=0", "public", "max-age=abc", "max-age=1, max-age=2"]
+    {
         assert_eq!(com(Some(sem), None), jwks::SEM_FRESCOR, "{sem}");
     }
     assert_eq!(com(None, None), jwks::SEM_FRESCOR, "sem Cache-Control");
@@ -1074,15 +1080,46 @@ async fn send_de_grupo_e_negado_com_vinculo_e_titulo_e_leitura_conferem_a_guarda
 }
 
 #[tokio::test]
-async fn validade_conta_da_chegada_dos_cabecalhos_e_busca_lenta_nao_recusa_resposta_fresca() {
+async fn validade_conta_do_envio_e_resposta_que_chega_vencida_conta_como_falha() {
     let j = jwks::Jwks::default();
-    j.servir_com_frescor(|| Ok((jwks_padrao(), Duration::from_secs(2))));
+    let frescor = Arc::new(Mutex::new(Duration::from_secs(2)));
+    let f = frescor.clone();
+    j.servir_com_frescor(move || Ok((jwks_padrao(), *f.lock().unwrap())));
     // Relógio controlado: o GET leva 5 s até os cabeçalhos, mais que a validade de 2 s.
     j.demorar(Duration::from_secs(5));
     let t0 = Instant::now();
-    let r = j.chave(&url(), KID, t0).await.expect("a resposta chega fresca");
-    assert_eq!(r.ate, t0 + Duration::from_secs(7), "a validade conta da chegada dos cabeçalhos");
+    assert_eq!(j.chave(&url(), KID, t0).await.err(), Some(Recusa::AuthInvalid), "chegou vencida: recusa");
     assert_eq!(j.buscas(), 1);
+    // Conta como falha: nada de nova busca antes do intervalo.
+    let quase = t0 + jwks::INTERVALO.saturating_sub(ms(1));
+    assert_eq!(j.chave(&url(), KID, quase).await.err(), Some(Recusa::AuthInvalid));
+    assert_eq!(j.buscas(), 1, "resposta vencida respeita o intervalo");
+    // Com validade maior que o atraso, vale a partir do envio: o atraso é descontado.
+    *frescor.lock().unwrap() = Duration::from_secs(60);
+    let depois = t0 + jwks::INTERVALO;
+    assert_eq!(j.chave(&url(), KID, depois).await.unwrap().ate, depois + Duration::from_secs(60));
+    assert_eq!(j.buscas(), 2);
+}
+
+#[tokio::test]
+async fn max_age_vencido_nao_vira_uma_hora_nem_estende_o_conjunto_anterior() {
+    let j = jwks::Jwks::default();
+    let frescor = Arc::new(Mutex::new(Duration::from_secs(600)));
+    let f = frescor.clone();
+    j.servir_com_frescor(move || Ok((jwks_padrao(), *f.lock().unwrap())));
+    let t0 = Instant::now();
+    assert_eq!(j.chave(&url(), KID, t0).await.unwrap().ate, t0 + Duration::from_secs(600));
+    // O emissor passa a mandar `max-age=0` (ou `Age` >= `max-age`): a busca conta como falha.
+    *frescor.lock().unwrap() = Duration::ZERO;
+    let depois = t0 + jwks::INTERVALO;
+    assert_eq!(j.chave(&url(), "kid-novo", depois).await.err(), Some(Recusa::AuthInvalid));
+    assert_eq!(j.buscas(), 2);
+    let anterior = j.chave(&url(), KID, depois + ms(1)).await.unwrap();
+    assert_eq!(anterior.ate, t0 + Duration::from_secs(600), "o conjunto anterior segue, sem crescer");
+    // Vencido o anterior, a busca é refeita e, vindo vencida de novo, recusa: nada de 1 h.
+    let vencido = t0 + Duration::from_secs(600);
+    assert_eq!(j.chave(&url(), KID, vencido).await.err(), Some(Recusa::AuthInvalid));
+    assert_eq!(j.buscas(), 3, "refez a busca");
 }
 
 #[tokio::test]

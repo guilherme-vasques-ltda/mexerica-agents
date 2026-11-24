@@ -112,11 +112,21 @@ pub(crate) fn next_rev(c: &Connection) -> Result<i64> {
 }
 
 impl Store {
-    /// O `team_lock` de um pedido admitido; nas provas, avisa que o pedido chegou à espera.
+    /// O `team_lock` de um pedido admitido; nas provas, avisa quando o pedido já está na fila do
+    /// mutex (ou já o tomou).
     pub(crate) async fn travar_equipe(&self) -> tokio::sync::MutexGuard<'_, ()> {
+        let pedido = self.team_lock.lock();
         #[cfg(test)]
-        self.espera_equipe.notify_one();
-        self.team_lock.lock().await
+        let pedido = {
+            let mut pedido = Box::pin(pedido);
+            let pronto = futures::poll!(pedido.as_mut());
+            self.espera_equipe.notify_one();
+            if let std::task::Poll::Ready(guarda) = pronto {
+                return guarda;
+            }
+            pedido
+        };
+        pedido.await
     }
 
     /// Durable control state must distinguish a missing key from a failed read.

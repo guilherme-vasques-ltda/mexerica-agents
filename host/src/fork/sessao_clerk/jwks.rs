@@ -1,16 +1,18 @@
 //! JWKS da instância Clerk fixada no vínculo. A validade de uma busca é a que o HTTP dá
-//! (`Cache-Control: max-age` menos `Age`), com teto de 24 h. Sem `max-age` útil (ausente, `0`,
-//! ilegível, vencido pelo `Age`), com `no-cache` ou sem cabeçalho, a validade é um teto fixo de
-//! 1 h. Com `no-store`, o conjunto fica só em memória (nunca vai a disco) com o mesmo teto de 1 h.
+//! (`Cache-Control: max-age` menos `Age`), com teto de 24 h. Sem `max-age` (ausente, repetido ou
+//! ilegível), com `no-cache` ou sem cabeçalho, a validade é um teto fixo de 1 h. Um `max-age`
+//! explícito já vencido (`0`, ou `Age` igual ou maior) não vale nada. Com `no-store`, o conjunto
+//! fica só em memória (nunca vai a disco) com o mesmo teto de 1 h.
 //! Passada metade da validade, a renovação corre em segundo plano, sem segurar a verificação; só
 //! sem conjunto válido (ou com `kid` desconhecido) a verificação espera a busca. Uma busca por vez,
 //! com o GET fora do lock do conjunto; quem chega durante ela (vencido ou `kid` desconhecido) espera o
 //! resultado dela e decide de novo com o estado de depois. `kid`
 //! desconhecido ou falha anterior: no máximo uma busca a cada 30 s; conjunto vencido depois de uma
-//! busca bem-sucedida busca já. Idade e validade são medidas no relógio monotônico: a tentativa
-//! conta do início do GET (depois da espera pela busca de outro) e a validade, da chegada dos
-//! cabeçalhos (a leitura do corpo não a consome). Só uma busca
-//! bem-sucedida renova a validade; cada uma substitui o conjunto inteiro (chave removida sai).
+//! busca bem-sucedida busca já. Idade e validade são medidas no relógio monotônico, as duas a
+//! partir do envio do GET (depois da espera pela busca de outro e da criação do cliente): o atraso
+//! até os cabeçalhos consome a validade. Resposta que chega já vencida conta como busca falha: não
+//! troca nem estende o conjunto, e a próxima espera o intervalo. Só uma busca bem-sucedida renova
+//! a validade; cada uma substitui o conjunto inteiro (chave removida sai).
 //! Cliente HTTP sem proxy do ambiente, sem redirect e só HTTPS. Corpo e chaves nunca vão a log.
 use super::Recusa;
 use crate::remote::crypto;
@@ -60,15 +62,24 @@ impl Cache {
         (!valida || !self.chaves.iter().any(|c| c.kid == kid)) && self.liberada(agora)
     }
 
-    fn concluir(&mut self, busca: Result<(Vec<Chave>, Duration)>, agora: Instant) {
-        if let Ok((chaves, frescor)) = busca {
-            self.chaves = chaves;
-            self.buscado_em = Some(agora);
-            self.valido_ate = Some(agora + frescor);
-            self.falhou = false;
-        } else {
-            self.falhou = true;
-            tracing::warn!("JWKS do vínculo indisponível; segue o conjunto anterior enquanto valer");
+    /// `inicio` é o envio do GET: a tentativa e a validade contam dele.
+    fn concluir(&mut self, busca: Result<Buscada>, inicio: Instant) {
+        self.tentativa_em = Some(inicio);
+        match busca {
+            Ok((chaves, frescor, ate_cabecalhos)) if frescor > ate_cabecalhos => {
+                self.chaves = chaves;
+                self.buscado_em = Some(inicio);
+                self.valido_ate = Some(inicio + frescor);
+                self.falhou = false;
+            }
+            Ok(_) => {
+                self.falhou = true;
+                tracing::warn!("JWKS do vínculo chegou vencida; segue o conjunto anterior enquanto valer");
+            }
+            Err(_) => {
+                self.falhou = true;
+                tracing::warn!("JWKS do vínculo indisponível; segue o conjunto anterior enquanto valer");
+            }
         }
     }
 }
@@ -128,15 +139,17 @@ impl Jwks {
         *BASE.get_or_init(Instant::now) + *self.relogio.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    /// A busca, com a tentativa anotada no início do GET e a validade contada da chegada dos
-    /// cabeçalhos. `inicio` é o instante do pedido somado ao tempo que já passou no relógio da busca.
-    async fn buscar_e_concluir(&self, url: &reqwest::Url, inicio: Instant) {
-        let busca = self.buscar_chaves(url).await;
-        let base = match &busca {
-            Ok((_, _, ate_cabecalhos)) => inicio + *ate_cabecalhos,
-            Err(_) => inicio,
+    /// A busca, com o cliente criado antes de anotar a tentativa: tentativa e validade contam do
+    /// envio do GET, que é o instante `agora` do pedido somado ao que já passou no relógio da busca
+    /// desde `entrada`.
+    async fn buscar_e_concluir(&self, url: &reqwest::Url, agora: Instant, entrada: Instant) {
+        let cliente = cliente(true);
+        let inicio = agora + self.relogio().saturating_duration_since(entrada);
+        let busca = match cliente {
+            Ok(cliente) => self.buscar_chaves(&cliente, url).await,
+            Err(erro) => Err(erro),
         };
-        self.cache(url).concluir(busca.map(|(chaves, frescor, _)| (chaves, frescor)), base);
+        self.cache(url).concluir(busca, inicio);
     }
 
     /// A chave `kid`. Sem conjunto válido ou com `kid` desconhecido, espera a busca em curso e,
@@ -150,17 +163,8 @@ impl Jwks {
         };
         if falta {
             let _busca = self.busca.lock().await;
-            let inicio = depois(self.relogio());
-            let minha = {
-                let mut cache = self.cache(url);
-                let minha = cache.precisa(kid, inicio.max(Instant::now()));
-                if minha {
-                    cache.tentativa_em = Some(inicio);
-                }
-                minha
-            };
-            if minha {
-                self.buscar_e_concluir(url, inicio).await;
+            if self.cache(url).precisa(kid, depois(self.relogio()).max(Instant::now())) {
+                self.buscar_e_concluir(url, agora, entrada).await;
             }
         }
         let agora = depois(self.relogio()).max(Instant::now());
@@ -180,23 +184,17 @@ impl Jwks {
     pub(crate) async fn renovar(&self, url: &reqwest::Url, agora: Instant) {
         let entrada = self.relogio();
         let Ok(_busca) = self.busca.try_lock() else { return };
-        let inicio = agora + self.relogio().saturating_duration_since(entrada);
-        {
-            let mut cache = self.cache(url);
-            if !cache.liberada(inicio) {
-                return;
-            }
-            cache.tentativa_em = Some(inicio);
+        if self.cache(url).liberada(agora + self.relogio().saturating_duration_since(entrada)) {
+            self.buscar_e_concluir(url, agora, entrada).await;
         }
-        self.buscar_e_concluir(url, inicio).await;
     }
 
-    async fn buscar_chaves(&self, url: &reqwest::Url) -> Result<Buscada> {
-        let (corpo, frescor, ate_cabecalhos) = self.buscar(url).await?;
+    async fn buscar_chaves(&self, cliente: &reqwest::Client, url: &reqwest::Url) -> Result<Buscada> {
+        let (corpo, frescor, ate_cabecalhos) = self.buscar(cliente, url).await?;
         Ok((interpretar(&corpo)?, frescor, ate_cabecalhos))
     }
 
-    async fn buscar(&self, url: &reqwest::Url) -> Result<(Vec<u8>, Duration, Duration)> {
+    async fn buscar(&self, cliente: &reqwest::Client, url: &reqwest::Url) -> Result<(Vec<u8>, Duration, Duration)> {
         #[cfg(test)]
         {
             self.buscas.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -207,7 +205,7 @@ impl Jwks {
                 return fonte().map(|(corpo, frescor)| (corpo, frescor, demora));
             }
         }
-        buscar_com(&cliente(true)?, url).await
+        buscar_com(cliente, url).await
     }
 
     /// Provas: avança o relógio controlado da busca.
@@ -256,10 +254,9 @@ impl Jwks {
     }
 }
 
-/// Validade dada pelo HTTP: `max-age` menos `Age`, com teto de 24 h. Sem um valor positivo
-/// (`no-cache`, `no-store`, `max-age` ausente, `0`, repetido ou ilegível, `Age` repetido, ilegível
-/// ou maior),
-/// o teto fixo de 1 h.
+/// Validade dada pelo HTTP: `max-age` menos `Age`, com teto de 24 h; zero quando o `max-age`
+/// explícito já venceu (`0`, ou `Age` igual ou maior). Com `no-cache`, `no-store`, `max-age`
+/// ausente, repetido ou ilegível, ou `Age` repetido ou ilegível, o teto fixo de 1 h.
 pub(crate) fn frescor(cabecalhos: &HeaderMap) -> Duration {
     let mut max_age = None;
     for valor in cabecalhos.get_all(CACHE_CONTROL) {
@@ -283,7 +280,7 @@ pub(crate) fn frescor(cabecalhos: &HeaderMap) -> Duration {
         (Some(_), Some(_)) => None,
     };
     match (max_age, idade) {
-        (Some(max_age), Some(idade)) if max_age > idade => Duration::from_secs(max_age - idade).min(TETO),
+        (Some(max_age), Some(idade)) => Duration::from_secs(max_age.saturating_sub(idade)).min(TETO),
         _ => SEM_FRESCOR,
     }
 }
