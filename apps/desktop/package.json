@@ -14,7 +14,8 @@
   "scripts": {
     "dev": "node --experimental-strip-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON tools/dev.mjs",
     "build": "electron-vite build",
-    "build:demo": "vite build --config vite.demo.config.ts && mv dist/demo/desktop/index.html dist/demo/desktop.html",
+    "build:demo": "vite build --config vite.demo.config.ts",
+    "demo:rotina-etapas": "vite --config vite.demo.config.ts",
     "build:web": "vite build --config vite.web.config.ts",
     "web": "node tools/web-local.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
