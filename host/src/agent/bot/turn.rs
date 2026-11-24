@@ -731,11 +731,18 @@ impl Actor {
         let raw_stop_reason = done.as_ref().ok().and_then(|v| v["stopReason"].as_str()).map(str::to_owned);
         let mut invited = false;
         let limit_notice = self.subscription_limit_notice();
+        let anthropic_refused =
+            done.as_ref().err().and_then(|e| e.downcast_ref::<crate::fork::anthropic_automation::Refusal>());
         let notice = match (&done, stop_reason.as_str()) {
             _ if held => Ok(()),
             _ if limited && !stopped => self.try_notice(&limit_notice, NoticeStyle::Info),
             (Err(e), _) if !self.stop_requested && e.is::<crate::fork::antigravity::ModeUnconfirmed>() => {
                 self.try_notice(crate::fork::antigravity::MODE_UNCONFIRMED, NoticeStyle::Error)
+            }
+            _ if !self.stop_requested
+                && let Some(reason) = anthropic_refused =>
+            {
+                self.try_notice(&reason.to_string(), NoticeStyle::Error)
             }
             (Err(e), _) if !self.stop_requested => {
                 let tail = self.exit_tail.take().filter(|t| !t.is_empty());
@@ -787,6 +794,8 @@ impl Actor {
                 (End::Stopped, Some("Stopped by user".into()))
             } else if limited {
                 (End::Failed(Reason::Limit), Some(limit_notice.clone()))
+            } else if let Some(reason) = anthropic_refused {
+                (End::Failed(Reason::StartFailed), Some(reason.to_string()))
             } else if failed {
                 let reason = if invited { Reason::SignInRequested } else { Reason::AgentError };
                 (
@@ -803,7 +812,7 @@ impl Actor {
             };
             // Encerramento imposto pela espera pausada é terminal: o catch-up
             // do MX-110 não reenfileira a run.
-            let terminal = std::mem::take(&mut self.routine_terminal);
+            let terminal = std::mem::take(&mut self.routine_terminal) || anthropic_refused.is_some();
             self.finish_routine(Observed { end, visible_reply, terminal }, detail, final_text.clone());
             if self.routine_completion.is_some() && self.waiting.is_some() {
                 self.defer_completion(done);

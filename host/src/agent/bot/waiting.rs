@@ -149,6 +149,8 @@ impl Completion {
             |e| {
                 if e == crate::fork::antigravity::MODE_UNCONFIRMED {
                     Err(crate::fork::antigravity::ModeUnconfirmed.into())
+                } else if let Some(reason) = crate::fork::anthropic_automation::Refusal::from_saved_error(e) {
+                    Err(reason.into())
                 } else {
                     Err(anyhow::anyhow!("{e}"))
                 }
@@ -689,6 +691,9 @@ impl Actor {
             Ok(value) => Ok(value.clone()),
             Err(error) if error.is::<crate::fork::antigravity::ModeUnconfirmed>() => {
                 Err(crate::fork::antigravity::ModeUnconfirmed.into())
+            }
+            Err(error) if let Some(reason) = error.downcast_ref::<crate::fork::anthropic_automation::Refusal>() => {
+                Err((*reason).into())
             }
             Err(error) => Err(anyhow::anyhow!("{error:#}")),
         });

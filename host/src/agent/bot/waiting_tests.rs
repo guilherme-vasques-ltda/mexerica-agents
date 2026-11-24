@@ -1646,6 +1646,24 @@ async fn mx263_rotina_no_limite_espera_volta_e_conclui_uma_vez() {
     routine_limit_waits_and_finishes().await;
 }
 
+#[tokio::test]
+async fn recusa_anthropic_encerra_rotina_em_retomada_antes_de_alocar_turno() {
+    let (f, id) = routine_waiting(false).await;
+    f.hub.shutdown().await;
+    let mut actor = f.actor();
+    assert!(actor.restore_waiting());
+    assert_eq!(actor.active_routine.as_deref(), Some(id.as_str()));
+    actor.turn = None;
+    let reason = crate::fork::anthropic_automation::Refusal::VaultKey;
+    actor.start_failed(&reason.into());
+    let list = f.hub.routines.list("bot");
+    assert_eq!(list["runs"][0]["status"], "failed");
+    assert_eq!(list["runs"][0]["detail"], reason.to_string());
+    assert!(f.hub.store.kv_get("turn.waiting.bot").is_none());
+    assert_eq!(f.prompts().len(), 1);
+    let _ = std::fs::remove_dir_all(&f.dir);
+}
+
 /// MX-263: força a retomada da espera pela mesma RPC de "retomar agora" — equivale
 /// a antecipar o `retryAt` sem reiniciar o Hub.
 async fn resume_wait(f: &Fixture, saved: &Value) {

@@ -22,6 +22,12 @@ impl std::fmt::Display for Refusal {
 
 impl std::error::Error for Refusal {}
 
+impl Refusal {
+    pub(crate) fn from_saved_error(message: &str) -> Option<Self> {
+        [Self::Platform, Self::PersonalOnly, Self::VaultKey].into_iter().find(|reason| reason.to_string() == message)
+    }
+}
+
 pub(crate) fn check(store: &crate::store::Store, cfg: &BotConfig) -> Result<()> {
     check_platform(cfg, cfg!(target_os = "linux"))?;
     if !uses_anthropic(cfg) {
@@ -43,10 +49,14 @@ pub(crate) fn check(store: &crate::store::Store, cfg: &BotConfig) -> Result<()> 
 pub(crate) fn vault_key(store: &crate::store::Store) -> Result<Option<zeroize::Zeroizing<String>>> {
     let slot = crate::fork::motor_mexerica::credential_slot("anthropic");
     let Some(raw) = store.kv_read(&slot)? else { return Ok(None) };
-    let key = zeroize::Zeroizing::new(
-        crate::market::vault::open_ciphertext(store, &slot, &raw).map_err(|_| Refusal::VaultKey)?,
-    );
-    crate::fork::background_anthropic::api_key(&key).map_err(|_| Refusal::VaultKey)?;
+    let key = zeroize::Zeroizing::new(crate::market::vault::open_ciphertext(store, &slot, &raw).map_err(|_| {
+        tracing::warn!(reason = "vault_open", "chave Anthropic recusada");
+        Refusal::VaultKey
+    })?);
+    crate::fork::background_anthropic::api_key(&key).map_err(|_| {
+        tracing::warn!(reason = "key_format", "chave Anthropic recusada");
+        Refusal::VaultKey
+    })?;
     Ok(Some(key))
 }
 
