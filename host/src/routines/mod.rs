@@ -167,6 +167,8 @@ pub struct Run {
     /// Retentativas limitadas de execução catch-up após falha.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub attempts: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    retry_not_before_ms: Option<i64>,
     /// Execução gravada por uma checagem silenciosa: nunca passou pela IA; o texto do aviso sai do histórico ao publicar.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     heartbeat: bool,
@@ -470,6 +472,7 @@ impl Routines {
                 && crate::fork::bot_admission::routine_uncertain(store, &run.bot_id, &run.id)?
             {
                 run.status = Status::Interrupted;
+                run.retry_not_before_ms = None;
                 run.finished_at = Some(now_ms());
                 run.detail = Some("O Hub reiniciou após permitir o despacho; pode haver efeito já realizado. Confira antes de tentar de novo.".into());
                 run.report_pending = true;
@@ -483,6 +486,7 @@ impl Routines {
                     run.finished_at = None;
                     active.insert(run.bot_id.clone());
                 }
+                status if !status.active() => run.retry_not_before_ms = None,
                 _ => {}
             }
         }
@@ -526,6 +530,7 @@ impl Routines {
         next.routines.retain(|r| r.bot_id != bot);
         for run in next.runs.iter_mut().filter(|r| r.bot_id == bot && r.status.active()) {
             run.status = Status::Cancelled;
+            run.retry_not_before_ms = None;
             run.finished_at = Some(now_ms());
             run.report_pending = false;
         }
@@ -906,6 +911,7 @@ fn new_run(r: &Routine, event: Value, delivery_id: Option<String>) -> Run {
         outcome: None,
         catchup: false,
         attempts: 0,
+        retry_not_before_ms: None,
         heartbeat: false,
         heartbeat_texto: None,
     }
@@ -919,6 +925,7 @@ fn remove_in(s: &mut State, bot: &str, id: &str) -> Result<Value> {
     for run in &mut s.runs {
         if run.routine_id == id && run.status == Status::Pending {
             run.status = Status::Cancelled;
+            run.retry_not_before_ms = None;
             run.finished_at = Some(now_ms());
         }
     }
@@ -932,6 +939,7 @@ pub(crate) fn creation_schedule(routine: &Routine) -> String {
 
 fn cancel_run(run: &mut Run) {
     run.status = Status::Cancelled;
+    run.retry_not_before_ms = None;
     run.finished_at = Some(now_ms());
     run.event = Value::Null;
 }

@@ -187,6 +187,21 @@ pub(crate) struct GuardaEstado<'a, T> {
     mutou: bool,
 }
 
+impl<T> GuardaEstado<'_, T> {
+    fn commit_epoch(&mut self) -> Option<u64> {
+        if self.mutou {
+            self.mutou = false;
+            Some(self.epoca.fetch_add(1, std::sync::atomic::Ordering::SeqCst).wrapping_add(1))
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn unlock_with_epoch(mut self) -> u64 {
+        self.commit_epoch().unwrap_or_else(|| self.epoca.load(std::sync::atomic::Ordering::SeqCst))
+    }
+}
+
 impl<T> std::ops::Deref for GuardaEstado<'_, T> {
     type Target = T;
     fn deref(&self) -> &T {
@@ -203,9 +218,7 @@ impl<T> std::ops::DerefMut for GuardaEstado<'_, T> {
 
 impl<T> Drop for GuardaEstado<'_, T> {
     fn drop(&mut self) {
-        if self.mutou {
-            self.epoca.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        }
+        self.commit_epoch();
     }
 }
 
