@@ -26,6 +26,8 @@ import { GlobalPause } from './GlobalPause'
 import { RoutinesPauseModel } from '../../store/routines-pause'
 import { RoutineSheet, type EditorTarget } from './RoutineSheet'
 import { texts } from './texts'
+import { AvisoInstalacaoLocal } from '../fork/aviso-instalacao-local/AvisoInstalacaoLocal'
+import { avisaPrimeiraAgendada, ehHubDesteComputador } from '../fork/aviso-instalacao-local/aviso-instalacao-local'
 import './routines-central.css'
 
 export { routinesScreen }
@@ -62,7 +64,7 @@ export function RoutinesCentralView() {
   }
   return (
     <StoreContext.Provider value={store}>
-      <RoutinesPage />
+      <RoutinesPage hubLocal={ehHubDesteComputador(app.local, store)} />
     </StoreContext.Provider>
   )
 }
@@ -98,7 +100,7 @@ function Page({ header, children }: { header?: ReactNode; children: ReactNode })
 }
 
 /** A tela segue só o que usa da store (nomes, ordem, conexão), não o streaming das conversas. */
-const RoutinesPage = memo(function RoutinesPage() {
+const RoutinesPage = memo(function RoutinesPage({ hubLocal }: { hubLocal: boolean }) {
   const t = useT()
   const store = useStoreRef()
   // O memo não re-renderiza com o idioma sozinho: os textos são lidos na hora (texts.ts).
@@ -159,6 +161,7 @@ const RoutinesPage = memo(function RoutinesPage() {
   const inSection = (bot: Bot) => filters.sectionId === ALL || !sectionSnapshot || inGroup(sectionSnapshot, bot.id, filters.sectionId)
   const withRoutines = new Set(data?.routines.map((r) => r.botId))
   // O bot do filtro fica sempre entre as opções (mesmo oculto e sem rotinas): o seletor nunca fica sem nome.
+  const avisaCriacao = avisaPrimeiraAgendada({ hubLocal, visao: overview.error ? null : data, botsDaTela: agents })
   const filterBots = agents.filter((b) => b.id === filters.botId || (inSection(b) && (!b.hidden || withRoutines.has(b.id))))
   const panelBots = store.roster.filter((b) => !isGroup(b) && inSection(b))
   const disabled = store.isOffline
@@ -250,6 +253,7 @@ const RoutinesPage = memo(function RoutinesPage() {
   return (
     <Page header={header}>
       <GlobalPause model={pause} offline={store.isOffline} />
+      {hubLocal ? <AvisoInstalacaoLocal /> : null}
       {actionError ? <p className="rc-action-error" role="alert">{errorText(actionError)}</p> : null}
       <div className={copyId ? 'rc-banner' : 'rc-sr-only'} role="status">{copyId ? t('rotinas.editor.duplicada') : ''}</div>
       {mode === 'calendar' ? (
@@ -318,7 +322,7 @@ const RoutinesPage = memo(function RoutinesPage() {
           )}
         </div>
       )}
-      <RoutineSheet target={editor} setTarget={setEditor} bots={agents} saved={overview.reload} duplicated={(target, routine) => {
+      <RoutineSheet target={editor} setTarget={setEditor} bots={agents} avisaCriacao={avisaCriacao} saved={overview.reload} duplicated={(target, routine) => {
         overview.reload()
         if (currentEditor.current?.id !== target.id) return
         setEditor(null)

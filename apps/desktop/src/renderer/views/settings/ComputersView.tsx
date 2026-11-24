@@ -23,6 +23,8 @@ import { capacidades } from '@shared/fork-capacidades'
 import { SSHRow } from './SSHRow'
 import { ChavesNoHubFolha } from '../fork/voz/VozPage'
 import { GanchoMapaComputadores } from '../fork/mapa-computadores/gancho'
+import { AvisoInstalacaoLocal } from '../fork/aviso-instalacao-local/AvisoInstalacaoLocal'
+import { ehHubDesteComputador } from '../fork/aviso-instalacao-local/aviso-instalacao-local'
 import { superficieIdioma, useIdioma, useT, type Tradutor } from '../../lib/fork-i18n/estado'
 import { textoDoStatus, textoSSH } from '@shared/ssh-startup'
 import { isolado, ltr } from '@shared/bidi'
@@ -179,6 +181,7 @@ function ManagedComputerCard({ store, ssh: overSSH }: { store: BotStore; ssh: bo
 
   return (
     <VStack gap={28}>
+      {ehHubDesteComputador(app.local, store) ? <AvisoInstalacaoLocal /> : null}
       <CardSection>
         {[
           <div key="header" className="settings-row">

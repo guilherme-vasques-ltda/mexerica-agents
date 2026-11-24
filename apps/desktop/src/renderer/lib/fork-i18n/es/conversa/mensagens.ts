@@ -15,6 +15,7 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.mensagens.reenviar": "Reenviar",
   "conversa.mensagens.apagar": "Borrar",
   "conversa.mensagens.interrompida": "No enviada: interrumpida",
+  "conversa.mensagens.interrompidaParcial": "Interrumpida: puede haber llegado a parte del grupo",
   "conversa.mensagens.tentarDeNovo": "Intentar de nuevo",
   "conversa.mensagens.parar": "Detener",
   "conversa.mensagens.tirar": "Quitar {emoji}",

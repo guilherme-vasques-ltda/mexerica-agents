@@ -65,6 +65,7 @@ pub(crate) mod fallback_contas;
 pub(crate) mod funcao;
 pub(crate) mod genui;
 pub(crate) mod governanca;
+pub(crate) mod grupo_entrega;
 #[cfg(target_os = "linux")]
 pub(crate) mod guarda_atualizacao;
 pub(crate) mod harness_guidance;

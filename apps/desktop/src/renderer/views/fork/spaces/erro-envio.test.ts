@@ -21,7 +21,7 @@ test('a bolha não enviada só guarda motivo conhecido da Open', () => {
 })
 
 test('os avisos da Open saem no idioma da janela pelo código; código desconhecido fica com o texto do Hub', () => {
-  for (const code of ['open_setup', 'open_chat_cancelled', 'open_chat_tool_refused', 'open_chat_timeout', 'open_chat_too_long', 'open_chat_policy', 'open_codex_unavailable', 'open_codex_platform', 'open_chat_failed']) {
+  for (const code of ['open_setup', 'open_chat_cancelled', 'open_chat_tool_refused', 'open_chat_timeout', 'open_chat_too_long', 'open_chat_policy', 'open_codex_unavailable', 'open_codex_platform', 'open_chat_failed', 'group_blocked']) {
     const chave = avisoOpen(code)
     assert.ok(chave, code)
     const textos = IDIOMAS_CATALOGO.map((idioma) => tradutor(idioma)(chave))

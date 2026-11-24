@@ -1,5 +1,6 @@
 // Fatia 6b (D454): voz/ajustes (registro.ts), Ajustes → Voz: Voz para texto, Ao vivo, chaves deste aparelho e do Hub; expressões de aparelho e provedor. Chaves completas; docs/guides/idiomas.md.
 export const textos = {
+  "voz.ajustes.geminiGratis": "Na chave grátis do Gemini, o Google pode usar o conteúdo para melhorar os produtos dele. Use uma chave paga para evitar.",
   "voz.ajustes.aparelho.mac.nome": "Este Mac",
   "voz.ajustes.aparelho.pc.nome": "Este computador",
   "voz.ajustes.aparelho.mac.neste": "neste Mac",
