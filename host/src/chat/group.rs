@@ -43,15 +43,15 @@ pub struct GroupTurn {
     pub reply: oneshot::Sender<Result<Option<String>>>,
 }
 
-/// Room turn epochs per group, and the groups the boot couldn't check (`fork::grupo_entrega`), blocked until the
+/// Room turn epochs per lane, and the groups the boot couldn't check (`fork::grupo_entrega`), blocked until the
 /// next start.
 #[derive(Default)]
-pub struct Rooms(Mutex<HashMap<String, u64>>, Mutex<std::collections::HashSet<String>>);
+pub struct Rooms(Mutex<HashMap<Lane, u64>>, Mutex<std::collections::HashSet<String>>);
 
 impl Rooms {
     fn next(&self, lane: &Lane) -> u64 {
         let mut map = self.0.locked();
-        let epoch = map.entry(lane.chat.clone()).or_default();
+        let epoch = map.entry(lane.clone()).or_default();
         *epoch += 1;
         *epoch
     }
@@ -70,19 +70,33 @@ impl Rooms {
     }
 
     pub fn current(&self, lane: &Lane, epoch: u64) -> bool {
-        self.0.locked().get(&lane.chat).copied() == Some(epoch)
+        self.0.locked().get(lane).copied() == Some(epoch)
     }
 
-    /// Stop: ends the room turn in `group` and the member turns in it.
+    /// Stop: ends the room turn in every lane of `group` and the member turns in it.
     pub fn stop(&self, hub: &Hub, group: &str) {
-        match self.0.locked().get_mut(group) {
-            Some(epoch) => *epoch += 1,
-            None => return,
+        let _ = self.stop_after(hub, group, || Ok(()));
+    }
+
+    /// Stop that first runs `cancel` under the epochs' lock: a room turn already running sees the stop only after
+    /// `cancel`, and a message that starts later gets a newer epoch.
+    pub(crate) fn stop_after(&self, hub: &Hub, group: &str, cancel: impl FnOnce() -> Result<()>) -> Result<()> {
+        let (saved, running) = {
+            let mut map = self.0.locked();
+            let saved = cancel();
+            let mut running = false;
+            for epoch in map.iter_mut().filter(|(lane, _)| lane.chat == group).map(|(_, epoch)| epoch) {
+                *epoch += 1;
+                running = true;
+            }
+            (saved, running)
+        };
+        if running && let Ok(Some(row)) = hub.store.bot(group) {
+            for member in &row.config.members {
+                let _ = hub.send_cmd(member, Cmd::CancelGroup { chat: group.to_owned() });
+            }
         }
-        let Ok(Some(row)) = hub.store.bot(group) else { return };
-        for member in &row.config.members {
-            let _ = hub.send_cmd(member, Cmd::CancelGroup { chat: group.to_owned() });
-        }
+        saved
     }
 }
 
@@ -176,7 +190,7 @@ async fn run(hub: &Arc<Hub>, group_id: &str, lane: &Lane, epoch: u64, mut delive
             }
             if hub.send_cmd(&member.id, Cmd::Group(turn)).is_err() {
                 if first {
-                    delivery.finish_member(hub, group_id, &member.id);
+                    delivery.missed(hub, group_id, &member.id);
                 }
                 continue;
             }

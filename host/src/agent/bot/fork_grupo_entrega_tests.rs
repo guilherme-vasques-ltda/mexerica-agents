@@ -471,3 +471,154 @@ fn citacao_ilegivel_nao_conta_como_comprovada() {
     store.db.locked().execute("UPDATE entries SET data = '{quebrado' WHERE id = ?1", [&quoted.id]).unwrap();
     assert!(crate::fork::grupo_entrega::unproven(&store.entry(&quoted.id).unwrap()));
 }
+
+fn pending_in(dir: &std::path::Path, lane: &Lane, text: &str) -> String {
+    let store = Store::open(&dir.join("test.db")).unwrap();
+    let data = json!({"text":text,"status":"sending","contentOrigin":{"ingress":{"caller":"local"}}});
+    store.insert_entry(lane, EntryKind::User, 1, &data).unwrap().id
+}
+
+fn session(id: &str) -> Lane {
+    Lane { session: Some(id.to_owned()), chat: ROOM.to_owned() }
+}
+
+/// O envio a um membro falha (o ator dele não está de pé, como no desligamento): a mensagem não vira enviada, o
+/// membro não conta como quem recebeu, e o boot entrega só a ele.
+#[tokio::test]
+async fn envio_que_falha_nao_confirma_e_o_boot_entrega_so_a_quem_faltou() {
+    let f = Fixture::new();
+    room_with(&f, &["bot", "bot2"]);
+    let sent = crate::api::dispatch(
+        &f.hub,
+        &crate::api::devices::Caller::Local,
+        "send",
+        json!({"botId":ROOM,"text":"Oi, sala"}),
+    )
+    .await
+    .unwrap();
+    let id = sent["entry"]["id"].as_str().unwrap().to_owned();
+    let saved = || -> Value {
+        serde_json::from_str(&f.hub.store.kv_get(&format!("donna.group.delivery.{id}")).unwrap_or_default())
+            .unwrap_or_default()
+    };
+    f.until(|| saved()["done"] == json!(["bot"])).await;
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    assert_eq!(f.hub.store.entry(&id).unwrap().data["status"], "sending", "quem não recebeu não vira enviada");
+    assert_eq!(saved()["handed"], json!(["bot"]), "o envio que falhou não conta como recebido");
+    f.hub.shutdown().await;
+    let before = f.prompts().len();
+    let hub = reopen(&f.dir);
+    f.until(|| hub.store.entry(&id).unwrap().data["status"] == "sent").await;
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    assert_eq!(f.prompts().len(), before + 1, "só quem faltou recebe, uma vez");
+    assert!(f.prompts()[before].to_string().contains("Oi, sala"));
+    assert_eq!(reviews(&hub), 0);
+    hub.shutdown().await;
+    let _ = std::fs::remove_dir_all(&f.dir);
+}
+
+/// Pendentes em duas sessões do mesmo grupo: cada retomada tem o próprio epoch, e nenhuma encerra a outra nem a
+/// confirma sem entrega. Com o membro preso no primeiro turno, as duas já foram passadas a ele e seguem pendentes.
+#[tokio::test]
+async fn retomadas_em_duas_sessoes_do_grupo_passam_as_duas_ao_membro() {
+    let f = Fixture::new();
+    room(&f);
+    f.hub.shutdown().await;
+    let ids = [
+        pending_in(&f.dir, &Lane::main(ROOM), "Na conversa principal"),
+        pending_in(&f.dir, &session("s0"), "Na outra sessão"),
+    ];
+    std::fs::write(f.dir.join("hold"), "").unwrap();
+    let hub = reopen(&f.dir);
+    let handed = |id: &str| -> Value {
+        hub.store
+            .kv_get(&format!("donna.group.delivery.{id}"))
+            .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+            .map_or(Value::Null, |saved| saved["handed"].clone())
+    };
+    f.until(|| ids.iter().all(|id| handed(id) == json!(["bot"]))).await;
+    for id in &ids {
+        assert_eq!(hub.store.entry(id).unwrap().data["status"], "sending", "nenhuma retomada confirma a outra");
+    }
+    std::fs::remove_file(f.dir.join("hold")).unwrap();
+    f.until(|| ids.iter().all(|id| hub.store.entry(id).unwrap().data["status"] == "sent")).await;
+    assert!(f.prompts().iter().any(|p| p.to_string().contains("Na conversa principal")));
+    hub.shutdown().await;
+    let _ = std::fs::remove_dir_all(&f.dir);
+}
+
+/// O Stop do grupo encerra a rodada em todas as sessões dele, e só nele.
+#[tokio::test]
+async fn stop_do_grupo_encerra_todas_as_sessoes_dele() {
+    let f = Fixture::new();
+    room(&f);
+    let lanes = [Lane::main(ROOM), session("s0")];
+    let epochs: Vec<u64> = lanes.iter().map(|lane| f.hub.groups.reserve_epoch_for_test(lane)).collect();
+    let elsewhere = Lane::main("sala2");
+    let kept = f.hub.groups.reserve_epoch_for_test(&elsewhere);
+    for (lane, epoch) in lanes.iter().zip(&epochs) {
+        assert!(f.hub.groups.current(lane, *epoch), "uma sessão não encerra a outra: {lane:?}");
+    }
+    f.hub.groups.stop(&f.hub, ROOM);
+    for (lane, epoch) in lanes.iter().zip(epochs) {
+        assert!(!f.hub.groups.current(lane, epoch), "{lane:?}");
+    }
+    assert!(f.hub.groups.current(&elsewhere, kept), "outro grupo segue");
+    f.hub.shutdown().await;
+    let _ = std::fs::remove_dir_all(&f.dir);
+}
+
+/// Stop com um membro no meio do turno: a mensagem fica parada, quem não recebeu não recebe, e a rodada encerrada
+/// não a confirma como enviada.
+#[tokio::test]
+async fn stop_no_meio_da_rodada_nao_confirma_sem_entrega() {
+    let f = Fixture::new();
+    room_with(&f, &["bot", "bot2"]);
+    f.hub.shutdown().await;
+    let hub = reopen(&f.dir);
+    std::fs::write(f.dir.join("hold"), "").unwrap();
+    let local = crate::api::devices::Caller::Local;
+    let sent = crate::api::dispatch(&hub, &local, "send", json!({"botId":ROOM,"text":"Oi, sala"})).await.unwrap();
+    let id = sent["entry"]["id"].as_str().unwrap().to_owned();
+    f.until(|| f.prompts().len() == 1).await;
+    crate::api::dispatch(&hub, &local, "stop", json!({"botId":ROOM})).await.unwrap();
+    assert_eq!(hub.store.entry(&id).unwrap().data["status"], "cancelled");
+    std::fs::remove_file(f.dir.join("hold")).unwrap();
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let saved = hub.store.entry(&id).unwrap();
+    assert_eq!(saved.data["status"], "cancelled", "a rodada encerrada não confirma");
+    assert_eq!(saved.data["groupReview"], true);
+    assert_eq!(f.prompts().len(), 1, "o segundo membro não recebe depois do Stop");
+    hub.shutdown().await;
+    let _ = std::fs::remove_dir_all(&f.dir);
+}
+
+/// Uma sessão retomável e outra que falha ao ser classificada depois dela: a sala fica bloqueada sem retomar nada.
+#[tokio::test]
+async fn sala_que_falha_no_meio_da_classificacao_nao_retoma_nada() {
+    let f = Fixture::new();
+    room(&f);
+    f.hub.shutdown().await;
+    let resumable = pending(&f.dir, None);
+    let uncertain = pending_in(&f.dir, &session("sb"), "Incerta");
+    {
+        let store = Store::open(&f.dir.join("test.db")).unwrap();
+        let delivery = json!({"handed":["bot"],"done":[]});
+        store.kv_set(&format!("donna.group.delivery.{uncertain}"), &delivery.to_string()).unwrap();
+        store
+            .db
+            .locked()
+            .execute_batch(
+                "CREATE TRIGGER reject_session BEFORE UPDATE ON entries WHEN OLD.session_id = 'sb'
+                 BEGIN SELECT RAISE(ABORT, 'falha simulada'); END",
+            )
+            .unwrap();
+    }
+    let hub = reopen(&f.dir);
+    assert!(hub.groups.blocked(ROOM));
+    tokio::time::sleep(Duration::from_millis(700)).await;
+    assert_eq!(f.prompts().len(), 0, "nada é entregue numa sala bloqueada");
+    assert_eq!(hub.store.entry(&resumable).unwrap().data["status"], "sending");
+    hub.shutdown().await;
+    let _ = std::fs::remove_dir_all(&f.dir);
+}

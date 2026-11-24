@@ -42,6 +42,9 @@ pub(crate) struct Delivery {
     pub done: BTreeSet<String>,
     #[serde(default)]
     pub resumed: bool,
+    /// Um membro não recebeu porque o envio falhou: a mensagem não vira enviada nesta execução.
+    #[serde(skip)]
+    missed: bool,
 }
 
 fn key(entry: &str) -> String {
@@ -85,14 +88,27 @@ impl Delivery {
         }
     }
 
+    /// O envio ao membro falhou (o ator já parou, como no desligamento): ele não recebeu, e a mensagem fica pendente
+    /// para o boot retomá-la só para quem faltou. Falha ao gravar deixa o membro como «recebeu sem terminar».
+    pub(crate) fn missed(&mut self, hub: &Hub, group: &str, member: &str) {
+        self.handed.remove(member);
+        self.missed = true;
+        if let Err(error) = self.save(hub, group) {
+            tracing::warn!(group, error = format!("{error:#}"), "falha de envio ao membro não registrada");
+        }
+    }
+
     /// Quem já recebeu esta mensagem não a recebe de novo na retomada.
     pub(crate) fn skips(&self, member: &str) -> bool {
         self.handed.contains(member)
     }
 
     /// A primeira rodada acabou (ou uma mensagem mais nova a encerrou): a mensagem conta como enviada. Uma parada
-    /// já saiu de `sending` e fica como está.
+    /// já saiu de `sending` e fica como está; uma com envio que falhou também.
     pub(crate) fn confirm(&self, hub: &Hub) {
+        if self.missed {
+            return;
+        }
         if let Err(error) = settle(hub, std::slice::from_ref(&self.entry_id), "sent", false) {
             tracing::warn!(
                 entry = self.entry_id,
@@ -138,14 +154,17 @@ fn settle(hub: &Hub, ids: &[String], status: &str, review: bool) -> Result<()> {
     Ok(())
 }
 
-/// Stop: interrompe toda mensagem pendente do grupo, fora dos prompts, antes de o pedido ser confirmado.
+/// Stop: interrompe toda mensagem pendente do grupo, fora dos prompts, antes de o pedido ser confirmado e antes de a
+/// sala ver o Stop; uma mensagem que começa depois é uma rodada nova.
 pub(crate) fn stop(hub: &Hub, group: &str) -> Result<()> {
-    let ids: Vec<String> = {
-        let c = hub.store.db.locked();
-        let mut st = c.prepare(&format!("SELECT id FROM entries WHERE {PENDING_SQL}"))?;
-        st.query_map(params![group, PENDING], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?
-    };
-    settle(hub, &ids, "cancelled", true)
+    hub.groups.stop_after(hub, group, || {
+        let ids: Vec<String> = {
+            let c = hub.store.db.locked();
+            let mut st = c.prepare(&format!("SELECT id FROM entries WHERE {PENDING_SQL}"))?;
+            st.query_map(params![group, PENDING], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?
+        };
+        settle(hub, &ids, "cancelled", true)
+    })
 }
 
 /// Sem prova para retomar: o aviso vem antes da marca, para uma queda entre os dois repetir só o aviso único.
@@ -200,6 +219,7 @@ fn recover_room(hub: &Arc<Hub>, group: &BotConfig) -> Result<()> {
         st.query_map(params![group.id, PENDING], crate::store::row_entry)?.collect::<rusqlite::Result<_>>()?
     };
     let mut lanes: BTreeMap<String, Vec<Entry>> = BTreeMap::new();
+    let mut resumes = Vec::new();
     for entry in pending {
         lanes.entry(entry.session_id.clone()).or_default().push(entry);
     }
@@ -233,6 +253,10 @@ fn recover_room(hub: &Arc<Hub>, group: &BotConfig) -> Result<()> {
         delivery.resumed = true;
         delivery.upto = Some(entry.seq);
         delivery.save(hub, &group.id)?;
+        resumes.push((lane, delivery));
+    }
+    // Só depois de a sala inteira estar classificada: uma sala que falha no meio não retoma nada.
+    for (lane, delivery) in resumes {
         crate::chat::group::start(hub, group, lane, delivery);
     }
     Ok(())
