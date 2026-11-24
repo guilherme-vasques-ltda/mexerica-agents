@@ -79,6 +79,7 @@ export const textos = {
   "conversa.avisos.open.politica": "A configuração do Codex neste Mac não deixa a conversa ficar só em texto e sem aprovações. Resposta cancelada.",
   "conversa.avisos.open.indisponivel": "Não deu para abrir o Codex no perfil da Open. Confira a conta em Contas de IA.",
   "conversa.avisos.open.falhou": "O Codex não conseguiu responder agora. Tente de novo.",
+  "conversa.avisos.grupo.bloqueado": "O Hub não conseguiu conferir as mensagens pendentes deste grupo ao reiniciar. O grupo fica bloqueado e nada foi entregue de novo. Reinicie o Hub depois de corrigir o problema.",
   "conversa.avisos.falha.cabecalho.naoSei": "Conta: não consegui confirmar",
   "conversa.avisos.falha.cabecalho.dica": "Abrir Contas de IA",
   "conversa.avisos.motorMudo.minutos.one": "{n} minuto",

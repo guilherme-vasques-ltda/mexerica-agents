@@ -83,6 +83,7 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.avisos.open.politica": "This Mac’s Codex settings don’t allow a text-only chat without approvals. Reply canceled.",
   "conversa.avisos.open.indisponivel": "Couldn’t open Codex in the Open profile. Check the account in AI accounts.",
   "conversa.avisos.open.falhou": "Codex couldn’t reply right now. Try again.",
+  "conversa.avisos.grupo.bloqueado": "The Hub couldn’t check this group’s pending messages when it restarted. The group stays blocked and nothing was delivered again. Restart the Hub after fixing the problem.",
   "conversa.avisos.falha.cabecalho.naoSei": "Account: couldn't confirm",
   "conversa.avisos.falha.cabecalho.dica": "Open AI Accounts",
   "conversa.avisos.motorMudo.minutos.one": "{n} minute",

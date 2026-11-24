@@ -410,7 +410,7 @@ mod tests {
         actor.active_group = Some(crate::chat::group::GroupTurn {
             lane: channel.clone(),
             prompt: "[Channel: Sala]\nMensagem".into(),
-            shown: 0,
+            shown: vec![],
             epoch: hub.groups.reserve_epoch_for_test(&channel),
             reply,
         });

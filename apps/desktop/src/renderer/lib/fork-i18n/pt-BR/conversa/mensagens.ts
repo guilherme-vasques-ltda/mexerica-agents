@@ -12,6 +12,7 @@ export const textos = {
   "conversa.mensagens.reenviar": "Reenviar",
   "conversa.mensagens.apagar": "Apagar",
   "conversa.mensagens.interrompida": "Não enviada — interrompida",
+  "conversa.mensagens.interrompidaParcial": "Interrompida — pode ter chegado a parte do grupo",
   "conversa.mensagens.tentarDeNovo": "Tentar de novo",
   "conversa.mensagens.parar": "Parar",
   "conversa.mensagens.tirar": "Tirar {emoji}",
