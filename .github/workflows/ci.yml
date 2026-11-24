@@ -24,6 +24,7 @@ jobs:
     outputs:
       host: ${{ steps.selection.outputs.host }}
       desktop: ${{ steps.selection.outputs.desktop }}
+      screen-linux: ${{ steps.selection.outputs.screen-linux }}
       heavy: ${{ steps.selection.outputs.heavy }}
       stacked: ${{ steps.selection.outputs.stacked }}
     env:
@@ -52,10 +53,14 @@ jobs:
           git diff --name-only --no-renames -z "${parents[0]}" HEAD > "$RUNNER_TEMP/alterados.z"
           host=false
           desktop=false
+          screen_linux=false
           while IFS= read -r -d '' path; do
             # So o proprio ci.yml muda os jobs pesados; outros workflows e as ferramentas de CI rodam so em leves.
             case "$path" in
               .github/workflows/ci.yml) host=true; desktop=true ;;
+            esac
+            case "$path" in
+              .github/workflows/ci.yml|apps/screen-linux/*|rust-toolchain|rust-toolchain.toml|Cargo.toml|Cargo.lock|.cargo/*|clippy.toml|.clippy.toml) screen_linux=true ;;
             esac
             # Hub: codigo, motor, toolchain e arquivos de outras pastas lidos pelos testes do Hub.
             case "$path" in
@@ -72,13 +77,13 @@ jobs:
               *) desktop=true ;;
             esac
           done < "$RUNNER_TEMP/alterados.z"
-          # Rascunho e PR empilhado (base diferente da main) nao ligam Hub nem Desktop.
+          # Rascunho e PR empilhado (base diferente da main) nao ligam os jobs pesados.
           stacked=false
           [ "$BASE_REF" = main ] || stacked=true
           heavy=true
           if [ "$DRAFT" = true ] || [ "$stacked" = true ]; then heavy=false; fi
-          printf 'host=%s\ndesktop=%s\nheavy=%s\nstacked=%s\n' "$host" "$desktop" "$heavy" "$stacked" >> "$GITHUB_OUTPUT"
-          printf 'Selecao: host=%s desktop=%s heavy=%s stacked=%s\n' "$host" "$desktop" "$heavy" "$stacked" >> "$GITHUB_STEP_SUMMARY"
+          printf 'host=%s\ndesktop=%s\nscreen-linux=%s\nheavy=%s\nstacked=%s\n' "$host" "$desktop" "$screen_linux" "$heavy" "$stacked" >> "$GITHUB_OUTPUT"
+          printf 'Selecao: host=%s desktop=%s screen-linux=%s heavy=%s stacked=%s\n' "$host" "$desktop" "$screen_linux" "$heavy" "$stacked" >> "$GITHUB_STEP_SUMMARY"
       - name: Instalar Gitleaks 8.30.1 com SHA256 fixo
         run: |
           set -euo pipefail
@@ -415,11 +420,37 @@ jobs:
       - name: Isolamento da variante Open (quando existir na arvore)
         run: npm run test:open --if-present
 
+  screen-linux:
+    needs: leves
+    if: ${{ needs.leves.outputs.screen-linux == 'true' && needs.leves.outputs.heavy == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: apps/screen-linux
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Instalar dependencias das bibliotecas e fixtures locais
+        run: |
+          sudo -n apt-get update -qq
+          sudo -n apt-get install -y --no-install-recommends \
+            dbus-daemon libgstreamer-plugins-bad1.0-dev gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-pipewire
+      - run: rustup show active-toolchain || rustup toolchain install
+      - run: cargo build --locked
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - name: Rodar testes sem negociacao ICE de rede
+        run: cargo test --locked -- --skip stream::video_tests::baseline_offer_starts_video_after_the_answer_is_negotiated
+
   # Checagem unica para a protecao da main: verde so quando todo job obrigatorio passou.
   ci-ok:
     name: ci-ok
     if: ${{ always() }}
-    needs: [leves, vazamento, hub, desktop]
+    needs: [leves, vazamento, hub, desktop, screen-linux]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions: {}
@@ -440,14 +471,15 @@ jobs:
             exit 1
           fi
           if [ "$(jq -r '.leves.outputs.heavy' <<< "$NEEDS")" = false ] &&
-            jq -e '.leves.outputs | .host == "true" or .desktop == "true"' > /dev/null <<< "$NEEDS"; then
+            jq -e '.leves.outputs | .host == "true" or .desktop == "true" or .["screen-linux"] == "true"' > /dev/null <<< "$NEEDS"; then
             echo '::error::Testes pesados pendentes neste head. Marque o PR como pronto para executar a prova completa.'
           fi
           jq -e '
             def selected($k): .leves.outputs[$k] == "true";
             def flag($k): .leves.outputs[$k] == "true" or .leves.outputs[$k] == "false";
             (.leves.result == "success") and (.vazamento.result == "success") and
-            flag("host") and flag("desktop") and flag("heavy") and (.leves.outputs.stacked == "false") and
+            flag("host") and flag("desktop") and flag("heavy") and flag("screen-linux") and (.leves.outputs.stacked == "false") and
             (if selected("host") then .hub.result == "success" else .hub.result == "skipped" end) and
-            (if selected("desktop") then .desktop.result == "success" else .desktop.result == "skipped" end)
+            (if selected("desktop") then .desktop.result == "success" else .desktop.result == "skipped" end) and
+            (if selected("screen-linux") then selected("heavy") and .["screen-linux"].result == "success" else .["screen-linux"].result == "skipped" end)
           ' > /dev/null <<< "$NEEDS"
