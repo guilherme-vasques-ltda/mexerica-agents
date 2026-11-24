@@ -36,12 +36,13 @@ pub(crate) fn muse(backend: &str) -> bool {
 }
 
 pub(crate) fn known_meta_credential(name: &str, value: &str) -> bool {
-    let meta_name = matches!(name.to_ascii_uppercase().as_str(), "META_API_KEY" | "MUSE_API_KEY" | "MUSE_AUTH_TOKEN");
-    let meta_format = value
-        .trim()
-        .strip_prefix("LLM_")
-        .and_then(|rest| rest.split_once('_'))
-        .is_some_and(|(id, secret)| !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit()) && !secret.is_empty());
+    let name = name.to_ascii_uppercase();
+    let meta_name = matches!(name.as_str(), "META_API_KEY" | "MUSE_API_KEY" | "MUSE_AUTH_TOKEN");
+    let meta_format = value.trim().strip_prefix("LLM_").is_some_and(|rest| {
+        rest.split_once('_')
+            .is_some_and(|(id, secret)| !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit()) && !secret.is_empty())
+            || (name == "MODEL_API_KEY" && !rest.is_empty())
+    });
     meta_name || meta_format
 }
 
@@ -94,7 +95,9 @@ mod tests {
     #[test]
     fn assinatura_pessoal_credencial_meta_nao_pode_ser_recadastrada_com_outro_nome() {
         assert!(!known_meta_credential("MODEL_API_KEY", "opaque-fixture"));
-        assert!(!known_meta_credential("MODEL_API_KEY", "LLM_fixture"));
+        assert!(known_meta_credential("MODEL_API_KEY", "LLM_fixture"));
+        assert!(!known_meta_credential("OTHER_API_KEY", "LLM_fixture"));
+        assert!(known_meta_credential("meta_api_key", "opaque-fixture"));
         assert!(known_meta_credential("GENERIC_TOKEN", " LLM_0_fixture "));
         assert!(!known_meta_credential("ANTHROPIC_API_KEY", "opaque-fixture"));
     }
