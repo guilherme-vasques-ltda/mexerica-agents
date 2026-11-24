@@ -58,6 +58,19 @@ fn reviews(hub: &Hub) -> usize {
         .count()
 }
 
+/// O aviso de conferência com o código que o app usa para traduzir; sem código ele cairia no texto gravado.
+fn review_codes(hub: &Hub) -> Vec<String> {
+    hub.store
+        .history(ROOM, i64::MAX, 100)
+        .unwrap()
+        .iter()
+        .filter(|e| {
+            e.kind == "notice" && e.data["text"].as_str().is_some_and(|t| t.contains("confira antes de reenviar"))
+        })
+        .map(|e| e.data["code"].as_str().unwrap_or_default().to_owned())
+        .collect()
+}
+
 #[tokio::test]
 async fn mensagem_pendente_sem_entrega_e_retomada_uma_vez() {
     let f = Fixture::new();
@@ -117,6 +130,7 @@ async fn entrega_incerta_ou_retomada_que_caiu_vira_conferencia_sem_repetir() {
         .await;
         assert_eq!(hub.store.entry(&id).unwrap().data["groupReview"], true, "incerta nunca vira enviada: {delivery}");
         assert_eq!(reviews(&hub), 1, "{delivery}");
+        assert_eq!(review_codes(&hub), vec!["group_review"], "o aviso leva o código estável: {delivery}");
         tokio::time::sleep(Duration::from_millis(500)).await;
         assert_eq!(f.prompts().len(), 0, "nada é entregue de novo: {delivery}");
         hub.shutdown().await;

@@ -20,6 +20,8 @@ use std::sync::Arc;
 pub(crate) const PENDING: &str = "sending";
 /// Marca da mensagem sem prova de entrega (ou parada): a sala não a mostra aos membros, nem citada.
 pub(crate) const GROUP_REVIEW: &str = "groupReview";
+/// Código do aviso de conferência, para o app mostrar a frase no idioma da janela; o texto gravado é o fallback.
+const GROUP_REVIEW_CODE: &str = "group_review";
 const PREFIX: &str = "donna.group.delivery.";
 /// Mensagens de usuário pendentes da sala; uma linha ilegível nunca derruba a consulta.
 const PENDING_SQL: &str = "bot_id = ?1 AND kind = 'user'
@@ -202,7 +204,7 @@ fn review(hub: &Hub, lane: &Lane, entry: &Entry) -> Result<()> {
         lane,
         EntryKind::Notice,
         entry.turn,
-        &json!({"text":"O Hub reiniciou antes de confirmar a entrega desta mensagem ao grupo. Ela pode já ter chegado a parte dos membros e não foi retomada; confira antes de reenviar.","style":"info"}),
+        &json!({"text":"O Hub reiniciou antes de confirmar a entrega desta mensagem ao grupo. Ela pode já ter chegado a parte dos membros e não foi retomada; confira antes de reenviar.","style":"info","code":GROUP_REVIEW_CODE}),
     )?;
     settle(hub, std::slice::from_ref(&entry.id), "cancelled", true)
 }
