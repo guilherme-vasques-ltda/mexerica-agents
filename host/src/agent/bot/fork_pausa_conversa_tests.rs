@@ -37,13 +37,19 @@ async fn efeito_incerto_pausa_a_conversa_ate_liberar_e_sobrevive_a_reinicio_dupl
     std::fs::write(f.dir.join("blocked"), "").unwrap();
     std::fs::write(f.dir.join("hold"), "").unwrap();
     send(&f.hub, "Efeito possível").await;
-    f.until(|| f.prompts().len() == 1).await;
+    f.until("efeito_incerto_pausa_a_conversa_ate_liberar_e_sobrevive_a_reinicio_duplo", &f.hub, || {
+        f.prompts().len() == 1
+    })
+    .await;
     assert_eq!(admission::current(&f.hub.store, "bot").unwrap().unwrap().phase, admission::Phase::Permitted);
     f.hub.shutdown().await;
     std::fs::remove_file(f.dir.join("hold")).unwrap();
 
     let first = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
-    f.until(|| admission::current(&first.store, "bot").unwrap().is_none()).await;
+    f.until("efeito_incerto_pausa_a_conversa_ate_liberar_e_sobrevive_a_reinicio_duplo", &first, || {
+        admission::current(&first.store, "bot").unwrap().is_none()
+    })
+    .await;
     assert!(admission::conversation_paused(&first.store, "bot", "bot").unwrap());
     let later = send(&first, "Depois do reinício").await;
     tokio::time::sleep(Duration::from_millis(900)).await;
@@ -68,7 +74,10 @@ async fn efeito_incerto_pausa_a_conversa_ate_liberar_e_sobrevive_a_reinicio_dupl
     .await
     .unwrap();
     assert_eq!(released["released"], json!(["bot"]));
-    f.until(|| f.prompts().len() == 2 && second.store.entry(&later).unwrap().data["status"] == "sent").await;
+    f.until("efeito_incerto_pausa_a_conversa_ate_liberar_e_sobrevive_a_reinicio_duplo", &second, || {
+        f.prompts().len() == 2 && second.store.entry(&later).unwrap().data["status"] == "sent"
+    })
+    .await;
     let prompt = f.prompts()[1].to_string();
     assert!(prompt.contains("Depois do reinício"));
     assert!(!prompt.contains("Efeito possível"), "o turno incerto não é reenviado");
@@ -187,7 +196,7 @@ async fn rotina_com_efeito_incerto_tambem_pausa_a_conversa_em_dois_boots() {
     let run = f.enqueue(&id, "test", true).await;
     let run_id = run["run"]["id"].as_str().unwrap().to_owned();
     f.hub.send_cmd("bot", crate::agent::bot::Cmd::Routine(run_id.clone())).unwrap();
-    f.until(|| f.prompts().len() == 1).await;
+    f.until("rotina_com_efeito_incerto_tambem_pausa_a_conversa_em_dois_boots", &f.hub, || f.prompts().len() == 1).await;
     let record = admission::current(&f.hub.store, "bot").unwrap().unwrap();
     assert_eq!(record.phase, admission::Phase::Permitted);
     assert!(matches!(&record.origin, admission::Origin::Routine { id } if *id == run_id));
@@ -195,7 +204,10 @@ async fn rotina_com_efeito_incerto_tambem_pausa_a_conversa_em_dois_boots() {
     std::fs::remove_file(f.dir.join("hold")).unwrap();
 
     let first = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
-    f.until(|| admission::current(&first.store, "bot").unwrap().is_none()).await;
+    f.until("rotina_com_efeito_incerto_tambem_pausa_a_conversa_em_dois_boots", &first, || {
+        admission::current(&first.store, "bot").unwrap().is_none()
+    })
+    .await;
     assert_eq!(first.routines.list("bot")["runs"][0]["status"], "interrupted");
     assert!(admission::conversation_paused(&first.store, "bot", &record.conversation_id).unwrap());
     let later = send(&first, "Depois da rotina").await;
@@ -216,7 +228,10 @@ async fn rotina_com_efeito_incerto_tambem_pausa_a_conversa_em_dois_boots() {
     crate::api::dispatch(&second, &crate::api::devices::Caller::Local, "releaseConversation", json!({"botId":"bot"}))
         .await
         .unwrap();
-    f.until(|| f.prompts().len() == 2 && second.store.entry(&later).unwrap().data["status"] == "sent").await;
+    f.until("rotina_com_efeito_incerto_tambem_pausa_a_conversa_em_dois_boots", &second, || {
+        f.prompts().len() == 2 && second.store.entry(&later).unwrap().data["status"] == "sent"
+    })
+    .await;
     assert!(f.prompts()[1].to_string().contains("Depois da rotina"));
     assert_eq!(second.routines.list("bot")["runs"].as_array().unwrap().len(), 1, "a rotina não é reenfileirada");
     second.shutdown().await;
@@ -230,7 +245,7 @@ async fn queda_depois_da_pausa_e_antes_do_aviso_nao_duplica_nada() {
     std::fs::write(f.dir.join("blocked"), "").unwrap();
     std::fs::write(f.dir.join("hold"), "").unwrap();
     send(&f.hub, "Efeito possível").await;
-    f.until(|| f.prompts().len() == 1).await;
+    f.until("queda_depois_da_pausa_e_antes_do_aviso_nao_duplica_nada", &f.hub, || f.prompts().len() == 1).await;
     let record = admission::current(&f.hub.store, "bot").unwrap().unwrap();
     f.hub.shutdown().await;
     std::fs::remove_file(f.dir.join("hold")).unwrap();
@@ -241,7 +256,10 @@ async fn queda_depois_da_pausa_e_antes_do_aviso_nao_duplica_nada() {
         assert_eq!(notices(&store), 0);
     }
     let first = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
-    f.until(|| admission::current(&first.store, "bot").unwrap().is_none()).await;
+    f.until("queda_depois_da_pausa_e_antes_do_aviso_nao_duplica_nada", &first, || {
+        admission::current(&first.store, "bot").unwrap().is_none()
+    })
+    .await;
     assert!(admission::conversation_paused(&first.store, "bot", &record.conversation_id).unwrap());
     assert_eq!(notices(&first.store), 1);
     assert_eq!(f.prompts().len(), 1);
@@ -266,7 +284,7 @@ async fn rotina_terminal_sem_prova_da_cerca_tambem_pausa() {
         let run = f.enqueue(&id, "test", true).await;
         let run_id = run["run"]["id"].as_str().unwrap().to_owned();
         f.hub.send_cmd("bot", crate::agent::bot::Cmd::Routine(run_id)).unwrap();
-        f.until(|| f.prompts().len() == 1).await;
+        f.until("rotina_terminal_sem_prova_da_cerca_tambem_pausa", &f.hub, || f.prompts().len() == 1).await;
         let record = admission::current(&f.hub.store, "bot").unwrap().unwrap();
         assert_eq!(record.phase, admission::Phase::Permitted);
         f.hub.shutdown().await;
@@ -280,7 +298,10 @@ async fn rotina_terminal_sem_prova_da_cerca_tambem_pausa() {
             store.kv_set("routines.v1", &state.to_string()).unwrap();
         }
         let hub = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
-        f.until(|| admission::current(&hub.store, "bot").unwrap().is_none()).await;
+        f.until("rotina_terminal_sem_prova_da_cerca_tambem_pausa", &f.hub, || {
+            admission::current(&hub.store, "bot").unwrap().is_none()
+        })
+        .await;
         assert!(admission::conversation_paused(&hub.store, "bot", &record.conversation_id).unwrap(), "{status}");
         assert_routine_notices(&hub.store, 0);
         assert_eq!(hub.routines.list("bot")["runs"][0]["status"], status);

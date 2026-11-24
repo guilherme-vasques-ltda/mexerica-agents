@@ -29,7 +29,10 @@ async fn c4_desligado_sobrevive_reinicio_e_manual_preserva_pedido_e_sessao() {
     policy(&f, false, false);
     f.make_retry_due();
     f.hub = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
-    f.until(|| f.hub.runtime("bot").status == BotStatus::Error).await;
+    f.until("c4_desligado_sobrevive_reinicio_e_manual_preserva_pedido_e_sessao", &f.hub, || {
+        f.hub.runtime("bot").status == BotStatus::Error
+    })
+    .await;
     assert_eq!(f.prompts().len(), 1);
     let saved = checkpoint(&f);
     assert_eq!(saved["phase"], "paused");
@@ -127,7 +130,10 @@ async fn c4_cancelamento_sobrevive_reinicio_e_nao_atinge_outro_destino() {
     f.make_retry_due();
     policy(&f, true, true);
     f.hub = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
-    f.until(|| f.hub.store.entry(&alvo.entry_id).unwrap().data["subscriptionWait"]["cancelled"] == true).await;
+    f.until("c4_cancelamento_sobrevive_reinicio_e_nao_atinge_outro_destino", &f.hub, || {
+        f.hub.store.entry(&alvo.entry_id).unwrap().data["subscriptionWait"]["cancelled"] == true
+    })
+    .await;
     assert_eq!(f.prompts().len(), 1);
     assert!(limits::cancellation(&f.hub.store, &alvo.wait_id).unwrap().is_some());
     assert!(f.hub.store.kv_read("turn.waiting.bot").unwrap().is_none());
@@ -298,7 +304,10 @@ async fn c4_recupera_aviso_cancelado_apos_falha_de_publicacao_e_reinicio() {
     assert_eq!(limits::pending_notices(&f.hub.store, "bot").unwrap().len(), 1);
     f.hub.store.db.locked().execute_batch("DROP TRIGGER fail_cancel_notice").unwrap();
     f.hub = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
-    f.until(|| f.hub.store.entry(&alvo.entry_id).unwrap().data["subscriptionWait"]["cancelled"] == true).await;
+    f.until("c4_recupera_aviso_cancelado_apos_falha_de_publicacao_e_reinicio", &f.hub, || {
+        f.hub.store.entry(&alvo.entry_id).unwrap().data["subscriptionWait"]["cancelled"] == true
+    })
+    .await;
     assert_eq!(f.hub.store.entry(&alvo.entry_id).unwrap().data["subscriptionWait"]["retry"], true);
     assert_eq!(limits::pending_notices(&f.hub.store, "bot").unwrap(), [] as [Value; 0]);
     assert_eq!(f.prompts().len(), 1);
@@ -318,7 +327,10 @@ async fn c4_cancelar_apos_permissao_nao_promete_ausencia_de_efeitos_nem_libera_r
     let alvo = target(&checkpoint(&f));
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
     actor.retry_waiting(&tx).await;
-    f.until(|| f.prompts().len() == 2).await;
+    f.until("c4_cancelar_apos_permissao_nao_promete_ausencia_de_efeitos_nem_libera_replay", &f.hub, || {
+        f.prompts().len() == 2
+    })
+    .await;
     assert_eq!(limits::cancel(&f.hub.store, &alvo).unwrap()["alreadyStarted"], true);
     assert!(actor.sync_usage_control().await);
     assert!(actor.stop_requested);
@@ -370,7 +382,8 @@ async fn c4_cancelar_apos_reinicio_conserva_incerteza_mesmo_sem_cerca_ativa() {
     let alvo = target(&checkpoint(&f));
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
     actor.retry_waiting(&tx).await;
-    f.until(|| f.prompts().len() == 2).await;
+    f.until("c4_cancelar_apos_reinicio_conserva_incerteza_mesmo_sem_cerca_ativa", &f.hub, || f.prompts().len() == 2)
+        .await;
     if let Some(c) = actor.conn.take() {
         c.acp.kill().await;
     }
@@ -399,7 +412,10 @@ async fn c4_retomar_revogado_na_fila_do_ator_nao_retoma() {
     policy(&f, false, false);
     f.make_retry_due();
     f.hub = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
-    f.until(|| f.hub.runtime("bot").status == BotStatus::Error).await;
+    f.until("c4_retomar_revogado_na_fila_do_ator_nao_retoma", &f.hub, || {
+        f.hub.runtime("bot").status == BotStatus::Error
+    })
+    .await;
     f.hub.shutdown().await;
     let device = Device {
         key: "mac-c4".into(),

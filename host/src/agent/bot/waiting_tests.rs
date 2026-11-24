@@ -47,7 +47,10 @@ async fn rodada4_handoff_de_rollover_e_consumido_antes_da_primeira_espera() {
     f.hub.shutdown().await;
     f.make_retry_due();
     f.hub = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
-    f.until(|| f.prompts().len() == 2 && f.hub.runtime("bot").status == BotStatus::Idle).await;
+    f.until("rodada4_handoff_de_rollover_e_consumido_antes_da_primeira_espera", &f.hub, || {
+        f.prompts().len() == 2 && f.hub.runtime("bot").status == BotStatus::Idle
+    })
+    .await;
     assert_eq!(f.prompts()[0]["sessionId"], f.prompts()[1]["sessionId"]);
     assert!(!f.prompts()[1]["prompt"][0]["text"].as_str().unwrap().contains("handoff"));
     f.hub.shutdown().await;
@@ -105,7 +108,8 @@ async fn rodada4_crash_apos_permissao_preserva_intervalo_e_pausa_sem_replay() {
     assert!(actor.restore_waiting());
     let started = crate::store::now_ms();
     actor.retry_waiting(&done).await;
-    f.until(|| f.prompts().len() == 2).await;
+    f.until("rodada4_crash_apos_permissao_preserva_intervalo_e_pausa_sem_replay", &f.hub, || f.prompts().len() == 2)
+        .await;
     let permitted = admission::current(&f.hub.store, "bot").unwrap().unwrap();
     let saved: Value = serde_json::from_str(&f.hub.store.kv_get("turn.waiting.bot").unwrap()).unwrap();
     assert_eq!(saved["phase"], "retrying");
@@ -146,7 +150,10 @@ async fn rodada4_checkpoint_corrompido_nao_bloqueia_envio_nem_configuracao() {
     .await
     .unwrap();
     assert_ne!(result["entry"]["data"]["subscriptionQueued"], true);
-    f.until(|| f.waiting_checkpoint_published()).await;
+    f.until("rodada4_checkpoint_corrompido_nao_bloqueia_envio_nem_configuracao", &f.hub, || {
+        f.waiting_checkpoint_published()
+    })
+    .await;
     assert_eq!(f.prompts().len(), 1);
     f.hub.shutdown().await;
     let _ = std::fs::remove_dir_all(&f.dir);
@@ -163,7 +170,7 @@ async fn rodada4_tombstone_e_inflight_legado_nao_fabricam_retomada_e_liberam_que
     store.kv_set("turn.waiting.bot", &saved.to_string()).unwrap();
     store.kv_set("turn.inflight.bot", &crate::store::now_ms().to_string()).unwrap();
     f.hub = Fixture::open(&f.dir, store);
-    f.until(|| {
+    f.until("rodada4_tombstone_e_inflight_legado_nao_fabricam_retomada_e_liberam_queued_seguinte", &f.hub, || {
         f.hub.store.history("bot", i64::MAX, 100).unwrap().iter().any(|entry| {
             entry.kind == "notice"
                 && entry.data["text"].as_str().is_some_and(|text| text.contains("sem checkpoint de retomada"))
@@ -182,7 +189,10 @@ async fn rodada4_tombstone_e_inflight_legado_nao_fabricam_retomada_e_liberam_que
     )
     .await
     .unwrap();
-    f.until(|| f.prompts().len() == 2 && f.hub.runtime("bot").status == BotStatus::Idle).await;
+    f.until("rodada4_tombstone_e_inflight_legado_nao_fabricam_retomada_e_liberam_queued_seguinte", &f.hub, || {
+        f.prompts().len() == 2 && f.hub.runtime("bot").status == BotStatus::Idle
+    })
+    .await;
     assert!(f.prompts()[1].to_string().contains("Pedido novo após legado sem token"));
     f.hub.shutdown().await;
     let _ = std::fs::remove_dir_all(&f.dir);
@@ -247,8 +257,7 @@ impl Fixture {
     }
 
     fn with_backend(backend: &str) -> Self {
-        let dir = std::env::temp_dir().join(format!("donnabot-limit-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::store::private_fixture_dir("donnabot-limit");
         let store = Store::open(&dir.join("test.db")).unwrap();
         let agent = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/subscription_agent.py");
         let cfg: BotConfig = serde_json::from_value(json!({
@@ -278,14 +287,25 @@ impl Fixture {
         hub
     }
 
-    async fn until(&self, condition: impl Fn() -> bool) {
+    async fn until(&self, label: &str, hub: &Hub, condition: impl Fn() -> bool) {
         tokio::time::timeout(Duration::from_secs(20), async {
             while !condition() {
                 tokio::time::sleep(Duration::from_millis(20)).await;
             }
         })
         .await
-        .expect("estado esperado");
+        .unwrap_or_else(|error| {
+            let checkpoint_phase = hub
+                .store
+                .kv_get("turn.waiting.bot")
+                .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+                .map_or(Value::Null, |checkpoint| checkpoint["phase"].clone());
+            panic!(
+                "{label}: {error:?}; bot=bot; checkpoint_phase={checkpoint_phase}; bot_status={:?}; prompts={}",
+                hub.runtime("bot").status,
+                self.prompts().len()
+            );
+        });
     }
 
     fn waiting_checkpoint_published(&self) -> bool {
@@ -314,10 +334,10 @@ impl Fixture {
     }
 
     async fn send(&self) {
-        self.send_until(|| self.waiting_checkpoint_published()).await;
+        self.send_until("checkpoint de espera publicado", || self.waiting_checkpoint_published()).await;
     }
 
-    async fn send_until(&self, condition: impl Fn() -> bool) {
+    async fn send_until(&self, label: &str, condition: impl Fn() -> bool) {
         crate::api::dispatch(
             &self.hub,
             &crate::api::devices::Caller::Local,
@@ -328,7 +348,7 @@ impl Fixture {
         .unwrap();
         // Waiting também é preparo anterior à reserva/ACP. Cada cenário
         // fornece a prova que precisa; erro real continua falhando imediatamente.
-        self.until(|| condition() || self.hub.runtime("bot").status == BotStatus::Error).await;
+        self.until(label, &self.hub, || condition() || self.hub.runtime("bot").status == BotStatus::Error).await;
         assert_eq!(self.hub.bot_value_for_test("bot")["status"], "waiting");
         assert!(condition(), "a espera precisa da evidência pedida pelo cenário");
     }
@@ -518,7 +538,10 @@ async fn espera_sobrevive_reinicio_e_retoma_sem_duplicar_transcript() {
     // A retomada D72 independe da janela de uma hora do resume de crashes comum.
     store.kv_set("turn.inflight.bot", "1").unwrap();
     f.hub = Fixture::open(&f.dir, store);
-    f.until(|| f.prompts().len() == 2 && f.hub.runtime("bot").status == BotStatus::Idle).await;
+    f.until("espera_sobrevive_reinicio_e_retoma_sem_duplicar_transcript", &f.hub, || {
+        f.prompts().len() == 2 && f.hub.runtime("bot").status == BotStatus::Idle
+    })
+    .await;
     assert_eq!(f.prompts()[1]["sessionId"], "session-1");
     assert_eq!(std::fs::read_to_string(f.dir.join("session-count")).unwrap(), "1");
     f.assert_finished_once();
@@ -551,7 +574,10 @@ async fn edicao_do_padrao_durante_espera_conserva_a_selecao_original_do_turno() 
     f.hub.shutdown().await;
     f.make_retry_due();
     f.hub = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
-    f.until(|| f.prompts().len() == 2 && f.hub.runtime("bot").status == BotStatus::Idle).await;
+    f.until("edicao_do_padrao_durante_espera_conserva_a_selecao_original_do_turno", &f.hub, || {
+        f.prompts().len() == 2 && f.hub.runtime("bot").status == BotStatus::Idle
+    })
+    .await;
     assert_eq!(f.prompts()[1]["sessionId"], "session-1");
     assert_eq!(std::fs::read_to_string(f.dir.join("session-count")).unwrap(), "1");
     f.assert_finished_once();
@@ -569,7 +595,10 @@ async fn parar_cancela_a_espera_persistida_do_claude_sem_reset() {
     f.send().await;
     assert!(f.hub.bot_value_for_test("bot")["resumeAt"].is_null());
     f.hub.send_cmd("bot", super::Cmd::Stop).unwrap();
-    f.until(|| f.hub.runtime("bot").status == BotStatus::Idle).await;
+    f.until("parar_cancela_a_espera_persistida_do_claude_sem_reset", &f.hub, || {
+        f.hub.runtime("bot").status == BotStatus::Idle
+    })
+    .await;
     assert!(f.hub.store.kv_get("turn.waiting.bot").is_none());
     assert_eq!(f.prompts().len(), 1);
     f.hub.shutdown().await;
@@ -586,7 +615,7 @@ async fn reinicio_durante_retry_preserva_a_sessao_da_tentativa() {
     f.hub.shutdown().await;
     f.make_retry_due();
     f.hub = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
-    f.until(|| f.prompts().len() == 2).await;
+    f.until("reinicio_durante_retry_preserva_a_sessao_da_tentativa", &f.hub, || f.prompts().len() == 2).await;
     assert_eq!(f.prompts()[1]["sessionId"], "session-1");
     let before: Value = serde_json::from_str(&f.hub.store.kv_read("turn.waiting.bot").unwrap().unwrap()).unwrap();
     assert_eq!(before["phase"], "retrying");
@@ -595,7 +624,10 @@ async fn reinicio_durante_retry_preserva_a_sessao_da_tentativa() {
     f.make_retry_due();
     let store = Store::open(&f.dir.join("test.db")).unwrap();
     f.hub = Fixture::open(&f.dir, store);
-    f.until(|| f.hub.runtime("bot").status == BotStatus::Error).await;
+    f.until("reinicio_durante_retry_preserva_a_sessao_da_tentativa", &f.hub, || {
+        f.hub.runtime("bot").status == BotStatus::Error
+    })
+    .await;
     assert_eq!(f.prompts().len(), 2, "permit incerta não autoriza novo prompt no reinício");
     let paused: Value = serde_json::from_str(&f.hub.store.kv_read("turn.waiting.bot").unwrap().unwrap()).unwrap();
     assert_eq!(paused["phase"], "paused");
@@ -604,7 +636,10 @@ async fn reinicio_durante_retry_preserva_a_sessao_da_tentativa() {
     f.hub
         .send_cmd("bot", super::Cmd::RetrySubscription { entry_id: paused["notice"].as_str().unwrap().into() })
         .unwrap();
-    f.until(|| f.prompts().len() == 3 && f.hub.runtime("bot").status == BotStatus::Idle).await;
+    f.until("reinicio_durante_retry_preserva_a_sessao_da_tentativa", &f.hub, || {
+        f.prompts().len() == 3 && f.hub.runtime("bot").status == BotStatus::Idle
+    })
+    .await;
     assert_eq!(f.prompts()[2]["sessionId"], "session-1");
     assert_eq!(std::fs::read_to_string(f.dir.join("session-count")).unwrap(), "1");
     f.assert_finished_once();
@@ -619,7 +654,10 @@ async fn cancelamento_com_falha_de_exclusao_nao_reexecuta_no_reinicio() {
     let db = rusqlite::Connection::open(f.dir.join("test.db")).unwrap();
     db.execute_batch("CREATE TRIGGER keep_wait BEFORE DELETE ON kv WHEN OLD.k = 'turn.waiting.bot' BEGIN SELECT RAISE(FAIL, 'temporariamente indisponível'); END;").unwrap();
     f.hub.send_cmd("bot", super::Cmd::Stop).unwrap();
-    f.until(|| f.hub.runtime("bot").status == BotStatus::Idle).await;
+    f.until("cancelamento_com_falha_de_exclusao_nao_reexecuta_no_reinicio", &f.hub, || {
+        f.hub.runtime("bot").status == BotStatus::Idle
+    })
+    .await;
     let saved: Value = serde_json::from_str(&f.hub.store.kv_get("turn.waiting.bot").unwrap()).unwrap();
     assert_eq!(saved["phase"], "finished");
     f.hub.shutdown().await;
@@ -636,7 +674,7 @@ async fn falha_inicial_de_persistencia_e_retentada_antes_do_reset() {
     let f = Fixture::new();
     let db = rusqlite::Connection::open(f.dir.join("test.db")).unwrap();
     db.execute_batch("CREATE TRIGGER reject_wait BEFORE INSERT ON kv WHEN NEW.k = 'turn.waiting.bot' BEGIN SELECT RAISE(FAIL, 'temporariamente indisponível'); END;").unwrap();
-    f.send_until(|| {
+    f.send_until("checkpoint aguardado da entrada pausada", || {
         let runtime = f.hub.runtime("bot");
         runtime.preparing_turn_token.is_none()
             && runtime.memory_turn_token.is_none()
@@ -651,7 +689,10 @@ async fn falha_inicial_de_persistencia_e_retentada_antes_do_reset() {
     assert!(f.hub.store.kv_get("turn.waiting.bot").is_none());
     assert_ne!(f.hub.store.kv_get("turn.inflight.bot").unwrap_or_default(), "");
     db.execute_batch("DROP TRIGGER reject_wait").unwrap();
-    f.until(|| f.hub.store.kv_get("turn.waiting.bot").is_some()).await;
+    f.until("falha_inicial_de_persistencia_e_retentada_antes_do_reset", &f.hub, || {
+        f.hub.store.kv_get("turn.waiting.bot").is_some()
+    })
+    .await;
     assert_eq!(f.hub.runtime("bot").status, BotStatus::Waiting);
     assert_eq!(f.prompts().len(), 1);
     f.hub.shutdown().await;
@@ -703,7 +744,10 @@ async fn turno_oculto_sem_sessao_recarregavel_encerra_a_espera() {
     store.kv_set("turn.waiting.bot", &pending.to_string()).unwrap();
     std::fs::write(f.dir.join("fail-load"), "").unwrap();
     f.hub = Fixture::open(&f.dir, store);
-    f.until(|| f.hub.runtime("bot").status == BotStatus::Error).await;
+    f.until("turno_oculto_sem_sessao_recarregavel_encerra_a_espera", &f.hub, || {
+        f.hub.runtime("bot").status == BotStatus::Error
+    })
+    .await;
     assert!(f.hub.store.kv_get("turn.waiting.bot").is_none());
     assert_eq!(f.prompts().len(), 1, "não repete silenciosamente um turno oculto numa sessão vazia");
     f.hub.shutdown().await;
@@ -721,7 +765,7 @@ async fn limite_ao_recarregar_sessao_nao_a_substitui_por_sessao_vazia() {
     store.kv_set("turn.waiting.bot", &pending.to_string()).unwrap();
     std::fs::write(f.dir.join("limit-load"), "").unwrap();
     f.hub = Fixture::open(&f.dir, store);
-    f.until(|| {
+    f.until("limite_ao_recarregar_sessao_nao_a_substitui_por_sessao_vazia", &f.hub, || {
         f.hub.store.kv_get("turn.waiting.bot").is_some_and(|raw| {
             let saved: Value = serde_json::from_str(&raw).unwrap();
             saved["retryAt"].as_i64().unwrap_or(0) > crate::store::now_ms()
@@ -751,7 +795,10 @@ async fn falha_no_checkpoint_preserva_pedido_e_retenta_na_mesma_sessao() {
     // Evidência positiva: a tentativa chegou a gravar o checkpoint `retrying` e o gatilho o recusou (o contador fica,
     // porque RAISE(FAIL) não desfaz o que o comando já fez).
     let attempts = || -> i64 { db.query_row("SELECT COUNT(*) FROM checkpoint_attempts", [], |r| r.get(0)).unwrap() };
-    f.until(|| attempts() >= 1 && f.hub.runtime("bot").status == BotStatus::Waiting).await;
+    f.until("falha_no_checkpoint_preserva_pedido_e_retenta_na_mesma_sessao", &f.hub, || {
+        attempts() >= 1 && f.hub.runtime("bot").status == BotStatus::Waiting
+    })
+    .await;
     assert_eq!(f.prompts().len(), 1, "nenhum prompt antes de salvar o checkpoint");
     let saved: Value = serde_json::from_str(&f.hub.store.kv_get("turn.waiting.bot").unwrap()).unwrap();
     assert_eq!(saved["phase"], "waiting");
@@ -759,7 +806,10 @@ async fn falha_no_checkpoint_preserva_pedido_e_retenta_na_mesma_sessao() {
     db.execute_batch("DROP TRIGGER reject_checkpoint").unwrap();
     f.make_retry_due();
     f.hub = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
-    f.until(|| f.prompts().len() == 2 && f.hub.runtime("bot").status == BotStatus::Idle).await;
+    f.until("falha_no_checkpoint_preserva_pedido_e_retenta_na_mesma_sessao", &f.hub, || {
+        f.prompts().len() == 2 && f.hub.runtime("bot").status == BotStatus::Idle
+    })
+    .await;
     assert_eq!(f.prompts()[1]["sessionId"], "session-1");
     f.assert_finished_once();
     f.hub.shutdown().await;
@@ -778,7 +828,10 @@ async fn rejeicao_de_uso_nao_reenvia_turno_concluido() {
     )
     .await
     .unwrap();
-    f.until(|| f.prompts().len() == 1 && f.hub.runtime("bot").status != BotStatus::Working).await;
+    f.until("rejeicao_de_uso_nao_reenvia_turno_concluido", &f.hub, || {
+        f.prompts().len() == 1 && f.hub.runtime("bot").status != BotStatus::Working
+    })
+    .await;
     assert_eq!(f.hub.runtime("bot").status, BotStatus::Idle);
     assert!(f.hub.store.kv_get("turn.waiting.bot").is_none());
     f.assert_finished_once();
@@ -798,7 +851,10 @@ async fn stderr_de_ferramenta_nao_estaciona_o_turno() {
     )
     .await
     .unwrap();
-    f.until(|| f.hub.runtime("bot").status == BotStatus::Error || f.waiting_checkpoint_published()).await;
+    f.until("stderr_de_ferramenta_nao_estaciona_o_turno", &f.hub, || {
+        f.hub.runtime("bot").status == BotStatus::Error || f.waiting_checkpoint_published()
+    })
+    .await;
     assert_eq!(f.hub.runtime("bot").status, BotStatus::Error);
     assert!(f.hub.store.kv_get("turn.waiting.bot").is_none());
     assert_eq!(f.prompts().len(), 1);
@@ -829,7 +885,10 @@ async fn mensagens_na_fila_durante_espera_sobrevivem_reinicio() {
     pending["resumeAt"] = json!(0);
     store.kv_set("turn.waiting.bot", &pending.to_string()).unwrap();
     f.hub = Fixture::open(&f.dir, store);
-    f.until(|| f.prompts().len() >= 2 && f.hub.runtime("bot").status == BotStatus::Idle).await;
+    f.until("mensagens_na_fila_durante_espera_sobrevivem_reinicio", &f.hub, || {
+        f.prompts().len() >= 2 && f.hub.runtime("bot").status == BotStatus::Idle
+    })
+    .await;
     assert_eq!(f.prompts().len(), 3, "turno guardado e um lote posterior, sem replay");
     let prompts = f.prompts();
     let text = prompts[2]["prompt"][0]["text"].as_str().unwrap();
@@ -849,7 +908,10 @@ async fn allowed_warning_limpa_rejeicao_antes_de_erro_comum() {
     crate::api::dispatch(&f.hub, &crate::api::devices::Caller::Local, "send", json!({"botId":"bot", "text":"Execute"}))
         .await
         .unwrap();
-    f.until(|| f.hub.runtime("bot").status == BotStatus::Error || f.waiting_checkpoint_published()).await;
+    f.until("allowed_warning_limpa_rejeicao_antes_de_erro_comum", &f.hub, || {
+        f.hub.runtime("bot").status == BotStatus::Error || f.waiting_checkpoint_published()
+    })
+    .await;
     assert_eq!(f.hub.runtime("bot").status, BotStatus::Error);
     assert!(f.hub.store.kv_get("turn.waiting.bot").is_none());
     f.hub.shutdown().await;
@@ -868,7 +930,10 @@ async fn bloqueios_sem_reset_esgotam_tentativas_e_exigem_acao_duravel() {
     store.kv_set("turn.waiting.bot", &pending.to_string()).unwrap();
     std::fs::write(f.dir.join("always-limit"), "").unwrap();
     f.hub = Fixture::open(&f.dir, store);
-    f.until(|| f.hub.runtime("bot").status == BotStatus::Error).await;
+    f.until("bloqueios_sem_reset_esgotam_tentativas_e_exigem_acao_duravel", &f.hub, || {
+        f.hub.runtime("bot").status == BotStatus::Error
+    })
+    .await;
     let saved: Value = serde_json::from_str(&f.hub.store.kv_get("turn.waiting.bot").unwrap()).unwrap();
     assert_eq!(saved["phase"], "paused");
     assert_eq!(saved["attemptCount"], 6);
@@ -876,7 +941,10 @@ async fn bloqueios_sem_reset_esgotam_tentativas_e_exigem_acao_duravel() {
     assert_eq!(f.hub.store.entry(&notice).unwrap().data["subscriptionWait"]["retry"], true);
     f.hub.shutdown().await;
     f.hub = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
-    f.until(|| f.hub.runtime("bot").status == BotStatus::Error).await;
+    f.until("bloqueios_sem_reset_esgotam_tentativas_e_exigem_acao_duravel", &f.hub, || {
+        f.hub.runtime("bot").status == BotStatus::Error
+    })
+    .await;
     tokio::time::sleep(Duration::from_millis(650)).await;
     assert_eq!(f.prompts().len(), 2, "nem tick nem reinício liberam novas tentativas");
     std::fs::remove_file(f.dir.join("always-limit")).unwrap();
@@ -888,7 +956,10 @@ async fn bloqueios_sem_reset_esgotam_tentativas_e_exigem_acao_duravel() {
     )
     .await
     .unwrap();
-    f.until(|| f.prompts().len() == 3 && f.hub.runtime("bot").status == BotStatus::Idle).await;
+    f.until("bloqueios_sem_reset_esgotam_tentativas_e_exigem_acao_duravel", &f.hub, || {
+        f.prompts().len() == 3 && f.hub.runtime("bot").status == BotStatus::Idle
+    })
+    .await;
     f.assert_finished_once();
     assert_eq!(f.hub.store.entry(&notice).unwrap().data["subscriptionWait"]["retry"], false);
     f.hub.shutdown().await;
@@ -909,7 +980,10 @@ async fn falha_na_troca_de_comando_e_publicada_uma_vez_sem_laco_de_tick() {
     let quoted = command.replace('\'', "''");
     db.execute_batch(&format!("CREATE TABLE handoff_attempts (attempt INTEGER); CREATE TRIGGER reject_handoff BEFORE INSERT ON kv WHEN NEW.k = 'turn.waiting.bot' AND json_extract(NEW.v, '$.command') = '{quoted}' BEGIN INSERT INTO handoff_attempts VALUES (1); SELECT RAISE(FAIL, 'handoff indisponível'); END;")).unwrap();
     f.hub.update_bot_by_user(&json!({"id":"bot", "command":command})).unwrap();
-    f.until(|| f.hub.runtime("bot").status == BotStatus::Error).await;
+    f.until("falha_na_troca_de_comando_e_publicada_uma_vez_sem_laco_de_tick", &f.hub, || {
+        f.hub.runtime("bot").status == BotStatus::Error
+    })
+    .await;
     tokio::time::sleep(Duration::from_millis(950)).await;
     let attempts: i64 = db.query_row("SELECT COUNT(*) FROM handoff_attempts", [], |r| r.get(0)).unwrap();
     assert_eq!(attempts, 1);
@@ -920,7 +994,10 @@ async fn falha_na_troca_de_comando_e_publicada_uma_vez_sem_laco_de_tick() {
     f.hub
         .send_cmd("bot", super::Cmd::RetrySubscription { entry_id: saved["notice"].as_str().unwrap().into() })
         .unwrap();
-    f.until(|| f.prompts().len() == 2 && f.hub.runtime("bot").status == BotStatus::Idle).await;
+    f.until("falha_na_troca_de_comando_e_publicada_uma_vez_sem_laco_de_tick", &f.hub, || {
+        f.prompts().len() == 2 && f.hub.runtime("bot").status == BotStatus::Idle
+    })
+    .await;
     f.assert_finished_once();
     assert_eq!(
         crate::fork::sessoes::engine_choice::read(&f.hub.store.db.locked(), "bot").unwrap(),
@@ -971,7 +1048,10 @@ async fn mensagem_recebida_durante_restore_nao_entra_duas_vezes_na_fila() {
     store.kv_set("turn.waiting.bot", &pending.to_string()).unwrap();
     std::fs::write(f.dir.join("slow-load"), "").unwrap();
     f.hub = Fixture::open(&f.dir, store);
-    f.until(|| f.dir.join("loading").exists()).await;
+    f.until("mensagem_recebida_durante_restore_nao_entra_duas_vezes_na_fila", &f.hub, || {
+        f.dir.join("loading").exists()
+    })
+    .await;
     let result = crate::api::dispatch(
         &f.hub,
         &crate::api::devices::Caller::Local,
@@ -981,7 +1061,10 @@ async fn mensagem_recebida_durante_restore_nao_entra_duas_vezes_na_fila() {
     .await
     .unwrap();
     let id = result["entry"]["id"].as_str().unwrap();
-    f.until(|| f.prompts().len() >= 3 && f.hub.runtime("bot").status == BotStatus::Idle).await;
+    f.until("mensagem_recebida_durante_restore_nao_entra_duas_vezes_na_fila", &f.hub, || {
+        f.prompts().len() >= 3 && f.hub.runtime("bot").status == BotStatus::Idle
+    })
+    .await;
     tokio::time::sleep(Duration::from_millis(350)).await;
     assert_eq!(f.prompts().len(), 3);
     assert_eq!(f.hub.store.entry(id).unwrap().data["status"], "sent");
@@ -1002,7 +1085,7 @@ async fn conclusao_com_flush_final_indisponivel_e_publicada_sem_reexecutar_apos_
     f.hub.shutdown().await;
     f.make_retry_due();
     f.hub = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
-    f.until(|| {
+    f.until("conclusao_com_flush_final_indisponivel_e_publicada_sem_reexecutar_apos_crash", &f.hub, || {
         f.hub
             .store
             .kv_get("turn.waiting.bot")
@@ -1012,7 +1095,10 @@ async fn conclusao_com_flush_final_indisponivel_e_publicada_sem_reexecutar_apos_
     f.hub.shutdown().await;
     db.execute_batch("DROP TRIGGER reject_final").unwrap();
     f.hub = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
-    f.until(|| f.hub.store.kv_get("turn.waiting.bot").is_none()).await;
+    f.until("conclusao_com_flush_final_indisponivel_e_publicada_sem_reexecutar_apos_crash", &f.hub, || {
+        f.hub.store.kv_get("turn.waiting.bot").is_none()
+    })
+    .await;
     assert_eq!(f.prompts().len(), 2, "publicar o resultado salvo nunca chama session/prompt");
     f.assert_finished_once();
     assert!(
@@ -1050,7 +1136,7 @@ async fn conclusao_duravel_anterior_a_d372_publica_apos_migracao_sem_reexecutar(
     f.hub.shutdown().await;
     f.make_retry_due();
     f.hub = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
-    f.until(|| {
+    f.until("conclusao_duravel_anterior_a_d372_publica_apos_migracao_sem_reexecutar", &f.hub, || {
         f.hub
             .store
             .kv_get("turn.waiting.bot")
@@ -1069,7 +1155,10 @@ async fn conclusao_duravel_anterior_a_d372_publica_apos_migracao_sem_reexecutar(
     )
     .unwrap();
     f.hub = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
-    f.until(|| f.hub.store.kv_get("turn.waiting.bot").is_none()).await;
+    f.until("conclusao_duravel_anterior_a_d372_publica_apos_migracao_sem_reexecutar", &f.hub, || {
+        f.hub.store.kv_get("turn.waiting.bot").is_none()
+    })
+    .await;
     let engine = crate::fork::sessoes::engine_choice::read(&f.hub.store.db.locked(), "bot").unwrap().unwrap();
     assert_eq!(engine.model.as_deref(), Some("modelo-m1"), "a migração fotografou o padrão vigente");
     let entries = f.hub.store.history("bot", i64::MAX, 100).unwrap();
@@ -1078,7 +1167,10 @@ async fn conclusao_duravel_anterior_a_d372_publica_apos_migracao_sem_reexecutar(
     assert!(!entries.iter().any(|e| e.kind == "notice" && e.data["style"] == "error"), "sem pausa");
     assert!(notice["notice"].as_str().is_some_and(|id| f.hub.store.entry(id).is_some()), "aviso conservado");
     assert!(f.hub.store.entry(&queued).is_some(), "a fila continua");
-    f.until(|| f.prompts().len() > prompts || f.hub.runtime("bot").status == BotStatus::Idle).await;
+    f.until("conclusao_duravel_anterior_a_d372_publica_apos_migracao_sem_reexecutar", &f.hub, || {
+        f.prompts().len() > prompts || f.hub.runtime("bot").status == BotStatus::Idle
+    })
+    .await;
     let queued_only = |p: &Value| p["prompt"][0]["text"].as_str().unwrap_or("").contains("Pedido seguinte");
     assert!(f.prompts()[prompts..].iter().all(queued_only), "nenhum prompt reexecuta o turno concluído");
     f.hub.shutdown().await;
@@ -1101,7 +1193,10 @@ async fn comando_atrasado_nao_reenvia_entrada_ja_concluida() {
     f.hub.shutdown().await;
     f.make_retry_due();
     f.hub = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
-    f.until(|| f.prompts().len() == 3 && f.hub.runtime("bot").status == BotStatus::Idle).await;
+    f.until("comando_atrasado_nao_reenvia_entrada_ja_concluida", &f.hub, || {
+        f.prompts().len() == 3 && f.hub.runtime("bot").status == BotStatus::Idle
+    })
+    .await;
     f.hub
         .send_cmd(
             "bot",
@@ -1134,7 +1229,7 @@ async fn handoff_reconstruido_fica_no_checkpoint_da_nova_sessao() {
     let plan = json!({"entries":[{"content":"SENTINELA da extra","status":"pending"}]});
     store.insert_entry(&extra, EntryKind::Plan, 1, &plan).unwrap();
     f.hub = Fixture::open(&f.dir, store);
-    f.until(|| f.prompts().len() == 2).await;
+    f.until("handoff_reconstruido_fica_no_checkpoint_da_nova_sessao", &f.hub, || f.prompts().len() == 2).await;
     let saved: Value = serde_json::from_str(&f.hub.store.kv_get("turn.waiting.bot").unwrap()).unwrap();
     assert_eq!(saved["input"]["session"], "session-2");
     assert!(saved["input"]["handoff"].is_null(), "handoff consumido pelo prompt da nova sessão");
@@ -1145,13 +1240,19 @@ async fn handoff_reconstruido_fica_no_checkpoint_da_nova_sessao() {
     std::fs::remove_file(f.dir.join("hold")).unwrap();
     f.make_retry_due();
     f.hub = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
-    f.until(|| f.hub.runtime("bot").status == BotStatus::Error).await;
+    f.until("handoff_reconstruido_fica_no_checkpoint_da_nova_sessao", &f.hub, || {
+        f.hub.runtime("bot").status == BotStatus::Error
+    })
+    .await;
     assert_eq!(f.prompts().len(), 2, "crash após permit não autoriza replay automático");
     let paused: Value = serde_json::from_str(&f.hub.store.kv_get("turn.waiting.bot").unwrap()).unwrap();
     f.hub
         .send_cmd("bot", super::Cmd::RetrySubscription { entry_id: paused["notice"].as_str().unwrap().into() })
         .unwrap();
-    f.until(|| f.prompts().len() == 3 && f.hub.runtime("bot").status == BotStatus::Idle).await;
+    f.until("handoff_reconstruido_fica_no_checkpoint_da_nova_sessao", &f.hub, || {
+        f.prompts().len() == 3 && f.hub.runtime("bot").status == BotStatus::Idle
+    })
+    .await;
     let prompts = f.prompts();
     assert_eq!(prompts[2]["sessionId"], "session-2");
     assert!(!prompts[2]["prompt"][0]["text"].as_str().unwrap().contains("handoff"));
@@ -1179,7 +1280,7 @@ async fn falha_ao_transferir_fila_nao_envia_prompt_nem_cria_espera_de_assinatura
     f.hub.shutdown().await;
     f.make_retry_due();
     f.hub = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
-    f.until(|| {
+    f.until("falha_ao_transferir_fila_nao_envia_prompt_nem_cria_espera_de_assinatura", &f.hub, || {
         f.human_admission_pending()
             && f.hub.store.kv_read("turn.waiting.bot").unwrap().is_none()
             && crate::fork::bot_admission::current(&f.hub.store, "bot")
@@ -1192,7 +1293,10 @@ async fn falha_ao_transferir_fila_nao_envia_prompt_nem_cria_espera_de_assinatura
     f.hub.shutdown().await;
     db.execute_batch("DROP TRIGGER reject_sent").unwrap();
     f.hub = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
-    f.until(|| f.prompts().len() == 3 && f.hub.runtime("bot").status == BotStatus::Idle).await;
+    f.until("falha_ao_transferir_fila_nao_envia_prompt_nem_cria_espera_de_assinatura", &f.hub, || {
+        f.prompts().len() == 3 && f.hub.runtime("bot").status == BotStatus::Idle
+    })
+    .await;
     assert_eq!(f.hub.store.entry(&id).unwrap().data["status"], "sent");
     assert!(f.prompts()[2]["prompt"][0]["text"].as_str().unwrap().contains("Pedido durável da fila"));
     f.hub.shutdown().await;
@@ -1206,7 +1310,7 @@ async fn falha_no_aviso_final_mantem_completing_ate_publicar_apos_reinicio() {
     let db = rusqlite::Connection::open(f.dir.join("test.db")).unwrap();
     db.execute_batch("CREATE TRIGGER reject_notice BEFORE INSERT ON entries WHEN NEW.id LIKE '%-completion' BEGIN SELECT RAISE(FAIL, 'aviso indisponível'); END;").unwrap();
     f.hub.send_cmd("bot", super::Cmd::Stop).unwrap();
-    f.until(|| {
+    f.until("falha_no_aviso_final_mantem_completing_ate_publicar_apos_reinicio", &f.hub, || {
         f.hub
             .store
             .kv_get("turn.waiting.bot")
@@ -1216,7 +1320,10 @@ async fn falha_no_aviso_final_mantem_completing_ate_publicar_apos_reinicio() {
     f.hub.shutdown().await;
     db.execute_batch("DROP TRIGGER reject_notice").unwrap();
     f.hub = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
-    f.until(|| f.hub.store.kv_get("turn.waiting.bot").is_none()).await;
+    f.until("falha_no_aviso_final_mantem_completing_ate_publicar_apos_reinicio", &f.hub, || {
+        f.hub.store.kv_get("turn.waiting.bot").is_none()
+    })
+    .await;
     let entries = f.hub.store.history("bot", i64::MAX, 100).unwrap();
     assert_eq!(entries.iter().filter(|e| e.kind == "notice" && e.data["text"] == "Stopped.").count(), 1);
     assert_eq!(f.prompts().len(), 1);
@@ -1239,7 +1346,10 @@ async fn parar_cancela_entrada_duravel_cujo_comando_ainda_nao_chegou() {
         )
         .unwrap();
     f.hub.send_cmd("bot", super::Cmd::Stop).unwrap();
-    f.until(|| f.hub.runtime("bot").status == BotStatus::Idle).await;
+    f.until("parar_cancela_entrada_duravel_cujo_comando_ainda_nao_chegou", &f.hub, || {
+        f.hub.runtime("bot").status == BotStatus::Idle
+    })
+    .await;
     assert_eq!(f.hub.store.entry(&entry.id).unwrap().data["status"], "cancelled");
     f.hub
         .send_cmd(
@@ -1274,7 +1384,7 @@ async fn cancelamento_da_fila_com_sqlite_indisponivel_nao_reexecuta_no_reinicio(
     let db = rusqlite::Connection::open(f.dir.join("test.db")).unwrap();
     db.execute_batch("CREATE TRIGGER reject_cancel BEFORE UPDATE ON entries WHEN json_extract(NEW.data, '$.status') = 'cancelled' BEGIN SELECT RAISE(FAIL, 'cancel indisponível'); END;").unwrap();
     f.hub.send_cmd("bot", super::Cmd::Stop).unwrap();
-    f.until(|| {
+    f.until("cancelamento_da_fila_com_sqlite_indisponivel_nao_reexecuta_no_reinicio", &f.hub, || {
         f.hub
             .store
             .kv_get("turn.waiting.bot")
@@ -1284,7 +1394,10 @@ async fn cancelamento_da_fila_com_sqlite_indisponivel_nao_reexecuta_no_reinicio(
     f.hub.shutdown().await;
     db.execute_batch("DROP TRIGGER reject_cancel").unwrap();
     f.hub = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
-    f.until(|| f.hub.store.kv_get("turn.waiting.bot").is_none()).await;
+    f.until("cancelamento_da_fila_com_sqlite_indisponivel_nao_reexecuta_no_reinicio", &f.hub, || {
+        f.hub.store.kv_get("turn.waiting.bot").is_none()
+    })
+    .await;
     assert_eq!(f.hub.store.entry(&entry.id).unwrap().data["status"], "cancelled");
     tokio::time::sleep(Duration::from_millis(350)).await;
     assert_eq!(f.prompts().len(), 1);
@@ -1305,9 +1418,15 @@ async fn cancelar_troca_de_comando_com_handoff_falho_nao_deixa_sessao_anterior()
     let quoted = command.replace('\'', "''");
     db.execute_batch(&format!("CREATE TRIGGER reject_switch BEFORE INSERT ON kv WHEN NEW.k = 'turn.waiting.bot' AND json_extract(NEW.v, '$.command') = '{quoted}' BEGIN SELECT RAISE(FAIL, 'troca indisponível'); END;")).unwrap();
     f.hub.update_bot_by_user(&json!({"id":"bot", "command":command})).unwrap();
-    f.until(|| f.hub.runtime("bot").status == BotStatus::Error).await;
+    f.until("cancelar_troca_de_comando_com_handoff_falho_nao_deixa_sessao_anterior", &f.hub, || {
+        f.hub.runtime("bot").status == BotStatus::Error
+    })
+    .await;
     f.hub.send_cmd("bot", super::Cmd::Stop).unwrap();
-    f.until(|| f.hub.runtime("bot").status == BotStatus::Idle).await;
+    f.until("cancelar_troca_de_comando_com_handoff_falho_nao_deixa_sessao_anterior", &f.hub, || {
+        f.hub.runtime("bot").status == BotStatus::Idle
+    })
+    .await;
     assert!(f.hub.store.bot("bot").unwrap().unwrap().session_id.is_none());
     assert_eq!(f.prompts().len(), 1);
     assert_eq!(crate::fork::sessoes::engine_choice::read(&f.hub.store.db.locked(), "bot").unwrap(), engine);
@@ -1358,7 +1477,10 @@ async fn rodada3_rejected_nao_classifica_erro_posterior_sem_sinal_de_limite() {
     )
     .await
     .unwrap();
-    f.until(|| f.hub.runtime("bot").status == BotStatus::Error || f.waiting_checkpoint_published()).await;
+    f.until("rodada3_rejected_nao_classifica_erro_posterior_sem_sinal_de_limite", &f.hub, || {
+        f.hub.runtime("bot").status == BotStatus::Error || f.waiting_checkpoint_published()
+    })
+    .await;
     assert_eq!(f.hub.runtime("bot").status, BotStatus::Error);
     assert!(f.hub.store.kv_get("turn.waiting.bot").is_none());
     f.hub.shutdown().await;
@@ -1377,14 +1499,20 @@ async fn rodada3_reset_informado_tambem_esgota_tentativas() {
     store.kv_set("turn.waiting.bot", &saved.to_string()).unwrap();
     std::fs::write(f.dir.join("always-limit"), "").unwrap();
     f.hub = Fixture::open(&f.dir, store);
-    f.until(|| f.prompts().len() == 2 && f.hub.runtime("bot").status != BotStatus::Working).await;
+    f.until("rodada3_reset_informado_tambem_esgota_tentativas", &f.hub, || {
+        f.prompts().len() == 2 && f.hub.runtime("bot").status != BotStatus::Working
+    })
+    .await;
     assert_eq!(f.hub.runtime("bot").status, BotStatus::Error);
     let saved: Value = serde_json::from_str(&f.hub.store.kv_get("turn.waiting.bot").unwrap()).unwrap();
     assert_eq!(saved["phase"], "paused");
     assert_eq!(f.hub.store.entry(saved["notice"].as_str().unwrap()).unwrap().data["subscriptionWait"]["retry"], true);
     f.hub.shutdown().await;
     f.hub = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
-    f.until(|| f.hub.runtime("bot").status == BotStatus::Error).await;
+    f.until("rodada3_reset_informado_tambem_esgota_tentativas", &f.hub, || {
+        f.hub.runtime("bot").status == BotStatus::Error
+    })
+    .await;
     assert_eq!(f.prompts().len(), 2);
     f.hub.shutdown().await;
     let _ = std::fs::remove_dir_all(&f.dir);
@@ -1407,10 +1535,13 @@ async fn rodada3_turno_posterior_a_espera_volta_ao_fluxo_normal() {
     f.hub.shutdown().await;
     f.make_retry_due();
     f.hub = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
-    f.until(|| f.prompts().len() == 3).await;
+    f.until("rodada3_turno_posterior_a_espera_volta_ao_fluxo_normal", &f.hub, || f.prompts().len() == 3).await;
     assert!(f.hub.store.kv_get("turn.waiting.bot").is_none(), "o lote posterior não é uma retomada D72");
     std::fs::remove_file(f.dir.join("hold-queued")).unwrap();
-    f.until(|| f.hub.runtime("bot").status == BotStatus::Idle).await;
+    f.until("rodada3_turno_posterior_a_espera_volta_ao_fluxo_normal", &f.hub, || {
+        f.hub.runtime("bot").status == BotStatus::Idle
+    })
+    .await;
     f.hub.store.kv_set("turn.waiting.bot", r#"{"phase":"finished"}"#).unwrap();
     std::fs::write(f.dir.join("hold"), "").unwrap();
     let result = crate::api::dispatch(
@@ -1421,7 +1552,7 @@ async fn rodada3_turno_posterior_a_espera_volta_ao_fluxo_normal() {
     )
     .await
     .unwrap();
-    f.until(|| f.prompts().len() == 4).await;
+    f.until("rodada3_turno_posterior_a_espera_volta_ao_fluxo_normal", &f.hub, || f.prompts().len() == 4).await;
     assert!(f.hub.store.kv_get("turn.waiting.bot").is_none());
     assert_ne!(result["entry"]["data"]["subscriptionQueued"], true);
     f.hub.shutdown().await;
@@ -1465,7 +1596,7 @@ async fn routine_waiting(restart: bool) -> (Fixture, String) {
     let run = f.enqueue(id, "test", true).await;
     let run_id = run["run"]["id"].as_str().unwrap();
     f.hub.send_cmd("bot", super::Cmd::Routine(run_id.into())).unwrap();
-    f.until(|| f.waiting_checkpoint_published()).await;
+    f.until("routine_waiting", &f.hub, || f.waiting_checkpoint_published()).await;
     let saved: Value = serde_json::from_str(&f.hub.store.kv_get("turn.waiting.bot").unwrap()).unwrap();
     assert_eq!(saved["input"]["routine"], run_id);
     // A espera devolve a run a `Recovering`: a retomada prepara uma continuação da
@@ -1492,8 +1623,8 @@ async fn routine_limit_waits_and_finishes() {
     assert_eq!(notice.data["routineWait"]["runId"], run_id);
     // `routineId` no topo faria o desktop trocar o aviso pelo botão da rotina.
     assert!(notice.data["routineId"].is_null());
-    f.until(|| f.prompts().len() == 2).await;
-    f.until(|| {
+    f.until("routine_limit_waits_and_finishes", &f.hub, || f.prompts().len() == 2).await;
+    f.until("routine_limit_waits_and_finishes", &f.hub, || {
         f.hub.routines.list("bot")["runs"][0]["status"] == "succeeded"
             && f.hub.store.kv_get("turn.waiting.bot").is_none()
     })
@@ -1540,8 +1671,8 @@ async fn mx263_rotina_retomada_sem_reiniciar_conclui_uma_vez() {
     let (f, run_id) = routine_waiting(false).await;
     let saved: Value = serde_json::from_str(&f.hub.store.kv_get("turn.waiting.bot").unwrap()).unwrap();
     resume_wait(&f, &saved).await;
-    f.until(|| f.prompts().len() == 2).await;
-    f.until(|| {
+    f.until("mx263_rotina_retomada_sem_reiniciar_conclui_uma_vez", &f.hub, || f.prompts().len() == 2).await;
+    f.until("mx263_rotina_retomada_sem_reiniciar_conclui_uma_vez", &f.hub, || {
         f.hub.routines.list("bot")["runs"][0]["status"] == "succeeded"
             && f.hub.store.kv_get("turn.waiting.bot").is_none()
     })
@@ -1566,7 +1697,7 @@ async fn mx263_retomada_com_storebusy_transitorio_conclui_uma_vez() {
     resume_wait(&f, &saved).await;
     // A tentativa abortada volta a `waiting` com o backoff do D72; a próxima
     // retomada (agenda ou "retomar agora") conclui uma vez só.
-    f.until(|| {
+    f.until("mx263_retomada_com_storebusy_transitorio_conclui_uma_vez", &f.hub, || {
         f.hub.store.kv_get("turn.waiting.bot").is_some_and(|raw| {
             let checkpoint: Value = serde_json::from_str(&raw).unwrap();
             checkpoint["phase"] == "waiting" && checkpoint["attemptCount"] == 1
@@ -1574,8 +1705,8 @@ async fn mx263_retomada_com_storebusy_transitorio_conclui_uma_vez() {
     })
     .await;
     resume_wait(&f, &saved).await;
-    f.until(|| f.prompts().len() == 2).await;
-    f.until(|| {
+    f.until("mx263_retomada_com_storebusy_transitorio_conclui_uma_vez", &f.hub, || f.prompts().len() == 2).await;
+    f.until("mx263_retomada_com_storebusy_transitorio_conclui_uma_vez", &f.hub, || {
         f.hub.routines.list("bot")["runs"][0]["status"] == "succeeded"
             && f.hub.store.kv_get("turn.waiting.bot").is_none()
     })
@@ -1599,7 +1730,7 @@ async fn mx263_storebusy_e_exclusao_cancela_a_espera_e_libera_a_fila() {
     f.hub.routines.fail_next.store(3, std::sync::atomic::Ordering::SeqCst);
     let saved: Value = serde_json::from_str(&f.hub.store.kv_get("turn.waiting.bot").unwrap()).unwrap();
     resume_wait(&f, &saved).await;
-    f.until(|| {
+    f.until("mx263_storebusy_e_exclusao_cancela_a_espera_e_libera_a_fila", &f.hub, || {
         f.hub.store.kv_get("turn.waiting.bot").is_some_and(|raw| {
             let checkpoint: Value = serde_json::from_str(&raw).unwrap();
             checkpoint["phase"] == "waiting" && checkpoint["attemptCount"] == 1
@@ -1607,7 +1738,7 @@ async fn mx263_storebusy_e_exclusao_cancela_a_espera_e_libera_a_fila() {
     })
     .await;
     f.hub.routines.remove(&f.hub.store, "bot", &routine_id).unwrap();
-    f.until(|| {
+    f.until("mx263_storebusy_e_exclusao_cancela_a_espera_e_libera_a_fila", &f.hub, || {
         f.hub.routines.list("bot")["runs"][0]["status"] == "cancelled"
             && f.hub
                 .store
@@ -1624,7 +1755,7 @@ async fn mx263_storebusy_e_exclusao_cancela_a_espera_e_libera_a_fila() {
     )
     .await
     .unwrap();
-    f.until(|| f.prompts().len() == 2).await;
+    f.until("mx263_storebusy_e_exclusao_cancela_a_espera_e_libera_a_fila", &f.hub, || f.prompts().len() == 2).await;
     f.hub.shutdown().await;
     let _ = std::fs::remove_dir_all(&f.dir);
 }
@@ -1642,7 +1773,7 @@ async fn mx263_falha_na_transicao_na_retomada_nao_deixa_espera_orfa() {
     f.hub.routines.fail_mark.store(1, std::sync::atomic::Ordering::SeqCst);
     let saved: Value = serde_json::from_str(&f.hub.store.kv_get("turn.waiting.bot").unwrap()).unwrap();
     resume_wait(&f, &saved).await;
-    f.until(|| {
+    f.until("mx263_falha_na_transicao_na_retomada_nao_deixa_espera_orfa", &f.hub, || {
         f.hub.routines.list("bot")["runs"][0]["status"] == "failed"
             && f.hub
                 .store
@@ -1659,7 +1790,7 @@ async fn mx263_falha_na_transicao_na_retomada_nao_deixa_espera_orfa() {
     )
     .await
     .unwrap();
-    f.until(|| f.prompts().len() == 3).await;
+    f.until("mx263_falha_na_transicao_na_retomada_nao_deixa_espera_orfa", &f.hub, || f.prompts().len() == 3).await;
     f.hub.shutdown().await;
     let _ = std::fs::remove_dir_all(&f.dir);
 }
@@ -1684,7 +1815,7 @@ async fn mx263_storebusy_persistente_esgota_tentativas_e_libera_a_fila() {
     f.hub.store.kv_set("routines.v1", &state.to_string()).unwrap();
     f.hub = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
     f.hub.routines.fail_next.store(3, std::sync::atomic::Ordering::SeqCst);
-    f.until(|| {
+    f.until("mx263_storebusy_persistente_esgota_tentativas_e_libera_a_fila", &f.hub, || {
         f.hub.routines.list("bot")["runs"][0]["status"] == "failed"
             && f.hub
                 .store
@@ -1702,7 +1833,7 @@ async fn mx263_storebusy_persistente_esgota_tentativas_e_libera_a_fila() {
     )
     .await
     .unwrap();
-    f.until(|| f.prompts().len() == 2).await;
+    f.until("mx263_storebusy_persistente_esgota_tentativas_e_libera_a_fila", &f.hub, || f.prompts().len() == 2).await;
     f.hub.shutdown().await;
     let _ = std::fs::remove_dir_all(&f.dir);
 }
@@ -1726,12 +1857,15 @@ async fn mx263_falha_na_transicao_da_run_fecha_sem_espera() {
     f.hub.routines.fail_mark.store(1, std::sync::atomic::Ordering::SeqCst);
     let run = f.enqueue(&id, "test", true).await;
     f.hub.send_cmd("bot", super::Cmd::Routine(run["run"]["id"].as_str().unwrap().into())).unwrap();
-    f.until(|| f.hub.routines.list("bot")["runs"][0]["status"] == "failed").await;
+    f.until("mx263_falha_na_transicao_da_run_fecha_sem_espera", &f.hub, || {
+        f.hub.routines.list("bot")["runs"][0]["status"] == "failed"
+    })
+    .await;
     assert!(f.hub.store.kv_get("turn.waiting.bot").is_none(), "sem transição não estaciona");
     // A vaga do bot ficou livre: a execução seguinte corre e conclui.
     let run2 = f.enqueue(&id, "test", true).await;
     f.hub.send_cmd("bot", super::Cmd::Routine(run2["run"]["id"].as_str().unwrap().into())).unwrap();
-    f.until(|| {
+    f.until("mx263_falha_na_transicao_da_run_fecha_sem_espera", &f.hub, || {
         let list = f.hub.routines.list("bot");
         list["runs"].as_array().unwrap().iter().any(|r| r["status"] == "succeeded")
     })
@@ -1763,7 +1897,10 @@ async fn mx263_rotina_excluida_ou_desativada_cancela_a_espera() {
             let id = routine["routine"]["id"].as_str().unwrap();
             let run = f.enqueue(id, "schedule", false).await;
             f.hub.send_cmd("bot", super::Cmd::Routine(run["run"]["id"].as_str().unwrap().into())).unwrap();
-            f.until(|| f.waiting_checkpoint_published()).await;
+            f.until("mx263_rotina_excluida_ou_desativada_cancela_a_espera", &f.hub, || {
+                f.waiting_checkpoint_published()
+            })
+            .await;
             (f, id.to_owned())
         };
         if delete {
@@ -1771,7 +1908,7 @@ async fn mx263_rotina_excluida_ou_desativada_cancela_a_espera() {
         } else {
             f.hub.routines.set_enabled(&f.hub.store, "bot", &routine_id, false).unwrap();
         }
-        f.until(|| {
+        f.until("mx263_rotina_excluida_ou_desativada_cancela_a_espera", &f.hub, || {
             f.hub.routines.list("bot")["runs"][0]["status"] == "cancelled"
                 && f.hub
                     .store
@@ -1797,7 +1934,10 @@ async fn mx263_rotina_desativada_em_teste_continua_esperando() {
     f.hub.shutdown().await;
     f.make_routine_retry_due_after_start();
     f.hub = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
-    f.until(|| f.hub.routines.list("bot")["runs"][0]["status"] == "succeeded").await;
+    f.until("mx263_rotina_desativada_em_teste_continua_esperando", &f.hub, || {
+        f.hub.routines.list("bot")["runs"][0]["status"] == "succeeded"
+    })
+    .await;
     assert_eq!(f.prompts().len(), 2);
     f.hub.shutdown().await;
     let _ = std::fs::remove_dir_all(&f.dir);
@@ -1897,7 +2037,8 @@ async fn mx263_rotina_sem_horario_de_retorno_espera_com_backoff_d72() {
     let id = routine["routine"]["id"].as_str().unwrap();
     let run = f.enqueue(id, "test", true).await;
     f.hub.send_cmd("bot", super::Cmd::Routine(run["run"]["id"].as_str().unwrap().into())).unwrap();
-    f.until(|| f.waiting_checkpoint_published()).await;
+    f.until("mx263_rotina_sem_horario_de_retorno_espera_com_backoff_d72", &f.hub, || f.waiting_checkpoint_published())
+        .await;
     let saved: Value = serde_json::from_str(&f.hub.store.kv_get("turn.waiting.bot").unwrap()).unwrap();
     assert!(saved["resumeAt"].is_null(), "sem retorno informado: vale o backoff D72");
     let now = crate::store::now_ms();
@@ -1937,7 +2078,10 @@ async fn assinatura_pessoal_rotina_para_antes_do_motor() {
     let id = routine["routine"]["id"].as_str().unwrap();
     let run = f.enqueue(id, "test", true).await;
     f.hub.send_cmd("bot", super::Cmd::Routine(run["run"]["id"].as_str().unwrap().into())).unwrap();
-    f.until(|| f.hub.routines.list("bot")["runs"][0]["status"] == "failed").await;
+    f.until("assinatura_pessoal_rotina_para_antes_do_motor", &f.hub, || {
+        f.hub.routines.list("bot")["runs"][0]["status"] == "failed"
+    })
+    .await;
     assert_eq!(f.prompts(), [] as [Value; 0]);
     assert!(!f.dir.join("session-count").exists());
     assert!(!f.waiting_checkpoint_published());
@@ -1958,7 +2102,7 @@ async fn mx263_rotina_respeita_o_teto_de_tentativas_da_espera_d72() {
     f.hub.shutdown().await;
     f.make_routine_retry_due_after_start();
     f.hub = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
-    f.until(|| {
+    f.until("mx263_rotina_respeita_o_teto_de_tentativas_da_espera_d72", &f.hub, || {
         let status = f.hub.routines.list("bot")["runs"][0]["status"].clone();
         status == "failed"
             && f.hub
@@ -1989,7 +2133,10 @@ async fn mx263_rotina_com_limite_antes_da_permissao_falha_sem_espera() {
     let id = routine["routine"]["id"].as_str().unwrap();
     let run = f.enqueue(id, "test", true).await;
     f.hub.send_cmd("bot", super::Cmd::Routine(run["run"]["id"].as_str().unwrap().into())).unwrap();
-    f.until(|| f.hub.routines.list("bot")["runs"][0]["status"] == "failed").await;
+    f.until("mx263_rotina_com_limite_antes_da_permissao_falha_sem_espera", &f.hub, || {
+        f.hub.routines.list("bot")["runs"][0]["status"] == "failed"
+    })
+    .await;
     assert!(f.hub.store.kv_get("turn.waiting.bot").is_none(), "sem identidade de admissão não estaciona");
     assert!(f.hub.routines.list("bot")["runs"][0]["detail"].as_str().unwrap().contains("Limite da assinatura"));
     f.hub.shutdown().await;
@@ -2091,7 +2238,10 @@ async fn rodada3_pedido_de_outro_bot_encerra_com_limite_sem_estacionar() {
     )
     .await
     .unwrap();
-    f.until(|| f.hub.runtime("bot").status == BotStatus::Error || f.waiting_checkpoint_published()).await;
+    f.until("rodada3_pedido_de_outro_bot_encerra_com_limite_sem_estacionar", &f.hub, || {
+        f.hub.runtime("bot").status == BotStatus::Error || f.waiting_checkpoint_published()
+    })
+    .await;
     assert_eq!(f.hub.runtime("bot").status, BotStatus::Error);
     assert!(f.hub.store.kv_get("turn.waiting.bot").is_none());
     assert_eq!(f.prompts().len(), 1);
@@ -2300,7 +2450,10 @@ async fn falha_no_vinculo_da_sessao_visivel_impede_o_turno() {
     )
     .await
     .unwrap();
-    f.until(|| f.human_admission_pending() && f.hub.runtime("bot").memory_exposure_error).await;
+    f.until("falha_no_vinculo_da_sessao_visivel_impede_o_turno", &f.hub, || {
+        f.human_admission_pending() && f.hub.runtime("bot").memory_exposure_error
+    })
+    .await;
     assert_eq!(f.prompts(), [] as [Value; 0], "sem o vínculo, o turno não chega ao motor");
     assert!(f.hub.runtime("bot").memory_exposure_error, "a porta da memória automática continua fechada");
     assert_eq!(
@@ -2310,7 +2463,10 @@ async fn falha_no_vinculo_da_sessao_visivel_impede_o_turno() {
     let bindings: i64 = db.query_row("SELECT COUNT(*) FROM donna_session_acp", [], |r| r.get(0)).unwrap();
     assert_eq!(bindings, 0, "o catálogo não confirmou um vínculo que falhou");
     db.execute_batch("DROP TRIGGER sem_vinculo").unwrap();
-    f.until(|| f.prompts().len() == 1 && f.hub.runtime("bot").status == BotStatus::Idle).await;
+    f.until("falha_no_vinculo_da_sessao_visivel_impede_o_turno", &f.hub, || {
+        f.prompts().len() == 1 && f.hub.runtime("bot").status == BotStatus::Idle
+    })
+    .await;
     f.hub.shutdown().await;
     let _ = std::fs::remove_dir_all(&f.dir);
 }
@@ -2337,7 +2493,10 @@ async fn admissao_pausa_antes_preserva_fila_e_depois_de_permissao_deixa_atual_te
     assert!(f.hub.store.kv_read("turn.waiting.bot").unwrap().is_none());
     std::fs::write(f.dir.join("hold"), "").unwrap();
     admission::set_paused_for_test(&f.hub.store, "bot", false).unwrap();
-    f.until(|| f.prompts().len() == 1).await;
+    f.until("admissao_pausa_antes_preserva_fila_e_depois_de_permissao_deixa_atual_terminar", &f.hub, || {
+        f.prompts().len() == 1
+    })
+    .await;
     let dispatch = admission::current(&f.hub.store, "bot").unwrap().unwrap();
     assert_eq!(dispatch.phase, admission::Phase::Permitted);
     assert_eq!(Some(dispatch.execution_token), f.hub.runtime("bot").memory_turn_token);
@@ -2351,11 +2510,17 @@ async fn admissao_pausa_antes_preserva_fila_e_depois_de_permissao_deixa_atual_te
     .await
     .unwrap();
     std::fs::remove_file(f.dir.join("hold")).unwrap();
-    f.until(|| f.hub.runtime("bot").status == BotStatus::Idle).await;
+    f.until("admissao_pausa_antes_preserva_fila_e_depois_de_permissao_deixa_atual_terminar", &f.hub, || {
+        f.hub.runtime("bot").status == BotStatus::Idle
+    })
+    .await;
     assert_eq!(f.prompts().len(), 1, "o atual conclui, o próximo não foi admitido");
     assert_eq!(f.hub.store.entry(next["entry"]["id"].as_str().unwrap()).unwrap().data["status"], "queued");
     admission::set_paused_for_test(&f.hub.store, "bot", false).unwrap();
-    f.until(|| f.prompts().len() == 2 && f.hub.runtime("bot").status == BotStatus::Idle).await;
+    f.until("admissao_pausa_antes_preserva_fila_e_depois_de_permissao_deixa_atual_terminar", &f.hub, || {
+        f.prompts().len() == 2 && f.hub.runtime("bot").status == BotStatus::Idle
+    })
+    .await;
     f.hub.shutdown().await;
     let _ = std::fs::remove_dir_all(&f.dir);
 }
@@ -2390,7 +2555,10 @@ async fn admissao_pausa_durante_load_vence_ultima_fronteira_sem_sent_ou_falha_fa
         actor.start_turn(crate::store::Lane::main("bot"), &[id], "Depois", false, &tx).await.unwrap();
         (actor, tx)
     });
-    f.until(|| f.dir.join("loading").exists()).await;
+    f.until("admissao_pausa_durante_load_vence_ultima_fronteira_sem_sent_ou_falha_falsa", &f.hub, || {
+        f.dir.join("loading").exists()
+    })
+    .await;
     admission::set_paused_for_test(&f.hub.store, "bot", true).unwrap();
     let (mut actor, tx) = task.await.unwrap();
     assert!(actor.pending_admission.is_some());
@@ -2425,7 +2593,10 @@ async fn admissao_falha_de_persistencia_nao_envia_e_retenta_reserva_ou_permissao
         )
         .await
         .unwrap();
-        f.until(|| f.human_admission_pending()).await;
+        f.until("admissao_falha_de_persistencia_nao_envia_e_retenta_reserva_ou_permissao", &f.hub, || {
+            f.human_admission_pending()
+        })
+        .await;
         assert_eq!(f.prompts(), [] as [Value; 0]);
         let record = admission::current(&f.hub.store, "bot").unwrap();
         if phase == "reserved" {
@@ -2437,7 +2608,10 @@ async fn admissao_falha_de_persistencia_nao_envia_e_retenta_reserva_ou_permissao
         assert_eq!(entry.data["status"], "queued");
         assert!(entry.data.get("subscriptionQueued").is_none());
         f.hub.store.db.locked().execute_batch("DROP TRIGGER reject_dispatch").unwrap();
-        f.until(|| f.prompts().len() == 1 && f.hub.runtime("bot").status == BotStatus::Idle).await;
+        f.until("admissao_falha_de_persistencia_nao_envia_e_retenta_reserva_ou_permissao", &f.hub, || {
+            f.prompts().len() == 1 && f.hub.runtime("bot").status == BotStatus::Idle
+        })
+        .await;
         assert!(admission::current(&f.hub.store, "bot").unwrap().is_none());
         f.hub.shutdown().await;
         let _ = std::fs::remove_dir_all(&f.dir);
@@ -2458,12 +2632,15 @@ async fn admissao_reinicio_apos_permissao_nao_repete_prompt_humano() {
     )
     .await
     .unwrap();
-    f.until(|| f.prompts().len() == 1).await;
+    f.until("admissao_reinicio_apos_permissao_nao_repete_prompt_humano", &f.hub, || f.prompts().len() == 1).await;
     assert_eq!(admission::current(&f.hub.store, "bot").unwrap().unwrap().phase, admission::Phase::Permitted);
     f.hub.shutdown().await;
     std::fs::remove_file(f.dir.join("hold")).unwrap();
     let reopened = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
-    f.until(|| admission::current(&reopened.store, "bot").unwrap().is_none()).await;
+    f.until("admissao_reinicio_apos_permissao_nao_repete_prompt_humano", &reopened, || {
+        admission::current(&reopened.store, "bot").unwrap().is_none()
+    })
+    .await;
     tokio::time::sleep(Duration::from_millis(700)).await;
     assert_eq!(f.prompts().len(), 1);
     assert!(
@@ -2557,7 +2734,10 @@ async fn admissao_boot_preserva_fila_extra_sem_prompt_na_principal() {
     drop(store);
 
     let reopened = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
-    f.until(|| reopened.runtime("bot").status == BotStatus::Waiting).await;
+    f.until("admissao_boot_preserva_fila_extra_sem_prompt_na_principal", &reopened, || {
+        reopened.runtime("bot").status == BotStatus::Waiting
+    })
+    .await;
     tokio::time::sleep(Duration::from_millis(700)).await;
     let queued = reopened.store.queued_user_entries_for_identity("bot").unwrap();
     assert_eq!(queued.len(), 2);
@@ -2627,8 +2807,10 @@ async fn admissao_setup_apos_reserva_retoma_no_mesmo_hub_sem_duplicar_ou_ultrapa
         .await
         .unwrap();
         let first_id = first["entry"]["id"].as_str().unwrap();
-        f.until(|| f.human_admission_pending() && (failure != "session-new" || f.dir.join("new-failed").exists()))
-            .await;
+        f.until("admissao_setup_apos_reserva_retoma_no_mesmo_hub_sem_duplicar_ou_ultrapassar_lote", &f.hub, || {
+            f.human_admission_pending() && (failure != "session-new" || f.dir.join("new-failed").exists())
+        })
+        .await;
         assert_eq!(f.prompts(), [] as [Value; 0]);
         let reserved = admission::current(&f.hub.store, "bot").unwrap().unwrap();
         assert_eq!(reserved.phase, admission::Phase::Reserved);
@@ -2657,7 +2839,10 @@ async fn admissao_setup_apos_reserva_retoma_no_mesmo_hub_sem_duplicar_ou_ultrapa
         } else {
             f.hub.store.db.locked().execute_batch("DROP TRIGGER reject_compose").unwrap();
         }
-        f.until(|| f.prompts().len() == 2 && f.hub.runtime("bot").status == BotStatus::Idle).await;
+        f.until("admissao_setup_apos_reserva_retoma_no_mesmo_hub_sem_duplicar_ou_ultrapassar_lote", &f.hub, || {
+            f.prompts().len() == 2 && f.hub.runtime("bot").status == BotStatus::Idle
+        })
+        .await;
         let prompts = f.prompts();
         let first_prompt = prompts[0]["prompt"][0]["text"].as_str().unwrap();
         let second_prompt = prompts[1]["prompt"][0]["text"].as_str().unwrap();
@@ -2775,7 +2960,7 @@ async fn admissao_boot_isola_space_revogado_sem_perder_principal_nem_ordem_elegi
         )
         .unwrap();
     let reopened = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
-    f.until(|| {
+    f.until("admissao_boot_isola_space_revogado_sem_perder_principal_nem_ordem_elegivel", &reopened, || {
         reopened.store.entry(&principal.id).unwrap().data["status"] == "sent"
             && reopened.runtime("bot").status == BotStatus::Waiting
     })
@@ -3040,7 +3225,10 @@ async fn admissao_enumera_novamente_apos_erro_inicial_mesmo_com_fila_do_ator_vaz
     assert_eq!(f.prompts(), [] as [Value; 0]);
     assert_eq!(f.hub.store.entry(&first.id).unwrap().data["status"], "queued");
     f.hub.store.db.locked().execute_batch("ALTER TABLE conversas_retidas RENAME TO donna_space_conversations").unwrap();
-    f.until(|| f.prompts().len() == 1 && f.hub.runtime("bot").status == BotStatus::Idle).await;
+    f.until("admissao_enumera_novamente_apos_erro_inicial_mesmo_com_fila_do_ator_vazia", &f.hub, || {
+        f.prompts().len() == 1 && f.hub.runtime("bot").status == BotStatus::Idle
+    })
+    .await;
     for id in [&first.id, &second.id] {
         assert_eq!(f.hub.store.entry(id).unwrap().data["status"], "sent");
     }
@@ -3069,7 +3257,10 @@ async fn admissao_retry_de_setup_descarta_humano_tornado_terminal_durante_a_espe
     .await
     .unwrap();
     let first_id = first["entry"]["id"].as_str().unwrap();
-    f.until(|| f.human_admission_pending() && f.dir.join("new-failed").exists()).await;
+    f.until("admissao_retry_de_setup_descarta_humano_tornado_terminal_durante_a_espera", &f.hub, || {
+        f.human_admission_pending() && f.dir.join("new-failed").exists()
+    })
+    .await;
     let reserved = admission::current(&f.hub.store, "bot").unwrap().unwrap();
     assert_eq!(reserved.phase, admission::Phase::Reserved);
     assert!(f.dir.join("new-failed").exists());
@@ -3085,7 +3276,10 @@ async fn admissao_retry_de_setup_descarta_humano_tornado_terminal_durante_a_espe
     .await
     .unwrap();
     std::fs::remove_file(f.dir.join("fail-new")).unwrap();
-    f.until(|| f.prompts().len() == 1 && f.hub.runtime("bot").status == BotStatus::Idle).await;
+    f.until("admissao_retry_de_setup_descarta_humano_tornado_terminal_durante_a_espera", &f.hub, || {
+        f.prompts().len() == 1 && f.hub.runtime("bot").status == BotStatus::Idle
+    })
+    .await;
     assert_eq!(f.hub.store.entry(first_id).unwrap().data["status"], "failed");
     assert_eq!(f.hub.store.entry(following["entry"]["id"].as_str().unwrap()).unwrap().data["status"], "sent");
     let prompts = f.prompts();
@@ -3325,7 +3519,12 @@ async fn contrato_token_inicial_e_retomada_sent_apos_reinicio_usam_identidade_or
     }));
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     actor.start_turn(lane, std::slice::from_ref(&entry.id), "Contrato do token", false, &tx).await.unwrap();
-    f.until(|| f.prompts().len() == 1).await;
+    f.until(
+        "contrato_token_inicial_e_retomada_sent_apos_reinicio_usam_identidade_original_com_attempt_novo",
+        &f.hub,
+        || f.prompts().len() == 1,
+    )
+    .await;
     assert!(checked.load(std::sync::atomic::Ordering::SeqCst));
     let initial = admission::current(&f.hub.store, "bot").unwrap().unwrap();
     assert_eq!(initial.phase, admission::Phase::Permitted);
@@ -3346,7 +3545,12 @@ async fn contrato_token_inicial_e_retomada_sent_apos_reinicio_usam_identidade_or
     f.make_retry_due();
     std::fs::write(f.dir.join("hold"), "").unwrap();
     let reopened = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
-    f.until(|| f.prompts().len() == 2 && reopened.runtime("bot").status == BotStatus::Working).await;
+    f.until(
+        "contrato_token_inicial_e_retomada_sent_apos_reinicio_usam_identidade_original_com_attempt_novo",
+        &reopened,
+        || f.prompts().len() == 2 && reopened.runtime("bot").status == BotStatus::Working,
+    )
+    .await;
     let resumed = admission::current(&reopened.store, "bot").unwrap().unwrap();
     let checkpoint: Value =
         serde_json::from_str(&reopened.store.kv_read("turn.waiting.bot").unwrap().unwrap()).unwrap();
@@ -3357,7 +3561,12 @@ async fn contrato_token_inicial_e_retomada_sent_apos_reinicio_usam_identidade_or
     assert_eq!(reopened.runtime("bot").memory_turn_token.as_deref(), Some(initial.execution_token.as_str()));
     assert_eq!(reopened.store.entry(&entry.id).unwrap().data["status"], "sent");
     std::fs::remove_file(f.dir.join("hold")).unwrap();
-    f.until(|| reopened.runtime("bot").status == BotStatus::Idle).await;
+    f.until(
+        "contrato_token_inicial_e_retomada_sent_apos_reinicio_usam_identidade_original_com_attempt_novo",
+        &reopened,
+        || reopened.runtime("bot").status == BotStatus::Idle,
+    )
+    .await;
     assert_eq!(f.prompts().len(), 2);
     reopened.shutdown().await;
     let _ = std::fs::remove_dir_all(&f.dir);
@@ -3374,7 +3583,10 @@ async fn legado_sent_sem_token_preserva_checkpoint_e_nao_fabrica_retomada() {
     checkpoint["retryAt"] = json!(0);
     f.hub.store.kv_set("turn.waiting.bot", &checkpoint.to_string()).unwrap();
     let reopened = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
-    f.until(|| reopened.runtime("bot").status == BotStatus::Error).await;
+    f.until("legado_sent_sem_token_preserva_checkpoint_e_nao_fabrica_retomada", &reopened, || {
+        reopened.runtime("bot").status == BotStatus::Error
+    })
+    .await;
     tokio::time::sleep(Duration::from_millis(700)).await;
     let saved: Value = serde_json::from_str(&reopened.store.kv_read("turn.waiting.bot").unwrap().unwrap()).unwrap();
     assert_eq!(saved["phase"], "paused");
@@ -4607,7 +4819,10 @@ async fn retomada_da_espera_em_conversa_pausada_nao_segura_outra_conversa() {
             .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
             .map(|w| w["phase"].clone())
     };
-    f.until(|| waiting_phase().is_none_or(|phase| phase == "finished")).await;
+    f.until("checkpoint de espera finalizado após pausa", &f.hub, || {
+        waiting_phase().is_none_or(|phase| phase == "finished")
+    })
+    .await;
     assert_eq!(f.hub.runtime("bot").status, BotStatus::Idle, "a retenção não deixa o bot em erro");
     let history = f.hub.store.history("bot", i64::MAX, 200).unwrap();
     assert!(
@@ -4623,12 +4838,15 @@ async fn retomada_da_espera_em_conversa_pausada_nao_segura_outra_conversa() {
     )
     .await
     .unwrap();
-    f.until(|| f.prompts().len() == 2).await;
+    f.until("segundo prompt da sala enviado", &f.hub, || f.prompts().len() == 2).await;
     let prompt = f.prompts()[1].to_string();
     assert!(prompt.contains("Oi, sala"), "a sala é admitida");
     assert!(!prompt.contains("Continue a tarefa pendente"), "a continuação da conversa pausada não sai");
     assert!(admission::conversation_paused(&f.hub.store, "bot", "bot").unwrap(), "a pausa continua");
-    f.until(|| f.hub.runtime("bot").status != BotStatus::Waiting).await;
+    f.until("bot saiu do estado Waiting após prompt da sala", &f.hub, || {
+        f.hub.runtime("bot").status != BotStatus::Waiting
+    })
+    .await;
     assert!(
         f.hub
             .store
