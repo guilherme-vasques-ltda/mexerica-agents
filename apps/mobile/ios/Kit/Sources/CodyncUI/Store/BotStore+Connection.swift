@@ -164,9 +164,8 @@ extension BotStore {
             clienteAutorizado = nil
             return
         }
-        guard let cliente = clienteAutorizado else { return }
+        guard let cliente = clienteAutorizado, let listener = refusalListener else { return }
         clienteAutorizado = nil
-        let link = linkId
         let instante = monotonico()
         let atraso: Duration = ultimaReverificacao.map { max(Self.intervaloReverificacao - $0.duration(to: instante), .zero) } ?? .zero
         let espera = esperar
@@ -174,16 +173,20 @@ extension BotStore {
             if atraso > .zero {
                 do { try await espera(atraso) } catch { return }
             }
-            guard let inicio = self, !inicio.retired, inicio.linkId == link else { return }
-            inicio.ultimaReverificacao = inicio.monotonico()
+            guard let self, self.refusalListener == listener else { return }
+            defer {
+                if self.refusalListener == listener { self.reverificacao = nil }
+            }
+            guard await cliente.transport.currentLink() != nil, self.refusalListener == listener else { return }
+            self.ultimaReverificacao = self.monotonico()
             let resposta: Result<Hello, Error>
             do {
                 resposta = .success(try await cliente.hello())
             } catch {
                 resposta = .failure(error)
             }
-            guard let self, !self.retired, self.linkId == link else { return }
-            self.reverificacao = nil
+            guard self.refusalListener == listener, await cliente.transport.currentLink() != nil,
+                  self.refusalListener == listener else { return }
             switch resposta {
             case let .success(h):
                 if let id = h.computerId, id != self.computer.id {
@@ -214,6 +217,7 @@ extension BotStore {
     /// The link ended: nothing keeps the authority it had, and no action started on it may continue.
     private func encerrarAutoridade() {
         clienteAutorizado = nil
+        refusalListener = nil
         linkId += 1
         // A pending check belonged to that link; the next one identifies itself from scratch.
         reverificacao?.cancel()

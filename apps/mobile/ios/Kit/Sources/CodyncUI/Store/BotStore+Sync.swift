@@ -10,18 +10,33 @@ extension BotStore {
     func runEvents(_ client: HostClient) async {
         var backoff: Double = 1
         while !Task.isCancelled {
+            let base = client.transport
+            var attempt: (link: Int, listener: UUID)?
             do {
                 // Authority belongs to the channel the Hub identifies itself on now; every action after
                 // this goes out on that channel or fails.
-                guard let link = await client.transport.currentLink() else { throw HostError.unreachable }
+                guard let link = await base.currentLink() else { throw HostError.unreachable }
                 guard !Task.isCancelled, !retired else { return }
+                let listener = UUID()
+                reverificacao?.cancel()
+                reverificacao = nil
+                refusalListener = listener
+                attempt = (link, listener)
                 let vinculado = HostClient(transport: TransporteDoLink(
-                    base: client.transport, link: link,
+                    base: base, link: link,
                     aoRecusar: { [weak self] motivo in
-                        Task { @MainActor in self?.soltarPorRecusa(motivo) }
+                        Task { @MainActor in
+                            guard let self, self.refusalListener == listener,
+                                  await base.currentLink() == link, self.refusalListener == listener else { return }
+                            self.soltarPorRecusa(motivo)
+                        }
                     },
                     aoDuvidar: { [weak self] in
-                        Task { @MainActor in self?.reverificarAcesso() }
+                        Task { @MainActor in
+                            guard let self, self.refusalListener == listener,
+                                  await base.currentLink() == link, self.refusalListener == listener else { return }
+                            self.reverificarAcesso()
+                        }
                     }))
                 try await refreshHello(vinculado)
                 guard !Task.isCancelled, !retired else { return }
@@ -57,13 +72,19 @@ extension BotStore {
             } catch is CancellationError {
                 return
             } catch {
-                if Task.isCancelled || retired { return }
-                clienteAutorizado = nil
+                guard !Task.isCancelled, !retired else { return }
                 log.info("stream ended: \(error.localizedDescription)")
                 // 401/403 from `hello` or the events stream end this device's access, like `.unauthorized`.
-                if let motivo = (error as? HostError)?.recusaDefinitiva(identificando: true) {
-                    soltarPorRecusa(motivo)
-                    return
+                if let attempt, refusalListener == attempt.listener, await base.currentLink() == attempt.link,
+                   !Task.isCancelled, !retired, refusalListener == attempt.listener {
+                    if let motivo = (error as? HostError)?.recusaDefinitiva(identificando: true) {
+                        soltarPorRecusa(motivo)
+                        return
+                    }
+                    clienteAutorizado = nil
+                    refusalListener = nil
+                    reverificacao?.cancel()
+                    reverificacao = nil
                 }
             }
             try? await Task.sleep(for: .seconds(backoff))

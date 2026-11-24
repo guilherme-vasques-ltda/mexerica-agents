@@ -44,6 +44,21 @@ actor FakeRemote: RemoteTransport {
     private var replaceAfter: String?
     /// Right after the next `method` call, the link is replaced by a new channel (a reconnect in between).
     func replaceLink(after method: String) { replaceAfter = method }
+    func replaceLink() { generation += 1 }
+    private var heldRefusal: (method: String, error: HostError)?
+    private var refusalWaiter: CheckedContinuation<Void, Never>?
+    var refusalWaiting: Bool { refusalWaiter != nil }
+    func holdRefusal(_ method: String, _ error: HostError) { heldRefusal = (method, error) }
+    func releaseRefusal() {
+        refusalWaiter?.resume()
+        refusalWaiter = nil
+    }
+    private func lateRefusal(_ method: String, onLink link: Int) async throws {
+        guard !isShutdown, generation == link, let heldRefusal, heldRefusal.method == method else { return }
+        self.heldRefusal = nil
+        await withCheckedContinuation { refusalWaiter = $0 }
+        throw heldRefusal.error
+    }
     private var errors: [String: HostError] = [:]
     /// Every `method` call fails with `error` from now on (a real 401/403 from the host).
     func fail(_ method: String, with error: HostError) { errors[method] = error }
@@ -153,6 +168,7 @@ actor FakeRemote: RemoteTransport {
 
     nonisolated func call(_ method: String, body: Data, timeout: TimeInterval, onLink link: Int) async throws -> Data {
         if method == "hello" { await helloGate() }
+        try await lateRefusal(method, onLink: link)
         return try await respond(method, body, link: link)
     }
 
@@ -1409,6 +1425,49 @@ func refusalFromHelloLetsGoAtOnce(_ status: Int) async throws {
     #expect(await until { await fake.calls.filter { $0 == "hello" }.count == hellos + 1 })
     #expect(await until { store.temAutoridade })
     #expect(store.estadoConexao == .conectado)
+}
+
+@MainActor @Test func actionUnauthorizedAfterGoingOnlineEndsAccess() async throws {
+    let (storage, suite) = context()
+    defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+    let fake = FakeRemote(.ready(.direct))
+    let store = await lojaConectada(storage, fake)
+    defer { store.retire() }
+    let denied = HostError.http(401, "Refused")
+    let message = try #require(denied.errorDescription)
+    await fake.fail("newSession", with: denied)
+    store.newSession("b1")
+    #expect(await until { store.connection == .unauthorized(message) })
+    #expect(!store.temAutoridade)
+}
+
+@MainActor @Test(arguments: [401, 403]) func lateActionRefusalCannotAffectReopenedLink(_ status: Int) async throws {
+    let (storage, suite) = context()
+    defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+    let fake = FakeRemote(.ready(.direct))
+    let store = await lojaConectada(storage, fake)
+    defer { store.retire() }
+    let old = try #require(store.client)
+    await fake.holdRefusal("newSession", .http(status, "Old refusal"))
+    let action = Task { try await old.newSession("b1") }
+    let waiting = await until { await fake.refusalWaiting }
+    #expect(waiting)
+    guard waiting else { return }
+    await fake.set(.connecting)
+    let disconnected = await until { !store.temAutoridade }
+    #expect(disconnected)
+    await fake.replaceLink()
+    await fake.set(.ready(.direct))
+    let subscribed = await until { await fake.eventSubscriptionCount == 2 }
+    #expect(subscribed)
+    await fake.emit(botEvent("b1", name: "Bot", rev: 2))
+    let reopened = await until { store.temAutoridade }
+    #expect(reopened)
+    let helloCount = await fake.calls.filter { $0 == "hello" }.count
+    await fake.releaseRefusal()
+    await #expect(throws: HostError.unreachable) { try await action.value }
+    #expect(store.temAutoridade)
+    #expect(await fake.calls.filter { $0 == "hello" }.count == helloCount)
 }
 
 @MainActor @Test func actionRefusedBecauseTheDeviceWasRevokedLetsGoAtOnce() async throws {

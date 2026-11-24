@@ -78,6 +78,7 @@ public final class BotStore {
     /// The client bound to the channel the Hub identified itself on (`hello` checked); nil from the moment
     /// any link ends until the next one is identified. Every action goes out through it.
     var clienteAutorizado: HostClient?
+    @ObservationIgnored var refusalListener: UUID?
     /// When the current drop began, on a monotonic clock: background time and clock changes don't reset it.
     @ObservationIgnored var inicioDaQueda: ContinuousClock.Instant?
     /// The monotonic clock the deadline reads (tests set it).
