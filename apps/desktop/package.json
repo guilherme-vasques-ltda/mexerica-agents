@@ -39,7 +39,7 @@
     "test:e2e:demo": "playwright test --config playwright.demo.config.ts"
   },
   "devDependencies": {
-    "@playwright/test": "1.64.1",
+    "@playwright/test": "1.65.1",
     "@types/node": "^24.0.0",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19.3.0",
@@ -60,7 +60,7 @@
     "yaml": "^2.9.1"
   },
   "dependencies": {
-    "@clerk/clerk-js": "6.42.2",
+    "@clerk/clerk-js": "6.46.3",
     "@noble/ciphers": "2.4.0",
     "@noble/curves": "2.4.0",
     "@noble/hashes": "2.4.0",
