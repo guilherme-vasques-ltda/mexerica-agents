@@ -1,6 +1,7 @@
 // Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 package com.codync.android.core
 
+import com.codync.android.core.fork.UnverifiedChannelStop
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
@@ -45,7 +46,7 @@ sealed interface LinkState {
     data class Failed(val message: String, val status: Int? = null) : LinkState
 }
 
-class HostError(val status: Int, override val message: String) : IOException(message)
+class HostError(val status: Int, override val message: String, val code: String? = null) : IOException(message)
 
 /** One encrypted connection; its owner decides when to reconnect and when to retire it. */
 class EncryptedChannel internal constructor(
@@ -86,7 +87,8 @@ class EncryptedChannel internal constructor(
                 if (!closed) fail(IOException("Connection to the computer timed out.", error))
             } catch (error: Throwable) {
                 val failure = if (error is ChannelClosed) when (error.code) {
-                    4001, 4003, 4410 -> HostError(403, requireNotNull(error.message))
+                    4001, 4003, 4410 -> if (pairing) HostError(403, requireNotNull(error.message))
+                        else UnverifiedChannelStop()
                     4400 -> HostError(426, requireNotNull(error.message))
                     else -> error
                 } else error
@@ -158,11 +160,15 @@ class EncryptedChannel internal constructor(
                 firstState.complete(Unit)
             }
             "reject" -> {
+                val code = wire.text("code")
+                if (code == "unsupportedVersion" && wire["stableCode"] == null) {
+                    throw HostError(426, "Update Mexerica to connect to this computer.")
+                }
+                if (!pairing) throw UnverifiedChannelStop()
                 val message = wire.text("message")
-                throw when (wire.text("code")) {
+                throw when (code) {
                     // The computer couldn't confirm the account's approval lately; it may again, so the owner retries.
                     "leaseExpired" -> IOException(message ?: "The computer can't confirm this device's access right now. Try again shortly.")
-                    "unsupportedVersion" -> HostError(426, message ?: "Update Mexerica to connect to this computer.")
                     else -> HostError(403, message ?: "This device isn't allowed on the computer. Pair it again.")
                 }
             }
@@ -201,7 +207,7 @@ class EncryptedChannel internal constructor(
             "err" in message -> {
                 val detail = message.getValue("err").jsonObject
                 val failure = HostError(detail["status"]?.jsonPrimitive?.longOrNull?.toInt() ?: 500,
-                    detail.text("message") ?: "The computer could not complete the request.")
+                    detail.text("message") ?: "The computer could not complete the request.", detail.text("code"))
                 calls.remove(id)?.completeExceptionally(failure)
                 streams.remove(id)?.close(failure)
             }
