@@ -1489,6 +1489,39 @@ func refusalFromHelloLetsGoAtOnce(_ status: Int) async throws {
     #expect(await fake.calls.filter { $0 == "hello" }.count == helloCount)
 }
 
+@MainActor @Test(arguments: [401, 403]) func actionRefusalStillAppliesAfterResyncOnTheSameLink(_ status: Int) async throws {
+    let (storage, suite) = context()
+    defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+    let fake = FakeRemote(.ready(.direct))
+    let store = await lojaConectada(storage, fake)
+    defer { store.retire() }
+    let old = try #require(store.client)
+    let link = try #require(await fake.currentLink())
+    let listener = try #require(store.refusalListener)
+    let denied = HostError.http(status, "Refused")
+    await fake.holdRefusal("newSession", denied)
+    let action = Task { try await old.newSession("b1") }
+    try #require(await until { await fake.refusalWaiting })
+    await fake.emit(#"{"type":"resync"}"#)
+    let resubscribed = await until { await fake.eventSubscriptionCount == 2 }
+    #expect(resubscribed)
+    let hellos = await fake.calls.filter { $0 == "hello" }.count
+    #expect(hellos == 2)
+    #expect(await fake.currentLink() == link)
+    #expect(store.refusalListener != listener)
+    await fake.releaseRefusal()
+    await #expect(throws: denied) { try await action.value }
+    if status == 401 {
+        let message = try #require(denied.errorDescription)
+        #expect(await until { store.connection == .unauthorized(message) })
+        #expect(!store.temAutoridade)
+    } else {
+        #expect(await until { await fake.calls.filter { $0 == "hello" }.count == hellos + 1 })
+        #expect(await until { store.temAutoridade })
+        #expect(await fake.currentLink() == link)
+    }
+}
+
 @MainActor @Test func actionRefusedBecauseTheDeviceWasRevokedLetsGoAtOnce() async throws {
     let (storage, suite) = context()
     defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }

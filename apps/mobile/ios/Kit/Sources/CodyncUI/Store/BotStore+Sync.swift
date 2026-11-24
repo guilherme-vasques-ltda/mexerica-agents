@@ -16,12 +16,16 @@ extension BotStore {
                 // Authority belongs to the channel the Hub identifies itself on now; every action after
                 // this goes out on that channel or fails.
                 let previousListener = refusalListener
+                let previousLifetime = refusalLink?.lifetime
                 let currentLink = await base.currentLink()
-                guard !Task.isCancelled, !retired, refusalListener == previousListener else { return }
+                guard !Task.isCancelled, !retired, refusalListener == previousListener,
+                      refusalLink?.lifetime == previousLifetime else { return }
                 guard let link = currentLink else {
-                    if previousListener != nil { encerrarAutoridade() }
+                    if previousLifetime != nil { encerrarAutoridade() }
                     throw HostError.unreachable
                 }
+                let lifetime = refusalLink.flatMap { $0.channel == link ? $0.lifetime : nil } ?? UUID()
+                refusalLink = (link, lifetime)
                 guard !Task.isCancelled, !retired else { return }
                 let listener = UUID()
                 reverificacao?.cancel()
@@ -32,15 +36,15 @@ extension BotStore {
                     base: base, link: link,
                     aoRecusar: { [weak self] motivo in
                         Task { @MainActor in
-                            guard let self, self.refusalListener == listener,
-                                  await base.currentLink() == link, self.refusalListener == listener else { return }
+                            guard let self, self.refusalLink?.lifetime == lifetime,
+                                  await base.currentLink() == link, self.refusalLink?.lifetime == lifetime else { return }
                             self.soltarPorRecusa(motivo)
                         }
                     },
                     aoDuvidar: { [weak self] in
                         Task { @MainActor in
-                            guard let self, self.refusalListener == listener,
-                                  await base.currentLink() == link, self.refusalListener == listener else { return }
+                            guard let self, self.refusalLink?.lifetime == lifetime,
+                                  await base.currentLink() == link, self.refusalLink?.lifetime == lifetime else { return }
                             self.reverificarAcesso()
                         }
                     }))

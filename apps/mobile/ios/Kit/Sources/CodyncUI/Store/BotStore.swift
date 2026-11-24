@@ -79,6 +79,7 @@ public final class BotStore {
     /// any link ends until the next one is identified. Every action goes out through it.
     var clienteAutorizado: HostClient?
     @ObservationIgnored var refusalListener: UUID?
+    @ObservationIgnored var refusalLink: (channel: Int, lifetime: UUID)?
     /// When the current drop began, on a monotonic clock: background time and clock changes don't reset it.
     @ObservationIgnored var inicioDaQueda: ContinuousClock.Instant?
     /// The monotonic clock the deadline reads (tests set it).

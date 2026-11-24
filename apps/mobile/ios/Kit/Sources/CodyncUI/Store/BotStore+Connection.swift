@@ -218,6 +218,7 @@ extension BotStore {
     func encerrarAutoridade() {
         clienteAutorizado = nil
         refusalListener = nil
+        refusalLink = nil
         linkId += 1
         // A pending check belonged to that link; the next one identifies itself from scratch.
         reverificacao?.cancel()
