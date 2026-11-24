@@ -194,3 +194,53 @@ fn falha_ao_restaurar_um_cartao_expira_todos_sem_travar_o_boot() {
     }
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[tokio::test]
+async fn falha_ao_expirar_um_cartao_nao_trava_o_boot_nem_aceita_resposta() {
+    let f = Fixture::new();
+    let target = crate::fork::tela_por_computador::host_target(&f.hub);
+    let generation = crate::fork::spaces::config_generation_on(&f.hub.store.db.locked(), "bot").unwrap();
+    f.hub.shutdown().await;
+    let (blocked, others) = {
+        let store = Store::open(&f.dir.join("test.db")).unwrap();
+        let lane = Lane::main("bot");
+        let blocked = store
+            .insert_entry(
+                &lane,
+                EntryKind::Permission,
+                1,
+                &json!({"status":"pending","author":"bot","toolKind":"screen_access",
+                    "screenAccess":{"target":target,"generation":generation,"expiresAt":crate::store::now_ms()+1_200_000}}),
+            )
+            .unwrap();
+        let others: Vec<_> = (0..2)
+            .map(|_| store.insert_entry(&lane, EntryKind::Permission, 1, &json!({"status":"pending"})).unwrap())
+            .collect();
+        store
+            .db
+            .locked()
+            .execute_batch(
+                "CREATE TRIGGER reject_expiration BEFORE UPDATE OF data ON entries
+                 WHEN json_extract(OLD.data,'$.toolKind') = 'screen_access'
+                  AND json_extract(NEW.data,'$.status') = 'expired'
+                 BEGIN SELECT RAISE(ABORT, 'falha simulada'); END",
+            )
+            .unwrap();
+        (blocked, others)
+    };
+
+    let hub = reopen(&f.dir);
+    assert_eq!(hub.store.entry(&blocked.id).unwrap().data["status"], "pending");
+    for other in others {
+        assert_eq!(hub.store.entry(&other.id).unwrap().data["status"], "expired");
+    }
+    for option in ["always", "now", "deny"] {
+        let error = answer(&hub, &blocked, json!(option)).await.unwrap_err();
+        assert!(error.to_string().contains("não está mais pendente"), "{error:#}");
+    }
+    let grants: i64 =
+        hub.store.db.locked().query_row("SELECT COUNT(*) FROM donna_screen_access", [], |row| row.get(0)).unwrap();
+    assert_eq!(grants, 0);
+    hub.shutdown().await;
+    let _ = std::fs::remove_dir_all(&f.dir);
+}

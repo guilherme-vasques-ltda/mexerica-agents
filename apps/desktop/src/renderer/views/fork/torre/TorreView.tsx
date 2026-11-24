@@ -134,6 +134,7 @@ function TorreLive(props: { store: BotStore; source: TowerSource; spaceId: strin
       key={JSON.stringify([snapshot?.hubId ?? null, props.spaceId])}
       session={session}
       doctor={doctor.state}
+      onReread={() => doctor.reread()}
       spaceName={props.spaceName}
       computerName={props.store.computer.name}
       personalSpaceId={props.personalSpaceId}
@@ -193,6 +194,7 @@ export interface TorrePageProps {
   onReviewRoutine?: ReviewRoutine | null
   /** Diagnóstico somente leitura do Hub (`donnaHubDoctor`); ausente em prévias sintéticas sem sessão. */
   doctor?: SaudeHubState | null
+  onReread?: () => void
 }
 
 
@@ -250,7 +252,7 @@ export function TorrePage(p: TorrePageProps) {
   if (session.phase.kind === 'moved') body = <p className="torre-state" role="alert">{t('torre.movido', { nome: isolado(t('torre.nome')) })}</p>
   else if (!snapshot && session.phase.kind === 'error') body = (
     <>
-      {p.doctor ? <SaudeHubCard state={p.doctor} onRetry={p.onRetry} /> : null}
+      {p.doctor ? <SaudeHubCard state={p.doctor} onRetry={p.onRetry} onReread={p.onReread} /> : null}
       <p className="torre-state" role="status">{erroTorre(t, session.phase.codigo)}</p>
     </>
   )
@@ -274,7 +276,7 @@ export function TorrePage(p: TorrePageProps) {
         )}
         {session.notice ? <p className="torre-notice" role="status">{t('torre.aviso.reler')}</p> : null}
         {uninformed ? <p className="torre-notice" role="status">{t.plural('torre.semEstado', uninformed)}</p> : null}
-        {p.doctor ? <SaudeHubCard state={p.doctor} onRetry={p.onRetry} /> : null}
+        {p.doctor ? <SaudeHubCard state={p.doctor} onRetry={p.onRetry} onReread={p.onReread} /> : null}
         <Counts bots={listed} at={stale ? at : null} />
         <div className="torre-main">
           <div className="torre-list">

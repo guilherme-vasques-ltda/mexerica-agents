@@ -11,6 +11,7 @@ export type RemoteViewStatus =
   | 'active'
   | 'hub_offline'
   | 'revoked'
+  | 'device_revoked'
 
 export type RemoteWorkspace =
   | { readonly id: string; readonly kind: 'personal'; readonly name?: string }
@@ -40,6 +41,7 @@ const CHAVE_STATUS = {
   active: null,
   hub_offline: 'botCreate.erroCriacao.offline',
   revoked: 'conversa.arquivar.falha.notAllowed',
+  device_revoked: 'conta.revogada.titulo',
 } as const satisfies Record<RemoteViewStatus, ChaveTexto | null>
 
 const CHAVE_TIPO = {

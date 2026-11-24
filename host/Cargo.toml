@@ -43,7 +43,7 @@ path = "src/bin/codync-hostw.rs"
 
 # The memory crate builds here and is mirrored to its own repository (docs/reference/memoria/bot-memory.md#packaging).
 [workspace]
-members = ["crates/memory"]
+members = ["crates/memory", "crates/mail-read"]
 
 [dependencies]
 anyhow = "1.0.104"

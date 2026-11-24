@@ -191,7 +191,7 @@ impl Actor {
     /// terminal descarta o preparo agregado antes de devolver as remanescentes.
     /// A fase canônica distingue setup de efeito permitido/possivelmente enviado.
     pub(super) fn defer_unpermitted_human(&mut self, error: &anyhow::Error) -> Result<bool> {
-        if self.waiting.is_some() {
+        if self.waiting.is_some() || crate::agent::backends::is_antigravity(&self.cfg.backend) {
             return Ok(false);
         }
         let Some(input) = self.input.as_ref() else { return Ok(false) };
@@ -408,7 +408,15 @@ impl Actor {
         session: String,
         done_tx: &mpsc::UnboundedSender<super::PromptDone>,
     ) -> Result<()> {
-        crate::agent::backends::require_supported_execution(&self.cfg.backend)?;
+        let antigravity = crate::agent::backends::is_antigravity(&self.cfg.backend);
+        let grant = if antigravity {
+            let grant =
+                self.antigravity_grant.take().ok_or_else(|| anyhow!("{}", crate::fork::antigravity::INTERACTIVE))?;
+            grant.check(&self.hub, &self.lane, &entries)?;
+            Some(grant)
+        } else {
+            None
+        };
         let hub = self.hub.clone();
         let personal_lane =
             self.active_group.is_none() && self.active_request.is_none() && self.active_routine.is_none();
@@ -483,10 +491,14 @@ impl Actor {
             before_permit(&hub);
         }
         if self.sync_usage_control().await {
+            anyhow::ensure!(!antigravity, "{}", crate::fork::antigravity::INTERACTIVE);
             self.hold_usage_prompt(params, entries, session);
             return Ok(());
         }
         if let Err(error) = admission::mark_human_setup_ready(&hub.store, &self.cfg.id, &ticket) {
+            if antigravity {
+                return Err(error);
+            }
             tracing::error!(%error, "preparo não confirmado; prompt conservado sem envio");
             self.pending_admission = Some(Pending::Prompt { params, entries, session });
             self.queue_retry_at = Some(Instant::now() + Duration::from_secs(5));
@@ -540,6 +552,9 @@ impl Actor {
         let mut ceiling = None;
         let mut ceiling_gate = |c: &rusqlite::Connection, record: &crate::fork::bot_admission::Dispatch| {
             let decision = crate::fork::teto::decide_on(c, &ceiling_bot, &record.origin, &hold_body)?;
+            if antigravity && decision.verdict == crate::fork::teto::Verdict::Hold {
+                anyhow::bail!("O teto bloqueou o Antigravity. Envie outra mensagem quando houver limite disponível.");
+            }
             ceiling = Some(decision);
             if decision.verdict == crate::fork::teto::Verdict::Pass
                 && let Some(id) = &request_record
@@ -570,6 +585,9 @@ impl Actor {
             Ok(permitted) => permitted,
             // O cartão mudou depois da composição: a Tx foi desfeita; recompõe no mesmo preparo, sem prompt velho.
             Err(error) if error.chain().any(<dyn std::error::Error>::is::<crate::chat::handoff::CardChanged>) => {
+                if antigravity {
+                    return Err(error);
+                }
                 self.recompose_after_card_change(&session, &entries);
                 return Ok(());
             }
@@ -587,6 +605,9 @@ impl Actor {
                 return Ok(());
             }
             Err(error) => {
+                if antigravity {
+                    return Err(error);
+                }
                 // A Tx foi desfeita: uma decisão de espera tomada nela não vale.
                 ceiling = None;
                 tracing::error!(%error, "permissão não persistida; prompt permanece reservado");
@@ -607,6 +628,9 @@ impl Actor {
             crate::fork::teto::emit(&hub);
         }
         if !permitted {
+            if antigravity {
+                anyhow::bail!("{}", crate::fork::antigravity::INTERACTIVE);
+            }
             // A Tx do permit gravou a espera do teto e apagou a reserva quando a
             // conferência travou: o trabalho sai da admissão, não de `pending`.
             if let Some(decision) = ceiling
@@ -688,7 +712,19 @@ impl Actor {
         // antes de entrar no envio, nem lock SQLite atravessando o await.
         self.context_compaction_guard()?;
         self.cost_dispatch(&session)?;
-        let answer = acp.send("session/prompt", params).await?;
+        let answer = if let Some(grant) = grant {
+            let answer = match acp.send_antigravity_prompt(params, |effect| grant.write(&hub, effect)).await {
+                Ok(answer) => answer,
+                Err(error) => {
+                    self.stop_antigravity().await;
+                    return Err(error);
+                }
+            };
+            self.antigravity_active = Some(grant);
+            answer
+        } else {
+            acp.send("session/prompt", params).await?
+        };
         self.mudo_armar();
         drop(account_guard);
         if let Err(error) = self.checkpoint_waiting_session() {

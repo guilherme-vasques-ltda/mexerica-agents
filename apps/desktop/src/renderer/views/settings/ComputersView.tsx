@@ -22,6 +22,7 @@ import { useSSH } from './ssh-model'
 import { capacidades } from '@shared/fork-capacidades'
 import { SSHRow } from './SSHRow'
 import { ChavesNoHubFolha } from '../fork/voz/VozPage'
+import { GanchoMapaComputadores } from '../fork/mapa-computadores/gancho'
 import { superficieIdioma, useIdioma, useT, type Tradutor } from '../../lib/fork-i18n/estado'
 import { textoDoStatus, textoSSH } from '@shared/ssh-startup'
 import { isolado, ltr } from '@shared/bidi'
@@ -94,6 +95,7 @@ export function ComputersView() {
             ))}
           </div>
         )}
+        <GanchoMapaComputadores />
       </VStack>
 
       {cap.ssh ? <Sheet language={superficieIdioma(idioma)} open={editing !== null} onClose={() => setEditing(null)} width={460}>

@@ -140,6 +140,9 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
         "agentModels" => {
             let backend = str_arg(&b, "backend")?;
             crate::fork::motores_retirados::exigir_oferecido(backend)?;
+            if backend == crate::fork::antigravity::ID {
+                return Ok(ControlFlow::Break(json!({"models":[]})));
+            }
             backends::require_supported_execution(backend)?;
             // O motor próprio não tem programa para sondar: os modelos são os do último «Testar acesso» das chaves.
             if backend == crate::fork::motor_mexerica::ENGINE_ID {

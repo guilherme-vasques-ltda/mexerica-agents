@@ -262,31 +262,38 @@ pub fn char_keysym(c: char) -> i32 {
     i32::try_from(sym).unwrap_or(0)
 }
 
-/// Opens an app by desktop-file id or name, else runs it as a command.
+/// Opens only a desktop-file ID that resolves in the desktop launcher's trusted search path.
 pub async fn open_app(name: &str) -> Result<()> {
-    let id = name.trim().trim_end_matches(".desktop");
-    let candidates = [
-        id.to_owned(),
-        id.to_lowercase(),
-        id.to_lowercase().replace(' ', "-"),
-    ];
-    for c in &candidates {
-        let ok = tokio::process::Command::new("gtk-launch")
-            .arg(c)
-            .status()
-            .await
-            .is_ok_and(|s| s.success());
-        if ok {
-            return Ok(());
-        }
+    let id = desktop_id_for_launcher(name)?;
+    let status = tokio::process::Command::new("gtk-launch")
+        .arg("--")
+        .arg(&id)
+        .status()
+        .await?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(anyhow!("desktop application ID was not resolved"))
     }
-    tokio::process::Command::new(id.to_lowercase())
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .map_err(|_| anyhow!("Couldn't find an app named {name}."))?;
-    Ok(())
+}
+
+fn desktop_id_for_launcher(name: &str) -> Result<String> {
+    let id = name.strip_suffix(".desktop").unwrap_or(name);
+    if !valid_desktop_id(id) {
+        return Err(anyhow!("invalid desktop application ID"));
+    }
+    Ok(format!("{id}.desktop"))
+}
+
+fn valid_desktop_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.split('.').all(|part| {
+            !part.is_empty()
+                && part
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+                && !part.starts_with('-')
+        })
 }
 
 #[cfg(test)]
@@ -301,5 +308,31 @@ mod tests {
         assert_eq!(keysym("banana"), None);
         assert_eq!(char_keysym('é'), 0xe9);
         assert_eq!(char_keysym('中'), 0x0100_4e2d);
+    }
+
+    #[test]
+    fn open_app_requires_a_resolved_desktop_id() {
+        assert_eq!(
+            desktop_id_for_launcher("org.example.Editor").expect("valid ID"),
+            "org.example.Editor.desktop"
+        );
+        assert_eq!(
+            desktop_id_for_launcher("org.example.Editor.desktop").expect("valid ID"),
+            "org.example.Editor.desktop"
+        );
+        assert_eq!(
+            desktop_id_for_launcher("org.example.desktop.desktop").expect("valid ID"),
+            "org.example.desktop.desktop"
+        );
+        for invalid in [
+            "",
+            "../editor",
+            "/usr/bin/editor",
+            "editor;touch x",
+            "org..Editor",
+            "two words",
+        ] {
+            assert!(desktop_id_for_launcher(invalid).is_err());
+        }
     }
 }

@@ -3,6 +3,13 @@ import type { textos as fonte } from '../../pt-BR/extensoes/geral.ts'
 
 // Fatia 8a (D454): extensoes/geral (registro.ts), a tela e as folhas de Extensões (views/marketplace, fork/extensoes). Chaves completas; docs/guides/idiomas.md.
 export const textos: Traducao<typeof fonte> = {
+  "extensoes.motor.antigravityComputador": "{computador} 上的 Antigravity",
+  "extensoes.motor.antigravityInstalacao": "在上方所示电脑上安装或更新官方 CLI。请使用下方列出的兼容版本。",
+  "extensoes.motor.antigravityVersao": "下载 1.5.15 版",
+  "extensoes.motor.antigravityGuia": "Google 的说明",
+  "extensoes.motor.antigravityLoginLocal": "在上方电脑的终端中运行 agy acp --login，然后按 Google 的说明操作。会话保留在 CLI 中，应用不会接收您的凭据。",
+  "extensoes.motor.antigravityGemini": "备选方案：Gemini API 密钥",
+  "extensoes.motor.antigravityGeminiDetalhe": "如需自动运行，请在执行例程的电脑上打开 AI 账号 → API 密钥，添加 Google 密钥，再在 Mexerica 引擎中选择 Gemini。此方式不使用 Antigravity 登录。",
   "extensoes.titulo": "扩展",
   "extensoes.paginas": "扩展页面",
   "extensoes.voltar": "返回",
@@ -139,7 +146,8 @@ export const textos: Traducao<typeof fonte> = {
   "extensoes.motor.adicionarNode": "添加 Node.js",
   "extensoes.motor.conferindoPrimeira": "正在向 {motor} 确认…首次确认可能会下载它。",
   "extensoes.terminal.dicaAntigravity": "选择 Google OAuth，打开链接，登录后在此粘贴代码。agy 登录不代表 ACP 已登录。",
-  "extensoes.motor.antigravityInterativo": "此应用暂不支持。请在交互式 ACP 客户端中使用官方命令行工具和你自己的账号。",
+  "extensoes.motor.antigravityInterativo": "个人使用：安装官方命令行工具并运行 agy acp --login。从所有者已认证的设备在聊天中输入消息。自动化请在兼容引擎中使用 Gemini/Vertex 密钥，或选择其他引擎。",
+  "extensoes.motor.antigravityPermissoes": "Antigravity 可能不显示审批卡片就执行操作。只有命令行工具通过 ACP 发出请求时，应用才能征求你的批准。",
   "extensoes.terminal.dicaOpenCode": "用方向键选择提供商并按 Enter。OpenCode Go 建议使用保险库密钥。",
   "extensoes.terminal.dicaGrok": "在浏览器中打开链接并确认设备代码。",
   "extensoes.terminal.dicaCursor": "在浏览器中打开链接。系统会自动验证登录。",
