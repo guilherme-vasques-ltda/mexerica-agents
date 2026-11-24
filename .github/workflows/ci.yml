@@ -81,9 +81,21 @@ jobs:
           printf 'Selecao: host=%s desktop=%s heavy=%s stacked=%s\n' "$host" "$desktop" "$heavy" "$stacked" >> "$GITHUB_STEP_SUMMARY"
       - name: Instalar Gitleaks 8.30.1 com SHA256 fixo
         run: |
-          curl --fail --silent --show-error --location --retry 3 https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz -o "$RUNNER_TEMP/gitleaks.tar.gz"
-          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  $RUNNER_TEMP/gitleaks.tar.gz" | sha256sum --check
-          tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP" gitleaks
+          set -euo pipefail
+          archive="$RUNNER_TEMP/gitleaks.tar.gz"
+          status=$(curl -q --fail --silent --show-error --location --proto '=https' --retry 3 --retry-max-time 30 --max-time 30 \
+            --write-out '%{http_code}' --output "$archive" \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz) || {
+            code=$?
+            if [[ "$code" != 22 || "$status" != 403 ]]; then exit "$code"; fi
+            echo 'Download do Gitleaks retornou HTTP 403; tentando o mesmo artefato pela API do GitHub.'
+            rm -f -- "$archive"
+            curl -q --fail --silent --show-error --location --proto '=https' --max-time 30 \
+              --header 'Accept: application/octet-stream' --output "$archive" \
+              https://api.github.com/repos/gitleaks/gitleaks/releases/assets/378332058
+          }
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  $archive" | sha256sum --check
+          tar -xzf "$archive" -C "$RUNNER_TEMP" gitleaks
       - name: Segredos - bloquear segredos novos sem imprimir valores
         env:
           GITLEAKS_BIN: ${{ runner.temp }}/gitleaks

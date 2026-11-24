@@ -153,14 +153,20 @@ class ChannelIntegrationTest {
         assertTrue(rejected)
     }
 
-    @Test fun `a lapsed account lease is a transient failure while a revoked device is turned away`() = runBlocking {
+    @Test fun `paired reconnect treats plaintext lease and revoke rejects as transient without granting access`() = runBlocking {
         enqueueHost(reject = "leaseExpired")
         enqueueHost(reject = "revoked")
+        enqueueHost()
         val lapsed = runCatching { HostConnector.connect(computer(), identity()) }.exceptionOrNull()
         assertTrue(lapsed is IOException && lapsed !is HostError)
-        assertEquals("Refused: leaseExpired", lapsed?.message)
+        assertEquals("Connection to the computer ended.", lapsed?.message)
         val revoked = runCatching { HostConnector.connect(computer(), identity()) }.exceptionOrNull()
-        assertEquals(403, (revoked as HostError).status)
+        assertTrue(revoked is IOException && revoked !is HostError)
+        assertEquals("Connection to the computer ended.", revoked?.message)
+        HostConnector.connect(computer(), identity()).use { connected ->
+            assertEquals(cid, connected.call("hello").jsonObject.text("computerId"))
+        }
+        assertEquals(3, server.requestCount)
     }
 
     @Test fun `an uncertain call timeout cancels its response without replaying the mutation`() = runBlocking {

@@ -395,6 +395,7 @@ test('Grok: seleção efetiva, catálogo escolhido, pt-br e subprotocolo sem ofe
   assert.equal(h.mod.idiomaXai('', 'pt_BR'), 'pt-br')
   assert.deepEqual(Array.from(h.mod.VOICE_PROVIDERS), ['openai', 'gemini']); assert.equal(h.mod.isVoiceProvider('xai'), false)
   const sessao = h.ws.eventos.find(e => e.type === 'session.update')!.session
+  assert.deepEqual(sessao.reasoning, { effort: 'none' })
   assert.equal(sessao.audio.input.transcription.language_hint, 'pt-br')
   assert.equal(sessao.audio.input.format.rate, 24000); assert.equal(sessao.audio.output.format.rate, 24000)
   assert.ok(sessao.tools.every((t: any) => t.type === 'function' && t.parameters.additionalProperties === false))
@@ -422,6 +423,7 @@ test('Grok: divergência da sessão e ferramentas do servidor são recusadas ant
   const mudancas = [
     (s: any) => { s.model = 'grok-voice-latest' }, (s: any) => { s.voice = 'ara' },
     (s: any) => { s.instructions = 'outras' }, (s: any) => { delete s.audio },
+    (s: any) => { s.reasoning.effort = 'high' }, (s: any) => { delete s.reasoning },
     (s: any) => { s.audio.input.transcription.language_hint = 'en' },
     (s: any) => { s.audio.output.format.rate = 16000 }, (s: any) => { s.turn_detection.idle_timeout_ms = 1000 },
     (s: any) => { s.resumption.enabled = true }, (s: any) => { s.id = 'outra-sessao' },

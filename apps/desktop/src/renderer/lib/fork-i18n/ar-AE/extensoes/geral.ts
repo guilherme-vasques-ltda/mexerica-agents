@@ -3,6 +3,13 @@ import type { textos as fonte } from '../../pt-BR/extensoes/geral.ts'
 
 // Fatia 8a (D454): extensoes/geral (registro.ts), a tela e as folhas de Extensões (views/marketplace, fork/extensoes). Chaves completas; docs/guides/idiomas.md.
 export const textos: Traducao<typeof fonte> = {
+  "extensoes.motor.antigravityComputador": "Antigravity على {computador}",
+  "extensoes.motor.antigravityInstalacao": "ثبّت أداة سطر الأوامر الرسمية أو حدّثها على الكمبيوتر الموضّح أعلاه. استخدم الإصدار المتوافق أدناه.",
+  "extensoes.motor.antigravityVersao": "تنزيل الإصدار 1.5.15",
+  "extensoes.motor.antigravityGuia": "إرشادات Google",
+  "extensoes.motor.antigravityLoginLocal": "في الطرفية على الكمبيوتر الموضّح أعلاه، شغّل agy acp --login واتبع إرشادات Google. تبقى الجلسة في أداة سطر الأوامر ولا يتلقى التطبيق بيانات اعتمادك.",
+  "extensoes.motor.antigravityGemini": "البديل: مفتاح API لـ Gemini",
+  "extensoes.motor.antigravityGeminiDetalhe": "للأتمتة، أضف مفتاح Google في حسابات الذكاء الاصطناعي ← مفاتيح API على الكمبيوتر الذي سيشغّل الروتين. اختر Gemini في محرك Mexerica. لا يستخدم هذا المسار تسجيل الدخول إلى Antigravity.",
   "extensoes.titulo": "الإضافات",
   "extensoes.paginas": "صفحات الإضافات",
   "extensoes.voltar": "رجوع",

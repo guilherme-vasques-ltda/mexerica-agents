@@ -806,18 +806,22 @@ impl Actor {
         }
         // Conservar RpcError tipado: hint de uso não transforma uma falha comum em limite.
         let rpc = e.chain().find_map(|cause| cause.downcast_ref::<crate::agent::acp::RpcError>());
-        let done = Err(rpc.map_or_else(
-            || anyhow!("{e:#}"),
-            |rpc| {
-                crate::agent::acp::RpcError {
-                    code: rpc.code,
-                    message: rpc.message.clone(),
-                    kind: rpc.kind.clone(),
-                    data: rpc.data.clone(),
-                }
-                .into()
-            },
-        ));
+        let done = Err(if e.is::<crate::fork::antigravity::ModeUnconfirmed>() {
+            crate::fork::antigravity::ModeUnconfirmed.into()
+        } else {
+            rpc.map_or_else(
+                || anyhow!("{e:#}"),
+                |rpc| {
+                    crate::agent::acp::RpcError {
+                        code: rpc.code,
+                        message: rpc.message.clone(),
+                        kind: rpc.kind.clone(),
+                        data: rpc.data.clone(),
+                    }
+                    .into()
+                },
+            )
+        });
         if self.result_limit(&done).is_some() && self.turn.is_some() {
             self.finish_turn(&done);
             return;
@@ -899,7 +903,14 @@ impl Actor {
             let text = e
                 .downcast_ref::<crate::fork::assinatura_pessoal::Refusal>()
                 .map_or_else(|| format!("Couldn't start the agent: {e:#}"), ToString::to_string);
-            self.notice(&text, NoticeStyle::Error);
+            self.notice(
+                if e.is::<crate::fork::antigravity::ModeUnconfirmed>() {
+                    crate::fork::antigravity::MODE_UNCONFIRMED
+                } else {
+                    &text
+                },
+                NoticeStyle::Error,
+            );
         }
         self.turn = None;
         self.input = None;

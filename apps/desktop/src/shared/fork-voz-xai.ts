@@ -27,6 +27,7 @@ export function pedidoXai(valor: unknown): valor is PedidoXai {
 export function sessaoXai(p: PedidoXai) {
   return {
     model: p.model, voice: p.voice, instructions: p.instructions,
+    reasoning: { effort: 'none' },
     turn_detection: { type: 'server_vad', idle_timeout_ms: null },
     resumption: { enabled: false },
     audio: {
@@ -55,6 +56,7 @@ function igual(a: unknown, e: unknown): boolean {
 export function confereSessaoXai(v: unknown, p: PedidoXai): boolean {
   const s = registro(v), e = sessaoXai(p)
   if (!s || s.model !== e.model || s.voice !== e.voice || s.instructions !== e.instructions ||
+    !igual(s.reasoning, e.reasoning) ||
     !igual(s.turn_detection, e.turn_detection) || !igual(s.resumption, e.resumption) || !igual(s.audio, e.audio) ||
     !Array.isArray(s.tools) || s.tools.length !== e.tools.length) return false
   return e.tools.every(t => {
