@@ -1187,8 +1187,8 @@ mod tests {
         .unwrap();
         let bot_id = hub.create_bot(cfg).unwrap()["id"].as_str().unwrap().to_owned();
         let item = |nonce: &str| {
-            let inner =
-                json!({"m": "send", "b": {"botId": bot_id, "text": "oi", "clientNonce": nonce}, "ts": now_ms()});
+            let inner = json!({"m": "send", "b": {"botId": bot_id, "text": "oi", "clientNonce": nonce,
+                "workspaceEpoch": hub.workspace.atual(), "grantGeneration": generation(&hub, &dk)}, "ts": now_ms()});
             let blob = seal_mailbox(&hub, &phone, nonce, inner.to_string().as_bytes());
             json!({"t": "mbox.item", "seq": 1, "from": dk, "nonce": nonce, "d": blob, "exp": now_ms() + 1000})
         };
