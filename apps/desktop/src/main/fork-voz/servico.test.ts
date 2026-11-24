@@ -974,6 +974,7 @@ test('voz-10: main recusa sessão divergente, incompleta e qualquer ferramenta d
   const mudancas = [
     (s: any) => { s.model = 'grok-voice-latest' }, (s: any) => { s.voice = 'ara' },
     (s: any) => { s.instructions += 'outra regra' }, (s: any) => { delete s.audio },
+    (s: any) => { s.reasoning.effort = 'high' }, (s: any) => { delete s.reasoning },
     (s: any) => { s.audio.input.transcription.language_hint = 'en' },
     (s: any) => { s.turn_detection.idle_timeout_ms = 1 }, (s: any) => { s.resumption.enabled = true },
     ...['web_search', 'x_search', 'file_search', 'mcp'].map(type => (s: any) => { s.tools.push({ type }) }),
