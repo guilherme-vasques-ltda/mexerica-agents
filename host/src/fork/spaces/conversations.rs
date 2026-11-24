@@ -157,7 +157,7 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
     if method == "donnaConversationHistory" {
         return Ok(Some(history(hub, &get(hub, &b)?, &b)?));
     }
-    let _guard = hub.store.team_lock.lock().await;
+    let _guard = hub.store.travar_equipe().await;
     let conversation = get(hub, &b)?;
     if let Some(value) = super::resources::call(hub, caller, method, &conversation, &b).await? {
         return Ok(Some(value));

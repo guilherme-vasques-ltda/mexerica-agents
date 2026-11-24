@@ -1370,7 +1370,10 @@ async fn envio_admitido_nao_grava_depois_que_o_papel_muda() {
                 "text":"olá","clientNonce":format!("n-{sub}")});
             tokio::spawn(async move { dispatch(&hub, &caller, "donnaConversationSend", b).await })
         };
-        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        // Barreira: o pedido passou da admissão e está na fila do `team_lock`.
+        tokio::time::timeout(std::time::Duration::from_secs(10), hub.store.espera_equipe.notified())
+            .await
+            .expect("na espera");
         if trocar {
             let iat = crate::store::now_ms() / 1000 + 1;
             prova::trocar_papel(&hub, sub, iat, Some(Papel::Admin));

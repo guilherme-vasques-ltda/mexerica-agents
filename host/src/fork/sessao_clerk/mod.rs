@@ -144,27 +144,28 @@ fn vinculo_igual(hub: &Hub, db: &Connection, workspace_id: &str) -> bool {
 
 /// Até quando uma sessão vale: o `exp` civil e o mesmo prazo no relógio monotônico (o menor entre
 /// o `exp` convertido na verificação e a validade da JWKS). Vence no primeiro dos dois, então um
-/// recuo do relógio civil não a estende.
+/// recuo do relógio civil não a estende. O monotônico é o do runtime, o mesmo em que a barreira do
+/// canal dorme até o fim da sessão.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Limite {
     exp_ms: i64,
-    ate: Instant,
+    ate: tokio::time::Instant,
 }
 
 impl Limite {
     /// Daqui a `ms` nos dois relógios.
     pub(crate) fn em(ms: i64) -> Self {
         let resta = Duration::from_millis(u64::try_from(ms).unwrap_or(0));
-        Self { exp_ms: now_ms().saturating_add(ms), ate: Instant::now() + resta }
+        Self { exp_ms: now_ms().saturating_add(ms), ate: tokio::time::Instant::now() + resta }
     }
 
     pub(crate) fn vencido(&self) -> bool {
-        now_ms() >= self.exp_ms || Instant::now() >= self.ate
+        now_ms() >= self.exp_ms || tokio::time::Instant::now() >= self.ate
     }
 
     pub(crate) fn resta(&self) -> Duration {
         let civil = Duration::from_millis(u64::try_from(self.exp_ms.saturating_sub(now_ms())).unwrap_or(0));
-        civil.min(self.ate.saturating_duration_since(Instant::now()))
+        civil.min(self.ate.saturating_duration_since(tokio::time::Instant::now()))
     }
 
     /// Para o cliente (`expiresAt`, ms).
@@ -213,7 +214,8 @@ async fn verificar(hub: &Arc<Hub>, v: &Vinculo, b: &Value) -> Result<Verificado,
     let afirmacoes = token::conferir(&partes, &chave, v, agora.div_euclid(1000))?;
     let exp_ms = afirmacoes.exp.saturating_mul(1000);
     let resta = Duration::from_millis(u64::try_from(exp_ms.saturating_sub(agora)).unwrap_or(0));
-    let limite = Limite { exp_ms, ate: jwks_ate.min(Instant::now() + resta) };
+    let ate = tokio::time::Instant::from_std(jwks_ate).min(tokio::time::Instant::now() + resta);
+    let limite = Limite { exp_ms, ate };
     if limite.vencido() {
         return Err(Recusa::AuthInvalid);
     }
@@ -443,18 +445,25 @@ pub(crate) fn reject_sessao() -> Value {
 /// Concessão que o canal não corta no fim da sessão (mídia de tela WebRTC, credencial de voz do
 /// fornecedor): num Hub com vínculo, negada a aparelhos até haver corte próprio no prazo da
 /// sessão. Hub sem vínculo e o próprio computador seguem iguais.
-pub(crate) fn negar_sem_corte(hub: &Hub, caller: &Caller) -> Result<()> {
-    if matches!(caller, Caller::Device { .. }) && !matches!(exigencia(hub), Exigencia::Livre) {
-        return Err(crate::api::devices::Forbidden.into());
+/// Toda recusa desta porta fica registrada com o método e o motivo (vínculo presente ou recusado).
+pub(crate) fn negar_sem_corte(hub: &Hub, caller: &Caller, metodo: &str) -> Result<()> {
+    if !matches!(caller, Caller::Device { .. }) {
+        return Ok(());
     }
-    Ok(())
+    let motivo = match exigencia(hub) {
+        Exigencia::Livre => return Ok(()),
+        Exigencia::Sessao(_) => "no_session_cut",
+        Exigencia::Negar(recusa) => recusa.code(),
+    };
+    tracing::warn!(reason = motivo, origin = "aparelho", method = metodo, "remote request refused");
+    Err(crate::api::devices::Forbidden.into())
 }
 
 /// Método ainda sem cerca ([`matriz::sem_cerca`]): num Hub com vínculo, negado a aparelhos também
 /// no despacho. Hub sem vínculo e o próprio computador seguem iguais.
 pub(crate) fn negar_sem_cerca(hub: &Hub, caller: &Caller, metodo: &str) -> Result<()> {
     if matriz::sem_cerca(metodo) {
-        negar_sem_corte(hub, caller)?;
+        negar_sem_corte(hub, caller, metodo)?;
     }
     Ok(())
 }

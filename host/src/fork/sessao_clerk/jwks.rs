@@ -7,7 +7,9 @@
 //! com o GET fora do lock do conjunto; quem chega durante ela (vencido ou `kid` desconhecido) espera o
 //! resultado dela e decide de novo com o estado de depois. `kid`
 //! desconhecido ou falha anterior: no máximo uma busca a cada 30 s; conjunto vencido depois de uma
-//! busca bem-sucedida busca já. Idade e validade são medidas no relógio monotônico. Só uma busca
+//! busca bem-sucedida busca já. Idade e validade são medidas no relógio monotônico: a tentativa
+//! conta do início do GET (depois da espera pela busca de outro) e a validade, da chegada dos
+//! cabeçalhos (a leitura do corpo não a consome). Só uma busca
 //! bem-sucedida renova a validade; cada uma substitui o conjunto inteiro (chave removida sai).
 //! Cliente HTTP sem proxy do ambiente, sem redirect e só HTTPS. Corpo e chaves nunca vão a log.
 use super::Recusa;
@@ -92,7 +94,17 @@ pub(crate) struct Jwks {
     fonte: std::sync::Mutex<Option<Fonte>>,
     #[cfg(test)]
     buscas: std::sync::atomic::AtomicUsize,
+    /// Provas: relógio controlado da busca (só avança quando a prova manda) e a demora de rede
+    /// simulada em cada GET.
+    #[cfg(test)]
+    relogio: std::sync::Mutex<Duration>,
+    #[cfg(test)]
+    demora: std::sync::Mutex<Duration>,
 }
+
+/// Uma busca concluída: o conjunto, a validade dada pelo HTTP e quanto o GET levou até os
+/// cabeçalhos.
+type Buscada = (Vec<Chave>, Duration, Duration);
 
 impl Jwks {
     fn cache(&self, url: &reqwest::Url) -> std::sync::MutexGuard<'_, Cache> {
@@ -103,30 +115,55 @@ impl Jwks {
         cache
     }
 
+    /// O relógio da busca: o monotônico; nas provas, o controlado.
+    #[cfg(not(test))]
+    #[expect(clippy::unused_self, reason = "nas provas o relógio é o controlado, guardado em `self`")]
+    fn relogio(&self) -> Instant {
+        Instant::now()
+    }
+
+    #[cfg(test)]
+    fn relogio(&self) -> Instant {
+        static BASE: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+        *BASE.get_or_init(Instant::now) + *self.relogio.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// A busca, com a tentativa anotada no início do GET e a validade contada da chegada dos
+    /// cabeçalhos. `inicio` é o instante do pedido somado ao tempo que já passou no relógio da busca.
+    async fn buscar_e_concluir(&self, url: &reqwest::Url, inicio: Instant) {
+        let busca = self.buscar_chaves(url).await;
+        let base = match &busca {
+            Ok((_, _, ate_cabecalhos)) => inicio + *ate_cabecalhos,
+            Err(_) => inicio,
+        };
+        self.cache(url).concluir(busca.map(|(chaves, frescor, _)| (chaves, frescor)), base);
+    }
+
     /// A chave `kid`. Sem conjunto válido ou com `kid` desconhecido, espera a busca em curso e,
     /// com o estado de depois da espera, faz a sua se o intervalo deixar.
     pub(crate) async fn chave(&self, url: &reqwest::Url, kid: &str, agora: Instant) -> Result<Resolvida, Recusa> {
+        let entrada = self.relogio();
+        let depois = |relogio: Instant| agora + relogio.saturating_duration_since(entrada);
         let falta = {
             let cache = self.cache(url);
             cache.valido_ate.is_none_or(|ate| agora >= ate) || !cache.chaves.iter().any(|c| c.kid == kid)
         };
         if falta {
             let _busca = self.busca.lock().await;
+            let inicio = depois(self.relogio());
             let minha = {
                 let mut cache = self.cache(url);
-                let minha = cache.precisa(kid, agora.max(Instant::now()));
+                let minha = cache.precisa(kid, inicio.max(Instant::now()));
                 if minha {
-                    cache.tentativa_em = Some(agora);
+                    cache.tentativa_em = Some(inicio);
                 }
                 minha
             };
             if minha {
-                let busca = self.buscar_chaves(url).await;
-                let mut cache = self.cache(url);
-                cache.concluir(busca, agora);
+                self.buscar_e_concluir(url, inicio).await;
             }
         }
-        let agora = agora.max(Instant::now());
+        let agora = depois(self.relogio()).max(Instant::now());
         let cache = self.cache(url);
         let Some(ate) = cache.valido_ate.filter(|ate| agora < *ate) else { return Err(Recusa::AuthInvalid) };
         let chave = cache.chaves.iter().find(|c| c.kid == kid).ok_or(Recusa::AuthInvalid)?;
@@ -141,33 +178,54 @@ impl Jwks {
     /// Renovação em segundo plano: só se nenhuma busca estiver em curso; o GET corre sem o lock do
     /// conjunto, e só uma busca bem-sucedida troca o conjunto. Falha não estende nada.
     pub(crate) async fn renovar(&self, url: &reqwest::Url, agora: Instant) {
+        let entrada = self.relogio();
         let Ok(_busca) = self.busca.try_lock() else { return };
+        let inicio = agora + self.relogio().saturating_duration_since(entrada);
         {
             let mut cache = self.cache(url);
-            if !cache.liberada(agora) {
+            if !cache.liberada(inicio) {
                 return;
             }
-            cache.tentativa_em = Some(agora);
+            cache.tentativa_em = Some(inicio);
         }
-        let busca = self.buscar_chaves(url).await;
-        self.cache(url).concluir(busca, agora);
+        self.buscar_e_concluir(url, inicio).await;
     }
 
-    async fn buscar_chaves(&self, url: &reqwest::Url) -> Result<(Vec<Chave>, Duration)> {
-        let (corpo, frescor) = self.buscar(url).await?;
-        Ok((interpretar(&corpo)?, frescor))
+    async fn buscar_chaves(&self, url: &reqwest::Url) -> Result<Buscada> {
+        let (corpo, frescor, ate_cabecalhos) = self.buscar(url).await?;
+        Ok((interpretar(&corpo)?, frescor, ate_cabecalhos))
     }
 
-    async fn buscar(&self, url: &reqwest::Url) -> Result<(Vec<u8>, Duration)> {
+    async fn buscar(&self, url: &reqwest::Url) -> Result<(Vec<u8>, Duration, Duration)> {
         #[cfg(test)]
         {
             self.buscas.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             let fonte = self.fonte.lock().map_err(|_| anyhow!("fonte"))?.clone();
             if let Some(fonte) = fonte {
-                return fonte();
+                let demora = *self.demora.lock().map_err(|_| anyhow!("demora"))?;
+                self.avancar(demora);
+                return fonte().map(|(corpo, frescor)| (corpo, frescor, demora));
             }
         }
         buscar_com(&cliente(true)?, url).await
+    }
+
+    /// Provas: avança o relógio controlado da busca.
+    #[cfg(test)]
+    pub(crate) fn avancar(&self, quanto: Duration) {
+        *self.relogio.lock().unwrap_or_else(std::sync::PoisonError::into_inner) += quanto;
+    }
+
+    /// Provas: segura a vez da busca, como uma busca de outro pedido em curso.
+    #[cfg(test)]
+    pub(crate) async fn segurar_busca(&self) -> tokio::sync::MutexGuard<'_, ()> {
+        self.busca.lock().await
+    }
+
+    /// Provas: cada GET leva `demora` no relógio controlado até os cabeçalhos.
+    #[cfg(test)]
+    pub(crate) fn demorar(&self, demora: Duration) {
+        *self.demora.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = demora;
     }
 
     /// Provas: JWKS servida com a validade máxima.
@@ -242,9 +300,12 @@ pub(crate) fn cliente(https_only: bool) -> Result<reqwest::Client> {
         .map_err(|_| anyhow!("cliente da JWKS indisponível"))
 }
 
-/// Só `200`; redirect, outro status ou corpo acima do teto falham. Devolve o corpo e a validade.
-pub(crate) async fn buscar_com(cliente: &reqwest::Client, url: &reqwest::Url) -> Result<(Vec<u8>, Duration)> {
+/// Só `200`; redirect, outro status ou corpo acima do teto falham. Devolve o corpo, a validade e
+/// quanto o GET levou até os cabeçalhos.
+pub(crate) async fn buscar_com(cliente: &reqwest::Client, url: &reqwest::Url) -> Result<(Vec<u8>, Duration, Duration)> {
+    let inicio = Instant::now();
     let mut resposta = cliente.get(url.clone()).send().await.map_err(|_| anyhow!("JWKS sem resposta"))?;
+    let ate_cabecalhos = inicio.elapsed();
     ensure!(resposta.status() == reqwest::StatusCode::OK, "JWKS recusada");
     let validade = frescor(resposta.headers());
     let mut corpo = Vec::new();
@@ -252,7 +313,7 @@ pub(crate) async fn buscar_com(cliente: &reqwest::Client, url: &reqwest::Url) ->
         ensure!(corpo.len() + parte.len() <= MAX_CORPO, "JWKS maior que o teto");
         corpo.extend_from_slice(&parte);
     }
-    Ok((corpo, validade))
+    Ok((corpo, validade, ate_cabecalhos))
 }
 
 /// Só RSA de assinatura (`use` e `alg`, se presentes, têm de ser `sig` e `RS256`). Documento com

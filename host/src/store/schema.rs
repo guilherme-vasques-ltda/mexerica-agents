@@ -283,6 +283,8 @@ impl Store {
             db: super::mutex_observado::ObservedMutex::new(c),
             unexpired_entries: Mutex::default(),
             team_lock: Arc::new(tokio::sync::Mutex::new(())),
+            #[cfg(test)]
+            espera_equipe: tokio::sync::Notify::new(),
             connector_lock: Mutex::new(()),
             memory_boundary: Mutex::new(()),
             #[cfg(test)]

@@ -353,26 +353,34 @@ async fn tela_remota_e_negada_com_vinculo_ate_para_o_dono() {
     }
 }
 
+/// Avança o relógio do runtime sem esperar o tempo real.
+async fn avancar(quanto: Duration) {
+    tokio::time::pause();
+    tokio::time::advance(quanto).await;
+    tokio::time::resume();
+}
+
 #[tokio::test]
 async fn canal_fecha_no_exp_com_auth_invalid_a_menos_que_reautentique() {
     let hub = temp_hub();
     vincular(&hub, &vinculo_pessoal());
     let key = parear(&hub, &afirmacoes(DONO)).await.unwrap();
+    // Relógio controlado: o monotônico da sessão só anda quando a prova manda. O `exp` civil fica
+    // de pé (o relógio real mal anda), então quem decide o fim é o prazo monotônico.
     for via in [Via::Direto, Via::Relay] {
-        // Reautenticação antes do exp mantém o canal. O `exp` é truncado no segundo, então a
-        // primeira sessão vale entre 4 e 5 s: renovar em 1 s tem folga, e o pedido sai depois dela.
+        // Reautenticação antes do exp mantém o canal: a primeira sessão vale no máximo 5 s.
         let mut p = conectado_via(&hub, key.clone(), via).await;
-        let ok = autenticar(&mut p, &hub, 1, &curto(afirmacoes(DONO), 5)).await;
-        let primeiro = ok["ok"]["expiresAt"].as_i64().expect("sessão aberta");
-        tokio::time::sleep(Duration::from_millis(1000)).await;
+        assert!(autenticar(&mut p, &hub, 1, &curto(afirmacoes(DONO), 5)).await.get("ok").is_some());
+        avancar(Duration::from_secs(1)).await;
         assert!(autenticar(&mut p, &hub, 2, &curto(afirmacoes(DONO), 60)).await.get("ok").is_some());
-        tokio::time::sleep(Duration::from_millis(u64::try_from(primeiro - now_ms() + 500).unwrap_or(0))).await;
+        avancar(Duration::from_secs(5)).await;
         assert!(com_posse(&mut p, &hub, 3, "hello", json!({})).await.get("ok").is_some(), "o exp novo vale");
 
         // Sem reautenticar: o stream aberto para e o canal fecha com o terminal da sessão.
         let mut p = conectado_via(&hub, key.clone(), via).await;
-        assert!(autenticar(&mut p, &hub, 1, &curto(afirmacoes(DONO), 2)).await.get("ok").is_some());
+        assert!(autenticar(&mut p, &hub, 1, &curto(afirmacoes(DONO), 5)).await.get("ok").is_some());
         assinar_eventos(&mut p, &hub, 2).await;
+        avancar(Duration::from_secs(6)).await;
         let (code, reject) = fim(&mut p).await;
         assert_eq!(code, 4001, "{via:?}");
         assert_eq!(
@@ -431,13 +439,15 @@ async fn efeito_admitido_nao_roda_depois_que_o_papel_muda() {
         let mut pedido = envelope(&p, &hub, "setRoutinesPaused", json!({"paused": true}));
         pedido["id"] = 2.into();
         p.send(pedido).await;
-        tokio::time::sleep(Duration::from_millis(300)).await;
+        // Barreira: o pedido passou da admissão e está na fila do `team_lock`.
+        timeout(Duration::from_secs(10), hub.store.espera_equipe.notified()).await.expect("na espera");
         // Outro canal do mesmo usuário apresenta um token mais novo, agora como membro.
         trocar_papel(&hub, &key, via, &com_org(afirmacoes(OUTRO), ORG, "member")).await;
         let (code, reject) = fim(&mut p).await;
         assert_eq!((code, reject["stableCode"].as_str()), (4003, Some("role_changed")), "{via:?}");
         drop(bloqueio);
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        // O `team_lock` é justo: tomá-lo de novo espera o pedido da fila terminar o efeito.
+        drop(hub.store.team_lock.lock().await);
         assert!(!pausadas(&hub), "{via:?}: o efeito confere a guarda na própria transação");
         // Volta a admin para a próxima via.
         trocar_papel(&hub, &key, via, &admin()).await;
@@ -540,8 +550,8 @@ async fn voz_e_negada_com_vinculo_ate_para_o_dono() {
     // vínculo; o Local segue.
     let dk = crypto::b64(key.verifying_key().as_bytes());
     let (_, caller) = autoridade::autenticar(&hub, &dk).unwrap();
-    assert!(sessao::negar_sem_corte(&hub, &caller).unwrap_err().is::<devices::Forbidden>());
-    assert!(sessao::negar_sem_corte(&hub, &Caller::Local).is_ok());
+    assert!(sessao::negar_sem_corte(&hub, &caller, "voiceSession").unwrap_err().is::<devices::Forbidden>());
+    assert!(sessao::negar_sem_corte(&hub, &Caller::Local, "voiceSession").is_ok());
     assert!(api::dispatch(&hub, &caller, "voiceSession", b).await.is_err());
 }
 
