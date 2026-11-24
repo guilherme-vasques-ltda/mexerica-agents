@@ -223,9 +223,21 @@ private func doctorReport(overall: DoctorOverallStatus, checks: [DoctorCheck]) -
     #expect(!restricted.canOwnerAccept)
     #expect(!restricted.canDirectorInterrupt)
 
-    let owner = ForkWorkCardPresentation(card: ForkTowerFixtureCatalog.cards[2])
-    #expect(owner.canOwnerAccept)
-    #expect(!owner.canDirectorInterrupt)
+    let review = ForkWorkCardPresentation(card: ForkTowerFixtureCatalog.cards[0])
+    #expect(review.canOwnerAccept)
+    #expect(!review.canDirectorInterrupt)
+
+    let blocked = ForkWorkCardPresentation(card: ForkTowerFixtureCatalog.cards[2])
+    #expect(!blocked.canOwnerAccept)
+    #expect(!blocked.canDirectorInterrupt)
+}
+
+@MainActor @Test func fixtureAcceptanceFollowsHubProjectionInvariants() {
+    for card in ForkTowerFixtureCatalog.cards {
+        #expect(card.delivery.acceptedByOwner == (card.state == "done"))
+        #expect(card.capabilities.canOwnerAccept == (card.state == "review"))
+    }
+    #expect(ForkTowerFixtureCatalog.cards[2].delivery.acceptedByOwner == false)
 }
 
 @MainActor @Test func storeDiscardsInvalidationFromOldGeneration() {

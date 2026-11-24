@@ -466,7 +466,7 @@ enum ForkTowerFixtureCatalog {
             projectName: "Projeto Exemplo A",
             spaceId: spaceId,
             title: "Revisar proposta de campanha",
-            state: "in_progress",
+            state: "review",
             bucket: .needsYou,
             origin: WorkOrigin(kind: .ownerDirect),
             requesterLabel: .owner,
@@ -476,7 +476,7 @@ enum ForkTowerFixtureCatalog {
             delivery: WorkDelivery(hasEvidence: true, acceptedByOwner: false),
             declaredUpdatedAt: 1_000,
             observedExecution: ObservedExecution(active: true, status: .needsInput, observedAt: 999, machineLabel: "Máquina de exemplo A"),
-            capabilities: WorkCapabilities(canDirectorInterrupt: true, canOwnerAccept: false)
+            capabilities: WorkCapabilities(canDirectorInterrupt: false, canOwnerAccept: true)
         ),
         WorkCard(
             taskId: "task-2",
@@ -507,10 +507,10 @@ enum ForkTowerFixtureCatalog {
             origin: WorkOrigin(kind: .routine, routineId: "rotina-exemplo"),
             requesterLabel: .routine,
             blocker: WorkBlocker(kind: .dependency, reason: "Depende de outra tarefa"),
-            delivery: WorkDelivery(hasEvidence: true, acceptedByOwner: true),
+            delivery: WorkDelivery(hasEvidence: true, acceptedByOwner: false),
             declaredUpdatedAt: 800,
             observedExecution: ObservedExecution(active: true, status: .working, machineLabel: "Máquina de exemplo B"),
-            capabilities: WorkCapabilities(canDirectorInterrupt: false, canOwnerAccept: true)
+            capabilities: WorkCapabilities(canDirectorInterrupt: false, canOwnerAccept: false)
         ),
     ]
 
