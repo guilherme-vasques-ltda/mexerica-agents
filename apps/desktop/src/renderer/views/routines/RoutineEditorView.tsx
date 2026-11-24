@@ -5,7 +5,9 @@ import { Icon } from '../../components/Icon'
 import { Dialog, ModalHeader } from '../../components/Overlay'
 import { HStack, Spacer, VStack } from '../../components/Stack'
 import { Text } from '../../components/Text'
-import { useStore } from '../../store/context'
+import { useApp, useStore } from '../../store/context'
+import { AvisoInstalacaoLocal } from '../fork/aviso-instalacao-local/AvisoInstalacaoLocal'
+import { ehHubDesteComputador } from '../fork/aviso-instalacao-local/aviso-instalacao-local'
 import { emptyDraft, errorText, isManual, rawError, repeatChoice, type Routine, type RoutineScheduleDraft, type RoutineSchedulePreview, type RoutineTrigger } from './routine'
 import { Field } from '../bots/parts'
 import { LabeledRow, RoutineScheduleFields } from './RoutineScheduleFields'
@@ -31,6 +33,7 @@ export function RoutineEditorView({ botId, routine, saved, duplicated, initialTr
   duplicated: (routine: Routine) => void
 }) {
   const store = useStore()
+  const app = useApp()
   // DON-917: o editor está no catálogo; declara o idioma escolhido e re-renderiza quando ele muda.
   const idioma = useIdioma()
   const t = tradutor(idioma)
@@ -229,6 +232,7 @@ export function RoutineEditorView({ botId, routine, saved, duplicated, initialTr
                   {t('rotinas.editor.carregandoAgenda')}
                 </HStack>
               )}
+              {!routine && schedule.kind === 'cron' && ehHubDesteComputador(app.local, store) ? <AvisoInstalacaoLocal /> : null}
             </VStack>
             <VStack gap={10}>
               <button className="press routine-advanced" aria-expanded={advanced} onClick={() => setAdvanced((a) => !a)}>

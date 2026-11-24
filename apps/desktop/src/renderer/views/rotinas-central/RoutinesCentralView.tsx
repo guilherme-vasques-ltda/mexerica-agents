@@ -26,6 +26,8 @@ import { GlobalPause } from './GlobalPause'
 import { RoutinesPauseModel } from '../../store/routines-pause'
 import { RoutineSheet, type EditorTarget } from './RoutineSheet'
 import { texts } from './texts'
+import { AvisoInstalacaoLocal } from '../fork/aviso-instalacao-local/AvisoInstalacaoLocal'
+import { ehHubDesteComputador } from '../fork/aviso-instalacao-local/aviso-instalacao-local'
 import './routines-central.css'
 
 export { routinesScreen }
@@ -100,6 +102,7 @@ function Page({ header, children }: { header?: ReactNode; children: ReactNode })
 /** A tela segue só o que usa da store (nomes, ordem, conexão), não o streaming das conversas. */
 const RoutinesPage = memo(function RoutinesPage() {
   const t = useT()
+  const app = useApp()
   const store = useStoreRef()
   // O memo não re-renderiza com o idioma sozinho: os textos são lidos na hora (texts.ts).
   const idioma = useIdioma()
@@ -282,6 +285,7 @@ const RoutinesPage = memo(function RoutinesPage() {
         />
       ) : (
         <div className="rc-content">
+          {ehHubDesteComputador(app.local, store) ? <AvisoInstalacaoLocal /> : null}
           {!data ? (
             <LoadState loading={overview.loading} error={overview.error} retry={overview.reload} />
           ) : data.routines.length === 0 ? (

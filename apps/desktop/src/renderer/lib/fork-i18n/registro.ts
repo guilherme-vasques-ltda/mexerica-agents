@@ -56,6 +56,7 @@ export const MODULOS: readonly { readonly modulo: string; readonly prefixo: stri
   { modulo: 'idioma', prefixo: 'idioma.' },
   { modulo: 'marca', prefixo: 'marca.' },
   { modulo: 'onboarding', prefixo: 'onboarding.' },
+  { modulo: 'avisoLocal', prefixo: 'avisoLocal.' },
   { modulo: 'navegacao/janela', prefixo: 'navegacao.janela.' },
   { modulo: 'navegacao/barra', prefixo: 'navegacao.barra.' },
   { modulo: 'navegacao/ilha', prefixo: 'navegacao.ilha.' },
