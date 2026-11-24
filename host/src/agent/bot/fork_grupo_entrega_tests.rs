@@ -64,7 +64,7 @@ async fn mensagem_pendente_sem_entrega_e_retomada_uma_vez() {
     f.hub.shutdown().await;
     let id = pending(&f.dir, None);
     let hub = reopen(&f.dir);
-    f.until("mensagem_pendente_sem_entrega_e_retomada_uma_vez", || {
+    f.until("mensagem_pendente_sem_entrega_e_retomada_uma_vez", &hub, || {
         hub.store.entry(&id).unwrap().data["status"] == "sent"
     })
     .await;
@@ -89,7 +89,8 @@ async fn quem_ja_recebeu_nao_recebe_de_novo() {
     f.hub.shutdown().await;
     let id = pending(&f.dir, Some(json!({"handed":["bot"],"done":["bot"],"resumed":false})));
     let hub = reopen(&f.dir);
-    f.until("quem_ja_recebeu_nao_recebe_de_novo", || hub.store.entry(&id).unwrap().data["status"] == "sent").await;
+    f.until("quem_ja_recebeu_nao_recebe_de_novo", &hub, || hub.store.entry(&id).unwrap().data["status"] == "sent")
+        .await;
     tokio::time::sleep(Duration::from_millis(700)).await;
     assert_eq!(f.prompts().len(), 0, "o membro que já recebeu fica de fora da retomada");
     assert_eq!(reviews(&hub), 0);
@@ -109,7 +110,7 @@ async fn entrega_incerta_ou_retomada_que_caiu_vira_conferencia_sem_repetir() {
         f.hub.shutdown().await;
         let id = pending(&f.dir, Some(delivery.clone()));
         let hub = reopen(&f.dir);
-        f.until("entrega_incerta_ou_retomada_que_caiu_vira_conferencia_sem_repetir", || {
+        f.until("entrega_incerta_ou_retomada_que_caiu_vira_conferencia_sem_repetir", &hub, || {
             hub.store.entry(&id).unwrap().data["status"] == "cancelled"
         })
         .await;
@@ -142,13 +143,14 @@ async fn envio_ao_grupo_nasce_pendente_e_so_confirma_depois_da_primeira_rodada()
     .unwrap();
     let id = sent["entry"]["id"].as_str().unwrap().to_owned();
     assert_eq!(sent["entry"]["data"]["status"], "sending");
-    f.until("envio_ao_grupo_nasce_pendente_e_so_confirma_depois_da_primeira_rodada", || f.prompts().len() == 1).await;
+    f.until("envio_ao_grupo_nasce_pendente_e_so_confirma_depois_da_primeira_rodada", &f.hub, || f.prompts().len() == 1)
+        .await;
     assert_eq!(f.hub.store.entry(&id).unwrap().data["status"], "sending", "o membro ainda não terminou");
     let saved: Value =
         serde_json::from_str(&f.hub.store.kv_get(&format!("donna.group.delivery.{id}")).unwrap()).unwrap();
     assert_eq!(saved["handed"], json!(["bot"]));
     std::fs::remove_file(f.dir.join("hold")).unwrap();
-    f.until("envio_ao_grupo_nasce_pendente_e_so_confirma_depois_da_primeira_rodada", || {
+    f.until("envio_ao_grupo_nasce_pendente_e_so_confirma_depois_da_primeira_rodada", &f.hub, || {
         f.hub.store.entry(&id).unwrap().data["status"] == "sent"
     })
     .await;
@@ -165,7 +167,7 @@ async fn mensagem_de_aparelho_nao_e_retomada_sem_prova_atual_de_autoridade() {
     f.hub.shutdown().await;
     let id = pending_from(&f.dir, "Do celular", &json!({"caller":"device","device":"celular-revogado"}), None);
     let hub = reopen(&f.dir);
-    f.until("mensagem_de_aparelho_nao_e_retomada_sem_prova_atual_de_autoridade", || {
+    f.until("mensagem_de_aparelho_nao_e_retomada_sem_prova_atual_de_autoridade", &hub, || {
         hub.store.entry(&id).unwrap().data["status"] == "cancelled"
     })
     .await;
@@ -184,7 +186,7 @@ async fn dois_membros_so_quem_nao_recebeu_recebe_uma_vez() {
     f.hub.shutdown().await;
     let id = pending(&f.dir, Some(json!({"handed":["bot"],"done":["bot"],"resumed":false})));
     let hub = reopen(&f.dir);
-    f.until("dois_membros_so_quem_nao_recebeu_recebe_uma_vez", || {
+    f.until("dois_membros_so_quem_nao_recebeu_recebe_uma_vez", &hub, || {
         hub.store.entry(&id).unwrap().data["status"] == "sent"
     })
     .await;
@@ -209,7 +211,7 @@ async fn incerta_ao_lado_de_pendente_fica_fora_do_prompt() {
     let uncertain = pending_from(&f.dir, "Primeira incerta", &local, Some(json!({"handed":["bot"],"done":[]})));
     let next = pending_from(&f.dir, "Segunda pendente", &local, None);
     let hub = reopen(&f.dir);
-    f.until("incerta_ao_lado_de_pendente_fica_fora_do_prompt", || {
+    f.until("incerta_ao_lado_de_pendente_fica_fora_do_prompt", &hub, || {
         hub.store.entry(&next).unwrap().data["status"] == "sent"
     })
     .await;
@@ -273,7 +275,7 @@ async fn aparelho_revogado_com_o_hub_parado_nao_tem_a_mensagem_retomada() {
     let sent = crate::api::dispatch(&f.hub, &caller, "send", json!({"botId":ROOM,"text":"Do celular"})).await.unwrap();
     let id = sent["entry"]["id"].as_str().unwrap().to_owned();
     assert_eq!(sent["entry"]["data"]["contentOrigin"]["ingress"]["caller"], "device");
-    f.until("aparelho_revogado_com_o_hub_parado_nao_tem_a_mensagem_retomada", || f.prompts().len() == 1).await;
+    f.until("aparelho_revogado_com_o_hub_parado_nao_tem_a_mensagem_retomada", &f.hub, || f.prompts().len() == 1).await;
     f.hub.shutdown().await;
     std::fs::remove_file(f.dir.join("hold")).unwrap();
     {
@@ -286,7 +288,7 @@ async fn aparelho_revogado_com_o_hub_parado_nao_tem_a_mensagem_retomada() {
     }
     assert!(f.hub.revoke_device("celular-grupo").unwrap());
     let hub = reopen(&f.dir);
-    f.until("aparelho_revogado_com_o_hub_parado_nao_tem_a_mensagem_retomada", || {
+    f.until("aparelho_revogado_com_o_hub_parado_nao_tem_a_mensagem_retomada", &hub, || {
         hub.store.entry(&id).unwrap().data["status"] == "cancelled"
     })
     .await;
@@ -309,7 +311,7 @@ async fn duas_pendentes_so_a_identificada_e_retomada_sem_lote() {
     let newest =
         pending_from(&f.dir, "Pendente nova", &local, Some(json!({"handed":["bot"],"done":["bot"],"resumed":false})));
     let hub = reopen(&f.dir);
-    f.until("duas_pendentes_so_a_identificada_e_retomada_sem_lote", || {
+    f.until("duas_pendentes_so_a_identificada_e_retomada_sem_lote", &hub, || {
         hub.store.entry(&newest).unwrap().data["status"] == "sent"
     })
     .await;
@@ -335,7 +337,8 @@ async fn parada_nao_volta_no_prompt_da_proxima() {
     crate::fork::grupo_entrega::stop(&f.hub, ROOM).unwrap();
     let next = pending_from(&f.dir, "Mensagem seguinte", &local, None);
     let hub = reopen(&f.dir);
-    f.until("parada_nao_volta_no_prompt_da_proxima", || hub.store.entry(&next).unwrap().data["status"] == "sent").await;
+    f.until("parada_nao_volta_no_prompt_da_proxima", &hub, || hub.store.entry(&next).unwrap().data["status"] == "sent")
+        .await;
     let saved = hub.store.entry(&stopped).unwrap();
     assert_eq!(saved.data["status"], "cancelled");
     assert_eq!(saved.data["groupReview"], true);
@@ -378,7 +381,7 @@ async fn resposta_a_incerta_vai_para_conferencia() {
         None,
     );
     let hub = reopen(&f.dir);
-    f.until("resposta_a_incerta_vai_para_conferencia", || {
+    f.until("resposta_a_incerta_vai_para_conferencia", &hub, || {
         hub.store.entry(&reply).unwrap().data["status"] == "cancelled"
     })
     .await;
@@ -404,8 +407,10 @@ async fn retomada_mostra_so_a_mensagem_identificada() {
     }
     let id = pending(&f.dir, None);
     let hub = reopen(&f.dir);
-    f.until("retomada_mostra_so_a_mensagem_identificada", || hub.store.entry(&id).unwrap().data["status"] == "sent")
-        .await;
+    f.until("retomada_mostra_so_a_mensagem_identificada", &hub, || {
+        hub.store.entry(&id).unwrap().data["status"] == "sent"
+    })
+    .await;
     let prompt = f.prompts()[0].to_string();
     assert!(prompt.contains("Oi, sala"));
     assert!(!prompt.contains("Antiga entregue"), "só a identificada é conteúdo da retomada");
@@ -481,7 +486,7 @@ async fn falha_ao_marcar_uma_sala_nao_segura_as_outras() {
     let hub = reopen(&f.dir);
     assert!(hub.groups.blocked(ROOM));
     assert!(!hub.groups.blocked("sala2"));
-    f.until("falha_ao_marcar_uma_sala_nao_segura_as_outras", || {
+    f.until("falha_ao_marcar_uma_sala_nao_segura_as_outras", &hub, || {
         hub.store.entry(&fine).unwrap().data["status"] == "sent"
     })
     .await;
@@ -532,15 +537,17 @@ async fn envio_que_falha_nao_confirma_e_o_boot_entrega_so_a_quem_faltou() {
         serde_json::from_str(&f.hub.store.kv_get(&format!("donna.group.delivery.{id}")).unwrap_or_default())
             .unwrap_or_default()
     };
-    f.until("envio_que_falha_nao_confirma_e_o_boot_entrega_so_a_quem_faltou", || saved()["done"] == json!(["bot"]))
-        .await;
+    f.until("envio_que_falha_nao_confirma_e_o_boot_entrega_so_a_quem_faltou", &f.hub, || {
+        saved()["done"] == json!(["bot"])
+    })
+    .await;
     tokio::time::sleep(Duration::from_millis(1500)).await;
     assert_eq!(f.hub.store.entry(&id).unwrap().data["status"], "sending", "quem não recebeu não vira enviada");
     assert_eq!(saved()["handed"], json!(["bot"]), "o envio que falhou não conta como recebido");
     f.hub.shutdown().await;
     let before = f.prompts().len();
     let hub = reopen(&f.dir);
-    f.until("envio_que_falha_nao_confirma_e_o_boot_entrega_so_a_quem_faltou", || {
+    f.until("envio_que_falha_nao_confirma_e_o_boot_entrega_so_a_quem_faltou", &hub, || {
         hub.store.entry(&id).unwrap().data["status"] == "sent"
     })
     .await;
@@ -571,7 +578,7 @@ async fn retomadas_em_duas_sessoes_do_grupo_passam_as_duas_ao_membro() {
             .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
             .map_or(Value::Null, |saved| saved["handed"].clone())
     };
-    f.until("retomadas_em_duas_sessoes_do_grupo_passam_as_duas_ao_membro", || {
+    f.until("retomadas_em_duas_sessoes_do_grupo_passam_as_duas_ao_membro", &hub, || {
         ids.iter().all(|id| handed(id) == json!(["bot"]))
     })
     .await;
@@ -579,7 +586,7 @@ async fn retomadas_em_duas_sessoes_do_grupo_passam_as_duas_ao_membro() {
         assert_eq!(hub.store.entry(id).unwrap().data["status"], "sending", "nenhuma retomada confirma a outra");
     }
     std::fs::remove_file(f.dir.join("hold")).unwrap();
-    f.until("retomadas_em_duas_sessoes_do_grupo_passam_as_duas_ao_membro", || {
+    f.until("retomadas_em_duas_sessoes_do_grupo_passam_as_duas_ao_membro", &hub, || {
         ids.iter().all(|id| hub.store.entry(id).unwrap().data["status"] == "sent")
     })
     .await;
@@ -621,7 +628,7 @@ async fn stop_no_meio_da_rodada_nao_confirma_sem_entrega() {
     let local = crate::api::devices::Caller::Local;
     let sent = crate::api::dispatch(&hub, &local, "send", json!({"botId":ROOM,"text":"Oi, sala"})).await.unwrap();
     let id = sent["entry"]["id"].as_str().unwrap().to_owned();
-    f.until("stop_no_meio_da_rodada_nao_confirma_sem_entrega", || f.prompts().len() == 1).await;
+    f.until("stop_no_meio_da_rodada_nao_confirma_sem_entrega", &f.hub, || f.prompts().len() == 1).await;
     crate::api::dispatch(&hub, &local, "stop", json!({"botId":ROOM})).await.unwrap();
     assert_eq!(hub.store.entry(&id).unwrap().data["status"], "cancelled");
     std::fs::remove_file(f.dir.join("hold")).unwrap();
@@ -664,7 +671,7 @@ async fn sala_que_falha_no_meio_da_classificacao_nao_retoma_nada() {
     // Corrigida a falha, o boot seguinte ainda retoma a mensagem: a sala bloqueada não gastou a retomada.
     Store::open(&f.dir.join("test.db")).unwrap().db.locked().execute_batch("DROP TRIGGER reject_session").unwrap();
     let again = reopen(&f.dir);
-    f.until("sala_que_falha_no_meio_da_classificacao_nao_retoma_nada", || {
+    f.until("sala_que_falha_no_meio_da_classificacao_nao_retoma_nada", &again, || {
         again.store.entry(&resumable).unwrap().data["status"] == "sent"
     })
     .await;

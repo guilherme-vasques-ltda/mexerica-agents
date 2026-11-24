@@ -484,9 +484,11 @@ async fn teto_duas_esperas_do_bot_sobrevivem_tres_boots_e_saem_uma_vez() {
     let run = f.hub.routines.enqueue(&f.hub.store, "bot", id, json!({"source":"test"}), None, true).unwrap();
     let run_id = run["run"]["id"].as_str().unwrap().to_owned();
     f.hub.send_cmd("bot", crate::agent::bot::Cmd::Routine(run_id.clone())).unwrap();
-    f.until("teto_duas_esperas_do_bot_sobrevivem_tres_boots_e_saem_uma_vez", || holds(&f.hub.store).len() == 1).await;
+    f.until("teto_duas_esperas_do_bot_sobrevivem_tres_boots_e_saem_uma_vez", &f.hub, || holds(&f.hub.store).len() == 1)
+        .await;
     crate::api::dispatch(&f.hub, &Caller::Local, "send", json!({"botId":"bot","text":"oi do dono"})).await.unwrap();
-    f.until("teto_duas_esperas_do_bot_sobrevivem_tres_boots_e_saem_uma_vez", || holds(&f.hub.store).len() == 2).await;
+    f.until("teto_duas_esperas_do_bot_sobrevivem_tres_boots_e_saem_uma_vez", &f.hub, || holds(&f.hub.store).len() == 2)
+        .await;
     let works = |f: &Fixture| holds(&f.hub.store).into_iter().map(|h| h.work).collect::<Vec<_>>();
     let before = works(&f);
     assert_eq!(before[0], format!("routine:{run_id}"), "ordem de chegada: rotina primeiro");
@@ -494,7 +496,7 @@ async fn teto_duas_esperas_do_bot_sobrevivem_tres_boots_e_saem_uma_vez() {
     for boot in 0..3 {
         f.hub.shutdown().await;
         f.hub = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
-        f.until("teto_duas_esperas_do_bot_sobrevivem_tres_boots_e_saem_uma_vez", || {
+        f.until("teto_duas_esperas_do_bot_sobrevivem_tres_boots_e_saem_uma_vez", &f.hub, || {
             f.hub.runtime("bot").activity == "Parado pelo teto de gasto."
         })
         .await;
@@ -508,7 +510,7 @@ async fn teto_duas_esperas_do_bot_sobrevivem_tres_boots_e_saem_uma_vez() {
     std::fs::write(f.dir.join("blocked"), "").unwrap();
     let fp = fp(&hold(&f.hub.store).unwrap());
     release(&f.hub, "checkFailure", &fp).await.unwrap();
-    f.until("teto_duas_esperas_do_bot_sobrevivem_tres_boots_e_saem_uma_vez", || f.prompts().len() >= 2).await;
+    f.until("teto_duas_esperas_do_bot_sobrevivem_tres_boots_e_saem_uma_vez", &f.hub, || f.prompts().len() >= 2).await;
     tokio::time::sleep(Duration::from_millis(500)).await;
     let prompts: Vec<String> = f.prompts().iter().map(Value::to_string).collect();
     assert_eq!(prompts.len(), 2, "cada trabalho sai uma vez: {prompts:?}");
@@ -531,7 +533,7 @@ async fn teto_rotina_travada_nao_segura_fala_humana_isenta() {
     decide_with_body(hub, "routine", &json!({"routineId":"r5"}));
     assert!(hold(&hub.store).is_some(), "rotina segurada deixou a marca durável");
     crate::api::dispatch(hub, &Caller::Local, "send", json!({"botId":"bot","text":"oi"})).await.unwrap();
-    f.until("teto_rotina_travada_nao_segura_fala_humana_isenta", || !f.prompts().is_empty()).await;
+    f.until("teto_rotina_travada_nao_segura_fala_humana_isenta", &f.hub, || !f.prompts().is_empty()).await;
     assert_eq!(f.prompts().len(), 1, "fala do dono isenta chegou ao agente com rotina parada");
     assert!(hold(&hub.store).is_some(), "espera da rotina continua listada");
     assert!(
@@ -585,12 +587,14 @@ async fn teto_envio_real_trava_libera_e_envia() {
     crate::api::dispatch(hub, &Caller::Local, "send", json!({"botId": "bot", "text": "Continue a tarefa pendente"}))
         .await
         .unwrap();
-    f.until("teto_envio_real_trava_libera_e_envia", || hold(&hub.store).is_some()).await;
+    f.until("teto_envio_real_trava_libera_e_envia", &f.hub, || hold(&hub.store).is_some()).await;
     assert!(f.prompts().is_empty(), "nenhum prompt saiu enquanto o teto trava");
     // R3-P3-2: o preparo do ticket descartado não fica como fantasma — Desfazer
     // (`with_inactive_bot`) e a instalação do motor não veem o bot ocupado.
-    f.until("teto_envio_real_trava_libera_e_envia", || hub.runtime("bot").activity == "Parado pelo teto de gasto.")
-        .await;
+    f.until("teto_envio_real_trava_libera_e_envia", &f.hub, || {
+        hub.runtime("bot").activity == "Parado pelo teto de gasto."
+    })
+    .await;
     assert!(hub.runtime("bot").preparing_turn_token.is_none(), "preparo do ticket descartado limpo");
     hub.with_inactive_bot("bot", || Ok(())).expect("Desfazer não recusa o bot parado pelo teto");
     assert!(
@@ -603,7 +607,7 @@ async fn teto_envio_real_trava_libera_e_envia() {
     );
     let fp = fp(&hold(&hub.store).unwrap());
     release(hub, "checkFailure", &fp).await.unwrap();
-    f.until("teto_envio_real_trava_libera_e_envia", || !f.prompts().is_empty()).await;
+    f.until("teto_envio_real_trava_libera_e_envia", &f.hub, || !f.prompts().is_empty()).await;
     assert!(hold(&hub.store).is_none(), "espera liberada depois do envio");
     f.hub.shutdown().await;
     let _ = std::fs::remove_dir_all(&f.dir);
@@ -898,10 +902,10 @@ async fn teto_parar_cancela_rotina_estacionada() {
     let run = hub.routines.enqueue(&hub.store, "bot", id, json!({"source":"test"}), None, true).unwrap();
     let run_id = run["run"]["id"].as_str().unwrap().to_owned();
     hub.send_cmd("bot", crate::agent::bot::Cmd::Routine(run_id.clone())).unwrap();
-    f.until("teto_parar_cancela_rotina_estacionada", || !holds(&hub.store).is_empty()).await;
+    f.until("teto_parar_cancela_rotina_estacionada", &f.hub, || !holds(&hub.store).is_empty()).await;
     assert_eq!(hub.routines.list("bot")["runs"][0]["status"], "starting", "estacionada fora da fila");
     crate::api::dispatch(hub, &Caller::Local, "stop", json!({"botId":"bot"})).await.unwrap();
-    f.until("teto_parar_cancela_rotina_estacionada", || holds(&hub.store).is_empty()).await;
+    f.until("teto_parar_cancela_rotina_estacionada", &f.hub, || holds(&hub.store).is_empty()).await;
     assert_eq!(hub.routines.list("bot")["runs"][0]["status"], "cancelled");
     assert!(!hub.routines.chain_reserved_for_test("bot"), "a vaga de rotina do bot voltou");
     let fp = teto::call(hub, &Caller::Local, "donnaCeiling", json!({})).await.unwrap()["state"]["blocked"]["signature"]
@@ -956,11 +960,13 @@ async fn teto_desmarcar_conversas_solta_fala_parada_e_mantem_rotina() {
     let id = routine["routine"]["id"].as_str().unwrap();
     let run = hub.routines.enqueue(&hub.store, "bot", id, json!({"source":"test"}), None, true).unwrap();
     hub.send_cmd("bot", crate::agent::bot::Cmd::Routine(run["run"]["id"].as_str().unwrap().into())).unwrap();
-    f.until("teto_desmarcar_conversas_solta_fala_parada_e_mantem_rotina", || holds(&hub.store).len() == 1).await;
+    f.until("teto_desmarcar_conversas_solta_fala_parada_e_mantem_rotina", &f.hub, || holds(&hub.store).len() == 1)
+        .await;
     crate::api::dispatch(hub, &Caller::Local, "send", json!({"botId":"bot","text":"fala parada"})).await.unwrap();
-    f.until("teto_desmarcar_conversas_solta_fala_parada_e_mantem_rotina", || holds(&hub.store).len() == 2).await;
+    f.until("teto_desmarcar_conversas_solta_fala_parada_e_mantem_rotina", &f.hub, || holds(&hub.store).len() == 2)
+        .await;
     save(hub, json!({"enabled":true,"tokens":10,"applyToConversations":false})).await.unwrap();
-    f.until("teto_desmarcar_conversas_solta_fala_parada_e_mantem_rotina", || !f.prompts().is_empty()).await;
+    f.until("teto_desmarcar_conversas_solta_fala_parada_e_mantem_rotina", &f.hub, || !f.prompts().is_empty()).await;
     assert!(f.prompts()[0].to_string().contains("fala parada"), "a fala do dono saiu");
     let left: Vec<String> = holds(&hub.store).into_iter().map(|h| h.work).collect();
     assert_eq!(left.len(), 1);
@@ -1299,14 +1305,14 @@ async fn teto_parar_uma_mensagem_do_lote_conserva_as_demais() {
     let send =
         |text: &'static str| crate::api::dispatch(hub, &Caller::Local, "send", json!({"botId":"bot","text":text}));
     send("turno em andamento").await.unwrap();
-    f.until("teto_parar_uma_mensagem_do_lote_conserva_as_demais", || f.prompts().len() == 1).await;
+    f.until("teto_parar_uma_mensagem_do_lote_conserva_as_demais", &f.hub, || f.prompts().len() == 1).await;
     send("LOTE-UM").await.unwrap();
     send("LOTE-DOIS").await.unwrap();
     let (e1, e2) = (user_entry(hub, "LOTE-UM"), user_entry(hub, "LOTE-DOIS"));
     config(hub, &json!({"enabled":true,"tokens":10,"applyToConversations":true}));
     ledger(&hub.store, now_in_month(&hub.store), Some((0.1, "USD")), None);
     std::fs::remove_file(f.dir.join("hold")).unwrap();
-    f.until("teto_parar_uma_mensagem_do_lote_conserva_as_demais", || holds(&hub.store).len() == 1).await;
+    f.until("teto_parar_uma_mensagem_do_lote_conserva_as_demais", &f.hub, || holds(&hub.store).len() == 1).await;
     assert_eq!(holds(&hub.store)[0].work, format!("human:{e1},{e2}"), "o lote travou junto");
     stop_entry(hub, &e1).await;
     let rows = holds(&hub.store);
@@ -1318,7 +1324,7 @@ async fn teto_parar_uma_mensagem_do_lote_conserva_as_demais() {
     assert_eq!(hub.store.entry(&e2).unwrap().data["status"], "queued");
     let fp = fp(&hold(&hub.store).unwrap());
     release(hub, "checkFailure", &fp).await.unwrap();
-    f.until("teto_parar_uma_mensagem_do_lote_conserva_as_demais", || f.prompts().len() >= 2).await;
+    f.until("teto_parar_uma_mensagem_do_lote_conserva_as_demais", &f.hub, || f.prompts().len() >= 2).await;
     tokio::time::sleep(Duration::from_millis(600)).await;
     let prompts: Vec<String> = f.prompts().iter().map(Value::to_string).collect();
     assert_eq!(prompts.len(), 2, "{prompts:?}");
@@ -1345,11 +1351,11 @@ async fn teto_retomada_d72_barrada_retoma_apos_restart() {
     }
     f.make_retry_due();
     f.hub = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
-    f.until("teto_retomada_d72_barrada_retoma_apos_restart", || holds(&f.hub.store).len() == 1).await;
+    f.until("teto_retomada_d72_barrada_retoma_apos_restart", &f.hub, || holds(&f.hub.store).len() == 1).await;
     assert_eq!(hold(&f.hub.store).unwrap()["waiting"], true, "a espera sabe que é a retomada D72");
     let checkpoint =
         |hub: &Hub| -> Value { serde_json::from_str(&hub.store.kv_get("turn.waiting.bot").unwrap()).unwrap() };
-    f.until("teto_retomada_d72_barrada_retoma_apos_restart", || checkpoint(&f.hub)["phase"] == "waiting").await;
+    f.until("teto_retomada_d72_barrada_retoma_apos_restart", &f.hub, || checkpoint(&f.hub)["phase"] == "waiting").await;
     assert_eq!(f.prompts().len(), 1, "a retomada não saiu com o teto travado");
     f.hub.shutdown().await;
     f.hub = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
@@ -1359,8 +1365,9 @@ async fn teto_retomada_d72_barrada_retoma_apos_restart() {
     assert!(checkpoint(&f.hub)["retryAt"].as_i64().unwrap() > crate::store::now_ms(), "liberação antes do retryAt");
     let fp = fp(&hold(&f.hub.store).unwrap());
     release(&f.hub, "checkFailure", &fp).await.unwrap();
-    f.until("teto_retomada_d72_barrada_retoma_apos_restart", || f.prompts().len() == 2).await;
-    f.until("teto_retomada_d72_barrada_retoma_apos_restart", || f.hub.runtime("bot").status == BotStatus::Idle).await;
+    f.until("teto_retomada_d72_barrada_retoma_apos_restart", &f.hub, || f.prompts().len() == 2).await;
+    f.until("teto_retomada_d72_barrada_retoma_apos_restart", &f.hub, || f.hub.runtime("bot").status == BotStatus::Idle)
+        .await;
     assert!(holds(&f.hub.store).is_empty());
     assert!(f.hub.store.kv_read("turn.waiting.bot").unwrap().is_none_or(|raw| raw.contains("\"finished\"")));
     f.assert_finished_once();
@@ -1389,7 +1396,7 @@ async fn held_routine(f: &Fixture, name: &str) -> String {
     let run_id = run["run"]["id"].as_str().unwrap().to_owned();
     let before = holds(&hub.store).len();
     hub.send_cmd("bot", crate::agent::bot::Cmd::Routine(run_id.clone())).unwrap();
-    f.until("held_routine", || holds(&hub.store).len() == before + 1).await;
+    f.until("held_routine", &f.hub, || holds(&hub.store).len() == before + 1).await;
     run_id
 }
 
@@ -1428,20 +1435,20 @@ async fn teto_parar_conserva_espera_se_o_efeito_falha() {
     // 1) O cancelamento da rotina falha: a intenção é durável e nada sai.
     sql(hub, INJ_ROTINA);
     crate::api::dispatch(hub, &Caller::Local, "stop", json!({"botId":"bot"})).await.unwrap();
-    f.until("teto_parar_conserva_espera_se_o_efeito_falha", || cancel_recorded(hub)).await;
+    f.until("teto_parar_conserva_espera_se_o_efeito_falha", &f.hub, || cancel_recorded(hub)).await;
     tokio::time::sleep(Duration::from_millis(1500)).await;
     assert_eq!(holds(&hub.store).len(), 1, "efeito falhou: a espera fica, marcada");
     assert_eq!(run_status(hub), "starting");
     // 2) Sem repetir Parar: o efeito volta a valer, mas a linha não sai — liquidada.
     sql(hub, INJ_LINHA);
     sql(hub, "DROP TRIGGER teto_inj_rotina;");
-    f.until("teto_parar_conserva_espera_se_o_efeito_falha", || run_status(hub) == "cancelled").await;
+    f.until("teto_parar_conserva_espera_se_o_efeito_falha", &f.hub, || run_status(hub) == "cancelled").await;
     tokio::time::sleep(Duration::from_millis(1500)).await;
     assert_eq!(holds(&hub.store).len(), 1, "linha conservada até poder sair");
     assert!(cancel_recorded(hub), "a intenção fica gravada até a linha sair");
     // 3) A linha liquidada sai no ciclo seguinte, com o teto ainda travado.
     sql(hub, "DROP TRIGGER teto_inj_linha;");
-    f.until("teto_parar_conserva_espera_se_o_efeito_falha", || holds(&hub.store).is_empty()).await;
+    f.until("teto_parar_conserva_espera_se_o_efeito_falha", &f.hub, || holds(&hub.store).is_empty()).await;
     assert!(!blocked_fp(hub).await.is_empty(), "o teto continua travado");
     assert!(!hub.routines.chain_reserved_for_test("bot"), "a vaga de rotina do bot voltou");
     release(hub, "checkFailure", &blocked_fp(hub).await).await.unwrap();
@@ -1463,7 +1470,7 @@ async fn teto_parar_com_falha_sobrevive_ao_restart_e_nunca_executa() {
     held_routine(&f, "Rotina parada").await;
     sql(&f.hub, INJ_ROTINA);
     crate::api::dispatch(&f.hub, &Caller::Local, "stop", json!({"botId":"bot"})).await.unwrap();
-    f.until("teto_parar_com_falha_sobrevive_ao_restart_e_nunca_executa", || cancel_recorded(&f.hub)).await;
+    f.until("teto_parar_com_falha_sobrevive_ao_restart_e_nunca_executa", &f.hub, || cancel_recorded(&f.hub)).await;
     assert_eq!(run_status(&f.hub), "starting");
     f.hub.shutdown().await;
     // O efeito volta a funcionar; apagar a linha ainda falha.
@@ -1474,14 +1481,16 @@ async fn teto_parar_com_falha_sobrevive_ao_restart_e_nunca_executa() {
         .execute_batch(&format!("DROP TRIGGER teto_inj_rotina; {INJ_LINHA}"))
         .unwrap();
     f.hub = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
-    f.until("teto_parar_com_falha_sobrevive_ao_restart_e_nunca_executa", || run_status(&f.hub) == "cancelled").await;
+    f.until("teto_parar_com_falha_sobrevive_ao_restart_e_nunca_executa", &f.hub, || run_status(&f.hub) == "cancelled")
+        .await;
     tokio::time::sleep(Duration::from_millis(1500)).await;
     assert!(holds(&f.hub.store).len() == 1 && cancel_recorded(&f.hub), "liquidada: só a linha e a intenção ficam");
     assert!(f.prompts().is_empty(), "a intenção restaurada nunca executa a rotina");
     f.hub.shutdown().await;
     Store::open(&f.dir.join("test.db")).unwrap().db.locked().execute_batch("DROP TRIGGER teto_inj_linha;").unwrap();
     f.hub = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
-    f.until("teto_parar_com_falha_sobrevive_ao_restart_e_nunca_executa", || holds(&f.hub.store).is_empty()).await;
+    f.until("teto_parar_com_falha_sobrevive_ao_restart_e_nunca_executa", &f.hub, || holds(&f.hub.store).is_empty())
+        .await;
     assert!(!blocked_fp(&f.hub).await.is_empty(), "liquidação saiu com o teto travado");
     release(&f.hub, "checkFailure", &blocked_fp(&f.hub).await).await.unwrap();
     tokio::time::sleep(Duration::from_millis(800)).await;
@@ -1504,14 +1513,14 @@ async fn teto_falha_na_reescrita_do_lote_conserva_a_ordem() {
     let send =
         |text: &'static str| crate::api::dispatch(hub, &Caller::Local, "send", json!({"botId":"bot","text":text}));
     send("turno em andamento").await.unwrap();
-    f.until("teto_falha_na_reescrita_do_lote_conserva_a_ordem", || f.prompts().len() == 1).await;
+    f.until("teto_falha_na_reescrita_do_lote_conserva_a_ordem", &f.hub, || f.prompts().len() == 1).await;
     send("LOTE-UM").await.unwrap();
     send("LOTE-DOIS").await.unwrap();
     let (e1, e2) = (user_entry(hub, "LOTE-UM"), user_entry(hub, "LOTE-DOIS"));
     config(hub, &json!({"enabled":true,"tokens":10,"applyToConversations":true}));
     ledger(&hub.store, now_in_month(&hub.store), Some((0.1, "USD")), None);
     std::fs::remove_file(f.dir.join("hold")).unwrap();
-    f.until("teto_falha_na_reescrita_do_lote_conserva_a_ordem", || holds(&hub.store).len() == 1).await;
+    f.until("teto_falha_na_reescrita_do_lote_conserva_a_ordem", &f.hub, || holds(&hub.store).len() == 1).await;
     let run_id = held_routine(&f, "Rotina depois do lote").await;
     let works = || holds(&hub.store).into_iter().map(|h| h.work).collect::<Vec<_>>();
     assert_eq!(works(), [format!("human:{e1},{e2}"), format!("routine:{run_id}")]);
@@ -1524,12 +1533,12 @@ async fn teto_falha_na_reescrita_do_lote_conserva_a_ordem() {
     assert_eq!(works(), [format!("human:{e1},{e2}"), format!("routine:{run_id}")], "linha e ordem no lugar");
     assert_eq!(hub.store.entry(&e1).unwrap().data["status"], "cancelled");
     sql(hub, "DROP TRIGGER teto_inj_lote;");
-    f.until("teto_falha_na_reescrita_do_lote_conserva_a_ordem", || {
+    f.until("teto_falha_na_reescrita_do_lote_conserva_a_ordem", &f.hub, || {
         works() == [format!("human:{e2}"), format!("routine:{run_id}")]
     })
     .await;
     release(hub, "checkFailure", &blocked_fp(hub).await).await.unwrap();
-    f.until("teto_falha_na_reescrita_do_lote_conserva_a_ordem", || f.prompts().len() >= 3).await;
+    f.until("teto_falha_na_reescrita_do_lote_conserva_a_ordem", &f.hub, || f.prompts().len() >= 3).await;
     tokio::time::sleep(Duration::from_millis(600)).await;
     let prompts: Vec<String> = f.prompts().iter().map(Value::to_string).collect();
     assert_eq!(prompts.len(), 3, "{prompts:?}");
@@ -1598,10 +1607,11 @@ async fn teto_retomada_d72_da_versao_anterior_retoma_uma_vez() {
     }
     f.make_retry_due();
     f.hub = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
-    f.until("teto_retomada_d72_da_versao_anterior_retoma_uma_vez", || holds(&f.hub.store).len() == 1).await;
+    f.until("teto_retomada_d72_da_versao_anterior_retoma_uma_vez", &f.hub, || holds(&f.hub.store).len() == 1).await;
     let checkpoint =
         |hub: &Hub| -> Value { serde_json::from_str(&hub.store.kv_get("turn.waiting.bot").unwrap()).unwrap() };
-    f.until("teto_retomada_d72_da_versao_anterior_retoma_uma_vez", || checkpoint(&f.hub)["phase"] == "waiting").await;
+    f.until("teto_retomada_d72_da_versao_anterior_retoma_uma_vez", &f.hub, || checkpoint(&f.hub)["phase"] == "waiting")
+        .await;
     f.hub.shutdown().await;
     // A linha como a versão anterior (732ea047b) gravava: captura humana sem `waiting`.
     // Retirada DEPOIS da migração do boot, para provar também o reconhecimento no restore.
@@ -1619,9 +1629,11 @@ async fn teto_retomada_d72_da_versao_anterior_retoma_uma_vez() {
     assert_eq!(f.prompts().len(), 1);
     assert!(checkpoint(&f.hub)["retryAt"].as_i64().unwrap() > crate::store::now_ms(), "liberação antes do retryAt");
     release(&f.hub, "checkFailure", &blocked_fp(&f.hub).await).await.unwrap();
-    f.until("teto_retomada_d72_da_versao_anterior_retoma_uma_vez", || f.prompts().len() == 2).await;
-    f.until("teto_retomada_d72_da_versao_anterior_retoma_uma_vez", || f.hub.runtime("bot").status == BotStatus::Idle)
-        .await;
+    f.until("teto_retomada_d72_da_versao_anterior_retoma_uma_vez", &f.hub, || f.prompts().len() == 2).await;
+    f.until("teto_retomada_d72_da_versao_anterior_retoma_uma_vez", &f.hub, || {
+        f.hub.runtime("bot").status == BotStatus::Idle
+    })
+    .await;
     tokio::time::sleep(Duration::from_millis(800)).await;
     assert_eq!(f.prompts().len(), 2, "uma única retomada, sem captura residual");
     assert!(holds(&f.hub.store).is_empty());
@@ -1689,15 +1701,16 @@ async fn teto_parar_sem_reescrever_a_linha_sobrevive_ao_restart() {
     assert_eq!(run_status(&f.hub), "starting");
     f.hub.shutdown().await;
     f.hub = Fixture::open(&f.dir, Store::open(&f.dir.join("test.db")).unwrap());
-    f.until("teto_parar_sem_reescrever_a_linha_sobrevive_ao_restart", || {
+    f.until("teto_parar_sem_reescrever_a_linha_sobrevive_ao_restart", &f.hub, || {
         f.hub.runtime("bot").activity == "Parado pelo teto de gasto."
     })
     .await;
     tokio::time::sleep(Duration::from_millis(800)).await;
     assert_eq!(run_status(&f.hub), "pending", "mesmas falhas: o efeito ainda não vale (Starting -> Pending no boot)");
     sql(&f.hub, "DROP TRIGGER teto_inj_rotina; DROP TRIGGER teto_inj_marca;");
-    f.until("teto_parar_sem_reescrever_a_linha_sobrevive_ao_restart", || run_status(&f.hub) == "cancelled").await;
-    f.until("teto_parar_sem_reescrever_a_linha_sobrevive_ao_restart", || holds(&f.hub.store).is_empty()).await;
+    f.until("teto_parar_sem_reescrever_a_linha_sobrevive_ao_restart", &f.hub, || run_status(&f.hub) == "cancelled")
+        .await;
+    f.until("teto_parar_sem_reescrever_a_linha_sobrevive_ao_restart", &f.hub, || holds(&f.hub.store).is_empty()).await;
     release(&f.hub, "checkFailure", &blocked_fp(&f.hub).await).await.unwrap();
     tokio::time::sleep(Duration::from_millis(800)).await;
     assert!(f.prompts().is_empty(), "a rotina parada pelo dono nunca executa");
@@ -1728,8 +1741,10 @@ async fn teto_parar_sem_nada_duravel_devolve_erro_e_segura_a_espera() {
     assert!(f.prompts().is_empty(), "a espera segue bloqueada para retomada");
     assert_eq!(holds(&hub.store).len(), 1);
     sql(hub, "DROP TRIGGER teto_inj_rotina; DROP TRIGGER teto_inj_intencao;");
-    f.until("teto_parar_sem_nada_duravel_devolve_erro_e_segura_a_espera", || run_status(hub) == "cancelled").await;
-    f.until("teto_parar_sem_nada_duravel_devolve_erro_e_segura_a_espera", || holds(&hub.store).is_empty()).await;
+    f.until("teto_parar_sem_nada_duravel_devolve_erro_e_segura_a_espera", &f.hub, || run_status(hub) == "cancelled")
+        .await;
+    f.until("teto_parar_sem_nada_duravel_devolve_erro_e_segura_a_espera", &f.hub, || holds(&hub.store).is_empty())
+        .await;
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert!(f.prompts().is_empty(), "nada enviado depois do cancelamento");
     f.hub.shutdown().await;
@@ -1758,7 +1773,7 @@ async fn teto_restore_que_falha_fecha_o_ator_e_preserva_o_cancelamento() {
     tokio::time::sleep(Duration::from_millis(1500)).await;
     assert!(f.prompts().is_empty(), "sem esperas lidas, nada é despachado (nem o re-drive)");
     sql(&f.hub, "ALTER TABLE teto_holds_fora RENAME TO donna_ceiling_holds;");
-    f.until("teto_restore_que_falha_fecha_o_ator_e_preserva_o_cancelamento", || {
+    f.until("teto_restore_que_falha_fecha_o_ator_e_preserva_o_cancelamento", &f.hub, || {
         f.hub.runtime("bot").activity == "Parado pelo teto de gasto."
     })
     .await;
@@ -1768,9 +1783,12 @@ async fn teto_restore_que_falha_fecha_o_ator_e_preserva_o_cancelamento() {
     tokio::time::sleep(Duration::from_millis(1500)).await;
     assert!(f.prompts().is_empty(), "liberar o teto não envia a rotina cancelada");
     sql(&f.hub, "DROP TRIGGER teto_inj_rotina;");
-    f.until("teto_restore_que_falha_fecha_o_ator_e_preserva_o_cancelamento", || run_status(&f.hub) == "cancelled")
+    f.until("teto_restore_que_falha_fecha_o_ator_e_preserva_o_cancelamento", &f.hub, || {
+        run_status(&f.hub) == "cancelled"
+    })
+    .await;
+    f.until("teto_restore_que_falha_fecha_o_ator_e_preserva_o_cancelamento", &f.hub, || holds(&f.hub.store).is_empty())
         .await;
-    f.until("teto_restore_que_falha_fecha_o_ator_e_preserva_o_cancelamento", || holds(&f.hub.store).is_empty()).await;
     assert!(f.prompts().is_empty(), "nada enviado depois do cancelamento");
     f.hub.shutdown().await;
     let _ = std::fs::remove_dir_all(&f.dir);
@@ -1831,7 +1849,7 @@ async fn teto_restore_falho_trava_o_ator_e_preserva_a_marca() {
     // `holds` lê com o driver: a linha ilegível precisa sair antes.
     sql(&f.hub, "DELETE FROM donna_ceiling_holds WHERE work='ilegivel';");
     assert_eq!(row(&f.hub)["cancelling"], true, "a marca do dono continua na linha");
-    f.until("teto_restore_falho_trava_o_ator_e_preserva_a_marca", || {
+    f.until("teto_restore_falho_trava_o_ator_e_preserva_a_marca", &f.hub, || {
         f.hub.runtime("bot").activity == "Parado pelo teto de gasto."
     })
     .await;
@@ -1840,8 +1858,8 @@ async fn teto_restore_falho_trava_o_ator_e_preserva_a_marca() {
     assert!(f.prompts().is_empty(), "rotina cancelada pelo dono não sai com o teto aberto");
     assert_eq!(row(&f.hub)["cancelling"], true);
     sql(&f.hub, "DROP TRIGGER teto_inj_rotina;");
-    f.until("teto_restore_falho_trava_o_ator_e_preserva_a_marca", || run_status(&f.hub) == "cancelled").await;
-    f.until("teto_restore_falho_trava_o_ator_e_preserva_a_marca", || holds(&f.hub.store).is_empty()).await;
+    f.until("teto_restore_falho_trava_o_ator_e_preserva_a_marca", &f.hub, || run_status(&f.hub) == "cancelled").await;
+    f.until("teto_restore_falho_trava_o_ator_e_preserva_a_marca", &f.hub, || holds(&f.hub.store).is_empty()).await;
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert!(f.prompts().is_empty(), "nada enviado depois do cancelamento");
     f.hub.shutdown().await;
