@@ -39,6 +39,13 @@ impl std::fmt::Display for EpochDaRequisicaoEncerrado {
 
 impl std::error::Error for EpochDaRequisicaoEncerrado {}
 
+pub(crate) fn sqlite_temporariamente_ocupado(error: &anyhow::Error) -> bool {
+    error
+        .downcast_ref::<rusqlite::Error>()
+        .and_then(rusqlite::Error::sqlite_error_code)
+        .is_some_and(|code| matches!(code, rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked))
+}
+
 type LinhaDispositivo = (String, String, String, Option<String>, String, Option<i64>, i64, Option<i64>);
 
 /// RAM privada, não serializável. Só a autenticação confiável produz Dispositivo.
@@ -393,12 +400,7 @@ impl Autoridade {
             .and_then(|()| self.conferir_contas(contas, db, dono, sincronizado))
             .map_err(|e| {
                 if e.is::<EpochDaRequisicaoEncerrado>()
-                    || (self.tem_admissao_de_requisicao()
-                        && e.downcast_ref::<rusqlite::Error>()
-                            .and_then(rusqlite::Error::sqlite_error_code)
-                            .is_some_and(|code| {
-                                matches!(code, rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked)
-                            }))
+                    || (self.tem_admissao_de_requisicao() && sqlite_temporariamente_ocupado(&e))
                 {
                     e
                 } else {
