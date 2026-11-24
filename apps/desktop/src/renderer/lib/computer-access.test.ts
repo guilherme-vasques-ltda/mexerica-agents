@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
 import { registerHooks } from 'node:module'
 import { test } from 'node:test'
+import { CATALOGOS } from './fork-i18n/index.ts'
 import type { AppModel } from '../store/app-model'
 
 registerHooks({ resolve(specifier, context, nextResolve) {
@@ -66,4 +67,72 @@ test('repeated checks never request permissions; explicit actions and failures s
   assert.equal(access.step, 'input')
   await access.enable()
   assert.ok(calls.includes('enable'))
+})
+
+test('the portal notice does not change permission outcomes or survive a screen epoch', async () => {
+  Object.assign(globalThis, { window: { codync: { platform: 'linux', app: {
+    screenAgentState: async () => ({ available: true, needsApproval: false, registered: true }),
+  } } } })
+  const { ComputerAccess } = await import('../store/computer-access.ts')
+  const calls: string[] = []
+  let value: unknown
+  let denied = false
+  let epoch = 0
+  const screen = { platform: 'linux', enabled: true, connected: true, capture: true, input: true }
+  let read = async (): Promise<unknown> => ({ ...screen, capture: !denied, input: !denied, portalRestoreNotice: value })
+  const client = { call: async (method: string) => {
+    calls.push(method)
+    if (method === 'screenStatus') return read()
+    if (denied) throw new Error('fixture denied')
+    return {}
+  } }
+  const local = { connection: { kind: 'online' }, client, get screenEpoch() { return epoch },
+    screenObserved: (observed: number) => observed === epoch }
+  const access = new ComputerAccess({ local } as unknown as AppModel)
+  for (value of [undefined, 'stateDirectoryNotPrivate']) {
+    await access.refresh()
+    const granted = await access.request('portal')
+    assert.equal(granted?.ok, true)
+    assert.equal(access.step, 'ready')
+    assert.equal(access.error, null)
+    assert.equal(access.portalRestoreUnavailable, value !== undefined)
+    assert.equal(Object.hasOwn(access.screen ?? {}, 'portalRestoreNotice'), false)
+    denied = true
+    const refused = await access.request('portal')
+    assert.equal(refused?.ok, false)
+    assert.equal(access.error, 'fixture denied')
+    denied = false
+  }
+  assert.equal(calls.filter(method => method === 'requestScreenPermission').length, 4)
+  for (value of [null, 'unknown-fixture', { kind: 'stateDirectoryNotPrivate' }]) {
+    await access.refresh()
+    assert.equal(access.portalRestoreUnavailable, false)
+  }
+  value = 'stateDirectoryNotPrivate'
+  await access.refresh()
+  assert.equal(access.portalRestoreUnavailable, true)
+  let finishRead!: (value: unknown) => void
+  let markCalled!: () => void
+  const late = new Promise<unknown>(resolve => { finishRead = resolve })
+  const called = new Promise<void>(resolve => { markCalled = resolve })
+  read = () => { markCalled(); return late }
+  const refresh = access.refresh()
+  await called
+  epoch++
+  assert.equal(access.portalRestoreUnavailable, false)
+  finishRead({ ...screen, portalRestoreNotice: value })
+  await refresh
+  assert.equal(access.portalRestoreUnavailable, false)
+})
+
+test('the portal notice has fixed catalogue text in every language', () => {
+  const keys = ['ajustes.acesso.restauracaoPortalIndisponivelTitulo', 'ajustes.acesso.restauracaoPortalIndisponivelDetalhe'] as const
+  assert.equal(Object.keys(CATALOGOS).length, 6)
+  for (const catalogue of Object.values(CATALOGOS)) {
+    for (const key of keys) {
+      assert.ok(Object.hasOwn(catalogue, key))
+      assert.ok(catalogue[key].trim())
+      assert.doesNotMatch(catalogue[key], /[{}]/)
+    }
+  }
 })

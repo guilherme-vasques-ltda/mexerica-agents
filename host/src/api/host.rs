@@ -229,7 +229,18 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
             hub.terms.close(str_arg(&b, "term")?);
             json!({})
         }
-        "screenStatus" => screen_projection::state(hub, space),
+        "screenStatus" => {
+            let screen = screen_projection::state(hub, space);
+            #[cfg(target_os = "linux")]
+            if matches!(caller, Caller::Local)
+                && let Some(notice) = hub.screen.portal_restore_notice()
+            {
+                let mut screen = screen;
+                screen["portalRestoreNotice"] = json!(notice);
+                return Ok(ControlFlow::Break(screen));
+            }
+            screen
+        }
         "requestScreenPermission" => {
             hub.screen.request_permission(&b).await?;
             screen_projection::state(hub, space)

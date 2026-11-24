@@ -205,7 +205,7 @@ fn helper() -> Arc<Helper> {
         )
         .unwrap(),
         portal: Arc::new(tokio::sync::Mutex::new(None)),
-        last_status: tokio::sync::Mutex::new(None),
+        status: tokio::sync::Mutex::default(),
         sessions: crate::lifecycle::Sessions::default(),
         out,
         rt: tokio::runtime::Handle::current(),

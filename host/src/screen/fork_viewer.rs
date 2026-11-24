@@ -255,6 +255,14 @@ impl Screen {
             for original in &originals {
                 original.mark_closing();
             }
+            #[cfg(target_os = "linux")]
+            let wait = source.as_ref().map(|link| {
+                let mut notice = link.restore_notice.locked();
+                let request = link.enqueue_identified("closeAll", &json!({}));
+                notice.suspend(request.as_ref().ok().map(|(id, _)| *id));
+                request.map(|(_, wait)| wait)
+            });
+            #[cfg(not(target_os = "linux"))]
             let wait = source.as_ref().map(|link| link.enqueue("closeAll", &json!({})));
             // Sem slot/row/enabled/pending guardados antes de pedir control.
             *self.control.locked() = super::Control::default();

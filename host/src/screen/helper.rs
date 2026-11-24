@@ -35,9 +35,34 @@ pub(super) struct Link {
     pub(super) tx: mpsc::UnboundedSender<Outgoing>,
     pub(super) pending: Pending,
     pub(super) next_id: AtomicI64,
+    #[cfg(target_os = "linux")]
+    pub(super) restore_notice: Mutex<super::fork_restore_notice::LinkNotice>,
 }
 
 impl Link {
+    #[cfg(unix)]
+    pub(super) fn accept_status(&self, screen: &Screen, params: &Value) {
+        match serde_json::from_value::<HelperStatus>(params.clone()) {
+            Ok(st) => {
+                #[cfg(target_os = "linux")]
+                {
+                    let mut notice = self.restore_notice.locked();
+                    notice.observe(params);
+                    if !notice.new_public_status(&st) {
+                        return;
+                    }
+                }
+                *screen.status.locked() = st;
+                screen.emit();
+            }
+            Err(_) => {
+                #[cfg(target_os = "linux")]
+                self.restore_notice.locked().observe(&Value::Null);
+                tracing::warn!("bad status from the screen helper");
+            }
+        }
+    }
+
     pub(super) async fn request(&self, method: &str, params: Value) -> Result<Value> {
         self.request_inner(method, params, None).await
     }
@@ -222,6 +247,8 @@ pub(super) async fn run_link(screen: Arc<Screen>, stream: UnixStream) {
         tx,
         pending: Mutex::default(),
         next_id: AtomicI64::new(1),
+        #[cfg(target_os = "linux")]
+        restore_notice: Mutex::default(),
     });
     screen.attach_viewer_link(link.clone());
     tracing::info!("screen helper connected");
@@ -229,12 +256,15 @@ pub(super) async fn run_link(screen: Arc<Screen>, stream: UnixStream) {
     let mut lines = BufReader::new(rd).lines();
     while let Ok(Some(line)) = lines.next_line().await {
         let Ok(msg) = serde_json::from_str::<Value>(&line) else {
-            tracing::debug!(line, "ignoring non-JSON from the screen helper");
+            tracing::debug!("ignoring non-JSON from the screen helper");
             continue;
         };
         match (msg["method"].as_str(), msg["id"].as_i64()) {
             (None, Some(id)) => {
-                if let Some(waiter) = link.pending.locked().remove(&id) {
+                let waiter = link.pending.locked().remove(&id);
+                if let Some(waiter) = waiter {
+                    #[cfg(target_os = "linux")]
+                    link.restore_notice.locked().close_reply(id, &msg);
                     let res = match msg.get("error") {
                         Some(e) => Err(e["message"].as_str().map_or_else(|| e.to_string(), str::to_owned)),
                         None => Ok(msg["result"].clone()),
@@ -242,13 +272,7 @@ pub(super) async fn run_link(screen: Arc<Screen>, stream: UnixStream) {
                     let _ = waiter.send(res);
                 }
             }
-            (Some("status"), _) => match serde_json::from_value::<HelperStatus>(msg["params"].clone()) {
-                Ok(st) => {
-                    *screen.status.locked() = st;
-                    screen.emit();
-                }
-                Err(error) => tracing::warn!(%error, "bad status from the screen helper"),
-            },
+            (Some("status"), _) => link.accept_status(&screen, &msg["params"]),
             (Some("session"), _) => {
                 if msg["params"]["state"] == "closed"
                     && let Some(s) = msg["params"]["session"].as_str()

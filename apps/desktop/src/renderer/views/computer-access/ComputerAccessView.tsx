@@ -12,7 +12,7 @@ import { ltr } from '@shared/bidi'
 
 /** Shared by onboarding and Settings. Permission requests remain explicit and local. */
 export function ComputerAccessView({ onContinue }: { onContinue?: (ready: boolean) => void }) {
-  const access = useComputerAccess()
+  const access = useComputerAccess(!onContinue)
   const t = useT()
   const idioma = useIdioma()
   useScreenViewed('computer_access')
@@ -48,6 +48,9 @@ export function ComputerAccessView({ onContinue }: { onContinue?: (ready: boolea
           {t('marca.acesso.instalar')}
         </AccessNotice> : null}
         {access.error ? <AccessNotice title={t('ajustes.acesso.erroConfigurar')} icon="exclamationmark.circle" error>{access.error}</AccessNotice> : null}
+        {!onContinue && access.portalRestoreUnavailable ? <AccessNotice title={t('ajustes.acesso.restauracaoPortalIndisponivelTitulo')} icon="info.circle">
+          {t('ajustes.acesso.restauracaoPortalIndisponivelDetalhe')}
+        </AccessNotice> : null}
         <div className="computer-access-section-label">
           <span>{windows ? t('ajustes.acesso.disponibilidade') : t('ajustes.acesso.permissoes')}</span>
           <span>{ready ? t('ajustes.acesso.tudoPronto') : t('ajustes.acesso.prontas', { feitas: completed, total: mac ? 3 : windows ? 1 : 2 })}<IconButton title={t('ajustes.acesso.conferir')} icon="arrow.clockwise" size={22} onClick={() => void access.refresh()} /></span>
