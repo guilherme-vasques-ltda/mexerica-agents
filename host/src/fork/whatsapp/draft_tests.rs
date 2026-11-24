@@ -11,12 +11,13 @@ use crate::{
         bot_admission::{self, Origin},
         conectores::{api, whatsapp_human},
         sessoes::{ExecutionRef, bindings},
+        spaces::PERSONAL,
     },
     hub::BotStatus,
     store::{EntryKind, Lane, Scope},
 };
 use rusqlite::{params, types::Value as SqlValue};
-use serde_json::json;
+use serde_json::{Value, json};
 
 const CHAT: &str = "5511988887777@s.whatsapp.net";
 
@@ -79,9 +80,60 @@ fn private_count(f: &Fixture) -> i64 {
         .unwrap()
 }
 
+fn public_draft_matches(data: &Value, draft: &str, deadline: i64, conversation_revision: i64) -> bool {
+    data == &json!({
+        "author": DONNA,
+        "conectorDraft": {"draftId": draft, "revision": 1, "deadline": deadline, "state": "draft"},
+        "spaceContext": {
+            "version": 1, "spaceId": PERSONAL, "conversationId": DONNA, "botId": DONNA,
+            "conversationRevision": conversation_revision
+        }
+    })
+}
+
+#[test]
+fn projecao_publica_aceita_coincidencia_numerica_sem_aceitar_dados_privados() {
+    let draft = "55110000-0000-4000-8000-000000000001";
+    let deadline = 1_700_000_005_511_i64;
+    let revision = 7;
+    let public = json!({
+        "author": DONNA,
+        "conectorDraft": {"draftId": draft, "revision": 1, "deadline": deadline, "state": "draft"},
+        "spaceContext": {
+            "version": 1, "spaceId": PERSONAL, "conversationId": DONNA, "botId": DONNA,
+            "conversationRevision": revision
+        }
+    });
+    assert!(draft.contains("5511") && deadline.to_string().contains("5511"));
+    assert!(public_draft_matches(&public, draft, deadline, revision));
+
+    let mut extra = public.clone();
+    extra["presentation"] = json!({"text": "conteúdo sintético"});
+    assert!(!public_draft_matches(&extra, draft, deadline, revision));
+
+    let mut nested = public.clone();
+    nested["conectorDraft"]["replyTo"] = json!({"messageId": "origem sintética"});
+    assert!(!public_draft_matches(&nested, draft, deadline, revision));
+
+    let mut wrong_type = public.clone();
+    wrong_type["conectorDraft"]["deadline"] = json!(deadline.to_string());
+    assert!(!public_draft_matches(&wrong_type, draft, deadline, revision));
+
+    let mut wrong_author = public;
+    wrong_author["author"] = json!("conteúdo sintético");
+    assert!(!public_draft_matches(&wrong_author, draft, deadline, revision));
+}
+
 #[tokio::test]
 async fn handler_real_rascunho_local_sobrevive_turno_sem_fila_ou_decisao() {
     let (f, execution) = ready().await;
+    let conversation_revision: i64 = f
+        .hub
+        .store
+        .db
+        .locked()
+        .query_row("SELECT revision FROM donna_space_conversations WHERE id=?1", [DONNA], |r| r.get(0))
+        .unwrap();
     // O roteador real mantém a referência original, não o helper fechado de envio.
     let result = crate::market::requests::call_in_execution(
         &f.hub,
@@ -92,6 +144,9 @@ async fn handler_real_rascunho_local_sobrevive_turno_sem_fila_ou_decisao() {
     )
     .unwrap();
     let draft = result["draftId"].as_str().unwrap();
+    assert!(uuid::Uuid::parse_str(draft).is_ok_and(|id| id.get_version_num() == 4));
+    let deadline = result["deadline"].as_i64().unwrap();
+    assert!(deadline > 0);
     f.hub.set_runtime(DONNA, |r| {
         r.status = BotStatus::Idle;
         r.memory_turn_token = None;
@@ -103,8 +158,9 @@ async fn handler_real_rascunho_local_sobrevive_turno_sem_fila_ou_decisao() {
     assert_eq!(read["presentation"]["replyTo"]["excerpt"], "Mensagem externa literal");
     assert_eq!(read["presentation"]["replyTo"]["origin"], "external");
     assert_eq!(read["capability"]["approve"], false);
-    let public = f.hub.store.entry(draft).unwrap().data.to_string();
-    assert!(!public.contains("Amanhã") && !public.contains("Mensagem externa") && !public.contains("5511"));
+    assert!(read["receipt"] == result, "recibo diverge do preparo");
+    let public = f.hub.store.entry(draft).unwrap().data;
+    assert!(public_draft_matches(&public, draft, deadline, conversation_revision), "projeção pública inesperada");
     {
         let db = f.hub.store.db.locked();
         let raw: String = db
