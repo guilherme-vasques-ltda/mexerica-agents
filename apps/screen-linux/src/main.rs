@@ -7,6 +7,7 @@
 
 mod a11y;
 mod fork_input;
+mod fork_restore_notice;
 mod fork_socket;
 mod input;
 mod lifecycle;
@@ -30,7 +31,7 @@ pub type Outbox = mpsc::UnboundedSender<Value>;
 pub struct Helper {
     config: fork_socket::Config,
     portal: Arc<Mutex<Option<portal::Portal>>>,
-    last_status: Mutex<Option<Value>>,
+    status: Mutex<fork_restore_notice::Status>,
     sessions: lifecycle::Sessions,
     out: Outbox,
     /// GStreamer calls `ended` from its own threads, outside the Tokio runtime.
@@ -82,7 +83,7 @@ async fn serve(
     let helper = Arc::new(Helper {
         config: config.clone(),
         portal: portal.clone(),
-        last_status: Mutex::new(None),
+        status: Mutex::default(),
         sessions: lifecycle::Sessions::default(),
         out: out.clone(),
         rt: tokio::runtime::Handle::current(),
@@ -115,9 +116,26 @@ async fn serve(
         // Capture lifecycle in reader order, before spawning or polling any await.
         let prepared =
             lifecycle_request::prepare_rpc(&helper, &method, &msg["params"], id.as_i64());
+        let notice_epoch = if matches!(method.as_str(), "requestPermission" | "closeAll") {
+            let mut status = helper.status.lock().await;
+            if method == "closeAll" {
+                status.epoch = status.epoch.wrapping_add(1);
+                status.clear(&helper.out);
+            }
+            status.epoch
+        } else {
+            0
+        };
         tokio::spawn(async move {
-            let reply =
-                lifecycle_request::respond(&helper, &method, &msg["params"], id, prepared).await;
+            let reply = lifecycle_request::respond(
+                &helper,
+                &method,
+                &msg["params"],
+                id,
+                prepared,
+                notice_epoch,
+            )
+            .await;
             let _ = helper.out.send(reply);
         });
     };
@@ -132,6 +150,7 @@ async fn handle(
     method: &str,
     p: &Value,
     prepared: Result<Option<Arc<lifecycle::Operation>>>,
+    notice_epoch: u64,
 ) -> Result<Value> {
     let operation = prepared?;
     if method == "answer" {
@@ -144,7 +163,13 @@ async fn handle(
         let mut portal = h.portal.lock().await;
         if portal.as_ref().is_none_or(|p| !p.has_input()) {
             let restore = portal.as_ref().is_none_or(|p| !p.is_active());
-            let next = portal::Portal::start(h.config.state_dir(), restore).await?;
+            {
+                let mut status = h.status.lock().await;
+                if status.epoch == notice_epoch {
+                    status.clear(&h.out);
+                }
+            }
+            let (next, notice) = portal::Portal::start(h.config.state_dir(), restore).await?;
             if let Some(previous) = portal.as_ref() {
                 if previous.is_active() {
                     previous.session().close().await?;
@@ -152,6 +177,10 @@ async fn handle(
                 let _ = h.sessions.close_all(false);
             }
             *portal = Some(next);
+            let mut status = h.status.lock().await;
+            if status.epoch == notice_epoch {
+                status.notice = notice;
+            }
         }
         drop(portal);
         h.send_status().await;
@@ -208,18 +237,12 @@ impl Helper {
     }
 
     async fn send_status(&self) {
-        let status = self.portal.lock().await.as_ref().map_or_else(
+        let portal = self.portal.lock().await;
+        let status = portal.as_ref().map_or_else(
             || json!({"platform": "linux", "permissionApp": "Codync Screen", "capture": false, "input": false, "displays": []}),
             portal::Portal::status,
         );
-        let mut last = self.last_status.lock().await;
-        if last.as_ref() == Some(&status) {
-            return;
-        }
-        *last = Some(status.clone());
-        let _ = self
-            .out
-            .send(json!({"jsonrpc": "2.0", "method": "status", "params": status}));
+        self.status.lock().await.publish(status, &self.out);
     }
 
     /// A session's WebRTC connection ended on its own.

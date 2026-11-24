@@ -79,24 +79,20 @@ fn resolution(hub: &Hub, id: &str, caller: &Caller, revision: Option<u64>) -> Va
             config::Selection::Automatic { binding, .. } => binding.as_ref(),
             config::Selection::ManagedInVoice => None,
         };
-        if let Some(binding) = binding
-            && let Ok(accounts) = resolver::accounts(&hub.store)
-            && let Some(account) = accounts.iter().find(|account| account.id == binding.account_id)
-            && matches!(account.billing.as_str(), "paid_api" | "api")
-        {
-            return json!({"status":"unavailable", "unavailable":{
-                "functionId":id, "reason":"api_coming_soon", "revision":document.revision,
-                "message":"Em breve: contas com chave de API poderão ser usadas no Bot de fundo. Ainda estamos preparando a confirmação dos modelos disponíveis para cada conta."
-            }});
-        }
         if revision.is_none_or(|value| value == document.revision)
             && let Ok(bot) = serde_json::from_value::<crate::store::BotConfig>(json!({
                 "id":"background-worker", "name":"Bot de fundo", "backend":"claude"
             }))
             && let Ok(resolved) = crate::fork::background_selection::resolve(&hub.store, &bot, function)
         {
+            if !resolved.paid_api() {
+                return json!({"status":"unavailable", "unavailable":{
+                    "functionId":id, "reason":"personal_subscription_chat_only", "revision":document.revision,
+                    "message":crate::fork::assinatura_pessoal::CHAT_ONLY
+                }});
+            }
             return json!({"status":"available", "resolved":{
-                "functionId":id, "requested":selection, "owner":"owner", "billing":"subscription",
+                "functionId":id, "requested":selection, "owner":"owner", "billing":"paid_api",
                 "revision":document.revision, "defaultsRevision":document.defaults_revision,
                 "effective":{"accountId":resolved.config.fork_editor.engine_account_id,
                     "modelId":resolved.config.model, "modelOptions":resolved.config.model_options},

@@ -295,6 +295,7 @@ fn commit<T>(hub: &Hub, change: impl FnOnce(&Connection) -> Result<(T, Vec<Entry
     publish_commit(hub, || {
         let mut db = hub.store.db.locked();
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        crate::fork::sessao_clerk::conferir_no_efeito(&tx)?;
         let out = change(&tx)?;
         tx.commit()?;
         Ok(out)
@@ -340,7 +341,18 @@ pub(crate) fn ask(
 /// Substitui `Hub::add_entry` nos envios do dono (`send` da conversa/canal e da conversa de Space).
 /// A chave antiduplicata (`clientNonce`) e o limite da fila são conferidos na mesma transação da gravação: dois
 /// envios simultâneos com a mesma chave dão uma linha só, e a fila cheia recusa sem criar nada.
+#[cfg(test)]
 pub(crate) fn add_human_message(hub: &Hub, lane: &Lane, turn: i64, data: &Value) -> Result<Human> {
+    add_human(hub, lane, Some(turn), data)
+}
+
+/// O envio do dono com o turno reservado na própria transação da mensagem: recusada a gravação,
+/// nenhum turno é consumido.
+pub(crate) fn add_human_message_no_turno(hub: &Hub, lane: &Lane, data: &Value) -> Result<Human> {
+    add_human(hub, lane, None, data)
+}
+
+fn add_human(hub: &Hub, lane: &Lane, turn: Option<i64>, data: &Value) -> Result<Human> {
     commit(hub, |c| {
         if let Some(original) = crate::store::Store::replay_on(c, &lane.chat, data)? {
             return Ok((Human::Replayed(original), Vec::new()));
@@ -356,23 +368,22 @@ pub(crate) fn add_mailbox_message(
     lane: &Lane,
     body: &Value,
     data: &Value,
-) -> Result<Option<(i64, Entry)>> {
+) -> Result<Option<Entry>> {
     #[cfg(test)]
     crate::fork::sessoes::call_tests::before_effect(&hub.store, "mailbox_commit");
     publish_commit(hub, || {
         Ok(delivery
             .with_db(hub, &lane.chat, |tx, owner| {
                 ensure!(crate::fork::sessoes::api::send_lane(tx, &lane.chat, body)? == *lane, "session_changed");
-                let turn = crate::store::alloc_turn_on(tx, &lane.chat)?;
-                let (entry, entries) = insert_human_on(tx, lane, turn, data)?;
+                let (entry, entries) = insert_human_on(tx, lane, None, data)?;
                 delivery.record(tx, hub, owner)?;
-                Ok((Some((turn, entry)), entries))
+                Ok((Some(entry), entries))
             })?
             .unwrap_or_default())
     })
 }
 
-fn insert_human_on(c: &Connection, lane: &Lane, turn: i64, data: &Value) -> Result<(Entry, Vec<Entry>)> {
+fn insert_human_on(c: &Connection, lane: &Lane, turn: Option<i64>, data: &Value) -> Result<(Entry, Vec<Entry>)> {
     if data["status"] == "queued" {
         let waiting: i64 = c.query_row(
             "SELECT COUNT(*) FROM entries WHERE bot_id = ?1 AND kind = 'user'
@@ -384,6 +395,10 @@ fn insert_human_on(c: &Connection, lane: &Lane, turn: i64, data: &Value) -> Resu
         )?;
         ensure!(waiting < QUEUE_MAX, "queue_full: esta conversa já tem {QUEUE_MAX} mensagens na fila");
     }
+    let turn = match turn {
+        Some(turn) => turn,
+        None => crate::store::alloc_turn_on(c, &lane.chat)?,
+    };
     let (marker, entry) = insert_visible_on(c, &uuid::Uuid::new_v4().to_string(), lane, EntryKind::User, turn, data)?;
     let answered = answer_on(c, lane, &entry.id)?;
     let mut entries: Vec<Entry> = marker.into_iter().collect();

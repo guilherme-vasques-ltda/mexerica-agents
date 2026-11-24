@@ -1304,3 +1304,90 @@ async fn conversa_adicional_carimba_o_idioma_do_aparelho() {
     assert!(linha.contains("English (en)"), "{linha}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// `donnaConversationSend` num Hub com vínculo espera o `team_lock`; o papel da sessão muda antes do
+/// efeito, e a Tx da mensagem confere a guarda: nada é gravado nem enviado ao motor.
+#[tokio::test]
+async fn envio_admitido_nao_grava_depois_que_o_papel_muda() {
+    use crate::fork::sessao_clerk::{prova, vinculo::Papel};
+    use crate::store::{Device, DeviceSource, Scope};
+    let dir = std::fs::canonicalize(std::env::temp_dir())
+        .unwrap()
+        .join(format!("donna-envio-sessao-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+    let donna: crate::store::BotConfig =
+        serde_json::from_value(json!({"id":"donna","name":"Donna","cwd":dir,"backend":"codex"})).unwrap();
+    store.save_bot(&donna).unwrap();
+    store.set_team_settings(&json!({"primaryBotId":"donna"})).unwrap();
+    let account = format!("ac_{}", "1".repeat(64));
+    store
+        .kv_set(
+            "fork.engine-accounts.v1",
+            &json!({"salt":uuid::Uuid::new_v4().to_string(),"accounts":[{
+                "id":account,"backend":"codex","billing":"paid_api","state":"connected","scope":"owner",
+                "launch":{"kind":"cli_profile","executable":"/fixture/cli","directory":"/fixture/config"},
+                "quotaIdentity":null,"verifiedAt":null,"subscriptionProof":null,"models":[]
+            }]})
+            .to_string(),
+        )
+        .unwrap();
+    let chat = uuid::Uuid::new_v4().to_string();
+    let (account_revision, account_stamp) = super::binding::account(&store, &account).unwrap();
+    let rev = {
+        let db = store.db.locked();
+        let rev = crate::store::next_rev(&db).unwrap();
+        db.execute("INSERT INTO donna_space_conversations(id,space_id,bot_id,title,revision,is_primary,engine_account_id,account_revision,account_stamp) VALUES(?1,?2,'donna','Adicional',?3,0,?4,?5,?6)",
+            rusqlite::params![chat, super::PERSONAL, rev, account, i64::try_from(account_revision).unwrap(), account_stamp]).unwrap();
+        crate::fork::sessoes::ensure_principal(&db, &chat).unwrap();
+        rev
+    };
+    let hub = Hub::new(store, "fixture".into(), Identity::load_or_create(&dir).unwrap(), "fixture".into(), 0);
+    let mut cmds = hub.test_bot_commands("donna");
+    prova::vincular(&hub, &prova::vinculo_pessoal());
+    let entradas = |hub: &Hub| -> i64 {
+        hub.store.db.locked().query_row("SELECT COUNT(*) FROM entries", [], |r| r.get(0)).unwrap()
+    };
+    let turno = |hub: &Hub| hub.store.kv_get(&format!("turn.seq.{chat}"));
+    for (sub, trocar) in [(prova::DONO, true), (prova::OUTRO, false)] {
+        let device = Device {
+            key: format!("fone-{sub}"),
+            name: "Telefone fictício".into(),
+            platform: "ios".into(),
+            source: DeviceSource::Local,
+            grant_id: None,
+            scopes: vec![Scope::Control],
+            lease_until: None,
+            created_at: crate::store::now_ms(),
+            last_seen_at: None,
+        };
+        let caller = prova::aparelho_com_sessao(&hub, &device, sub, Papel::Dono);
+        let (antes, turno_antes) = (entradas(&hub), turno(&hub));
+        let bloqueio = hub.store.team_lock.lock().await;
+        let pedido = {
+            let (hub, chat) = (hub.clone(), chat.clone());
+            let b = json!({"spaceId":super::PERSONAL,"conversationId":chat,"expectedRevision":rev,
+                "text":"olá","clientNonce":format!("n-{sub}")});
+            tokio::spawn(async move { dispatch(&hub, &caller, "donnaConversationSend", b).await })
+        };
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        if trocar {
+            let iat = crate::store::now_ms() / 1000 + 1;
+            prova::trocar_papel(&hub, sub, iat, Some(Papel::Admin));
+        }
+        drop(bloqueio);
+        let resultado = pedido.await.unwrap();
+        if trocar {
+            assert!(format!("{:#}", resultado.unwrap_err()).contains("not_allowed"));
+            assert_eq!(entradas(&hub), antes, "a mensagem não é gravada");
+            assert_eq!(turno(&hub), turno_antes, "o turno é reservado na Tx da mensagem: recusada, nada é consumido");
+            assert!(cmds.try_recv().is_err(), "nada chega ao motor");
+        } else {
+            assert!(resultado.unwrap()["entry"]["id"].is_string(), "sem troca, o mesmo caminho grava");
+            assert!(entradas(&hub) > antes);
+            assert!(matches!(cmds.try_recv(), Ok(crate::agent::bot::Cmd::Send { .. })));
+        }
+    }
+    drop(hub);
+    std::fs::remove_dir_all(dir).unwrap();
+}

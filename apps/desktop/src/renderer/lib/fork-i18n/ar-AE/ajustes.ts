@@ -368,6 +368,8 @@ export const textos: Traducao<typeof fonte> = {
   'ajustes.acesso.compartilhar': 'مشاركة الشاشة والتحكم بها',
   'ajustes.acesso.compartilharDetalhe': 'اختر شاشة واسمح بالوصول إلى الفأرة ولوحة المفاتيح. يمكنك إيقاف المشاركة في أي وقت.',
   'ajustes.acesso.escolherTela': 'اختيار الشاشة والسماح بالتحكم',
+  'ajustes.acesso.restauracaoPortalIndisponivelTitulo': 'الاستعادة التلقائية غير متاحة',
+  'ajustes.acesso.restauracaoPortalIndisponivelDetalhe': 'تتطلب الاستعادة التلقائية مجلد حالة خاصًا وعاديًا. ستطلب بوابة النظام إذنك مرة أخرى في المرة القادمة.',
   'ajustes.acesso.notaOnboarding': 'تبقى الأذونات على هذا الحاسوب. يمكنك تغييرها لاحقًا من الإعدادات ← الوصول إلى الحاسوب.',
   'ajustes.acesso.notaAjustes': 'تبقى الأذونات على هذا الحاسوب. لكل من حواسيبك الأخرى أذوناته الخاصة.',
   'ajustes.acesso.continuar': 'متابعة',

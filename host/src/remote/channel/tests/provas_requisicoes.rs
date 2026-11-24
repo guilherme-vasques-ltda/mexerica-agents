@@ -47,6 +47,11 @@ async fn request_cancelada_conclui_sem_tomar_sub_ou_request_do_mesmo_id() {
         online: None,
         quadros: false,
         browser: None,
+        sessao: None,
+        prazo: tokio::sync::watch::channel(None).0,
+        th: [0; 32],
+        epoch: hub.workspace.atual(),
+        nonces: crate::fork::sessao_clerk::posse::Nonces::default(),
     };
     let bloqueio = hub.store.team_lock.lock().await;
     mensagem(&mut canal, json!({"id":7,"m":"setRoutinesPaused","b":{"paused":true}})).await;

@@ -160,8 +160,14 @@ fn attach_helper(
 ) -> (Arc<super::super::helper::Link>, tokio::sync::mpsc::UnboundedReceiver<super::super::helper::Outgoing>) {
     use std::sync::{Mutex, atomic::AtomicI64};
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-    let link =
-        Arc::new(super::super::helper::Link { id: 7, tx, pending: Mutex::default(), next_id: AtomicI64::new(1) });
+    let link = Arc::new(super::super::helper::Link {
+        id: 7,
+        tx,
+        pending: Mutex::default(),
+        next_id: AtomicI64::new(1),
+        #[cfg(target_os = "linux")]
+        restore_notice: Mutex::default(),
+    });
     *f.hub.screen.link.locked() = Some(link.clone());
     (link, rx)
 }

@@ -484,6 +484,36 @@ fn report_separates_informed_from_estimated_by_currency() {
     }
 }
 
+#[test]
+fn uso_anthropic_estima_revisao_datada_sem_trocar_o_modelo_do_registro() {
+    let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+    let model = "claude-haiku-4-5-20251001";
+    let id = begin_background(&store, "bot", "titles", Some(model), None).unwrap();
+    complete_background(
+        &store,
+        &id,
+        Some(model),
+        Some(UsoFundo {
+            input: 10,
+            output: 5,
+            read: Some(2),
+            write: Some(3),
+            backend: "anthropic".into(),
+            ..UsoFundo::default()
+        }),
+    )
+    .unwrap();
+    let row: (String, String, f64) = store
+        .db
+        .locked()
+        .query_row("SELECT model,source,amount FROM donna_turn_usage WHERE id=?1", [&id], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })
+        .unwrap();
+    assert_eq!((row.0.as_str(), row.1.as_str()), (model, "estimado"));
+    assert!((row.2 - 0.000_038_95).abs() < 1e-12);
+}
+
 /// MX-159: trabalho de fundo com modelo na tabela também estima; sem modelo
 /// conhecido a linha segue `fundo` sem preço.
 #[test]

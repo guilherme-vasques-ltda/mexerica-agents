@@ -42,6 +42,10 @@
 
 mod computer;
 mod fork_observation;
+#[cfg(target_os = "linux")]
+mod fork_restore_notice;
+#[cfg(target_os = "linux")]
+pub(crate) use fork_restore_notice::RestoreNotice;
 #[cfg(unix)]
 mod fork_socket;
 mod fork_viewer;
@@ -180,8 +184,10 @@ impl Screen {
 
     /// What clients show: availability, permissions, displays, who's in control.
     pub fn state(&self) -> Value {
-        let st = self.status.locked().clone();
-        let connected = self.link.locked().is_some();
+        let (st, connected) = {
+            let link = self.link.locked();
+            (self.status.locked().clone(), link.is_some())
+        };
         let viewers = self
             .sessions
             .locked()
@@ -203,6 +209,16 @@ impl Screen {
             "computerUse": self.computer_use(),
             "viewers": viewers,
         })
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(crate) fn portal_restore_notice(&self) -> Option<RestoreNotice> {
+        let enabled = self.enabled.locked();
+        if crate::environment::Environment::is_open() || !enabled.unwrap_or_else(graphical_session) {
+            return None;
+        }
+        let slot = self.link.locked();
+        slot.as_ref().and_then(|link| link.restore_notice.locked().current())
     }
 
     pub(crate) fn emit(&self) {

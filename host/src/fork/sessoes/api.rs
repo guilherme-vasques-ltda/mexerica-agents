@@ -228,6 +228,7 @@ pub(crate) fn title_first_message(hub: &Hub, lane: &crate::store::Lane, text: &s
         let db = hub.store.db.locked();
         let tx = db.unchecked_transaction()?;
         let row = super::titulo::first_message(&tx, session, text)?;
+        crate::fork::sessao_clerk::conferir_no_efeito(&tx)?;
         tx.commit()?;
         Ok(row)
     })();

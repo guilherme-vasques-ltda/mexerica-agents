@@ -35,6 +35,9 @@ type LinhaDispositivo = (String, String, String, Option<String>, String, Option<
 pub struct Autoridade {
     original: Original,
     captura: Arc<()>,
+    /// Hub com vínculo: a guarda da sessão Clerk na admissão do pedido, conferida antes de
+    /// qualquer outra guarda em cada efeito e saída.
+    sessao: Option<Arc<crate::fork::sessao_clerk::Guarda>>,
 }
 #[derive(Clone, Debug)]
 enum Original {
@@ -81,6 +84,7 @@ pub(crate) fn autenticar(hub: &Hub, chave: &str) -> std::result::Result<(Device,
                 }
                 let original = Autoridade {
                     captura: Arc::new(()),
+                    sessao: None,
                     original: Original::Dispositivo {
                         chave: chave.to_owned(),
                         origem: dispositivo.source,
@@ -146,14 +150,14 @@ impl Autoridade {
     /// Fixture de testes: o próprio computador do Hub.
     #[cfg(test)]
     pub(crate) fn local() -> Self {
-        Self { original: Original::Local, captura: Arc::new(()) }
+        Self { original: Original::Local, captura: Arc::new(()), sessao: None }
     }
 
     /// Recupera a autoridade ORIGINAL do transporte; jamais captura outra concessão.
     /// Local vem somente do adaptador loopback autenticado. `DeviceSource::Local` segue Device.
     pub(crate) fn capturar(hub: &Hub, caller: &Caller) -> Result<Self> {
         let original = match caller {
-            Caller::Local => Self { original: Original::Local, captura: Arc::new(()) },
+            Caller::Local => Self { original: Original::Local, captura: Arc::new(()), sessao: None },
             Caller::Device { key, scopes, autoridade: Some(original) } => {
                 ensure!(scopes.contains(&Scope::Control), "not_allowed: aparelho sem controle");
                 original.conferir_identidade(key, scopes)?;
@@ -176,7 +180,8 @@ impl Autoridade {
     ) -> Result<T> {
         match caller {
             Caller::Local => {
-                Self { original: Original::Local, captura: Arc::new(()) }.with_db(hub, None, |tx| escrever(tx, None))
+                Self { original: Original::Local, captura: Arc::new(()), sessao: None }
+                    .with_db(hub, None, |tx| escrever(tx, None))
             }
             Caller::Device { key, scopes, autoridade: Some(original) } => {
                 original.conferir_identidade(key, scopes)?;
@@ -204,6 +209,15 @@ impl Autoridade {
         Ok(())
     }
 
+    /// A mesma autoridade original, com a guarda da sessão Clerk do pedido admitido.
+    pub(crate) fn com_sessao(&self, guarda: Arc<crate::fork::sessao_clerk::Guarda>) -> Self {
+        Self { sessao: Some(guarda), ..self.clone() }
+    }
+
+    pub(crate) fn sessao(&self) -> Option<&crate::fork::sessao_clerk::Guarda> {
+        self.sessao.as_deref()
+    }
+
     /// Não abre Store/Cloud: só consulta a Connection já protegida e seu dono.
     pub(crate) fn conferir(
         &self,
@@ -213,6 +227,9 @@ impl Autoridade {
         epoca_sincronizacao_atual: u64,
         sincronizado: bool,
     ) -> Result<()> {
+        if let Some(sessao) = &self.sessao {
+            sessao.conferir(db)?;
+        }
         if let Original::Canal(canal) = &self.original {
             return canal.conferir(db);
         }

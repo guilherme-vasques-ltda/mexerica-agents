@@ -119,6 +119,7 @@ pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -
 }
 
 async fn dispatch_pedido(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -> Result<Value> {
+    crate::fork::sessao_clerk::negar_sem_cerca(hub, caller, method)?;
     crate::fork::ponte_credencial::conferir(hub, caller, method, &b)?;
     crate::fork::autoridade::conferir_caller(hub, caller)?;
     if method.starts_with("donnaWorkplace") {

@@ -364,10 +364,9 @@ impl Session {
     async fn close_link(&mut self, link: &str, code: u16, reason: &str) -> Result<()> {
         self.links.remove(link);
         self.outs.remove(link);
-        if let Some(reject) = self.portas.remove(link).and_then(|porta| porta.terminal()) {
-            self.send(&json!({"t": "data", "link": link, "m": reject})).await?;
-            let code = devices::RejectCode::Revoked.close_code();
-            return self.send(&json!({"t": "close", "link": link, "code": code, "reason": "rejected"})).await;
+        if let Some(t) = self.portas.remove(link).and_then(|porta| porta.terminal()) {
+            self.send(&json!({"t": "data", "link": link, "m": t.reject})).await?;
+            return self.send(&json!({"t": "close", "link": link, "code": t.close, "reason": "rejected"})).await;
         }
         self.send(&json!({"t": "close", "link": link, "code": code, "reason": reason})).await
     }
@@ -526,6 +525,11 @@ async fn mailbox_item(hub: &Arc<Hub>, item: &Value) -> Value {
 
 async fn deliver(hub: &Arc<Hub>, item: &Value) -> Result<(), MailboxFailure> {
     use MailboxFailure::{Invalid, Unauthorized};
+    // A caixa de recados não leva sessão Clerk nem prova de posse: num Hub com vínculo (ou com o
+    // vínculo ilegível), nenhum recado guardado vira pedido.
+    if !matches!(crate::fork::sessao_clerk::exigencia(hub), crate::fork::sessao_clerk::Exigencia::Livre) {
+        return Err(Unauthorized);
+    }
     let from = item["from"].as_str().unwrap_or_default();
     let (_, caller) = crate::fork::autoridade::autenticar(hub, from).map_err(|_| Unauthorized)?;
     let dk = crypto::unb64_n::<32>(from).map_err(|_| Invalid)?;
@@ -1156,6 +1160,53 @@ mod tests {
             assert_eq!(hub.store.devices().unwrap().len(), 1);
         })
         .await;
+    }
+
+    #[tokio::test]
+    async fn hub_com_vinculo_nao_entrega_recado_guardado() {
+        let (hub, _dir) = temp_hub();
+        let phone = SigningKey::from_bytes(&crypto::random());
+        let dk = b64(phone.verifying_key().as_bytes());
+        hub.store
+            .put_device(&Device {
+                key: dk.clone(),
+                name: "Phone".into(),
+                platform: "ios".into(),
+                source: DeviceSource::Local,
+                grant_id: None,
+                scopes: vec![Scope::Control, Scope::Screen],
+                lease_until: None,
+                created_at: now_ms(),
+                last_seen_at: None,
+            })
+            .unwrap();
+        let cwd = temp_cwd();
+        let cfg: BotConfig = serde_json::from_value(
+            json!({"id": "", "name": "B", "cwd": cwd.path(), "backend": "custom", "command": "true"}),
+        )
+        .unwrap();
+        let bot_id = hub.create_bot(cfg).unwrap()["id"].as_str().unwrap().to_owned();
+        let item = |nonce: &str| {
+            let inner =
+                json!({"m": "send", "b": {"botId": bot_id, "text": "oi", "clientNonce": nonce}, "ts": now_ms()});
+            let blob = seal_mailbox(&hub, &phone, nonce, inner.to_string().as_bytes());
+            json!({"t": "mbox.item", "seq": 1, "from": dk, "nonce": nonce, "d": blob, "exp": now_ms() + 1000})
+        };
+        let entregue = |nonce: &str| {
+            hub.store.history(&bot_id, i64::MAX, 50).unwrap().iter().any(|e| e.data["clientNonce"] == nonce)
+        };
+        // Sem vínculo, o recado é entregue como sempre.
+        let livre = "3F2504E0-4F89-11D3-9A0C-0305E82C3301";
+        assert_eq!(mailbox_item(&hub, &item(livre)).await["ok"], true);
+        assert!(entregue(livre));
+        // Com vínculo (ou vínculo ilegível), o mesmo recado válido é recusado antes de virar pedido.
+        for vinculo in [crate::fork::sessao_clerk::prova::vinculo_pessoal(), "{\"schema\":7}".to_owned()] {
+            crate::fork::sessao_clerk::vinculo::gravar_para_prova(&hub, &vinculo);
+            let nonce = uuid::Uuid::new_v4().to_string().to_uppercase();
+            let ack = mailbox_item(&hub, &item(&nonce)).await;
+            assert_eq!((ack["ok"].as_bool(), ack["code"].as_str()), (Some(false), Some("unauthorized")));
+            assert!(!entregue(&nonce));
+        }
     }
 
     #[tokio::test]

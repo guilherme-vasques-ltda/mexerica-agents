@@ -412,6 +412,14 @@ impl Store {
     pub fn bootstrap_commit_proof(&self, key: &SigningKey, proof_wire: &[u8], now: i64) -> Result<Vec<u8>> {
         let mut db = self.db.locked();
         let tx = db.transaction()?;
+        // A instalação pela nuvem só num Hub comprovadamente sem vínculo de sessão, lido nesta Tx.
+        ensure!(
+            matches!(
+                crate::fork::sessao_clerk::vinculo::ler_on(&tx),
+                crate::fork::sessao_clerk::vinculo::Estado::SemVinculo
+            ),
+            "bootstrap closed: workspace binding present"
+        );
         let cfg = config(&tx)?.ok_or_else(|| anyhow::anyhow!("generation unavailable"))?;
         sign_key_matches(key, &cfg)?;
         let (gw, gh, cw, status): (Vec<u8>, String, Option<Vec<u8>>, String) = tx.query_row(

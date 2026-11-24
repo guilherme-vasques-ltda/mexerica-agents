@@ -33,6 +33,7 @@ impl Store {
         let namespace = self.guard_runtime_namespace()?;
         let mut c = self.db.locked();
         let tx = c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        crate::fork::sessao_clerk::conferir_no_efeito(&tx)?;
         let mut settings = super::super::team::read(&tx)?;
         if settings.primary_bot_id.as_deref() == Some(id) {
             settings.primary_bot_id = None;

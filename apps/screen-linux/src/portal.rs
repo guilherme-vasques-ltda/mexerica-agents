@@ -15,6 +15,8 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use crate::fork_restore_notice::RestoreNotice;
+
 /// A monitor as the portal streams it. `width`/`height` are logical pixels: the
 /// coordinate space of input events and of the host's `Display` points.
 #[derive(Clone, Debug)]
@@ -63,16 +65,19 @@ impl Portal {
         })))
     }
 
-    pub async fn start(data: &Path, restore: bool) -> Result<Self> {
+    pub(super) async fn start(data: &Path, restore: bool) -> Result<(Self, Option<RestoreNotice>)> {
         let token_file = data.join("screen-restore-token");
+        let mut notice = None;
         let token = if restore {
-            if let Ok(token) = read_token(&token_file) {
-                Some(token)
-            } else {
-                tracing::warn!(
-                    "Automatic restoration unavailable; the portal will request permission again. Restoration requires a private, regular state directory."
-                );
-                None
+            match read_token(&token_file) {
+                Ok(token) => Some(token),
+                Err(error) => {
+                    notice = RestoreNotice::from_error(&error);
+                    tracing::warn!(
+                        "Automatic restoration unavailable; the portal will request permission again. Restoration requires a private, regular state directory."
+                    );
+                    None
+                }
             }
         } else {
             None
@@ -108,7 +113,7 @@ impl Portal {
             .response()
             .context("remote access to this screen was not allowed")?;
         if let Some(t) = started.restore_token() {
-            save_token(&token_file, t);
+            notice = save_token(&token_file, t);
         }
         let displays = started
             .streams()
@@ -152,7 +157,7 @@ impl Portal {
             }
             watched.0.active.store(false, Ordering::Relaxed);
         });
-        Ok(portal)
+        Ok((portal, notice))
     }
 
     pub fn is_active(&self) -> bool {
@@ -207,40 +212,56 @@ impl Portal {
     }
 }
 
-fn save_token(path: &Path, token: &str) {
-    let result = save_token_atomically(path, |file| file.write_all(token.as_bytes()));
-    if let Err(error) = result {
-        tracing::warn!(error = %error, "couldn't save the portal restore token");
+fn save_token(path: &Path, token: &str) -> Option<RestoreNotice> {
+    match save_token_atomically(path, |file| file.write_all(token.as_bytes())) {
+        Ok(()) => None,
+        Err(error) => {
+            tracing::warn!("couldn't save the portal restore token");
+            RestoreNotice::from_error(&error)
+        }
     }
+}
+
+fn private_state_directory(path: &Path, owner: u32) -> Result<OwnedFd> {
+    use rustix::fs::{FileType, Mode, OFlags, fstat, openat};
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow!("token path has no parent"))?;
+    let parent_fd = match openat(
+        rustix::fs::CWD,
+        parent,
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW,
+        Mode::empty(),
+    ) {
+        Ok(fd) => fd,
+        Err(rustix::io::Errno::NOTDIR | rustix::io::Errno::LOOP) => {
+            return Err(RestoreNotice::StateDirectoryNotPrivate.into());
+        }
+        Err(error) => return Err(error.into()),
+    };
+    let parent_metadata = fstat(&parent_fd)?;
+    if FileType::from_raw_mode(parent_metadata.st_mode) != FileType::Directory
+        || parent_metadata.st_uid != owner
+        || parent_metadata.st_mode & 0o022 != 0
+        || parent_metadata.st_mode & 0o700 != 0o700
+    {
+        return Err(RestoreNotice::StateDirectoryNotPrivate.into());
+    }
+    Ok(parent_fd)
 }
 
 fn read_token(path: &Path) -> Result<String> {
     use rustix::fs::{AtFlags, FileType, Mode, OFlags, fstat, openat, statat};
     use std::io::Read;
 
-    let parent = path
-        .parent()
-        .ok_or_else(|| anyhow!("token path has no parent"))?;
-    let parent_fd = openat(
-        rustix::fs::CWD,
-        parent,
-        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW,
-        Mode::empty(),
-    )?;
-    let parent_metadata = fstat(&parent_fd)?;
-    if FileType::from_raw_mode(parent_metadata.st_mode) != FileType::Directory
-        || parent_metadata.st_uid != rustix::process::geteuid().as_raw()
-        || parent_metadata.st_mode & 0o022 != 0
-        || parent_metadata.st_mode & 0o700 != 0o700
-    {
-        return Err(anyhow!("token directory is not privately controlled"));
-    }
+    let owner = rustix::process::geteuid().as_raw();
+    let parent_fd = private_state_directory(path, owner)?;
     let filename = path
         .file_name()
         .ok_or_else(|| anyhow!("invalid token file name"))?;
     let metadata = statat(&parent_fd, filename, AtFlags::SYMLINK_NOFOLLOW)?;
     if FileType::from_raw_mode(metadata.st_mode) != FileType::RegularFile
-        || metadata.st_uid != rustix::process::geteuid().as_raw()
+        || metadata.st_uid != owner
         || metadata.st_nlink != 1
     {
         return Err(anyhow!("token path is not a private regular owned file"));
@@ -270,29 +291,13 @@ fn save_token_atomically<F>(path: &Path, write: F) -> Result<()>
 where
     F: FnOnce(&mut std::fs::File) -> std::io::Result<()>,
 {
-    use rustix::fs::{AtFlags, FileType, Mode, OFlags, fstat, openat, renameat, unlinkat};
+    use rustix::fs::{AtFlags, Mode, OFlags, openat, renameat, unlinkat};
     use std::io::Write;
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
-    let parent = path
-        .parent()
-        .ok_or_else(|| anyhow!("token path has no parent"))?;
     let owner = rustix::process::geteuid().as_raw();
-    let parent_file = openat(
-        rustix::fs::CWD,
-        parent,
-        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW,
-        Mode::empty(),
-    )?;
-    let parent_metadata = fstat(&parent_file)?;
-    if FileType::from_raw_mode(parent_metadata.st_mode) != FileType::Directory
-        || parent_metadata.st_uid != owner
-        || parent_metadata.st_mode & 0o022 != 0
-        || parent_metadata.st_mode & 0o700 != 0o700
-    {
-        return Err(anyhow!("token directory is not privately controlled"));
-    }
+    let parent_file = private_state_directory(path, owner)?;
     let filename = path
         .file_name()
         .ok_or_else(|| anyhow!("invalid token file name"))?;
@@ -372,6 +377,8 @@ fn validate_existing_token<Fd: std::os::fd::AsFd>(
 #[cfg(test)]
 mod token_tests {
     use super::{read_token, save_token, save_token_atomically};
+    use crate::fork_restore_notice::{RestoreNotice, Status};
+    use serde_json::json;
     use std::io::Write;
     use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 
@@ -434,6 +441,28 @@ mod token_tests {
             failure.to_string(),
             "token directory is not privately controlled"
         );
+        let notice = RestoreNotice::from_error(&failure);
+        assert_eq!(notice, Some(RestoreNotice::StateDirectoryNotPrivate));
+        assert_eq!(save_token(&refused_destination, "fixture"), notice);
+        let missing = read_token(&dir.join("missing")).expect_err("missing fixture");
+        assert_eq!(RestoreNotice::from_error(&missing), None);
+        let (out, mut status_frames) = tokio::sync::mpsc::unbounded_channel();
+        let status = json!({"platform":"linux","capture":true,"input":true});
+        let mut observation = Status::default();
+        observation.notice = notice;
+        observation.publish(status.clone(), &out);
+        let mut published = status;
+        published["portalRestoreNotice"] = json!("stateDirectoryNotPrivate");
+        assert_eq!(
+            status_frames.try_recv().expect("status")["params"],
+            published
+        );
+        observation.clear(&out);
+        assert!(
+            status_frames.try_recv().expect("cleared status")["params"]
+                .get("portalRestoreNotice")
+                .is_none()
+        );
         assert!(
             std::fs::read_dir(&non_private)
                 .expect("read non-private fixture directory")
@@ -471,7 +500,7 @@ mod token_tests {
             .expect("create previous token fixture")
             .write_all(b"previous-token")
             .expect("write previous token fixture");
-        save_token(&updated, "replacement-token");
+        assert_eq!(save_token(&updated, "replacement-token"), None);
         assert_eq!(
             std::fs::metadata(&updated)
                 .expect("read updated token metadata")

@@ -40,6 +40,7 @@ impl Autoridade {
         let original = Self {
             original: Original::Canal(Arc::new(CapturaCanal { fatos: ingresso.fatos(), intencao })),
             captura: Arc::new(()),
+            sessao: None,
         };
         original.with_db(hub, None, |_| Ok(()))?;
         Ok(original)

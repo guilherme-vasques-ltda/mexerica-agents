@@ -75,11 +75,12 @@ pub(crate) async fn respond(
     p: &Value,
     id: Value,
     prepared: Result<PreparedRpc>,
+    notice_epoch: u64,
 ) -> Value {
     let result = match prepared {
         Ok(prepared) => match prepared.result {
             Some(result) => Ok(result),
-            None => crate::handle(h, method, p, Ok(prepared.operation)).await,
+            None => crate::handle(h, method, p, Ok(prepared.operation), notice_epoch).await,
         },
         Err(error) => Err(error),
     };
@@ -146,7 +147,7 @@ mod tests {
             )
             .unwrap(),
             portal: Arc::new(tokio::sync::Mutex::new(None)),
-            last_status: tokio::sync::Mutex::new(None),
+            status: tokio::sync::Mutex::default(),
             sessions: lifecycle::Sessions::default(),
             out,
             rt: tokio::runtime::Handle::current(),
@@ -160,7 +161,9 @@ mod tests {
         // Hub prepare has reserved an id, but no answer has reached the helper.
         let prepared = prepare(&h, "close", &params);
         assert_eq!(
-            crate::handle(&h, "close", &params, prepared).await.unwrap(),
+            crate::handle(&h, "close", &params, prepared, 0)
+                .await
+                .unwrap(),
             json!({})
         );
 
@@ -168,7 +171,7 @@ mod tests {
         // existing pending operation without a pipeline must still be unknown.
         let operation = prepare(&h, "answer", &params).unwrap().unwrap();
         let prepared = prepare(&h, "close", &params);
-        let error = crate::handle(&h, "close", &params, prepared)
+        let error = crate::handle(&h, "close", &params, prepared, 0)
             .await
             .unwrap_err();
         assert_eq!(error.to_string(), "native_stop_absent");
@@ -185,7 +188,7 @@ mod tests {
         let params = json!({});
         let prepared = prepare(&h, "closeAll", &params);
         assert_eq!(
-            crate::handle(&h, "closeAll", &params, prepared)
+            crate::handle(&h, "closeAll", &params, prepared, 0)
                 .await
                 .unwrap(),
             json!({})
@@ -196,7 +199,7 @@ mod tests {
             .unwrap()
             .unwrap();
         let prepared = prepare(&h, "closeAll", &params);
-        let error = crate::handle(&h, "closeAll", &params, prepared)
+        let error = crate::handle(&h, "closeAll", &params, prepared, 0)
             .await
             .unwrap_err();
         assert_eq!(error.to_string(), "native_stop_absent");
@@ -239,7 +242,7 @@ mod correlation_tests {
         assert!(original.with_pipeline(&pipeline, || Ok(())).is_ok());
         let params = json!({"session":"same","answerId":7});
         let prepared = prepare_rpc(&h, "close", &params, Some(9));
-        let reply = respond(&h, "close", &params, json!(9), prepared).await;
+        let reply = respond(&h, "close", &params, json!(9), prepared, 0).await;
         assert_eq!(
             reply,
             json!({"jsonrpc":"2.0","id":9,"result":{"nativeStop":{"answerId":7,"state":"null"}}})
@@ -255,7 +258,8 @@ mod correlation_tests {
                 "close",
                 &params,
                 json!(11),
-                prepare_rpc(&h, "close", &params, Some(11))
+                prepare_rpc(&h, "close", &params, Some(11)),
+                0,
             )
             .await["result"],
             json!({}),
@@ -313,6 +317,7 @@ mod correlation_tests {
                 &p,
                 json!(9),
                 prepare_rpc(&h, "close", &p, Some(9)),
+                0,
             )
             .await;
             assert_eq!(reply["error"]["message"], "native_stop_lifecycle");

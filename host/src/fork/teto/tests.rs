@@ -363,6 +363,32 @@ async fn teto_background_gate_trava_emite_so_na_mudanca_e_limpa_na_liberacao() {
 }
 
 #[tokio::test]
+async fn teto_revalida_e_grava_envio_na_mesma_transacao() {
+    let (hub, dir) = hub_tmp();
+    config(&hub, &json!({"enabled":true,"tokens":100}));
+    let send = || {
+        teto::background_boundary(&hub, "bot", "memory", |db| {
+            crate::fork::custo::begin_background_on(db, "bot", "memory", Some("claude-fixture"), None)
+        })
+    };
+    let id = send().unwrap();
+    assert!(send().is_err(), "o primeiro envio sem uso confirmado bloqueia o segundo");
+    {
+        let db = hub.store.db.locked();
+        let count: i64 =
+            db.query_row("SELECT COUNT(*) FROM donna_turn_usage WHERE source='fundo'", [], |r| r.get(0)).unwrap();
+        assert_eq!(count, 1);
+        assert!(
+            db.query_row("SELECT input_tokens IS NULL FROM donna_turn_usage WHERE id=?1", [&id], |r| r
+                .get::<_, bool>(0))
+                .unwrap()
+        );
+    }
+    drop(hub);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
 async fn teto_plus_recusa_limite_que_vira_infinito() {
     let (hub, dir) = hub_tmp();
     let store = &hub.store;
@@ -857,6 +883,32 @@ async fn teto_check_failure_morre_com_saida_saudavel_vista_so_pelo_fundo() {
     );
     drop(hub);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn teto_falha_ao_gravar_envio_nao_ressuscita_liberacao_antiga() {
+    let (hub, dir) = hub_tmp();
+    let store = &hub.store;
+    config(&hub, &json!({"enabled":true,"tokens":100}));
+    ledger_row(store, "linha", None);
+    assert_eq!(decide(store, &Origin::Routine { id: "r".into() }), teto::Verdict::Hold);
+    release(&hub, "checkFailure", &fp(&hold(store).unwrap())).await.unwrap();
+    set_row_tokens(store, "linha", Some((1, 1)));
+    let result = teto::background_boundary::<()>(&hub, "bot", "titles", |db| {
+        crate::fork::custo::begin_background_on(db, "bot", "titles", None, None)?;
+        anyhow::bail!("fixture: autorização falhou")
+    });
+    assert!(result.is_err());
+    let rows: i64 = store
+        .db
+        .locked()
+        .query_row("SELECT COUNT(*) FROM donna_turn_usage WHERE session_id='background:titles'", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(rows, 0);
+    set_row_tokens(store, "linha", None);
+    assert!(teto::background_gate(&hub, "bot", "titles").is_err());
+    drop(hub);
+    let _ = std::fs::remove_dir_all(dir);
 }
 
 /// P2-1: desligar e religar é transição — a checkFailure anterior não volta a valer.

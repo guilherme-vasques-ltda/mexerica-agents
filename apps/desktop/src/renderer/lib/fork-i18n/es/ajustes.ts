@@ -368,6 +368,8 @@ export const textos: Traducao<typeof fonte> = {
   'ajustes.acesso.compartilhar': 'Compartir y controlar la pantalla',
   'ajustes.acesso.compartilharDetalhe': 'Elige una pantalla y permite el acceso al ratón y al teclado. Puedes dejar de compartir en cualquier momento.',
   'ajustes.acesso.escolherTela': 'Elegir la pantalla y permitir el control',
+  'ajustes.acesso.restauracaoPortalIndisponivelTitulo': 'Restauración automática no disponible',
+  'ajustes.acesso.restauracaoPortalIndisponivelDetalhe': 'La restauración automática requiere una carpeta de estado privada y regular. La próxima vez, el portal volverá a pedirte permiso.',
   'ajustes.acesso.notaOnboarding': 'Los permisos se quedan en este ordenador. Puedes cambiarlos después en Ajustes → Acceso al ordenador.',
   'ajustes.acesso.notaAjustes': 'Los permisos se quedan en este ordenador. Tus otros ordenadores tienen los suyos.',
   'ajustes.acesso.continuar': 'Continuar',

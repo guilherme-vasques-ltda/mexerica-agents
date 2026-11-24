@@ -182,8 +182,14 @@ mod tests {
         let (tx, _) = broadcast::channel(8);
         let screen = Screen::new(Some(true), tx);
         let (tx, _) = mpsc::unbounded_channel();
-        *screen.link.locked() =
-            Some(Arc::new(Link { id: 1, tx, pending: Mutex::default(), next_id: AtomicI64::new(1) }));
+        *screen.link.locked() = Some(Arc::new(Link {
+            id: 1,
+            tx,
+            pending: Mutex::default(),
+            next_id: AtomicI64::new(1),
+            #[cfg(target_os = "linux")]
+            restore_notice: Mutex::default(),
+        }));
         let config = IceConfig {
             ice_servers: vec![IceServer {
                 urls: vec!["turns:turn.cloudflare.com:443?transport=tcp".into()],

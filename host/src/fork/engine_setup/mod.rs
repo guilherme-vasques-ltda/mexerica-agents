@@ -1126,20 +1126,53 @@ pub(crate) async fn set_api_env(hub: &Arc<Hub>, caller: &Caller, body: Value) ->
                 .is_some_and(|v| !v.trim().is_empty() && v.len() <= 8192 && !v.chars().any(char::is_control)),
         "invalid_field: use a chave permitida pelo provedor."
     );
+    let models = if request.backend == Backend::Claude {
+        let registry = Registry::load(&hub.store)?;
+        let account = registry.account(&request.engine_account_id)?;
+        ensure!(
+            account.backend == Backend::Claude
+                && account.managed.as_ref().is_some_and(|meta| meta.revision == request.expected_revision)
+                && matches!(&account.launch, LaunchReference::VaultProfile { slot }
+                    if *slot == format!("agent-account:{}", account.id)),
+            "account_conflict: a conta de API mudou; recarregue antes de salvar."
+        );
+        let credential = request.vars.get(key).ok_or_else(|| anyhow!("invalid_field: chave ausente."))?;
+        let header = crate::fork::background_anthropic::api_key(credential)?;
+        Some(crate::fork::background_anthropic::models(header).await?)
+    } else {
+        None
+    };
     let _guard = accounts::MUTATION.lock().await;
     let mut registry = Registry::load(&hub.store)?;
     let account = registry.account_mut(&request.engine_account_id, request.expected_revision)?;
     ensure!(account.backend == request.backend, "account_incompatible");
     let LaunchReference::VaultProfile { slot } = &account.launch else { bail!("api_form_required") };
     let serialized = zeroize::Zeroizing::new(serde_json::to_string(&request.vars)?);
-    crate::market::vault::write(&hub.store, slot, &serialized)?;
+    let slot = slot.clone();
+    let sealed = crate::market::vault::seal(&hub.store, &slot, &serialized)?;
     account.billing = Billing::PaidApi;
     account.state = State::Connected;
-    // Credencial explicitamente cadastrada; não inventar identidade/cota/modelos nem gerar prompt pago.
     let meta = account.managed.as_mut().ok_or_else(|| anyhow!("legacy_preserved"))?;
     meta.enabled = true;
+    meta.paused = false;
     meta.revision += 1;
-    registry.persist(&hub.store)?;
+    if let Some(models) = models {
+        meta.principal = Some(request.engine_account_id.clone());
+        account.models = models;
+        account.bind_catalog();
+    }
+    let registry_json = serde_json::to_string(&registry)?;
+    {
+        let mut db = hub.store.db.locked();
+        let tx = db.transaction()?;
+        crate::market::vault::write_sealed(&tx, &slot, &sealed)?;
+        tx.execute(
+            "INSERT INTO kv(k,v) VALUES(?1,?2) ON CONFLICT(k) DO UPDATE SET v=excluded.v",
+            (accounts::SLOT, &registry_json),
+        )?;
+        tx.commit()?;
+    }
+    crate::fork::background_selection::backoff::changed(&hub.store);
     accounts::invalidate();
     registry.dto_for(&hub.store, &request.engine_account_id)
 }

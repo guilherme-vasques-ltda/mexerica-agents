@@ -95,10 +95,15 @@ impl Delivery {
         write: impl FnOnce(&Connection, Option<&str>) -> Result<T>,
     ) -> Result<Option<T>> {
         self.authority.with_db_owner(hub, None, |tx, owner| {
-            if hub.workspace.dono_retido() {
+            if hub.workspace.dono_retido()
+                || !matches!(
+                    crate::fork::sessao_clerk::vinculo::ler_on(tx),
+                    crate::fork::sessao_clerk::vinculo::Estado::SemVinculo
+                )
+            {
                 return Err(Failure::Unauthorized.into());
             }
-            let workspace = workspace::workspace_id(owner);
+            let workspace = workspace::workspace_id_legado(owner);
             let generation = self.authority.geracao_capturada().ok_or(Failure::Unauthorized)?;
             let receipt: Option<bool> = tx
                 .query_row(
@@ -134,7 +139,7 @@ impl Delivery {
             params![
                 self.nonce,
                 hub.host_id,
-                workspace::workspace_id(owner),
+                workspace::workspace_id_legado(owner),
                 owner,
                 self.key,
                 self.generation,

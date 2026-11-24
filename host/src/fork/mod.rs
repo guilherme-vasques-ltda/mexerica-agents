@@ -6,6 +6,7 @@ pub(crate) mod cadeias;
 pub(crate) mod open_chat;
 #[cfg(unix)]
 pub(crate) mod open_codex;
+pub(crate) mod voz_gpt_live;
 pub(crate) mod web_local;
 pub(crate) mod webhook;
 pub(crate) mod webhook_chain;
@@ -20,6 +21,7 @@ pub(crate) mod armazenamento;
 #[allow(dead_code, reason = "Fonte 19.1a publicada antes dos consumidores; sem runtime novo.")]
 pub mod atividades;
 pub(crate) mod background_adapter;
+pub(crate) mod background_anthropic;
 pub(crate) mod background_completion;
 pub(crate) mod background_executor;
 pub(crate) mod background_history;
@@ -114,6 +116,7 @@ pub(crate) mod retornos;
 #[allow(dead_code, reason = "MX-175: contrato de sandbox preparado; sem consumidor de execução no Hub.")]
 pub(crate) mod sandbox;
 pub(crate) mod secret_refs;
+pub(crate) mod sessao_clerk;
 pub(crate) mod sessoes;
 pub(crate) mod skill_catalog;
 pub(crate) mod skill_selection;
@@ -150,6 +153,7 @@ pub(crate) fn migrate(store: &crate::store::Store) -> anyhow::Result<()> {
     nunca_fazer::migrate(&store.db.locked())?;
     workspace::migrate(&store.db.locked())?;
     mailbox::migrate(&store.db.locked())?;
+    sessao_clerk::migrate(&store.db.locked())?;
     instrucao_geral::migrate(&store.db.locked())?;
     custo::migrate(&store.db.locked())?;
     autoridade::concessao::migrate(&store.db.locked())?;

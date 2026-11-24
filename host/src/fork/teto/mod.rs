@@ -1046,12 +1046,29 @@ pub(crate) fn decide_on(c: &Connection, bot: &str, origin: &Origin, hold_body: &
 /// o teto trava ou não pode ser conferido. `Err` nunca envia. Emite o evento só
 /// quando a espera/aviso mudou de fato.
 pub(crate) fn background_gate(hub: &Hub, bot: &str, job: &str) -> Result<()> {
+    background_boundary(hub, bot, job, |_| Ok(()))
+}
+
+pub(crate) fn background_boundary<T>(
+    hub: &Hub,
+    bot: &str,
+    job: &str,
+    authorize: impl FnOnce(&Connection) -> Result<T>,
+) -> Result<T> {
     let (changed, result) = {
         let db = hub.store.db.locked();
         let tx = db.unchecked_transaction()?;
         let eval = evaluate_on(&tx, settings_on(&tx)?)?;
         let outcome = match eval.gate.blocked.as_ref() {
-            None => (eval.changed, Ok(())),
+            None => {
+                tx.execute_batch("SAVEPOINT background_authorization")?;
+                let result = authorize(&tx);
+                if result.is_err() {
+                    tx.execute_batch("ROLLBACK TO background_authorization")?;
+                }
+                tx.execute_batch("RELEASE background_authorization")?;
+                (eval.changed, result)
+            }
             Some(blocked) => {
                 let hold = json!({"job":job,"reason":blocked.reason,"metrics":blocked.metrics,
                     "signature":eval.gate.signature,"at":crate::store::now_ms()});

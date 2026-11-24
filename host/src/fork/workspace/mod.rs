@@ -1,9 +1,9 @@
 //! Contexto de workspace do Hub (`WorkspaceContext`, schema 1), `workspaceEpoch` persistido,
 //! bloqueio durável de aparelho revogado e corte dos streams quando o epoch sobe.
 //!
-//! Um Hub é um workspace. Nesta fase o vínculo é só derivado do dono que o Hub já conhece
-//! (`CloudStatus.owner`): nada aqui grava, troca ou exige vínculo. As únicas recusas novas são
-//! o aparelho revogado (bloqueio persistente) e o epoch divergente (`409`).
+//! Um Hub é um workspace. Sem vínculo gravado, ele é derivado do dono que o Hub já conhece
+//! (`CloudStatus.owner`). Com vínculo (só leitura aqui), `kind` e `workspaceId` vêm dele e a sessão
+//! Clerk do acesso remoto fica em `fork::sessao_clerk`. Nada aqui grava ou troca o vínculo.
 use crate::{
     LockExt,
     api::{GroupError, devices::Caller},
@@ -45,16 +45,17 @@ pub(crate) fn migrate(c: &Connection) -> Result<()> {
 pub(crate) enum Motivo {
     DeviceRevoked,
     OwnerChanged,
-    /// Troca de papel de membro (Hub team).
-    #[cfg_attr(not(test), expect(dead_code, reason = "papéis de membro chegam com o vínculo team"))]
+    /// Troca de papel registrada pela sessão do vínculo.
     RoleChanged,
+    /// Token mais novo de um `sub` sem acesso ao workspace.
+    AcessoRetirado,
 }
 
 impl Motivo {
     fn evento(self) -> &'static str {
         match self {
             Self::RoleChanged => "role_changed",
-            Self::DeviceRevoked | Self::OwnerChanged => "workspace_revoked",
+            Self::DeviceRevoked | Self::OwnerChanged | Self::AcessoRetirado => "workspace_revoked",
         }
     }
 }
@@ -299,6 +300,13 @@ fn confirmar(hub: &Hub, tx: rusqlite::Transaction<'_>, epoch: u64, motivo: Motiv
     hub.workspace.marcar(epoch, motivo, dono).commit(tx)
 }
 
+/// Sobe o epoch na Tx do chamador e a confirma: aumento e publicação no mesmo commit.
+pub(crate) fn subir_na_tx(hub: &Hub, tx: rusqlite::Transaction<'_>, motivo: Motivo) -> Result<u64> {
+    let proximo = bump_on(&tx)?;
+    confirmar(hub, tx, proximo, motivo, Dono::Mantem)?;
+    Ok(proximo)
+}
+
 /// Gancho para remoção de membro e troca de papel (Hub team).
 #[cfg_attr(not(test), expect(dead_code, reason = "membros e papéis chegam com o vínculo team"))]
 pub(crate) fn bump(hub: &Hub, motivo: Motivo) -> Result<u64> {
@@ -358,6 +366,7 @@ pub(crate) fn revogar_na_tx(hub: &Hub, tx: rusqlite::Transaction<'_>, key: &str,
 /// Bloqueio durável da chave (com a concessão) e epoch novo, na Tx do chamador.
 pub(crate) fn bloquear_on(c: &Connection, key: &str, grant: Option<&str>) -> Result<u64> {
     let epoch = bump_on(c)?;
+    crate::fork::sessao_clerk::desligar_on(c, key)?;
     c.execute(
         "INSERT OR REPLACE INTO fork_workspace_revoked_devices(key,grant_id,epoch,revoked_at) VALUES(?1,?2,?3,?4)",
         params![key, grant.unwrap_or_default(), i64::try_from(epoch)?, now_ms()],
@@ -411,11 +420,13 @@ pub(crate) fn liberar_pareamento_on(c: &Connection, key: &str) -> Result<()> {
     Ok(())
 }
 
-/// Readmissão pelo código: libera o bloqueio e grava o aparelho na mesma Tx.
+/// Readmissão pelo código: libera o bloqueio e grava o aparelho na mesma Tx. Sem vínculo, a chave
+/// não fica ligada a nenhum `userId` de um pareamento anterior.
 pub(crate) fn readmitir_pareado(store: &Store, device: &crate::store::Device) -> Result<()> {
     let mut db = store.db.locked();
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
     liberar_pareamento_on(&tx, &device.key)?;
+    crate::fork::sessao_clerk::desligar_on(&tx, &device.key)?;
     crate::store::put_device_on(&tx, device)?;
     tx.commit()?;
     Ok(())
@@ -515,9 +526,21 @@ pub(crate) struct Contexto {
     capabilities: Vec<&'static str>,
 }
 
-/// O Hub decide; `capabilities` só orienta a interface. Papel único nesta fase: `owner`.
+/// O Hub decide; `capabilities` só orienta a interface. Sem vínculo, o papel é `owner`. Com
+/// vínculo, `kind` e `workspaceId` vêm dele, e `userId` e `role` do aparelho vêm só da sessão
+/// verificada do pedido em curso.
 pub(crate) fn contexto(hub: &Hub, caller: &Caller, retrato: &Epoca) -> Result<Contexto> {
-    let (capabilities, grant_generation) = match caller {
+    use crate::fork::sessao_clerk::vinculo::{self, Papel, Tipo};
+    let estado = vinculo::ler(hub);
+    let identidade = match (&estado, caller) {
+        (vinculo::Estado::Vinculado(_), Caller::Device { autoridade, .. }) => {
+            let guarda = autoridade.as_deref().and_then(|a| a.sessao());
+            Some(guarda.map(|g| (g.sub().to_owned(), g.papel())).ok_or(crate::api::devices::Forbidden)?)
+        }
+        (vinculo::Estado::Ilegivel, Caller::Device { .. }) => return Err(crate::api::devices::Forbidden.into()),
+        _ => None,
+    };
+    let (mut capabilities, grant_generation) = match caller {
         Caller::Local => (vec!["chat", "bots.manage", "devices.manage"], None),
         Caller::Device { scopes, autoridade, .. } => {
             let mut lista = vec![];
@@ -531,20 +554,42 @@ pub(crate) fn contexto(hub: &Hub, caller: &Caller, retrato: &Epoca) -> Result<Co
         }
         _ => return Err(crate::api::devices::Forbidden.into()),
     };
+    if identidade.as_ref().is_some_and(|(_, papel)| *papel == Papel::Membro) {
+        capabilities.retain(|c| *c == "chat");
+    }
+    let (kind, workspace_id, user_id, role) = match &estado {
+        vinculo::Estado::Vinculado(v) => {
+            let user_id = match (&identidade, &v.tipo) {
+                (Some((sub, _)), _) => Some(sub.clone()),
+                (None, Tipo::Pessoal { dono }) => Some(dono.clone()),
+                (None, Tipo::Time { .. }) => None,
+            };
+            (v.kind(), v.workspace_id(), user_id, identidade.as_ref().map_or("owner", |(_, papel)| papel.nome()))
+        }
+        _ => ("personal", workspace_id(hub, retrato), retrato.dono.clone(), "owner"),
+    };
     Ok(Contexto {
         schema: 1,
         hub_id: hub.host_id.clone(),
-        kind: "personal",
-        workspace_id: workspace_id(retrato.dono.as_deref()),
-        user_id: retrato.dono.clone(),
-        role: "owner",
+        kind,
+        workspace_id,
+        user_id,
+        role,
         workspace_epoch: retrato.valor,
         grant_generation,
         capabilities,
     })
 }
 
-pub(super) fn workspace_id(dono: Option<&str>) -> String {
+/// O vínculo decide; sem ele, o dono que a nuvem informou (ou `personal:unbound`).
+fn workspace_id(hub: &Hub, retrato: &Epoca) -> String {
+    if let crate::fork::sessao_clerk::vinculo::Estado::Vinculado(v) = crate::fork::sessao_clerk::vinculo::ler(hub) {
+        return v.workspace_id();
+    }
+    workspace_id_legado(retrato.dono.as_deref())
+}
+
+pub(super) fn workspace_id_legado(dono: Option<&str>) -> String {
     dono.map_or_else(|| UNBOUND.to_owned(), |u| format!("personal:{u}"))
 }
 
@@ -604,7 +649,7 @@ pub(crate) fn cortar<S: Stream<Item = Value> + Send + 'static>(
     retrato: &Epoca,
     eventos: S,
 ) -> impl Stream<Item = Value> + Send + 'static + use<S> {
-    let (epoch, workspace_id) = (retrato.valor, workspace_id(retrato.dono.as_deref()));
+    let (epoch, workspace_id) = (retrato.valor, workspace_id(hub, retrato));
     let terminal = move |e: &Epoca| {
         json!({
             "type": e.motivo().evento(),
