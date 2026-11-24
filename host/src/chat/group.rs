@@ -51,8 +51,12 @@ pub struct GroupTurn {
 pub struct Rooms(Mutex<HashMap<Lane, u64>>, Mutex<std::collections::HashSet<String>>);
 
 impl Rooms {
-    fn next(&self, lane: &Lane) -> u64 {
+    fn next(&self, hub: &Hub, lane: &Lane, authority: Option<&Autoridade>) -> Result<u64> {
         let mut map = self.0.locked();
+        Autoridade::no_efeito(hub, authority, || Ok(Self::advance(&mut map, lane)))
+    }
+
+    fn advance(map: &mut HashMap<Lane, u64>, lane: &Lane) -> u64 {
         let epoch = map.entry(lane.clone()).or_default();
         *epoch += 1;
         *epoch
@@ -60,7 +64,7 @@ impl Rooms {
 
     #[cfg(test)]
     pub(crate) fn reserve_epoch_for_test(&self, lane: &Lane) -> u64 {
-        self.next(lane)
+        Self::advance(&mut self.0.locked(), lane)
     }
 
     pub(crate) fn block(&self, group: &str) {
@@ -147,7 +151,7 @@ pub(crate) fn start_authorized(
         tracing::warn!(group = group.id, "sala bloqueada até o próximo reinício; nada é entregue");
         return Ok(());
     }
-    let epoch = match Autoridade::no_efeito(hub, authority.as_ref(), || Ok(hub.groups.next(&lane))) {
+    let epoch = match hub.groups.next(hub, &lane, authority.as_ref()) {
         Ok(epoch) => epoch,
         Err(error) => {
             delivery.interrupt(hub)?;

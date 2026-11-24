@@ -364,6 +364,11 @@ mod tests {
         assert!(matches!(grant.write(&hub, &mut || std::task::Poll::Ready(Ok(()))), std::task::Poll::Ready(Ok(()))));
         crate::fork::workspace::bump(&hub, crate::fork::workspace::Motivo::RoleChanged).unwrap();
         assert!(matches!(grant.write(&hub, &mut || panic!("saída com epoch antigo")), std::task::Poll::Ready(Err(_))));
+        let (_, caller) = crate::fork::autoridade::autenticar(&hub, &device.key).unwrap();
+        let renewed = owner(&hub, &caller, &report).unwrap();
+        grants.insert(renewed, Lane::main("bot"), &entry);
+        let grant = grants.take(&entry.id).unwrap();
+        assert!(matches!(grant.write(&hub, &mut || std::task::Poll::Ready(Ok(()))), std::task::Poll::Ready(Ok(()))));
         hub.revoke_device(&device.key).unwrap();
         assert!(matches!(grant.write(&hub, &mut || panic!("saída após revogação")), std::task::Poll::Ready(Err(_))));
     }

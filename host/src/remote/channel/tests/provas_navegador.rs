@@ -159,12 +159,16 @@ async fn corte_antes_da_entrada_do_navegador_nao_entrega_intencao() {
     assert!(navegador::oferecer(quadro(&sessao, "aba-1", 0, 1)));
     assert_eq!(phone.esperar_quadro().await.sequence, 1);
     let bump_hub = hub.clone();
+    let applied = crate::fork::sessoes::call_tests::interleave(&hub.store, "browser_input_effect", || {});
     let reached = crate::fork::sessoes::call_tests::interleave(&hub.store, "browser_input", move || {
         crate::fork::workspace::bump(&bump_hub, crate::fork::workspace::Motivo::RoleChanged).unwrap();
     });
     phone.send(json!({"id":2,"m":"browserStreamInput","b":entrada(&sessao, 1, 1)})).await;
     assert_eq!(phone.recv().await.unwrap_err().0, 4003);
     assert!(reached.load(std::sync::atomic::Ordering::Acquire));
+    timeout(Duration::from_secs(5), phone.run).await.unwrap().unwrap();
+    assert!(!applied.load(std::sync::atomic::Ordering::Acquire));
+    crate::fork::sessoes::call_tests::before_effect(&hub.store, "browser_input_effect");
     assert!(navegador::retirar_entrada(&sessao).is_none());
 }
 

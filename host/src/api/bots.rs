@@ -465,14 +465,15 @@ pub(super) async fn call(
             } else {
                 // `/skill …` reaches the agent as "read this skill first"; the chat keeps what was typed.
                 let prompt = crate::chat::prompt::of_entry(hub, &row.config, &e.data);
-                let sender = hub.login_command_sender(bot)?;
-                let result = crate::fork::autoridade::Autoridade::no_efeito(hub, effect_authority, || {
-                    if let Some(owner) = antigravity_owner {
-                        hub.antigravity_grants.insert(owner, lane.clone(), &e);
-                    }
-                    sender
-                        .send(Cmd::Send { lane, entry_id: e.id.clone(), text: prompt })
-                        .map_err(|_| anyhow!("bot stopped"))
+                let result = hub.login_command_sender(bot).and_then(|sender| {
+                    crate::fork::autoridade::Autoridade::no_efeito(hub, effect_authority, || {
+                        if let Some(owner) = antigravity_owner {
+                            hub.antigravity_grants.insert(owner, lane.clone(), &e);
+                        }
+                        sender
+                            .send(Cmd::Send { lane, entry_id: e.id.clone(), text: prompt })
+                            .map_err(|_| anyhow!("bot stopped"))
+                    })
                 });
                 if let Err(error) = result {
                     if effect_authority.is_some() {

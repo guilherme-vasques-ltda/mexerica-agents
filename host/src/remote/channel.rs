@@ -888,7 +888,13 @@ impl Channel {
                     #[cfg(test)]
                     crate::fork::sessoes::call_tests::before_effect(&self.hub.store, "browser_input");
                     let mut estado = conn.estado.locked();
-                    conn.autoridade.com_efeito(caller, || estado.accept_authorized_input(&entrada)).unwrap_or(false)
+                    conn.autoridade
+                        .com_efeito(caller, || {
+                            #[cfg(test)]
+                            crate::fork::sessoes::call_tests::before_effect(&self.hub.store, "browser_input_effect");
+                            estado.accept_authorized_input(&entrada)
+                        })
+                        .unwrap_or(false)
                 });
                 self.send(json!({"id": id, "ok": {"accepted": aceita, "sequence": b["sequence"]}})).await;
             }
