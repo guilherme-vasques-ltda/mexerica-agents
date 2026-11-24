@@ -127,11 +127,13 @@ impl Delivery {
 
     /// A primeira rodada acabou (ou uma mensagem mais nova a encerrou): a mensagem conta como enviada. Uma parada
     /// já saiu de `sending` e fica como está; uma com envio que falhou também.
-    pub(crate) fn confirm(&self, hub: &Hub) {
+    pub(crate) fn confirm(&self, hub: &Hub, group: &str) {
         if self.missed {
             return;
         }
-        if let Err(error) = settle(hub, std::slice::from_ref(&self.entry_id), "sent", false) {
+        if let Some(Err(error)) =
+            hub.groups.while_unblocked(group, || settle(hub, std::slice::from_ref(&self.entry_id), "sent", false))
+        {
             tracing::warn!(
                 entry = self.entry_id,
                 error = format!("{error:#}"),
@@ -140,8 +142,10 @@ impl Delivery {
         }
     }
 
-    pub(crate) fn interrupt(&self, hub: &Hub) -> Result<()> {
-        settle(hub, std::slice::from_ref(&self.entry_id), "interrupted", true)
+    pub(crate) fn interrupt(&self, hub: &Hub, group: &str) -> Result<()> {
+        hub.groups
+            .while_unblocked(group, || settle(hub, std::slice::from_ref(&self.entry_id), "interrupted", true))
+            .ok_or_else(|| anyhow::anyhow!("sala bloqueada: interrupção da entrega não registrada"))?
     }
 }
 
@@ -180,8 +184,8 @@ fn settle(hub: &Hub, ids: &[String], status: &str, review: bool) -> Result<()> {
     Ok(())
 }
 
-/// Stop: interrompe toda mensagem pendente do grupo, fora dos prompts, antes de o pedido ser confirmado e antes de a
-/// sala ver o Stop; uma mensagem que começa depois é uma rodada nova.
+/// Stop: interrompe as pendentes antes de confirmar o pedido. Se a gravação falhar, a sala para em memória e
+/// preserva as pendências para a classificação no boot.
 pub(crate) fn stop(hub: &Hub, group: &str) -> Result<()> {
     hub.groups.stop_after(hub, group, || {
         let ids: Vec<String> = {

@@ -2,6 +2,7 @@
 //! recebeu, ou interrompida para conferência (fora dos prompts da sala) quando não há prova; reinícios seguintes não
 //! repetem nada.
 use super::*;
+use crate::agent::bot::Cmd;
 use crate::store::Lane;
 
 const ROOM: &str = "sala";
@@ -372,7 +373,7 @@ async fn confirmacao_depois_do_stop_nao_vira_enviada() {
     f.hub.shutdown().await;
     let id = pending(&f.dir, None);
     crate::fork::grupo_entrega::stop(&f.hub, ROOM).unwrap();
-    crate::fork::grupo_entrega::Delivery::new(&id).confirm(&f.hub);
+    crate::fork::grupo_entrega::Delivery::new(&id).confirm(&f.hub, ROOM);
     let saved = f.hub.store.entry(&id).unwrap();
     assert_eq!(saved.data["status"], "cancelled");
     assert_eq!(saved.data["groupReview"], true);
@@ -694,27 +695,115 @@ async fn sala_que_falha_no_meio_da_classificacao_nao_retoma_nada() {
     let _ = std::fs::remove_dir_all(&f.dir);
 }
 
-/// O Stop que não consegue gravar a interrupção não para nada: a rodada em andamento não vê um Stop que não
-/// aconteceu e não confirma a mensagem por causa dele.
 #[tokio::test]
-async fn stop_que_falha_ao_gravar_nao_encerra_a_rodada() {
+async fn stop_gravado_cancela_antes_da_proxima_rodada_sem_bloquear_a_sala() {
     let f = Fixture::new();
     room(&f);
+    let mut bot = f.hub.test_bot_commands("bot");
+    let local = crate::api::devices::Caller::Local;
+    let send = |text| crate::api::dispatch(&f.hub, &local, "send", json!({"botId": ROOM, "text": text}));
+    let first = send("Primeira").await.unwrap();
+    let first_id = first["entry"]["id"].as_str().unwrap();
+    let Some(Cmd::Group(turn)) = tokio::time::timeout(Duration::from_secs(5), bot.recv()).await.unwrap() else {
+        panic!("a primeira rodada chegou ao membro");
+    };
+    crate::api::dispatch(&f.hub, &local, "stop", json!({"botId": ROOM})).await.unwrap();
+    assert!(!f.hub.groups.blocked(ROOM));
+    assert_eq!(f.hub.store.entry(first_id).unwrap().data["status"], "cancelled");
+
+    let next = send("Segunda").await.unwrap();
+    let next_id = next["entry"]["id"].as_str().unwrap();
+    assert!(matches!(bot.try_recv(), Ok(Cmd::CancelGroup { chat }) if chat == ROOM));
+    drop(turn.reply);
+    let Some(Cmd::Group(next_turn)) = tokio::time::timeout(Duration::from_secs(5), bot.recv()).await.unwrap() else {
+        panic!("a rodada depois do Stop chegou ao membro");
+    };
+    assert_eq!(next_turn.epoch, turn.epoch + 2, "o Stop e a nova rodada avançam o epoch");
+    assert!(f.hub.groups.current(&next_turn.lane, next_turn.epoch));
+    next_turn.reply.send(Ok(None)).unwrap();
+    f.until("rodada depois do Stop", &f.hub, || f.hub.store.entry(next_id).unwrap().data["status"] == "sent").await;
+    assert_eq!(f.hub.store.entry(first_id).unwrap().data["status"], "cancelled");
     f.hub.shutdown().await;
-    let id = pending(&f.dir, None);
+    let _ = std::fs::remove_dir_all(&f.dir);
+}
+
+#[tokio::test]
+async fn stop_cancela_membro_ja_enfileirado_mesmo_sem_ler_o_grupo() {
+    let f = Fixture::new();
+    room(&f);
+    let mut bot = f.hub.test_bot_commands("bot");
+    crate::api::dispatch(
+        &f.hub,
+        &crate::api::devices::Caller::Local,
+        "send",
+        json!({"botId": ROOM, "text": "Oi, sala"}),
+    )
+    .await
+    .unwrap();
+    let Some(Cmd::Group(turn)) = tokio::time::timeout(Duration::from_secs(5), bot.recv()).await.unwrap() else {
+        panic!("a rodada chegou ao membro");
+    };
+    f.hub.store.db.locked().execute("UPDATE bots SET config = x'00' WHERE id = ?1", [ROOM]).unwrap();
+    assert!(f.hub.store.bot(ROOM).is_err());
+    crate::fork::grupo_entrega::stop(&f.hub, ROOM).unwrap();
+    assert!(matches!(bot.try_recv(), Ok(Cmd::CancelGroup { chat }) if chat == ROOM));
+    drop(turn.reply);
+    f.hub.shutdown().await;
+    let _ = std::fs::remove_dir_all(&f.dir);
+}
+
+#[tokio::test]
+async fn stop_que_falha_bloqueia_a_sala_e_deixa_a_classificacao_para_o_boot() {
+    let f = Fixture::new();
+    room_with(&f, &["bot", "bot2"]);
+    let mut bot = f.hub.test_bot_commands("bot");
+    let mut bot2 = f.hub.test_bot_commands("bot2");
+    let local = crate::api::devices::Caller::Local;
+    let body = json!({"botId": ROOM, "text": "Oi, sala"});
+    let sent = crate::api::dispatch(&f.hub, &local, "send", body.clone()).await.unwrap();
+    let id = sent["entry"]["id"].as_str().unwrap();
+    let Some(Cmd::Group(turn)) = tokio::time::timeout(Duration::from_secs(5), bot.recv()).await.unwrap() else {
+        panic!("o primeiro membro recebeu a mensagem");
+    };
     let lane = Lane::main(ROOM);
-    let epoch = f.hub.groups.reserve_epoch_for_test(&lane);
+    assert!(f.hub.groups.current(&lane, turn.epoch));
     f.hub
         .store
         .db
         .locked()
         .execute_batch(&format!(
-            "CREATE TRIGGER reject_stop BEFORE UPDATE ON entries WHEN OLD.bot_id = '{ROOM}'
+            "CREATE TRIGGER reject_stop BEFORE UPDATE ON entries
+             WHEN OLD.bot_id = '{ROOM}' AND json_extract(NEW.data, '$.status') = 'cancelled'
              BEGIN SELECT RAISE(ABORT, 'falha simulada'); END"
         ))
         .unwrap();
-    crate::fork::grupo_entrega::stop(&f.hub, ROOM).expect_err("a falha ao gravar chega a quem pediu o Stop");
-    assert!(f.hub.groups.current(&lane, epoch), "a rodada não é encerrada por um Stop que não foi gravado");
-    assert_eq!(f.hub.store.entry(&id).unwrap().data["status"], "sending");
+    crate::api::dispatch(&f.hub, &local, "stop", json!({"botId": ROOM}))
+        .await
+        .expect_err("a falha ao gravar chega a quem pediu o Stop");
+    assert!(!f.hub.groups.current(&lane, turn.epoch));
+    assert_eq!(f.hub.groups.reserve_epoch_for_test(&lane), turn.epoch + 1, "o Stop falho não avança o epoch");
+    assert!(matches!(bot.try_recv(), Ok(Cmd::CancelGroup { chat }) if chat == ROOM));
+    assert!(matches!(bot2.try_recv(), Ok(Cmd::CancelGroup { chat }) if chat == ROOM));
+
+    turn.reply.send(Ok(None)).unwrap();
+    let delivery = crate::fork::grupo_entrega::Delivery::new(id);
+    delivery.confirm(&f.hub, ROOM);
+    assert!(delivery.interrupt(&f.hub, ROOM).is_err());
+    assert_eq!(f.hub.store.entry(id).unwrap().data["status"], "sending");
+
+    f.hub.store.db.locked().execute_batch("DROP TRIGGER reject_stop").unwrap();
+    let refused = crate::api::dispatch(&f.hub, &local, "send", body).await.expect_err("a sala continua bloqueada");
+    assert_eq!(crate::api::error_code(&refused), Some("group_blocked"));
+    assert!(bot2.try_recv().is_err(), "o próximo membro não recebe a mensagem");
+    f.hub.shutdown().await;
+    assert_eq!(f.hub.store.entry(id).unwrap().data["status"], "sending");
+
+    let hub = reopen(&f.dir);
+    assert!(!hub.groups.blocked(ROOM));
+    let saved = hub.store.entry(id).unwrap();
+    assert_eq!(saved.data["status"], "cancelled", "a entrega incerta é classificada no boot");
+    assert_eq!(saved.data["groupReview"], true);
+    assert_eq!(reviews(&hub), 1);
+    hub.shutdown().await;
     let _ = std::fs::remove_dir_all(&f.dir);
 }
