@@ -20,13 +20,14 @@ export interface EditorTarget {
   at: number | null
 }
 
-export function RoutineSheet({ target, setTarget, bots, saved, duplicated }: {
+export function RoutineSheet({ target, setTarget, bots, saved, duplicated, avisaCriacao = false }: {
   target: EditorTarget | null
   setTarget: (target: EditorTarget | null) => void
   /** Os bots que podem ter rotinas. */
   bots: Bot[]
   saved: () => void
   duplicated: (target: EditorTarget, routine: Routine) => void
+  avisaCriacao?: boolean
 }) {
   const bot = target?.botId ? bots.find((b) => b.id === target.botId) : undefined
   const when = target?.at ? texts.dayTime(dayLabel(target.at, idioma()), timeLabel(target.at, idioma())) : null
@@ -42,6 +43,7 @@ export function RoutineSheet({ target, setTarget, bots, saved, duplicated }: {
         <RoutineEditorView
           key={target.id}
           botId={target.botId}
+          avisaCriacao={avisaCriacao}
           routine={target.routine}
           initialTriggers={target.at ? weeklyAt(target.at) : undefined}
           subtitle={bot ? texts.forBot(bot.name) : undefined}
