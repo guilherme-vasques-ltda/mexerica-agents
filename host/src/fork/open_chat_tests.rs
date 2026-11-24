@@ -397,6 +397,66 @@ async fn text_is_not_delivered_once_the_check_before_it_refuses() {
     assert!(find(&sent, "turn/start").is_none(), "o texto nunca chega ao Codex");
 }
 
+#[tokio::test]
+async fn open_cortada_antes_do_inicio_marca_falha_sem_iniciar_motor() {
+    use crate::{
+        api::devices::Caller,
+        fork::{
+            autoridade,
+            workspace::{self, Motivo},
+        },
+        store::{Device, DeviceSource, EntryKind, Lane, Scope, now_ms},
+    };
+    use serde_json::json;
+    use std::sync::Arc;
+    let bot = "open-fixture-corte";
+    let (hub, root) = hub_de_teste(bot);
+    let cfg = hub.store.bot(bot).unwrap().unwrap().config;
+    let lane = Lane::main(bot);
+    let device = "fixture-open-device";
+    hub.store
+        .put_device(&Device {
+            key: device.into(),
+            name: "Fixture".into(),
+            platform: "ios".into(),
+            source: DeviceSource::Local,
+            grant_id: None,
+            scopes: vec![Scope::Control],
+            lease_until: None,
+            created_at: now_ms(),
+            last_seen_at: None,
+        })
+        .unwrap();
+    let (_, caller) = autoridade::autenticar(&hub, device).unwrap();
+    let Caller::Device { autoridade: Some(original), .. } = caller else { panic!("aparelho autenticado") };
+    let authority = original.para_requisicao(hub.workspace.atual(), original.geracao_capturada().unwrap()).unwrap();
+    for cut in [true, false] {
+        let proof = if cut {
+            authority.clone()
+        } else {
+            original.para_requisicao(hub.workspace.atual(), original.geracao_capturada().unwrap()).unwrap()
+        };
+        let e =
+            hub.store.insert_entry(&lane, EntryKind::User, 0, &json!({"text":"Fixture","status":"queued"})).unwrap();
+        let ticket = super::admit_for_test(&hub, bot, "fixture").unwrap();
+        if cut {
+            workspace::bump(&hub, Motivo::RoleChanged).unwrap();
+        }
+        let done = ticket.done.subscribe();
+        if cut {
+            super::run(&hub, ticket, &cfg, lane.clone(), e.turn, (e.id.clone(), Some(proof)), "Fixture".into());
+            let mut done = done;
+            assert!(tokio::time::timeout(Duration::from_secs(5), done.changed()).await.unwrap().is_err());
+            assert_eq!(hub.store.entry(&e.id).unwrap().data["status"], "failed");
+        } else {
+            assert!(proof.com_saida(&hub, None, || ()).is_ok());
+            drop(ticket);
+        }
+    }
+    assert_eq!(Arc::strong_count(&hub), 1);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn a_message_never_accepted_by_codex_leaves_the_queue_with_the_reason() {
     let (hub, dados) = hub_de_teste("bot-da-fila");

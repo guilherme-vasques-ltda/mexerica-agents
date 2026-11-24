@@ -26,9 +26,24 @@ pub(crate) struct Barreira {
     hub: Arc<Hub>,
     key: String,
     epoch: u64,
+    geracao: Option<i64>,
     aviso: watch::Receiver<Epoca>,
     /// Fim da sessão (`None`: sem prazo, Hub sem vínculo).
     prazo: watch::Receiver<Option<Limite>>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) struct Admissao {
+    pub(super) epoch: u64,
+    pub(super) geracao: i64,
+}
+
+#[cfg(test)]
+impl Admissao {
+    pub(super) fn do_caller(hub: &Hub, caller: &super::Caller) -> Option<Self> {
+        let super::Caller::Device { autoridade: Some(a), .. } = caller else { return None };
+        Some(Self { epoch: hub.workspace.atual(), geracao: a.geracao_capturada()? })
+    }
 }
 
 impl Barreira {
@@ -39,8 +54,9 @@ impl Barreira {
         aviso: watch::Receiver<Epoca>,
         epoch: u64,
         prazo: watch::Receiver<Option<Limite>>,
+        geracao: Option<i64>,
     ) -> Self {
-        Self { hub, key, epoch, aviso, prazo }
+        Self { hub, key, epoch, geracao, aviso, prazo }
     }
 
     /// O terminal da sessão: prazo vencido (4001).
@@ -49,6 +65,10 @@ impl Barreira {
         limite
             .vencido()
             .then(|| Terminal { reject: sessao_clerk::reject_sessao(), close: RejectCode::Unauthorized.close_code() })
+    }
+
+    pub(super) fn admissao(&self) -> Option<Admissao> {
+        Some(Admissao { epoch: self.epoch, geracao: self.geracao? })
     }
 
     /// `Some` quando o número publicado avançou desde a abertura (o próprio aparelho revogado
@@ -127,7 +147,14 @@ impl Porta {
     pub(crate) fn armada(hub: &Arc<Hub>, key: &str) -> Self {
         let porta = Self::default();
         let (_, prazo) = watch::channel(None);
-        porta.armar(Barreira::nova(hub.clone(), key.to_owned(), hub.workspace.assinar(), hub.workspace.atual(), prazo));
+        porta.armar(Barreira::nova(
+            hub.clone(),
+            key.to_owned(),
+            hub.workspace.assinar(),
+            hub.workspace.atual(),
+            prazo,
+            None,
+        ));
         porta
     }
 

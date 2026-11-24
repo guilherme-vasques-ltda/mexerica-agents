@@ -138,6 +138,7 @@ pub struct Hub {
     before_bot_deletion: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     pub phone_clients: AtomicUsize,
     pub(crate) antigravity_grants: crate::fork::antigravity::Grants,
+    pub(crate) remote_send_authorities: Mutex<HashMap<String, crate::fork::autoridade::Autoridade>>,
     pub usage: Mutex<Usage>,
     keep_awake: Mutex<service::KeepAwake>,
     /// Generation of the authorized-device table and pairing offers: bumped on every
@@ -204,6 +205,7 @@ impl Hub {
             before_bot_deletion: Mutex::default(),
             phone_clients: AtomicUsize::new(0),
             antigravity_grants: crate::fork::antigravity::Grants::default(),
+            remote_send_authorities: Mutex::default(),
             usage: Mutex::default(),
             keep_awake: Mutex::default(),
             auth: watch::Sender::new(0),
@@ -375,6 +377,45 @@ impl Hub {
         let bots = self.bots.locked();
         let h = bots.get(bot_id).ok_or_else(|| anyhow!("unknown bot"))?;
         h.tx.send(cmd).map_err(|_| anyhow!("bot stopped"))
+    }
+
+    pub(crate) fn fail_remote_turn(&self, id: &str, expected: &str) {
+        self.remote_send_authorities.locked().remove(id);
+        let _emit = self.emit_lock.locked();
+        let saved = (|| -> Result<_> {
+            let db = self.store.db.locked();
+            let Some(mut entry) = Store::entry_on(&db, id)?.filter(|entry| entry.data["status"] == expected) else {
+                return Ok(None);
+            };
+            entry.data["status"] = json!("failed");
+            entry.data["error"] = json!("O Hub registrou a mensagem, mas a autorização do turno remoto terminou.");
+            Store::update_entry_on(&db, id, &entry.data, None)
+        })();
+        match saved {
+            Ok(Some(entry)) => {
+                let _ = self.events.send(json!({"type":"entry","rev":entry.rev,"entry":entry}));
+            }
+            Ok(None) => {}
+            Err(error) => tracing::warn!(%error, "couldn't record remote turn refusal"),
+        }
+    }
+
+    pub(crate) fn admit_remote_turn(&self, id: &str) -> Result<()> {
+        use crate::fork::autoridade::AutorizacaoEncerrada;
+        let entry = Store::entry_on(&self.store.db.locked(), id)?;
+        let Some(entry) = entry else { return Ok(()) };
+        if entry.data["remoteAdmissionRequired"] != true || entry.data["status"] != "queued" {
+            return Ok(());
+        }
+        let authority = self.remote_send_authorities.locked().get(id).cloned();
+        let result = authority
+            .ok_or_else(|| anyhow::Error::from(AutorizacaoEncerrada))
+            .and_then(|authority| authority.com_saida(self, None, || ()));
+        if result.is_err() {
+            tracing::debug!(reason = "request_admission_ended", "remote turn denied");
+            self.fail_remote_turn(&entry.id, "queued");
+        }
+        result
     }
 
     /// D543: ausência de ator é distinta de ator parado/canal quebrado.
@@ -721,13 +762,26 @@ impl Hub {
 
     /// Marks what the user has seen as read. Nothing unread there is a no-op, so clients
     /// may call it whenever a chat is on screen.
+    #[cfg(test)]
     pub fn mark_read(&self, id: &str) -> Result<()> {
+        self.mark_read_authorized(id, None)
+    }
+
+    pub(crate) fn mark_read_authorized(
+        &self,
+        id: &str,
+        autoridade: Option<&crate::fork::autoridade::Autoridade>,
+    ) -> Result<()> {
         let Some(row) = self.store.bot(id)? else { bail!("unknown bot") };
         if self.store.unread(id, row.read_rev) == 0 {
             return Ok(());
         }
         let _g = self.emit_lock.locked();
-        self.store.mark_read(id)?;
+        if let Some(autoridade) = autoridade {
+            autoridade.with_db(self, None, |tx| Store::mark_read_on(tx, id))?;
+        } else {
+            self.store.mark_read(id)?;
+        }
         if let Some(v) = self.bot_value(id) {
             let _ = self.events.send(json!({"type": "bot", "rev": v["rev"], "bot": v}));
         }

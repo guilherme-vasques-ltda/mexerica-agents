@@ -118,10 +118,19 @@ impl AutoridadeCanal {
     }
 
     fn conferir_escopo(&self) -> bool {
-        // Novas operações no canal podem conferir sua autorização corrente.
-        let Ok((_, caller)) = crate::fork::autoridade::reconferir(&self.hub, &self.caller) else { return false };
-        let Ok(original) = Autoridade::capturar(&self.hub, &caller) else { return false };
-        original.with_db(&self.hub, None, |db| self.conferir_bot_no(db)).is_ok()
+        self.com_efeito(&self.caller, || ()).is_ok()
+    }
+
+    pub(crate) fn com_efeito<T>(&self, caller: &Caller, effect: impl FnOnce() -> T) -> anyhow::Result<T> {
+        use crate::fork::autoridade::{OrigemSaida, com_saida_validada};
+        ensure!(caller.device_key() == self.caller.device_key(), "browser_scope_unavailable");
+        let original = Autoridade::de_requisicao(caller).ok_or_else(|| anyhow::anyhow!("browser_scope_unavailable"))?;
+        com_saida_validada(
+            &self.hub,
+            OrigemSaida::Controle(original, None),
+            |db, _, _, _, _| self.conferir_bot_no(db),
+            effect,
+        )
     }
 
     fn conferir_bot_no(&self, db: &rusqlite::Connection) -> anyhow::Result<()> {
@@ -147,8 +156,6 @@ struct Registro {
     estado: Arc<Mutex<Stream>>,
     #[cfg(test)]
     autoridade: Arc<AutoridadeCanal>,
-    #[cfg(test)]
-    epoca_workspace: u64,
 }
 
 static REGISTROS: OnceLock<Mutex<HashMap<String, Registro>>> = OnceLock::new();
@@ -175,34 +182,24 @@ impl Drop for GuardaSessao {
 
 /// Só o primeiro canal que inscreve a sessão é o dono dela; outro é recusado.
 pub fn registrar(sessao: &str, estado: Arc<Mutex<Stream>>, autoridade: &Arc<AutoridadeCanal>) -> Option<GuardaSessao> {
-    #[cfg(not(test))]
-    let _ = autoridade;
-    // Captura do stream de prova, sem renovar a autorização já emitida.
-    #[cfg(test)]
-    let autoridade = Arc::clone(autoridade);
-    #[cfg(test)]
-    let epoca_workspace = Autoridade::capturar(&autoridade.hub, &autoridade.caller)
-        .ok()?
-        .with_db(&autoridade.hub, None, |db| {
-            autoridade.conferir_bot_no(db)?;
-            crate::fork::workspace::epoch_on(db)
+    autoridade
+        .com_efeito(&autoridade.caller, || {
+            let mut mapa = registros().locked();
+            if mapa.contains_key(sessao) {
+                return None;
+            }
+            mapa.insert(
+                sessao.to_owned(),
+                Registro {
+                    estado: estado.clone(),
+                    #[cfg(test)]
+                    autoridade: autoridade.clone(),
+                },
+            );
+            Some(GuardaSessao { sessao: sessao.to_owned(), estado })
         })
-        .ok()?;
-    let mut mapa = registros().locked();
-    if mapa.contains_key(sessao) {
-        return None;
-    }
-    mapa.insert(
-        sessao.to_owned(),
-        Registro {
-            estado: estado.clone(),
-            #[cfg(test)]
-            autoridade: autoridade.clone(),
-            #[cfg(test)]
-            epoca_workspace,
-        },
-    );
-    Some(GuardaSessao { sessao: sessao.to_owned(), estado })
+        .ok()
+        .flatten()
 }
 
 /// Fonte de quadros (falsa nos testes; o supervisor liga aqui depois).
@@ -228,7 +225,6 @@ pub(crate) fn simular_consumidor(sessao: &str) -> bool {
 pub struct EntradaPendente {
     estado: Arc<Mutex<Stream>>,
     autoridade: Arc<AutoridadeCanal>,
-    epoca_workspace: u64,
     entrada: AcceptedInput,
 }
 
@@ -245,49 +241,29 @@ impl EntradaPendente {
     /// Consome antes do efeito falso. Nenhuma falha devolve a intenção ou autoriza retry.
     /// A guarda final admite apenas o callback síncrono do fixture, sem rede ou BD.
     pub fn com_efeito<T>(self, efeito: impl FnOnce(&AcceptedInput) -> T) -> Result<T, EntradaEncerrada> {
-        use crate::fork::{
-            autoridade::{OrigemSaida, com_saida_validada},
-            workspace::epoch_on,
-        };
         let estado = self.estado.locked();
         if !estado.input_still_current(&self.entrada) {
             return Err(EntradaEncerrada::Contexto);
         }
         let a = &self.autoridade;
         let original = Autoridade::capturar(&a.hub, &a.caller).map_err(|_| EntradaEncerrada::Contexto)?;
-        let conferir = |db: &rusqlite::Connection| -> anyhow::Result<bool> {
-            a.conferir_bot_no(db)?;
-            Ok(epoch_on(db)? == self.epoca_workspace)
-        };
         let gravacao = original.with_db(&a.hub, None, |db| {
-            if !conferir(db)? {
-                return Ok(Err(EntradaEncerrada::Contexto));
-            }
+            a.conferir_bot_no(db)?;
             Ok(super::recibo::gravar_no(db, self.entrada.recibo)?)
         });
         gravacao.map_err(|_| EntradaEncerrada::SemConfirmacao)??;
         // Se a autoridade mudar entre commit e admissão, não há efeito. O
         // recibo já comprometido não é removido, nem se tenta outro destino.
-        com_saida_validada(
-            &a.hub,
-            OrigemSaida::Controle(&original, None),
-            |db, _, _, _, _| {
-                ensure!(conferir(db)?, "browser_scope_unavailable");
-                Ok(())
-            },
-            || efeito(&self.entrada),
-        )
-        .map_err(|_| EntradaEncerrada::SemConfirmacao)
+        a.com_efeito(&a.caller, || efeito(&self.entrada)).map_err(|_| EntradaEncerrada::SemConfirmacao)
     }
 }
 
 /// Retira a intenção sem executar ou confirmar ação.
 #[cfg(test)]
 pub fn retirar_entrada(sessao: &str) -> Option<EntradaPendente> {
-    let (estado, autoridade, epoca_workspace) =
-        registros().locked().get(sessao).map(|r| (r.estado.clone(), r.autoridade.clone(), r.epoca_workspace))?;
+    let (estado, autoridade) = registros().locked().get(sessao).map(|r| (r.estado.clone(), r.autoridade.clone()))?;
     let entrada = estado.locked().next_input(&*autoridade, autoridade.caller.device_key())?;
-    Some(EntradaPendente { estado, autoridade, epoca_workspace, entrada })
+    Some(EntradaPendente { estado, autoridade, entrada })
 }
 
 #[cfg(test)]

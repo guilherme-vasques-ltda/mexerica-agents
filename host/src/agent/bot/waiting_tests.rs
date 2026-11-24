@@ -2607,6 +2607,7 @@ async fn resumo_privado_nao_vai_para_o_turno_de_grupo_depois_de_falha_na_abertur
         prompt: prompt.into(),
         shown: vec![],
         epoch: f.hub.groups.reserve_epoch_for_test(&group_lane),
+        authority: None,
         reply,
     });
     actor.start_turn(group_lane, &[], prompt, false, &done).await.unwrap();
@@ -5059,6 +5060,8 @@ async fn retomada_da_espera_em_conversa_pausada_nao_segura_outra_conversa() {
         "a retenção não publica aviso de erro"
     );
     assert_eq!(f.prompts().len(), 1, "a continuação da conversa pausada não sai");
+    let hold = f.dir.join("hold");
+    std::fs::write(&hold, "").unwrap();
     crate::api::dispatch(
         &f.hub,
         &crate::api::devices::Caller::Local,
@@ -5072,6 +5075,7 @@ async fn retomada_da_espera_em_conversa_pausada_nao_segura_outra_conversa() {
     assert!(prompt.contains("Oi, sala"), "a sala é admitida");
     assert!(!prompt.contains("Continue a tarefa pendente"), "a continuação da conversa pausada não sai");
     assert!(admission::conversation_paused(&f.hub.store, "bot", "bot").unwrap(), "a pausa continua");
+    std::fs::remove_file(hold).unwrap();
     f.until("bot saiu do estado Waiting após prompt da sala", &f.hub, || {
         f.hub.runtime("bot").status != BotStatus::Waiting
     })

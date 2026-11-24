@@ -885,6 +885,25 @@ impl Actor {
             return Ok(());
         }
         if record.phase == Phase::Reserved && matches!(&record.origin, Origin::Human) && !record.entry_ids.is_empty() {
+            let mut refused = false;
+            for id in &record.entry_ids {
+                if let Err(error) = self.hub.admit_remote_turn(id) {
+                    if error.is::<crate::fork::autoridade::AutorizacaoEncerrada>()
+                        || error.is::<crate::fork::autoridade::EpochDaRequisicaoEncerrado>()
+                    {
+                        refused = true;
+                        continue;
+                    }
+                    return Err(error);
+                }
+            }
+            if refused {
+                admission::finish(&self.hub.store, &self.cfg.id, &record.ticket())?;
+                self.dispatch = None;
+                self.restart_admission = false;
+                self.requeue_unreserved_humans(&record.entry_ids);
+                return Ok(());
+            }
             let entries = self.hub.store.queued_user_entries_for_identity(&self.cfg.id)?;
             let original = self
                 .hub

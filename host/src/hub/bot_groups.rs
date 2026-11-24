@@ -26,7 +26,10 @@ pub(crate) async fn call(hub: &Arc<Hub>, method: &str, body: Value) -> Result<Co
 
 pub(super) async fn change(hub: &Arc<Hub>, space: &str, edit: Edit) -> Result<Value> {
     let _team = hub.store.team_lock.lock().await;
-    crate::chat::manage::recover_live(hub);
+    if !matches!(crate::fork::donna_fixa::pedido::atual(), Some(crate::fork::donna_fixa::pedido::Origem::Dono(_, ref original)) if original.tem_admissao_de_requisicao())
+    {
+        crate::chat::manage::recover_live(hub);
+    }
     let _emit = hub.emit_lock.locked();
     let (snapshot, created, affected) = hub.store.edit_bot_groups(space, edit)?;
     for id in affected {

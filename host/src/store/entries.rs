@@ -224,7 +224,7 @@ impl Store {
         let chat: Option<String> =
             c.query_row("SELECT bot_id FROM entries WHERE id=?1", [id], |r| r.get(0)).optional()?;
         let mut data = if let Some(chat) = chat { crate::fork::spaces::stamp_entry(c, &chat, &data)? } else { data };
-        for key in ["executionBinding", "intent", "spaceContext"] {
+        for key in ["executionBinding", "intent", "spaceContext", "remoteAdmissionRequired"] {
             if let Some(value) = before.get(key) {
                 data[key] = value.clone();
             }

@@ -7,6 +7,8 @@
 mod login_pty;
 
 use crate::agent::backends;
+use crate::fork::autoridade::Autoridade;
+use crate::hub::Hub;
 use crate::{LockExt, api::devices::Caller};
 use anyhow::{Result, anyhow, bail};
 use base64::Engine as _;
@@ -38,6 +40,24 @@ enum Input {
     Data(Vec<u8>),
     Resize(u16, u16),
     Kill,
+    Scoped(std::sync::Weak<Hub>, Box<Autoridade>, Box<Self>),
+}
+
+impl Input {
+    fn with_authority(self, effect: impl FnOnce(Self)) {
+        match self {
+            Self::Scoped(hub, authority, input) => {
+                if let Some(hub) = hub.upgrade() {
+                    if authority.com_saida(&hub, None, || effect(*input)).is_err() {
+                        tracing::warn!(reason = "request_admission_ended", "terminal input denied");
+                    }
+                } else {
+                    tracing::debug!(reason = "hub_unavailable", "terminal input discarded");
+                }
+            }
+            input => effect(input),
+        }
+    }
 }
 
 /// A linha que o PTY executa (`comando`) e o que o cabeçalho do terminal mostra (`cabecalho`):
@@ -322,6 +342,7 @@ impl Terms {
         Ok(id)
     }
 
+    #[cfg(test)]
     pub fn write(&self, id: &str, data: &str) -> Result<()> {
         let bytes = B64.decode(data).map_err(|_| anyhow!("Entrada de terminal inválida."))?;
         let term = self.get(id).ok_or_else(|| anyhow!("that terminal is gone"))?;
@@ -333,11 +354,36 @@ impl Terms {
         self.send(id, Input::Data(bytes))
     }
 
-    pub fn resize(&self, id: &str, cols: u16, rows: u16) -> Result<()> {
+    pub(crate) fn remote_input(&self, hub: &Arc<Hub>, caller: &Caller, id: &str, data: &str) -> Result<()> {
+        let term = self.get(id).ok_or_else(|| anyhow!("that terminal is gone"))?;
+        term.require_access(caller)?;
+        let bytes = B64.decode(data).map_err(|_| anyhow!("Entrada de terminal inválida."))?;
+        if let Some(login) = &term.login {
+            return login.enqueue(&bytes, |bytes| {
+                term.input.send(Input::Data(bytes)).map_err(|_| anyhow!("that terminal is gone"))
+            });
+        }
+        Self::send_scoped(hub, caller, &term, Input::Data(bytes));
+        Ok(())
+    }
+
+    pub(crate) fn remote_resize(&self, hub: &Arc<Hub>, caller: &Caller, id: &str, cols: u16, rows: u16) -> Result<()> {
+        let term = self.get(id).ok_or_else(|| anyhow!("that terminal is gone"))?;
+        term.require_access(caller)?;
         if self.get(id).is_some_and(|t| t.login.is_some()) {
             anyhow::ensure!((20..=240).contains(&cols) && (4..=100).contains(&rows), "Dimensões de login inválidas.");
         }
-        self.send(id, Input::Resize(cols, rows))
+        Self::send_scoped(hub, caller, &term, Input::Resize(cols, rows));
+        Ok(())
+    }
+
+    fn send_scoped(hub: &Arc<Hub>, caller: &Caller, term: &Term, input: Input) {
+        let input = if let Some(authority) = Autoridade::de_requisicao(caller).filter(|_| term.login.is_none()) {
+            Input::Scoped(Arc::downgrade(hub), Box::new(authority.clone()), Box::new(input))
+        } else {
+            input
+        };
+        let _ = term.input.send(input);
     }
 
     pub fn close(&self, id: &str) {
@@ -349,6 +395,7 @@ impl Terms {
         }
     }
 
+    #[cfg(test)]
     fn send(&self, id: &str, input: Input) -> Result<()> {
         let t = self.get(id).ok_or_else(|| anyhow!("that terminal is gone"))?;
         // Input after exit has nowhere to go; not an error for the typist.
@@ -427,6 +474,20 @@ async fn run(
                 Some(Input::Resize(cols, rows)) => {
                     let _ = master.resize(size(cols, rows));
                 }
+                Some(Input::Scoped(hub, authority, input)) => match *input {
+                    Input::Data(bytes) => {
+                        if hub.upgrade().is_some_and(|hub| authority.com_saida(&hub, None, || ()).is_ok()) {
+                            let _ = writer.write_all(&bytes);
+                        } else {
+                            tracing::warn!(reason = "request_admission_ended", "terminal input denied");
+                        }
+                    }
+                    input => Input::Scoped(hub, authority, Box::new(input)).with_authority(|input| {
+                        if let Input::Resize(cols, rows) = input {
+                            let _ = master.resize(size(cols, rows));
+                        }
+                    }),
+                },
                 Some(Input::Kill) | None => {
                     if let Some(group) = &group { group.terminate(); } else { let _ = killer.kill(); }
                 }
@@ -565,6 +626,55 @@ mod authority_tests {
             }),
         );
         rx
+    }
+
+    #[tokio::test]
+    async fn resize_remoto_confere_a_admissao_ao_consumir() {
+        use crate::{
+            fork::workspace::{self, Motivo},
+            store::{Device, DeviceSource, now_ms},
+        };
+        let root = tempfile::tempdir().unwrap();
+        let hub = Hub::new(
+            Store::open(std::path::Path::new(":memory:")).unwrap(),
+            "fixture".into(),
+            Identity::load_or_create(root.path()).unwrap(),
+            "fixture".into(),
+            0,
+        );
+        let key = "fixture-pty-device";
+        hub.store
+            .put_device(&Device {
+                key: key.into(),
+                name: "Fixture".into(),
+                platform: "ios".into(),
+                source: DeviceSource::Local,
+                grant_id: None,
+                scopes: vec![Scope::Control],
+                lease_until: None,
+                created_at: now_ms(),
+                last_seen_at: None,
+            })
+            .unwrap();
+        let (_, mut caller) = crate::fork::autoridade::autenticar(&hub, key).unwrap();
+        let Caller::Device { autoridade: Some(original), .. } = &mut caller else { panic!("aparelho validado") };
+        *original =
+            Arc::new(original.para_requisicao(hub.workspace.atual(), original.geracao_capturada().unwrap()).unwrap());
+        let term = "fixture-pty";
+        let mut input = terminal(&hub, term, "fixture-backend", Some(key));
+        let mut writes = 0;
+        for changed in [false, true] {
+            hub.terms.remote_resize(&hub, &caller, term, 80, 24).unwrap();
+            let action = input.try_recv().unwrap();
+            if changed {
+                workspace::bump(&hub, Motivo::RoleChanged).unwrap();
+            }
+            action.with_authority(|event| {
+                assert!(matches!(event, Input::Resize(80, 24)));
+                writes += 1;
+            });
+            assert_eq!(writes, 1);
+        }
     }
     #[tokio::test]
     async fn provedores_legados_exigem_local_em_setup_controles_e_saida() {

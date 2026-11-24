@@ -1,6 +1,7 @@
 //! Consumo global atual do Codex, sem turno, sessão ou fallback para rollouts.
 use crate::{
     LockExt,
+    fork::autoridade::Autoridade,
     hub::Hub,
     store::Store,
     usage::{Provider, Window},
@@ -14,15 +15,28 @@ use std::{ffi::OsString, path::Path, time::Duration};
 static READING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 pub(crate) async fn refresh(hub: &Hub) {
+    let _ = refresh_authorized(hub, None).await;
+}
+
+pub(crate) async fn refresh_authorized(hub: &Hub, authority: Option<&Autoridade>) -> Result<()> {
     let executable = crate::agent::backends::which("codex");
     let home = dirs::home_dir().unwrap_or_default();
-    refresh_at(hub, executable.as_deref(), &home, environment(&hub.store), Duration::from_secs(20)).await;
+    refresh_at_authorized(
+        hub,
+        executable.as_deref(),
+        &home,
+        environment(&hub.store),
+        Duration::from_secs(20),
+        authority,
+    )
+    .await
 }
 
 fn environment(store: &Store) -> Vec<(OsString, OsString)> {
     crate::agent::environment::for_cli(store, "codex")
 }
 
+#[cfg(all(test, unix))]
 async fn refresh_at(
     hub: &Hub,
     executable: Option<&Path>,
@@ -30,23 +44,36 @@ async fn refresh_at(
     env: Vec<(OsString, OsString)>,
     timeout: Duration,
 ) {
-    let _reading = READING.lock().await;
-    let windows = if let Some(executable) = executable {
-        read(executable, home, env, timeout).await.unwrap_or_default()
-    } else {
-        Vec::new()
-    };
-    replace(hub, windows);
+    refresh_at_authorized(hub, executable, home, env, timeout, None).await.expect("fixture sem guarda de aparelho");
 }
 
-async fn read(
-    executable: &Path,
+async fn refresh_at_authorized(
+    hub: &Hub,
+    executable: Option<&Path>,
     home: &Path,
     env: Vec<(OsString, OsString)>,
     timeout: Duration,
-) -> Result<Vec<Window>> {
+    authority: Option<&Autoridade>,
+) -> Result<()> {
+    let _reading = READING.lock().await;
+    let windows = if let Some(executable) = executable {
+        let started = Autoridade::no_efeito(hub, authority, || {
+            Ok(crate::fork::engine_setup::Rpc::start_usage(executable, home, env))
+        })?;
+        match started {
+            Ok(rpc) => read(rpc, timeout).await.unwrap_or_default(),
+            Err(_) => Vec::new(),
+        }
+    } else {
+        Vec::new()
+    };
+    Autoridade::no_efeito(hub, authority, || Ok(()))?;
+    replace(hub, windows);
+    Ok(())
+}
+
+async fn read(mut rpc: crate::fork::engine_setup::Rpc, timeout: Duration) -> Result<Vec<Window>> {
     let response = tokio::time::timeout(timeout, async {
-        let mut rpc = crate::fork::engine_setup::Rpc::start_usage(executable, home, env)?;
         rpc.initialize().await?;
         rpc.call(2, "account/rateLimits/read", json!({})).await
         // Drop do transporte existente encerra o filho e seu grupo em todos os caminhos.

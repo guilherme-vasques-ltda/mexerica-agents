@@ -204,13 +204,18 @@ pub(crate) fn run(
     cfg: &BotConfig,
     lane: Lane,
     turn: i64,
-    entry_id: String,
+    entry: (String, Option<crate::fork::autoridade::Autoridade>),
     text: String,
 ) {
     let hub = hub.clone();
     let instructions = format!("{}\n\n{INSTRUCTIONS}", cfg.description.trim());
     tokio::spawn(async move {
+        let (entry_id, authority) = entry;
         let Ticket { bot, account, directory, mut cancel, done } = ticket;
+        if crate::fork::autoridade::Autoridade::no_efeito(&hub, authority.as_ref(), || Ok(())).is_err() {
+            hub.fail_remote_turn(&entry_id, "queued");
+            return;
+        }
         let alive = || matches!(hub.store.bot(&bot), Ok(Some(row)) if !row.deleted);
         if !alive() {
             if let Some(running) = RUNNING.locked().as_mut() {

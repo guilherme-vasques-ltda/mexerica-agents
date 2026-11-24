@@ -164,6 +164,9 @@ impl Actor {
                 {
                     return true;
                 }
+                if self.hub.admit_remote_turn(&entry_id).is_err() {
+                    return true;
+                }
                 // O startup pode ter recuperado o SQLite enquanto este comando aguardava no canal.
                 if self.queue_has_user(&entry_id)
                     || self.input.as_ref().is_some_and(|input| input.entries.contains(&entry_id))
@@ -444,6 +447,12 @@ impl Actor {
         }
         // Queued messages are dropped too: Stop means "stop everything".
         self.queue.clear();
+        {
+            let mut proofs = self.hub.remote_send_authorities.locked();
+            for id in &self.cancel_queued {
+                proofs.remove(id);
+            }
+        }
         for entry_id in &self.cancel_queued {
             if let Some(mut e) = self.hub.store.entry(entry_id) {
                 e.data["status"] = "cancelled".into();
@@ -703,6 +712,7 @@ impl Actor {
                 first = false;
                 if let Some(Queued::User { entry_id, text, .. }) = self.queue.remove(next)
                     && self.hub.store.entry(&entry_id).is_some_and(|entry| entry.data["status"] == "queued")
+                    && self.hub.admit_remote_turn(&entry_id).is_ok()
                 {
                     batch.push((entry_id, text));
                 }
@@ -721,6 +731,12 @@ impl Actor {
                 self.handoff_chat = Some(lane.clone());
             }
             if let Err(e) = self.start_turn(lane, &ids, &text, false, done_tx).await {
+                if e.is::<crate::fork::autoridade::AutorizacaoEncerrada>()
+                    || e.is::<crate::fork::autoridade::EpochDaRequisicaoEncerrado>()
+                {
+                    self.requeue_unreserved_humans(&ids);
+                    continue;
+                }
                 let no_replay = crate::agent::backends::is_antigravity(&self.cfg.backend)
                     || ids.iter().any(|id| {
                         self.hub

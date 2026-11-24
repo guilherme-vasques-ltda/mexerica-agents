@@ -92,7 +92,7 @@ async fn escritor_com_fila_ocupada_descarta_o_ja_filtrado_e_nao_fecha_com_4011()
     let (tx, rx) = mpsc::channel(256);
     let (out, mut transporte) = mpsc::channel(1);
     let (_, sem_prazo) = tokio::sync::watch::channel(None);
-    let barreira = Barreira::nova(hub.clone(), fica, hub.workspace.assinar(), hub.workspace.atual(), sem_prazo);
+    let barreira = Barreira::nova(hub.clone(), fica, hub.workspace.assinar(), hub.workspace.atual(), sem_prazo, None);
     let escritor = tokio::spawn(write_frames(Sealer::new([7; 32]), rx, out, Some(barreira)));
     // Eventos que já passaram pelo filtro de autoridade, e o transporte parado.
     for n in 0..64 {

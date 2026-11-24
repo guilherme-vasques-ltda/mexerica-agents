@@ -6,6 +6,7 @@ use super::{
 use crate::LockExt;
 use crate::agent::bot::Cmd;
 use crate::api::devices::Caller;
+use crate::fork::autoridade::Autoridade;
 use crate::hub::Hub;
 use crate::store::{Scope, now_ms};
 use anyhow::{Result, anyhow, bail, ensure};
@@ -70,6 +71,10 @@ fn empty_poll() -> Value {
     json!({"jobs":[],"cancel":[],"registerRoutines": Vec::<jobs::RoutineSpec>::new(),"revokeRoutines":[]})
 }
 
+fn admit(hub: &Hub, caller: &Caller) -> Result<()> {
+    Autoridade::no_efeito(hub, Autoridade::de_requisicao(caller), || Ok(()))
+}
+
 pub async fn call(
     hub: &Arc<Hub>,
     caller: &Caller,
@@ -124,6 +129,7 @@ pub async fn call(
         "executorResult" => result(hub, caller, &b)?,
         "executorAudit" => {
             let _gate = hub.computers.gate.locked();
+            admit(hub, caller)?;
             let c = computer(hub, caller)?;
             let records = b["records"]
                 .as_array()
@@ -133,6 +139,7 @@ pub async fn call(
         }
         "executorBye" => {
             let _gate = hub.computers.gate.locked();
+            admit(hub, caller)?;
             let mut c = computer(hub, caller)?;
             match arg(&b, "reason")? {
                 "sleep" => c.presence["asleep"] = json!(true),
@@ -155,6 +162,7 @@ pub async fn call(
 }
 fn hello(hub: &Hub, caller: &Caller, b: &Value) -> Result<Value> {
     let _gate = hub.computers.gate.locked();
+    admit(hub, caller)?;
     let mut c = computer(hub, caller)?;
     ensure!(b["proto"] == 1, "proto_unsupported: protocolo não suportado");
     let boot = arg(b, "bootId")?;
@@ -228,6 +236,7 @@ async fn poll(hub: &Hub, caller: &Caller, b: &Value) -> Result<Value> {
     let mut changed = hub.computers.watch();
     let (id, generation) = {
         let _gate = hub.computers.gate.locked();
+        admit(hub, caller)?;
         let mut c = computer(hub, caller)?;
         require_hello(hub, &c, b)?;
         validate_routines(b)?;
@@ -257,6 +266,7 @@ async fn poll(hub: &Hub, caller: &Caller, b: &Value) -> Result<Value> {
         let mut next_wake = end;
         {
             let _gate = hub.computers.gate.locked();
+            admit(hub, caller)?;
             let c = computer(hub, caller)?;
             if hub
                 .computers
@@ -326,6 +336,7 @@ async fn poll(hub: &Hub, caller: &Caller, b: &Value) -> Result<Value> {
 }
 fn update(hub: &Hub, caller: &Caller, b: &Value) -> Result<Value> {
     let _gate = hub.computers.gate.locked();
+    admit(hub, caller)?;
     let mut c = computer(hub, caller)?;
     jobs::sweep_locked(hub, now_ms())?;
     let mut j = owned(hub, &c, b)?;
@@ -370,6 +381,7 @@ fn result(hub: &Hub, caller: &Caller, b: &Value) -> Result<Value> {
         "invalid_arguments: decisão e auditSeq obrigatórios"
     );
     let _gate = hub.computers.gate.locked();
+    admit(hub, caller)?;
     let c = computer(hub, caller)?;
     jobs::sweep_locked(hub, now_ms())?;
     let mut j = owned(hub, &c, b)?;

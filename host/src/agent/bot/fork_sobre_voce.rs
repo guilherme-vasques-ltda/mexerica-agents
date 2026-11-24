@@ -412,6 +412,7 @@ mod tests {
             prompt: "[Channel: Sala]\nMensagem".into(),
             shown: vec![],
             epoch: hub.groups.reserve_epoch_for_test(&channel),
+            authority: None,
             reply,
         });
         actor.bind_profile_person(false, std::slice::from_ref(&owner)).unwrap();
