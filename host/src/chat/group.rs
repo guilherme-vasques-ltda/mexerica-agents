@@ -12,6 +12,7 @@
 
 use crate::LockExt;
 use crate::agent::bot::Cmd;
+use crate::fork::grupo_entrega::Delivery;
 use crate::fork::push_textos::{Corpo, Titulo};
 use crate::hub::Hub;
 use crate::remote::push::{self, AlertKind};
@@ -34,22 +35,23 @@ const PASS: &str = "(pass)";
 pub struct GroupTurn {
     pub lane: Lane,
     pub prompt: String,
-    /// The newest message `prompt` shows (its `seq`): a reaction goes on what the member saw.
-    pub shown: i64,
+    /// The messages `prompt` shows (ids, oldest first): a reaction goes only on one the member saw.
+    pub shown: Vec<String>,
     /// The room turn that asked; a member skips it once a newer one started (see [`Rooms::current`]).
     pub epoch: u64,
     /// The reply the room sees, or `None` for a pass.
     pub reply: oneshot::Sender<Result<Option<String>>>,
 }
 
-/// Room turn epochs per group.
+/// Room turn epochs per lane, and the groups the boot couldn't check (`fork::grupo_entrega`), blocked until the
+/// next start.
 #[derive(Default)]
-pub struct Rooms(Mutex<HashMap<String, u64>>);
+pub struct Rooms(Mutex<HashMap<Lane, u64>>, Mutex<std::collections::HashSet<String>>);
 
 impl Rooms {
     fn next(&self, lane: &Lane) -> u64 {
         let mut map = self.0.locked();
-        let epoch = map.entry(lane.chat.clone()).or_default();
+        let epoch = map.entry(lane.clone()).or_default();
         *epoch += 1;
         *epoch
     }
@@ -59,20 +61,40 @@ impl Rooms {
         self.next(lane)
     }
 
-    pub fn current(&self, lane: &Lane, epoch: u64) -> bool {
-        self.0.locked().get(&lane.chat).copied() == Some(epoch)
+    pub(crate) fn block(&self, group: &str) {
+        self.1.locked().insert(group.to_owned());
     }
 
-    /// Stop: ends the room turn in `group` and the member turns in it.
+    pub(crate) fn blocked(&self, group: &str) -> bool {
+        self.1.locked().contains(group)
+    }
+
+    pub fn current(&self, lane: &Lane, epoch: u64) -> bool {
+        self.0.locked().get(lane).copied() == Some(epoch)
+    }
+
+    /// Stop: ends the room turn in every lane of `group` and the member turns in it.
     pub fn stop(&self, hub: &Hub, group: &str) {
-        match self.0.locked().get_mut(group) {
-            Some(epoch) => *epoch += 1,
-            None => return,
+        let _ = self.stop_after(hub, group, || Ok(()));
+    }
+
+    /// Stop that first runs `cancel` under the epochs' lock: a room turn already running sees the stop only after
+    /// `cancel` is saved, and a message that starts later gets a newer epoch, queued on each member after the
+    /// cancellation. When `cancel` fails nothing stops, so no running turn is confirmed by a stop that didn't happen.
+    pub(crate) fn stop_after(&self, hub: &Hub, group: &str, cancel: impl FnOnce() -> Result<()>) -> Result<()> {
+        let mut map = self.0.locked();
+        cancel()?;
+        let mut running = false;
+        for epoch in map.iter_mut().filter(|(lane, _)| lane.chat == group).map(|(_, epoch)| epoch) {
+            *epoch += 1;
+            running = true;
         }
-        let Ok(Some(row)) = hub.store.bot(group) else { return };
-        for member in &row.config.members {
-            let _ = hub.send_cmd(member, Cmd::CancelGroup { chat: group.to_owned() });
+        if running && let Ok(Some(row)) = hub.store.bot(group) {
+            for member in &row.config.members {
+                let _ = hub.send_cmd(member, Cmd::CancelGroup { chat: group.to_owned() });
+            }
         }
+        Ok(())
     }
 }
 
@@ -107,23 +129,32 @@ pub fn with_members(store: &Store, members: &[String]) -> Result<Option<String>>
 }
 
 /// The user wrote in a group lane: start a room turn there (ending one still running).
-pub fn start(hub: &Arc<Hub>, group: &BotConfig, lane: Lane) {
+/// `delivery` tracks the user's message through the first round (`fork::grupo_entrega`).
+pub(crate) fn start(hub: &Arc<Hub>, group: &BotConfig, lane: Lane, delivery: Delivery) {
+    if hub.groups.blocked(&group.id) {
+        tracing::warn!(group = group.id, "sala bloqueada até o próximo reinício; nada é entregue");
+        return;
+    }
     let epoch = hub.groups.next(&lane);
     let (hub, group_id) = (hub.clone(), group.id.clone());
     tokio::spawn(async move {
-        if let Err(error) = run(&hub, &group_id, &lane, epoch).await {
+        if let Err(error) = run(&hub, &group_id, &lane, epoch, delivery).await {
             tracing::warn!(group = group_id, error = format!("{error:#}"), "room turn failed");
         }
     });
 }
 
-async fn run(hub: &Arc<Hub>, group_id: &str, lane: &Lane, epoch: u64) -> Result<()> {
+async fn run(hub: &Arc<Hub>, group_id: &str, lane: &Lane, epoch: u64, mut delivery: Delivery) -> Result<()> {
+    let mut delivery_open = true;
     let mut replies = 0;
     let mut last_reply: Option<(String, String, String)> = None;
-    'rounds: for round in 0..MAX_ROUNDS {
+    // A resumed message gets one round, alone: nobody receives it, or an earlier one, twice.
+    let upto = delivery.upto;
+    let rounds = if upto.is_some() { 1 } else { MAX_ROUNDS };
+    'rounds: for round in 0..rounds {
         let group = hub.store.bot(group_id)?.filter(|r| !r.deleted).ok_or_else(|| anyhow!("group deleted"))?.config;
         let members = members(hub, &group);
-        let since_user = since_last_user_message(hub, lane)?;
+        let since_user = since_last_user_message(hub, lane, upto)?;
         let mut speakers = responders(&members, &since_user);
         // Each round starts one member later, so the same bot doesn't always speak first.
         if !speakers.is_empty() {
@@ -132,31 +163,56 @@ async fn run(hub: &Arc<Hub>, group_id: &str, lane: &Lane, epoch: u64) -> Result<
         }
         crate::fork::lider_canal::leader_first(&group, &mut speakers);
         let mut spoke = 0;
+        let first = round == 0 && delivery_open;
         for member in &speakers {
             if !hub.groups.current(lane, epoch) {
+                // A newer message (which shows this one) or Stop ended the room turn.
+                if delivery_open {
+                    delivery.confirm(hub);
+                }
                 return Ok(());
             }
             // A full room turn still reports its last reply.
             if replies >= MAX_REPLIES {
                 break 'rounds;
             }
-            let shown = hub.store.messages_after(lane, 0, 1)?.last().map_or(0, |e| e.seq);
-            let prompt = member_prompt(hub, &group, &members, member, lane)?;
+            // Resumed after a restart: whoever already received the message doesn't get it again.
+            if first && delivery.skips(&member.id) {
+                continue;
+            }
+            let (prompt, shown) = member_prompt(hub, &group, &members, member, lane, upto)?;
             let (reply, answer) = oneshot::channel();
             let turn = GroupTurn { lane: lane.clone(), prompt, shown, epoch, reply };
+            if first {
+                delivery.hand(hub, group_id, &member.id)?;
+            }
             if hub.send_cmd(&member.id, Cmd::Group(turn)).is_err() {
+                if first {
+                    delivery.missed(hub, group_id, &member.id);
+                }
                 continue;
             }
             // A failed, cancelled or overdue member turn counts as a pass; its error shows in the room.
-            if let Ok(Ok(Ok(Some(text)))) = tokio::time::timeout(crate::chat::team::ASK_TIMEOUT, answer).await {
+            let answered = tokio::time::timeout(crate::chat::team::ASK_TIMEOUT, answer).await;
+            if first {
+                delivery.finish_member(hub, group_id, &member.id);
+            }
+            if let Ok(Ok(Ok(Some(text)))) = answered {
                 spoke += 1;
                 replies += 1;
                 last_reply = Some((member.id.clone(), member.name.clone(), text));
             }
         }
+        if first {
+            delivery.confirm(hub);
+            delivery_open = false;
+        }
         if spoke == 0 {
             break;
         }
+    }
+    if delivery_open {
+        delivery.confirm(hub);
     }
     if let Some((from, name, text)) = last_reply
         && let Some(group) = hub.store.bot(group_id)?.map(|r| r.config)
@@ -183,9 +239,37 @@ fn members(hub: &Hub, group: &BotConfig) -> Vec<BotConfig> {
         .collect()
 }
 
+/// The room as members see it (`Store::messages_after`, filtered before the limit): messages held for the owner's
+/// review stay out, and a resumed message is all the room shows.
+fn visible(hub: &Hub, lane: &Lane, after: i64, limit: i64, upto: Option<i64>) -> Result<Vec<Entry>> {
+    let c = hub.store.db.locked();
+    let mut st = c.prepare(&format!(
+        "SELECT {} FROM entries WHERE bot_id = ?1 AND seq > ?2 AND (?4 IS NULL OR seq = ?4)
+           AND (kind = 'user' OR (kind = 'agent' AND json_extract(data, '$.final') = 1))
+           AND COALESCE(json_extract(data, '$.{}'), 0) != 1
+         ORDER BY seq DESC LIMIT ?3",
+        crate::store::ENTRY_COLS,
+        crate::fork::grupo_entrega::GROUP_REVIEW
+    ))?;
+    let mut rows: Vec<Entry> = st
+        .query_map(rusqlite::params![lane.chat, after, limit, upto], crate::store::row_entry)?
+        .collect::<rusqlite::Result<_>>()?;
+    rows.reverse();
+    Ok(rows)
+}
+
+/// A quote of a message the room can't show (held for review, or still pending) stays out of the prompt too.
+fn quote_note(hub: &Hub, me: &str, reply: &serde_json::Value) -> Option<String> {
+    let quoted = reply["id"].as_str().and_then(|id| hub.store.entry(id))?;
+    if crate::fork::grupo_entrega::unproven(&quoted) {
+        return None;
+    }
+    crate::chat::replies::note(hub, me, reply)
+}
+
 /// The lane's messages since the user last wrote there, that message included.
-fn since_last_user_message(hub: &Hub, lane: &Lane) -> Result<Vec<Entry>> {
-    let recent = hub.store.messages_after(lane, 0, HISTORY_LINES)?;
+fn since_last_user_message(hub: &Hub, lane: &Lane, upto: Option<i64>) -> Result<Vec<Entry>> {
+    let recent = visible(hub, lane, 0, HISTORY_LINES, upto)?;
     let start = recent.iter().rposition(|e| e.kind == EntryKind::User.as_str()).unwrap_or(0);
     Ok(recent[start..].to_vec())
 }
@@ -225,7 +309,14 @@ fn mentions(text: &str, handle: &str) -> bool {
         .any(|(i, _)| lower[i + needle.len()..].chars().next().is_none_or(|c| !(c.is_ascii_alphanumeric() || c == '_')))
 }
 
-fn member_prompt(hub: &Hub, group: &BotConfig, members: &[BotConfig], me: &BotConfig, lane: &Lane) -> Result<String> {
+fn member_prompt(
+    hub: &Hub,
+    group: &BotConfig,
+    members: &[BotConfig],
+    me: &BotConfig,
+    lane: &Lane,
+    upto: Option<i64>,
+) -> Result<(String, Vec<String>)> {
     let peers: Vec<&BotConfig> = members.iter().filter(|m| m.id != me.id).collect();
     let peer_names = if peers.is_empty() {
         "just the user".to_owned()
@@ -261,10 +352,8 @@ fn member_prompt(hub: &Hub, group: &BotConfig, members: &[BotConfig], me: &BotCo
     out.push(String::new());
 
     let seen = hub.store.last_spoke(lane, &me.id);
-    let mut lines: Vec<String> = vec![];
-    for e in hub.store.messages_after(lane, seen, HISTORY_LINES)? {
-        lines.push(line(hub, group, &e, me));
-    }
+    let shown = visible(hub, lane, seen, HISTORY_LINES, upto)?;
+    let lines: Vec<String> = shown.iter().map(|e| line(hub, group, e, me)).collect();
     if lines.is_empty() {
         out.push("No new messages in the room since your last turn.".into());
     } else {
@@ -276,7 +365,7 @@ fn member_prompt(hub: &Hub, group: &BotConfig, members: &[BotConfig], me: &BotCo
         "It's your turn, {}. Reply to the room if you have something worth adding, or reply exactly \"{PASS}\" if you don't.",
         me.name
     ));
-    Ok(out.join("\n"))
+    Ok((out.join("\n"), shown.into_iter().map(|e| e.id).collect()))
 }
 
 fn line(hub: &Hub, group: &BotConfig, e: &Entry, me: &BotConfig) -> String {
@@ -286,7 +375,7 @@ fn line(hub: &Hub, group: &BotConfig, e: &Entry, me: &BotConfig) -> String {
         // As in the member's own chat (its skills), with the files the group keeps.
         let root = crate::chat::uploads::root(group);
         let attachments = e.data["attachments"].as_array().map_or(&[][..], Vec::as_slice);
-        let reply = crate::chat::replies::note(hub, &me.id, &e.data["replyTo"]).map(|n| format!("{n} "));
+        let reply = quote_note(hub, &me.id, &e.data["replyTo"]).map(|n| format!("{n} "));
         return format!(
             "User: {}{}{reacted}",
             reply.unwrap_or_default(),

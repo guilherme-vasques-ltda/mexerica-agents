@@ -96,7 +96,8 @@ import { normalizeBot, unavailableRuntime, type Bot } from './models.ts'
 // Schema 72: pedidos de acesso trazem `codeReady` e `codeCheck: "server"` (o Hub confere o código digitado no aparelho).
 // Schema 73: o hello do `/events` traz `workspace` (contexto do workspace com `workspaceEpoch`) e o stream termina com `workspace_revoked`/`role_changed`.
 // Schema 74: o aviso de modo não confirmado do Antigravity usa `Entry.data.code` para tradução.
-export const MIRROR_SCHEMA = 74
+// Schema 75: a mensagem de grupo interrompida sem confirmação de entrega traz `groupReview` (rótulo de entrega parcial).
+export const MIRROR_SCHEMA = 75
 
 export const mirrorCacheStamp = (appVersion: string, hostVersion: string): string =>
   `donnabot-mirror-v${MIRROR_SCHEMA}/${appVersion}/${hostVersion}`

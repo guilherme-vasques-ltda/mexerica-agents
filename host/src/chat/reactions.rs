@@ -9,8 +9,6 @@ use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
 
 pub const TOOL: &str = "react";
-/// Room messages searched for the one to react to.
-const RECENT: i64 = 24;
 /// A bot reacts at most once among a chat's latest this many messages.
 const SPACING: i64 = 6;
 
@@ -30,9 +28,9 @@ pub fn tool() -> Value {
     })
 }
 
-/// In a room, the newest message up to `shown` (the newest the bot's prompt showed) from `to`, or from anyone
+/// In a room, the newest of the messages the bot's prompt showed (`shown`, oldest first) from `to`, or from anyone
 /// but `bot` when `None`.
-pub fn in_room(hub: &Hub, lane: &Lane, bot: &str, to: Option<&str>, shown: i64) -> Result<String> {
+pub fn in_room(hub: &Hub, bot: &str, to: Option<&str>, shown: &[String]) -> Result<String> {
     let to = to.map(|t| t.trim().to_lowercase()).filter(|t| !t.is_empty());
     let from = |e: &Entry| match (&to, e.data["author"].as_str()) {
         (_, Some(author)) if author == bot => false,
@@ -41,11 +39,11 @@ pub fn in_room(hub: &Hub, lane: &Lane, bot: &str, to: Option<&str>, shown: i64) 
         (Some(to), Some(author)) => hub.bot_name(author).trim().to_lowercase() == *to,
         (Some(_), None) => false,
     };
-    hub.store
-        .messages_after(lane, 0, RECENT)?
-        .into_iter()
+    shown
+        .iter()
         .rev()
-        .find(|e| e.seq <= shown && from(e))
+        .filter_map(|id| hub.store.entry(id))
+        .find(|e| from(e))
         .map(|e| e.id)
         .ok_or_else(|| anyhow!("no recent message from {} in this chat", to.as_deref().unwrap_or("anyone else")))
 }
@@ -98,12 +96,19 @@ mod tests {
         hub.mark_read("g").unwrap();
         let unread = || hub.bot_value_for_test("g")["unread"].as_i64().unwrap();
 
-        // Ben's turn was shown up to his own reply: the newest message from someone else before it is Ann's.
-        let target = |to| in_room(&hub, &room, "b", to, mine.seq);
+        // Ben's prompt showed the room up to his own reply: the newest message from someone else in it is Ann's.
+        let ids = |es: &[&Entry]| es.iter().map(|e| e.id.clone()).collect::<Vec<_>>();
+        let shown = ids(&[&asked, &reply, &mine]);
+        let target = |to| in_room(&hub, "b", to, &shown);
         assert_eq!(target(None).unwrap(), reply.id);
         assert_eq!(target(Some("User")).unwrap(), asked.id, "not the message his prompt didn't show");
         assert!(target(Some("Ben")).is_err(), "not his own message");
-        assert_eq!(in_room(&hub, &room, "b", None, later.seq).unwrap(), later.id);
+        assert_eq!(in_room(&hub, "b", None, &ids(&[&asked, &reply, &mine, &later])).unwrap(), later.id);
+        // Only what the prompt showed: a resumed message alone, or the messages since he last spoke.
+        assert_eq!(in_room(&hub, "b", None, &ids(&[&reply])).unwrap(), reply.id);
+        assert!(in_room(&hub, "b", Some("User"), &ids(&[&reply])).is_err(), "not the message before it");
+        assert!(in_room(&hub, "b", Some("Ann"), &ids(&[&later])).is_err(), "not one older than the prompt");
+        assert!(in_room(&hub, "b", None, &[]).is_err(), "nothing shown, nothing to react to");
 
         // One reaction per bot; a read message stays read.
         hub.bot_react(&reply.id, "b", "👍").unwrap();

@@ -2226,7 +2226,7 @@ async fn resumo_privado_nao_vai_para_o_turno_de_grupo_depois_de_falha_na_abertur
     actor.active_group = Some(crate::chat::group::GroupTurn {
         lane: group_lane.clone(),
         prompt: prompt.into(),
-        shown: 0,
+        shown: vec![],
         epoch: f.hub.groups.reserve_epoch_for_test(&group_lane),
         reply,
     });
@@ -4578,6 +4578,9 @@ mod mandar_agora {
         let _ = std::fs::remove_dir_all(&f.dir);
     }
 }
+
+#[path = "fork_grupo_entrega_tests.rs"]
+mod grupo_entrega;
 
 #[path = "fork_pausa_conversa_tests.rs"]
 mod pausa_conversa;

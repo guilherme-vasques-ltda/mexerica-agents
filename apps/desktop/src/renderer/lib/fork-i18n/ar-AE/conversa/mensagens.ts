@@ -15,6 +15,7 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.mensagens.reenviar": "إعادة الإرسال",
   "conversa.mensagens.apagar": "حذف",
   "conversa.mensagens.interrompida": "لم تُرسل — توقفت",
+  "conversa.mensagens.interrompidaParcial": "توقفت — ربما وصلت إلى بعض أعضاء المجموعة",
   "conversa.mensagens.tentarDeNovo": "حاول مجددًا",
   "conversa.mensagens.parar": "إيقاف",
   "conversa.mensagens.tirar": "إزالة {emoji}",

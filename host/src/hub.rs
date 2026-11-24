@@ -275,6 +275,9 @@ impl Hub {
         if crate::environment::Environment::is_open() {
             return Ok(());
         }
+        // Mensagem de grupo que caiu antes de chegar a todos os membros: retomada uma vez ou marcada para conferência.
+        // Sala que não dá para classificar fica bloqueada; só a falha do banco inteiro impede a API de abrir.
+        crate::fork::grupo_entrega::recover(self).context("entregas pendentes de grupo não classificadas")?;
         crate::routines::start(self);
         crate::fork::tarefas_runtime::start(self);
         crate::fork::resumo_diario::start(self);
