@@ -3,6 +3,7 @@ import type { textos as fonte } from '../../pt-BR/voz/ajustes.ts'
 
 // Fatia 6b (D454): voz/ajustes (registro.ts). Chaves completas; docs/guides/idiomas.md.
 export const textos: Traducao<typeof fonte> = {
+  "voz.ajustes.geminiGratis": "使用免费的 Gemini API 密钥时，Google 可能会使用您的内容来改进其产品。请使用付费密钥以避免这种情况。",
   "voz.ajustes.aparelho.mac.nome": "这台 Mac",
   "voz.ajustes.aparelho.pc.nome": "这台电脑",
   "voz.ajustes.aparelho.mac.neste": "在这台 Mac 上",

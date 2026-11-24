@@ -149,6 +149,16 @@ function PausaRow() {
   )
 }
 
+function AvisoGeminiGratis() {
+  const t = useT()
+  return (
+    <div className="settings-row voz-aviso" role="note">
+      <Icon name="exclamationmark.circle" size={13} color="var(--attention, var(--ink-2))" />
+      <Text size="footnote" tone="attention" grow>{t('voz.ajustes.geminiGratis')}</Text>
+    </div>
+  )
+}
+
 /**
  * A tela Voz. `reserva`: o Hub do bot da conversa. `folha`: aberta fora de Ajustes (barra da chamada), com tudo.
  * `aba` (tela de Ajustes, ajustes-tela-01): só o cartão daquela parte; sem ela, as três em sequência.
@@ -209,6 +219,7 @@ export function VozPage({ reserva, folha = false, aba = null }: { reserva: BotSt
           provedorOuvir
             ? <LinhaFonte key="fonte" {...linha('ouvir', provedorOuvir)} p={provedorOuvir} />
             : <LinhaFonte key="fonte" {...linhaOuvirLocal(ditado, onDeviceUnavailableReason())} />,
+          ...(provedorOuvir === 'gemini' ? [<AvisoGeminiGratis key="gemini-gratis" />] : []),
           ...(provedorOuvir
             ? [<ModeloOuvir key={`stt-${provedorOuvir}`} p={provedorOuvir} estado={estado} />]
             : !ditado
@@ -262,6 +273,7 @@ export function VozPage({ reserva, folha = false, aba = null }: { reserva: BotSt
             : ditado
               ? <LinhaFonte key="fonte" ok partes={[{ chave: 'voz.ajustes.fonte.macosLer' }]} />
               : <LinhaFonte key="fonte" ok={false} partes={[{ chave: 'voz.ajustes.fonte.escolhaVivo' }]} />,
+          ...(provedorVivo === 'gemini' ? [<AvisoGeminiGratis key="gemini-gratis" />] : []),
           ...(provedorVivo
             ? [
                 <ValueRow key="modo" label={t('voz.ajustes.jeito')} detail={t(fala ? 'voz.ajustes.jeito.fala' : 'voz.ajustes.jeito.tempoReal')}>

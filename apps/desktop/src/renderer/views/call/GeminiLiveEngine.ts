@@ -5,6 +5,7 @@ import { fromBase64, micPCM16k, toBase64, VoiceEngine } from './voice'
 import { geminiStartUpdates, geminiToolOutput, VoiceUpdates } from './voice-updates.ts'
 import { Despedida } from '../fork/voz/encerrar'
 import { OrigemGemini, resultadoVoz } from '../fork/voz/operador-voz'
+import { geminiExtendedThinking, geminiInteractionState } from './fork-gemini-thinking.ts'
 
 const URL_BASE = 'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained'
 
@@ -53,6 +54,7 @@ export class GeminiLiveEngine extends VoiceEngine {
   private userSpoke = false
   private userSpeechTimer: ReturnType<typeof setTimeout> | null = null
   private origem = new OrigemGemini()
+  private readonly extendedThinking: boolean
   private despedida = new Despedida(() => {
     this.stopMic?.()
     this.stopMic = null
@@ -69,6 +71,7 @@ export class GeminiLiveEngine extends VoiceEngine {
     private op: CallOperator,
   ) {
     super()
+    this.extendedThinking = geminiExtendedThinking(model)
     this.pararConexao = this.op.voz.aoReconectar(() => {
       this.rearmRequested = false
       this.flush()
@@ -103,7 +106,7 @@ export class GeminiLiveEngine extends VoiceEngine {
     const tools = this.op.ferramentas.map((t) => ({
       name: t.name,
       description: t.description,
-      ...(t.deferred ? { behavior: 'NON_BLOCKING' } : {}),
+      ...(this.extendedThinking || t.deferred ? { behavior: 'NON_BLOCKING' } : {}),
       ...(Object.keys(t.parameters.properties).length ? { parameters: geminiSchema(t.parameters) } : {}),
     }))
     const setup = {
@@ -195,11 +198,14 @@ export class GeminiLiveEngine extends VoiceEngine {
     } catch {
       return
     }
+    const content = msg.serverContent
+    const interaction = geminiInteractionState(this.extendedThinking, content?.interactionStatus ?? msg.interactionStatus, content?.turnComplete)
+    if (interaction === 'busy') this.turnDone = false
     if (this.despedida.fechando) {
-      for (const part of msg.serverContent?.modelTurn?.parts ?? []) {
+      for (const part of content?.modelTurn?.parts ?? []) {
         if (typeof part?.inlineData?.data === 'string') this.play(part.inlineData.data)
       }
-      if (msg.serverContent?.turnComplete === true) this.turnDone = true
+      if (interaction === 'idle') this.turnDone = true
       if (this.turnDone && this.queued === 0) this.despedida.audioTerminou()
       return
     }
@@ -213,7 +219,6 @@ export class GeminiLiveEngine extends VoiceEngine {
       this.origem.iniciarSessao()
       if (!this.stopMic) void this.startAudio()
     }
-    const content = msg.serverContent
     if (Array.isArray(msg.toolCallCancellation?.ids)) { this.origem.invalidar(); this.op.voz.cancelar(msg.toolCallCancellation.ids) }
     if (content) {
       if (content.interrupted === true) {
@@ -238,15 +243,15 @@ export class GeminiLiveEngine extends VoiceEngine {
           if (typeof audio === 'string' && !this.dropping) this.play(audio)
         }
       }
-      if (content.turnComplete === true) {
-        if (this.userSpoke) {
-          this.clearUserSpeech()
-          this.rearmRequested = false
-        }
-        this.turnDone = true
-        this.dropping = false
-        if (this.queued === 0 && this.phase === 'speaking') this.setPhase('listening')
+    }
+    if (interaction === 'idle') {
+      if (this.userSpoke) {
+        this.clearUserSpeech()
+        this.rearmRequested = false
       }
+      this.turnDone = true
+      this.dropping = false
+      if (this.queued === 0 && this.phase === 'speaking') this.setPhase('listening')
     }
     const calls = msg.toolCall?.functionCalls
     let functionResponses: ReturnType<typeof geminiToolOutput>[] = []
@@ -260,7 +265,7 @@ export class GeminiLiveEngine extends VoiceEngine {
             const erro = this.op.voz.indisponibilidade()
             if (erro) return [geminiToolOutput(c.id, c.name, JSON.stringify({ error: erro }))]
             const previous = this.updates.wait(c.id)
-            return previous ? [geminiToolOutput(previous, c.name, JSON.stringify({ messages: [] }), 'SILENT')] : []
+            return previous ? [geminiToolOutput(previous, c.name, JSON.stringify({ messages: [] }), this.extendedThinking ? undefined : 'SILENT')] : []
           }
           if (!this.origem.emResposta) { this.op.voz.abandonarEntregas(); this.origem.iniciar('gemini') }
           const socket = this.socket

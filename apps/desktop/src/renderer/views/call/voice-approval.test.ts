@@ -7,6 +7,7 @@ import { normalizeBot, type Entry } from '../../../shared/models.ts'
 import { CallOperator, OPERATOR_TOOLS } from './call-operator.ts'
 import { voiceApprovalOption } from './voice-approval.ts'
 import * as voiceUpdates from './voice-updates.ts'
+import * as geminiThinking from './fork-gemini-thinking.ts'
 import * as falhaSegura from '../fork/voz/falha-segura.ts'
 import * as encerrar from '../fork/voz/encerrar.ts'
 import * as operadorVoz from '../fork/voz/operador-voz.ts'
@@ -101,7 +102,7 @@ test('resposta do bot: resultado de chamada real, sem papel de usuário, nos doi
 })
 
 /** Drive the real engines with a fake transport and audio base; no network or microphone. */
-function engineHarness(name: 'OpenAIRealtimeEngine' | 'GeminiLiveEngine') {
+function engineHarness(name: 'OpenAIRealtimeEngine' | 'GeminiLiveEngine', model = 'gemini-3.8-live') {
   class AudioBase {
     phase = 'starting'
     ended = false
@@ -113,6 +114,7 @@ function engineHarness(name: 'OpenAIRealtimeEngine' | 'GeminiLiveEngine') {
     socket?: { readyState: number; send: (s: string) => void }
     stopMic?: () => void
     opened: () => void
+    sendSetup?: (socket: Engine['socket']) => void
     received: (s: string) => void
     speak: (s: string) => void
     announce: (s: string) => void
@@ -126,6 +128,7 @@ function engineHarness(name: 'OpenAIRealtimeEngine' | 'GeminiLiveEngine') {
       if (path === './voice') return { VoiceEngine: AudioBase }
       if (path === './call-operator') return { OPERATOR_TOOLS }
       if (path === './voice-updates.ts') return voiceUpdates
+      if (path === './fork-gemini-thinking.ts') return geminiThinking
       if (path === '../fork/voz/falha-segura') return falhaSegura
       if (path === '../fork/voz/encerrar') return encerrar
       if (path === '../fork/voz/operador-voz') return operadorVoz
@@ -148,7 +151,7 @@ function engineHarness(name: 'OpenAIRealtimeEngine' | 'GeminiLiveEngine') {
   }
   const engine = name === 'OpenAIRealtimeEngine'
     ? new exported[name]!(() => Promise.resolve('unused'), op)
-    : new exported[name]!('model', 'voice', () => Promise.resolve('unused'), op)
+    : new exported[name]!(model, 'voice', () => Promise.resolve('unused'), op)
   engine.events = { readyState: 'open', send }
   engine.socket = { readyState: 1, send }
   engine.stopMic = () => {}
@@ -165,6 +168,37 @@ function engineHarness(name: 'OpenAIRealtimeEngine' | 'GeminiLiveEngine') {
   }
   return { engine, sent, receive }
 }
+
+for (const [model, extended] of [['gemini-3.8-live', false], ['gemini-3.8-live-extended-thinking', true]] as const) {
+  test(`${model}: configuração e resposta de ferramenta respeitam o protocolo`, () => {
+    const { engine, sent, receive } = engineHarness('GeminiLiveEngine', model)
+    engine.sendSetup!(engine.socket)
+    const setup = sent[0]!.setup as { model: string; tools: { functionDeclarations: { name: string; behavior?: string }[] }[] }
+    assert.equal(setup.model, `models/${model}`)
+    assert.deepEqual(setup.tools[0]!.functionDeclarations.map(({ name, behavior }) => [name, behavior]),
+      OPERATOR_TOOLS.map(({ name, deferred }) => [name, extended || deferred ? 'NON_BLOCKING' : undefined]))
+
+    receive({ setupComplete: {} })
+    for (const id of ['old', 'new']) receive({ toolCall: { functionCalls: [{ id, name: 'bot_updates' }] } })
+    assert.deepEqual(sent.at(-1), { toolResponse: { functionResponses: [{
+      id: 'old', name: 'bot_updates', response: { result: { messages: [] }, ...(extended ? {} : { scheduling: 'SILENT' }) },
+    }] } })
+  })
+}
+
+test('Gemini Extended Thinking só entrega avisos quando a interação volta a IDLE', () => {
+  const { engine, sent, receive } = engineHarness('GeminiLiveEngine', 'gemini-3.8-live-extended-thinking')
+  receive({ setupComplete: {} })
+  receive({ toolCall: { functionCalls: [{ id: 'waiting', name: 'bot_updates' }] } })
+  engine.announce('Aviso pendente')
+  receive({ serverContent: { turnComplete: true, interactionStatus: 'IN_PROGRESS' } })
+  receive({ serverContent: { turnComplete: true } })
+  assert.deepEqual(sent, [voiceUpdates.geminiStartUpdates()])
+  receive({ interactionStatus: 'IDLE' })
+  assert.deepEqual(sent.at(-1), { toolResponse: { functionResponses: [
+    { id: 'waiting', name: 'bot_updates', response: { result: { messages: ['[Notice] Aviso pendente'] } } },
+  ] } })
+})
 
 test('OpenAI inicia a espera em silêncio e entrega a resposta somente no resultado correlacionado', () => {
   const { engine, sent, receive } = engineHarness('OpenAIRealtimeEngine')
