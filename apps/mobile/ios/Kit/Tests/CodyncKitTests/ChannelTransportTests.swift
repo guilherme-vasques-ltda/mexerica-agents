@@ -77,7 +77,7 @@ struct HostSide {
 
     /// Verifies the device's hello and answers with a welcome signed by `hostSigner`.
     @discardableResult
-    mutating func accept(hostSigner: Curve25519.Signing.PrivateKey = v.hostSign, workspaceEpoch: Int? = nil) async throws -> [String: Any] {
+    mutating func accept(hostSigner: Curve25519.Signing.PrivateKey = v.hostSign) async throws -> [String: Any] {
         let hello = try await raw()
         #expect(hello["t"] as? String == "hello")
         #expect(hello["v"] as? Int == 1)
@@ -94,18 +94,6 @@ struct HostSide {
         let keys = RelayCrypto.channelKeys(sharedSecret: try RelayCrypto.sharedSecret(ekH, ekD), transcriptHash: th)
         sealer = RelayCrypto.FrameSealer(key: keys.h2d)
         opener = RelayCrypto.FrameOpener(key: keys.d2h)
-        if hello["pair"] == nil, hostSigner.publicKey.rawRepresentation == v.hostSign.publicKey.rawRepresentation {
-            let probe = try await receive()
-            #expect(probe["m"] as? String == "workspaceContext")
-            #expect((probe["b"] as? [String: Any])?["workspaceEpoch"] == nil)
-            if let workspaceEpoch {
-                try await send(["id": probe["id"] ?? 0, "ok": ["schema": 1, "hubId": "h1", "kind": "personal",
-                    "workspaceId": "personal:unbound", "userId": NSNull(), "role": "owner",
-                    "workspaceEpoch": workspaceEpoch, "capabilities": ["chat"]]])
-            } else {
-                try await send(["id": probe["id"] ?? 0, "err": ["status": 404, "message": "unknown method"]])
-            }
-        }
         return hello
     }
 
@@ -145,137 +133,6 @@ private func helloBody() -> [String: Any] { [
     "computerId": v.str("keys", "computerId"), "signKey": v.str("keys", "hostSignPub"), "boxKey": v.str("keys", "hostBoxPub"),
     "urls": ["http://192.0.2.2:19222"], "cloud": "https://cloud.example.dev", "device": "macstudio",
 ] }
-
-@Test(.timeLimit(.minutes(1))) func pairedWorkspace409ReopensWithoutReplaying() async throws {
-    let (dial, sockets) = fakeDialer()
-    var computer = v.computer
-    computer.urls = ["http://192.0.2.2:19222"]
-    computer.cloud = nil
-    let t = ChannelTransport(computer: computer, identity: v.identity, pairingCode: nil, dial: dial, watchesNetwork: false)
-    let states = t.states()
-    await t.start()
-    var iterator = sockets.makeAsyncIterator()
-    var host = HostSide(try #require(await iterator.next()))
-    try await host.accept(workspaceEpoch: 7)
-    #expect(await waitFor(states) { $0 == .ready(.direct) } == .ready(.direct))
-    let firstHello = try await host.receive()
-    #expect(firstHello["m"] as? String == "hello")
-    #expect((firstHello["b"] as? [String: Any])?["workspaceEpoch"] as? Int == 7)
-    try await host.send(["id": firstHello["id"] ?? 0, "ok": helloBody()])
-    let oldLink = try #require(await t.currentLink())
-    let call = Task { try await t.call("send", body: Data(#"{"clientNonce":"old"}"#.utf8), timeout: 5, onLink: oldLink) }
-    let request = try await host.receive()
-    #expect(request["m"] as? String == "send")
-    try await host.send(["id": request["id"] ?? 0, "err": ["status": 409, "code": "workspace_epoch_mismatch"]])
-    await #expect(throws: ForkWorkspaceIssue.workspaceEpochMismatch) { _ = try await call.value }
-    #expect(await waitFor(states) { $0 == .workspaceInvalidated } == .workspaceInvalidated)
-    var next = HostSide(try #require(await iterator.next()))
-    try await next.accept(workspaceEpoch: 8)
-    let freshHello = try await next.receive()
-    #expect(freshHello["m"] as? String == "hello")
-    #expect((freshHello["b"] as? [String: Any])?["workspaceEpoch"] as? Int == 8)
-    try await next.send(["id": freshHello["id"] ?? 0, "ok": helloBody()])
-    await #expect(throws: HostError.unreachable) { _ = try await t.call("send", body: Data(), timeout: 1, onLink: oldLink) }
-    let reader = Task { for try await _ in t.stream(.events(since: 0, client: "ios")) {} }
-    let sub = try await next.receive()
-    #expect(sub["sub"] as? String == "events")
-    #expect((sub["b"] as? [String: Any])?["workspaceEpoch"] as? Int == 8)
-    reader.cancel()
-    await t.shutdown()
-}
-
-@Test(.timeLimit(.minutes(1)), arguments: [true, false]) func plaintextRejectionRequiresAuthenticatedWorkspace(stillPaired: Bool) async throws {
-    var computer = v.computer
-    computer.urls = ["http://192.0.2.2:19222"]
-    computer.cloud = nil
-    let endpoint = Endpoint.direct(try #require(URL(string: "ws://192.0.2.2:19222/channel?v=1")))
-    let first = FakeSocket(endpoint)
-    let second = FakeSocket(endpoint)
-    let dials = Dials([first, second])
-    let t = ChannelTransport(computer: computer, identity: v.identity, pairingCode: nil, dial: { _ in await dials.next() }, watchesNetwork: false)
-    let states = t.states()
-    await t.start()
-    var host = HostSide(first)
-    try await host.accept(workspaceEpoch: 7)
-    let hello = try await host.receive()
-    var directHello = helloBody()
-    directHello["cloud"] = NSNull()
-    try await host.send(["id": hello["id"] ?? 0, "ok": directHello])
-    let old = try #require(await t.currentLink())
-
-    await host.push(["t": "reject", "code": "revoked", "stableCode": stillPaired ? "workspace_revoked" : "device_revoked"])
-    await first.toDevice.close(stillPaired ? 1000 : 1006)
-    let failed = LinkState.failed(HostError.unreachable.localizedDescription)
-    #expect(await waitFor(states) { $0 == failed || $0 == .workspaceInvalidated } == failed)
-    #expect(await t.currentLink() == nil)
-    var replacement = HostSide(second)
-    if stillPaired {
-        try await replacement.accept(workspaceEpoch: 8)
-        let fresh = try await replacement.receive()
-        #expect(fresh["m"] as? String == "hello")
-        #expect((fresh["b"] as? [String: Any])?["workspaceEpoch"] as? Int == 8)
-        try await replacement.send(["id": fresh["id"] ?? 0, "ok": helloBody()])
-        let current = try #require(await t.currentLink())
-        #expect(try await t.pairedWorkspace(onLink: current)?.workspaceEpoch == 8)
-        #expect(await t.currentLink() != old)
-    } else {
-        _ = try await replacement.raw()
-        await replacement.push(["t": "reject", "code": "revoked", "stableCode": "device_revoked"])
-        for _ in 0..<100 {
-            let stopped = await t.isStopped
-            if stopped { break }
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        #expect(await t.isStopped)
-        #expect(await t.currentLink() == nil)
-    }
-    #expect(await dials.count == 2)
-    await t.shutdown()
-}
-
-@Test(.timeLimit(.minutes(1))) func mailboxEpochIsSealedAndBoundToAuthenticatedLink() async throws {
-    let (dial, sockets) = fakeDialer()
-    var computer = v.computer
-    computer.urls = []
-    computer.cloud = URL(string: "https://relay.example.invalid")
-    computer.route = .relayOnly
-    let t = ChannelTransport(computer: computer, identity: v.identity, pairingCode: nil, dial: dial, watchesNetwork: false)
-    await t.start()
-    var iterator = sockets.makeAsyncIterator()
-    var relay = HostSide(try #require(await iterator.next()))
-    await #expect(throws: HostError.unreachable) {
-        try await t.enqueue(botId: "b1", text: "unverified", clientNonce: "unverified")
-    }
-    await relay.push(["t": "presence", "online": true])
-    try await relay.accept(workspaceEpoch: 7)
-    let hello = try await relay.receive()
-    try await relay.send(["id": hello["id"] ?? 0, "ok": helloBody()])
-    let link = try #require(await t.currentLink())
-    await #expect(throws: HostError.unreachable) {
-        try await t.enqueue(botId: "b1", text: "stale", clientNonce: "stale", onLink: link - 1)
-    }
-    let nonce = "still-current"
-    async let pending: Void = t.enqueue(botId: "b1", text: "message", clientNonce: nonce, onLink: link)
-    let put = try await relay.raw()
-    #expect(put["t"] as? String == "mbox.put")
-    #expect(put["workspaceEpoch"] == nil && put["nonce"] as? String == nonce)
-    let blob = try #require(Data(base64URL: put["d"] as? String ?? ""))
-    let epk = Data(blob.prefix(32)), ct = blob.dropFirst(96)
-    let cid = RelayCrypto.computerIdRaw(signKey: v.b64("keys", "hostSignPub"))
-    let key = RelayCrypto.mailboxKey(sharedSecret: try RelayCrypto.sharedSecret(v.hostBox, epk), cid: cid,
-                                     dk: v.b64("keys", "deviceSignPub"), epk: epk)
-    let box = try ChaChaPoly.SealedBox(nonce: ChaChaPoly.Nonce(data: Data(count: 12)), ciphertext: ct.dropLast(16), tag: ct.suffix(16))
-    let plain = try ChaChaPoly.open(box, using: key, authenticating: v.b64("keys", "deviceSignPub") + Data(nonce.utf8))
-    #expect((object(String(decoding: plain, as: UTF8.self))["b"] as? [String: Any])?["workspaceEpoch"] as? Int == 7)
-    await relay.push(["t": "mbox.ok", "nonce": nonce, "state": "queued"])
-    try await pending
-    await relay.push(["t": "presence", "online": false])
-    _ = await waitFor(t.states()) { $0 == .hostOffline(lastSeen: nil) }
-    await #expect(throws: HostError.unreachable) {
-        try await t.enqueue(botId: "b1", text: "expired link", clientNonce: "expired", onLink: link)
-    }
-    await t.shutdown()
-}
 
 private func waitFor(_ states: AsyncStream<LinkState>, _ match: (LinkState) -> Bool) async -> LinkState? {
     for await s in states where match(s) { return s }
@@ -362,10 +219,12 @@ private func waitFor(_ states: AsyncStream<LinkState>, _ match: (LinkState) -> B
     let cancel = try await host.receive()
     #expect(cancel["id"] as? Int == sub["id"] as? Int && cancel["cancel"] as? Bool == true)
 
-    // A bare close with no authenticated reason invalidates the link, not the pairing.
+    // Revoked: no retry.
     await socket.toDevice.close(4003)
-    _ = try #require(await socketIterator.next())
-    #expect(await t.currentLink() == nil)
+    guard case .unauthorized = await waitFor(t.states(), { if case .unauthorized = $0 { true } else { false } }) else {
+        Issue.record("expected unauthorized"); return
+    }
+    await #expect(throws: HostError.self) { _ = try await t.call("hello", body: Data(), timeout: 1) }
     await t.shutdown()
 }
 
@@ -444,10 +303,12 @@ private func waitFor(_ states: AsyncStream<LinkState>, _ match: (LinkState) -> B
     let cancel = try await host.receive()
     #expect(cancel["id"] as? Int == sub["id"] as? Int && cancel["cancel"] as? Bool == true)
 
-    // A bare close with no authenticated reason invalidates the link, not the pairing.
+    // Revoked: no retry.
     await socket.toDevice.close(4003)
-    _ = try #require(await socketIterator.next())
-    #expect(await t.currentLink() == nil)
+    guard case .unauthorized = await waitFor(t.states(), { if case .unauthorized = $0 { true } else { false } }) else {
+        Issue.record("expected unauthorized"); return
+    }
+    await #expect(throws: HostError.self) { _ = try await t.call("hello", body: Data(), timeout: 1) }
     await t.shutdown()
 }
 
@@ -674,13 +535,9 @@ private func waitFor(_ states: AsyncStream<LinkState>, _ match: (LinkState) -> B
     #expect(sig.hasPrefix("v=1,kid=\(v.identity.publicKey),ts="))
     var relay = HostSide(socket)
 
-    await relay.push(["t": "presence", "online": true])
-    try await relay.accept()
-    let initialHello = try await relay.receive()
-    try await relay.send(["id": initialHello["id"] ?? 0, "ok": helloBody()])
     await relay.push(["t": "presence", "online": false, "lastSeenAt": 1_790_000_000_000])
     let seen = Date(milliseconds: 1_790_000_000_000)
-    #expect(await waitFor(t.states()) { $0 == .hostOffline(lastSeen: seen) } == .hostOffline(lastSeen: seen))
+    #expect(await t.settled(within: .seconds(5)) == .hostOffline(lastSeen: seen))
     await #expect(throws: HostError.computerOffline(lastSeen: seen)) { _ = try await t.call("hello", body: Data(), timeout: 1) }
 
     // Queue a message: it goes out sealed for the host's box key.

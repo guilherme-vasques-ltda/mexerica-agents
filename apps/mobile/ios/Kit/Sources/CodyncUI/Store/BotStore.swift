@@ -100,8 +100,6 @@ public final class BotStore {
     @ObservationIgnored var conectarRecemVinculado: (@MainActor (Computer) async throws -> any HostTransport)?
     /// Whose mirror this is; a different one after a drop reloads from scratch.
     @ObservationIgnored var donoDoEspelho: DonoDoEspelho
-    @ObservationIgnored var pairedWorkspace: ForkPairedWorkspace?
-    @ObservationIgnored var workspaceCacheCleared = false
     /// The clock the drop rules read (tests set it).
     @ObservationIgnored var agora: @MainActor () -> Date
     /// How the drop timer waits (tests make it wait forever and move `agora` instead).
@@ -136,7 +134,7 @@ public final class BotStore {
     /// What was pasted into each draft, sent along so memory never takes it as the user's own words.
     @ObservationIgnored var composerPasted: [String: [String]] = [:]
     public var routineDrafts: [String: String] = [:]
-    public internal(set) var fileDownloads: FileDownloads
+    public let fileDownloads: FileDownloads
     public var lastError: String?
     /// The open conversation (navigation path).
     public var selection: String?

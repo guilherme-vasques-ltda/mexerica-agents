@@ -89,9 +89,7 @@ struct TransporteDoLink: HostTransport {
 
     func call(_ method: String, body: Data, timeout: TimeInterval) async throws -> Data {
         do {
-            let result = try await base.call(method, body: body, timeout: timeout, onLink: link)
-            guard await currentLink() == link else { throw HostError.unreachable }
-            return result
+            return try await base.call(method, body: body, timeout: timeout, onLink: link)
         } catch let error as HostError {
             if let motivo = error.recusaDefinitiva(identificando: method == "hello") {
                 aoRecusar(motivo)
@@ -111,10 +109,7 @@ struct TransporteDoLink: HostTransport {
     }
 
     func screenRelayRequired() async throws -> Bool { try await base.screenRelayRequired() }
-    func stream(_ request: HostStreamRequest) -> AsyncThrowingStream<Data, Error> {
-        if let channel = base as? ChannelTransport { return channel.stream(request, onLink: link) }
-        return base.stream(request)
-    }
+    func stream(_ request: HostStreamRequest) -> AsyncThrowingStream<Data, Error> { base.stream(request) }
     func states() -> AsyncStream<LinkState> { base.states() }
 }
 

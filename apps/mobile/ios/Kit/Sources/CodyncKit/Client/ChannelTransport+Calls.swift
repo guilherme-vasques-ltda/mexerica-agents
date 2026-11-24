@@ -33,7 +33,7 @@ extension ChannelTransport {
             if closed { throw HostError.unreachable }
             switch state {
             case .ready where link?.sealer != nil: return
-            case .ready, .connecting, .workspaceInvalidated:
+            case .ready, .connecting:
                 guard ContinuousClock.now < deadline else { throw HostError.unreachable }
                 await stateChange(until: deadline)
             case let .hostOffline(lastSeen): throw HostError.computerOffline(lastSeen: lastSeen)
@@ -44,27 +44,16 @@ extension ChannelTransport {
     }
 
     /// With `onLink`, never waits: the call goes out on that channel or fails at once.
-    func perform(_ method: String, body: Data, timeout: TimeInterval, onLink expected: Int? = nil, workspaceProbe: Int? = nil) async throws -> Data {
-        if let workspaceProbe {
-            guard link?.channel == workspaceProbe, link?.sealer != nil else { throw HostError.unreachable }
-        } else if let expected {
+    func perform(_ method: String, body: Data, timeout: TimeInterval, onLink expected: Int? = nil) async throws -> Data {
+        if let expected {
             guard readyLink() == expected else { throw HostError.unreachable }
         } else {
-            let generation = channelGeneration
             try await ready(within: timeout)
-            guard generation == 0 || generation == channelGeneration else { throw HostError.unreachable }
         }
-        var b: Any = body.isEmpty ? NSNull() : try JSONSerialization.jsonObject(with: body, options: .fragmentsAllowed)
-        if workspaceProbe == nil, let workspace {
-            guard b is NSNull || b is [String: Any] else { throw HostError.unreachable }
-            var stamped = b as? [String: Any] ?? [:]
-            stamped["workspaceEpoch"] = workspace.workspaceEpoch
-            b = stamped
-        }
+        let b: Any = body.isEmpty ? NSNull() : try JSONSerialization.jsonObject(with: body, options: .fragmentsAllowed)
         let id = nextId()
         let payload = try JSONSerialization.data(withJSONObject: ["id": id, "m": method, "b": b] as [String: Any])
-        let channel = link?.channel
-        let result: Data = try await withTaskCancellationHandler {
+        return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (c: CheckedContinuation<Data, Error>) in
                 calls[id] = c
                 do {
@@ -83,8 +72,6 @@ extension ChannelTransport {
         } onCancel: {
             Task { await self.abandon(id, error: CancellationError()) }
         }
-        guard link?.channel == channel, link?.sealer != nil else { throw HostError.unreachable }
-        return result
     }
 
     /// Timed out or cancelled: the host drops the answer (an already started mutation still runs).
@@ -109,13 +96,9 @@ extension ChannelTransport {
     }
 
     public nonisolated func stream(_ request: HostStreamRequest) -> AsyncThrowingStream<Data, Error> {
-        stream(request, onLink: nil)
-    }
-
-    public nonisolated func stream(_ request: HostStreamRequest, onLink expected: Int?) -> AsyncThrowingStream<Data, Error> {
         AsyncThrowingStream { continuation in
             let key = UUID()
-            let task = Task { await self.openStream(request, onLink: expected, key: key, continuation) }
+            let task = Task { await self.openStream(request, key: key, continuation) }
             continuation.onTermination = { _ in
                 task.cancel()
                 Task { await self.closeStream(key) }
@@ -123,30 +106,16 @@ extension ChannelTransport {
         }
     }
 
-    private func openStream(_ request: HostStreamRequest, onLink expected: Int?, key: UUID, _ continuation: AsyncThrowingStream<Data, Error>.Continuation) async {
+    private func openStream(_ request: HostStreamRequest, key: UUID, _ continuation: AsyncThrowingStream<Data, Error>.Continuation) async {
         do {
-            if let expected {
-                guard readyLink() == expected else { throw HostError.unreachable }
-            } else {
-                let generation = channelGeneration
-                try await ready(within: 10)
-                guard generation == 0 || generation == channelGeneration else { throw HostError.unreachable }
-            }
+            try await ready(within: 10)
             // The consumer left while we waited: `closeStream` already ran and found nothing to stop.
             try Task.checkCancellation()
             let id = nextId()
-            let kind: String
-            var body: [String: Any]
-            switch request {
-            case let .events(since, client):
-                kind = "events"
-                body = ["since": since, "client": client]
-            case let .term(term):
-                kind = "term"
-                body = ["term": term]
+            let sub: [String: Any] = switch request {
+            case let .events(since, client): ["id": id, "sub": "events", "b": ["since": since, "client": client]]
+            case let .term(term): ["id": id, "sub": "term", "b": ["term": term]]
             }
-            if let workspace { body["workspaceEpoch"] = workspace.workspaceEpoch }
-            let sub: [String: Any] = ["id": id, "sub": kind, "b": body]
             streams[id] = continuation
             streamIds[key] = id
             try sendInner(JSONSerialization.data(withJSONObject: sub))

@@ -114,10 +114,10 @@ extension BotStore {
                         // A fresh upload per attempt: a retry never appends to a half-sent file.
                         ids = []
                         for file in files {
-                            guard !self.retired, self.linkId == link else { throw CancellationError() }
+                            guard !self.retired else { throw CancellationError() }
                             let id = UUID().uuidString
                             try await client.upload(botId: botId, id: id, name: file.name, data: file.data)
-                            guard !self.retired, self.linkId == link else { throw CancellationError() }
+                            guard !self.retired else { throw CancellationError() }
                             self.cacheAttachment(id, file.data)
                             ids?.append(id)
                         }
@@ -126,7 +126,7 @@ extension BotStore {
                     return try await client.send(botId: botId, text: text, clientNonce: nonce, replyTo: replyTo, attachments: ids,
                                                  pasted: pasted, sessionId: sessionId)
                 }
-                guard !retired, link == linkId else { return }
+                guard !retired else { return }
                 if let sessionId, e.sessionId != sessionId {
                     markLocal(nonce: nonce, botId: botId, status: "failed")
                     lastError = "O Hub gravou a mensagem em outra sessão."
@@ -136,7 +136,7 @@ extension BotStore {
                 upsert(e)
                 if let bot = bots[botId] { onSent?(bot, .delivered) }
             } catch {
-                guard !retired, link == linkId else { return }
+                guard !retired else { return }
                 if outgoingFiles[nonce] != nil { lastError = String(localized: "Não foi possível enviar os arquivos: \(error.localizedDescription)", bundle: .module) }
                 markLocal(nonce: nonce, botId: botId, status: "failed")
             }
@@ -145,22 +145,19 @@ extension BotStore {
 
     /// The computer is offline: the message waits, sealed for it, in the relay mailbox.
     private func enqueue(_ remote: any RemoteTransport, text: String, botId: String, replyTo: String?, nonce: String, sessionId: String?) {
-        let link = linkId
         markLocal(nonce: nonce, botId: botId, status: "waiting")
         saveCache()
         Task {
-            guard !retired, link == linkId else { return }
+            guard !retired else { return }
             do {
                 try await remote.enqueue(botId: botId, text: text, clientNonce: nonce, replyTo: replyTo, sessionId: sessionId)
-                guard !retired, link == linkId else { return }
+                guard !retired else { return }
                 if let bot = bots[botId] { onSent?(bot, .queued) }
             } catch MailboxError.hostOnline {
-                guard !retired, link == linkId else { return }
                 // The computer is back but this link isn't yet: the message stays "Not sent" with Resend
                 // rather than going out by itself once the new link is up.
                 markLocal(nonce: nonce, botId: botId, status: "failed")
             } catch {
-                guard !retired, link == linkId else { return }
                 // A dropped relay link: the message's own "Failed to send" and Resend say enough.
                 if !retired, (error as? HostError)?.isTransient != true { lastError = error.localizedDescription }
                 markLocal(nonce: nonce, botId: botId, status: "failed")
@@ -172,11 +169,8 @@ extension BotStore {
     /// Takes a waiting message back out of the mailbox, unless the computer already has it.
     public func cancelQueued(_ entry: Entry) {
         guard let nonce = entry.data.clientNonce, let remote = transport as? any RemoteTransport else { return }
-        let link = linkId
         Task {
-            let result = await remote.cancelQueued(clientNonce: nonce)
-            guard !retired, link == linkId else { return }
-            switch result {
+            switch await remote.cancelQueued(clientNonce: nonce) {
             case .cancelled:
                 discard(entry)
                 if let bot = bots[entry.botId] { onSent?(bot, .cancelled) }
@@ -203,7 +197,6 @@ extension BotStore {
     /// "Failed" is safe even if one was delivered: the events catch-up replaces it by clientNonce,
     /// and a resend reuses that nonce, so the computer never runs it twice.
     func reconcileQueued(_ remote: any RemoteTransport) async {
-        let link = linkId
         let waiting = entries.values.flatMap { $0 }.filter { $0.data.status == "waiting" }
         guard !waiting.isEmpty else { return }
         let heldItems: [QueuedItem]
@@ -214,7 +207,7 @@ extension BotStore {
             return
         }
         let held = Dictionary(heldItems.map { ($0.nonce, $0.state) }, uniquingKeysWith: { a, _ in a })
-        guard !retired, link == linkId else { return }
+        guard !retired else { return }
         for e in waiting {
             guard let nonce = e.data.clientNonce else { continue }
             switch held[nonce] {

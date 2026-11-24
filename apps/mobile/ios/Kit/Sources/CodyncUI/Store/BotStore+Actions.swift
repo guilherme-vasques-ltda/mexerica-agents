@@ -63,7 +63,7 @@ extension BotStore {
             do {
                 try await withLink(link: link, replay: replay, op)
             } catch {
-                if link == linkId { lastError = error.localizedDescription }
+                lastError = error.localizedDescription
             }
         }
     }
@@ -76,12 +76,7 @@ extension BotStore {
 
     /// Takes control from bots (they can still look) or hands it back.
     public func screenTakeover(_ on: Bool) {
-        let link = linkId
-        perform(replay: true) { [weak self] client in
-            let screen = try await client.screenTakeover(on)
-            guard self?.linkId == link else { return }
-            self?.screen = screen
-        }
+        perform(replay: true) { [weak self] in self?.screen = try await $0.screenTakeover(on) }
     }
 
     /// Quick reactions offered on every message (Slack's hover bar).
@@ -93,10 +88,8 @@ extension BotStore {
         var reactions = entries[entry.botId]?[i].data.reactions ?? []
         if let at = reactions.firstIndex(of: emoji) { reactions.remove(at: at) } else { reactions.append(emoji) }
         entries[entry.botId]?[i].data.reactions = reactions
-        let link = linkId
         perform { client in
             let e = try await client.react(entryId: entry.id, emoji: emoji)
-            guard self.linkId == link else { return }
             self.upsert(e)
         }
     }
@@ -115,9 +108,8 @@ extension BotStore {
                 // The card's own update follows on the events stream; hold the spinner until then.
                 try? await Task.sleep(for: .seconds(2))
             } catch {
-                if marca.valor == linkId { lastError = error.localizedDescription }
+                lastError = error.localizedDescription
             }
-            guard marca.valor == linkId else { return }
             Motion.animate { answering[entry.id] = nil }
         }
     }
@@ -281,18 +273,14 @@ extension BotStore {
 
     /// Creates a group chat (or opens the one these bots already share) and selects it.
     public func createGroup(name: String, description: String = "", members: [String]) async throws -> Bot {
-        let link = linkId
         let group = try await ready().createGroup(GroupDraft(name: name, description: description, members: members))
-        guard !retired, link == linkId else { throw HostError.unreachable }
         bots[group.id] = group
         selection = group.id
         return group
     }
 
     public func updateGroup(_ draft: GroupDraft) async throws {
-        let link = linkId
         let group = try await ready().updateGroup(draft)
-        guard !retired, link == linkId else { throw HostError.unreachable }
         bots[group.id] = group
     }
 
@@ -303,10 +291,8 @@ extension BotStore {
     }
 
     public func save(_ draft: BotDraft) async throws -> Bot {
-        let link = linkId
         let client = try await ready()
         let bot = draft.id == nil ? try await client.createBot(draft) : try await client.updateBot(draft)
-        guard !retired, link == linkId else { throw HostError.unreachable }
         bots[bot.id] = bot
         return bot
     }
@@ -317,8 +303,7 @@ extension BotStore {
 
     public func refreshUsage() async {
         guard !retired, let client else { return }
-        let link = linkId
-        if let u = try? await client.usage(refresh: true), !Task.isCancelled, !retired, link == linkId { setUsage(u) }
+        if let u = try? await client.usage(refresh: true), !Task.isCancelled { setUsage(u) }
     }
 
     /// A ordem de uma leitura de sessões, tirada ANTES de qualquer espera: a resposta de uma leitura mais velha que a
