@@ -3,6 +3,7 @@ import { computerAccessStep, computerPermissionSettings, type ComputerPermission
 import { normalizeScreen, screenWithoutAgent, type ScreenState } from '@shared/models'
 import { Observable } from '../lib/observable'
 import type { AppModel } from './app-model'
+import type { BotStore } from './bot-store'
 import { traduzir } from '../lib/fork-i18n/index.ts'
 
 /** Read-only checks are safe on launch. Requests happen only after an explicit setup action. */
@@ -13,6 +14,7 @@ export class ComputerAccess extends Observable {
   private checkError: string | null = null
   private actionError: string | null = null
   private lastRequest: ComputerPermission | null = null
+  private restoreObservation: { local: BotStore; client: BotStore['client']; epoch: number } | null = null
   requested = new Set<ComputerPermission>()
   private refreshing = false
   private app: AppModel
@@ -29,6 +31,13 @@ export class ComputerAccess extends Observable {
   get computerName() { return this.app.local?.hostName || window.codync.computerName || traduzir('en', 'ajustes.acesso.seuComputador') }
   get error() { return this.checkError ?? this.actionError }
 
+  get portalRestoreUnavailable(): boolean {
+    const observed = this.restoreObservation
+    const local = this.app.local
+    return window.codync.platform === 'linux' && observed !== null && local === observed.local
+      && local.connection.kind === 'online' && local.client === observed.client && local.screenObserved(observed.epoch)
+  }
+
   async refresh() {
     if (this.refreshing) return
     this.refreshing = true
@@ -36,14 +45,22 @@ export class ComputerAccess extends Observable {
       const local = this.app.local
       this.agent = await window.codync.app.screenAgentState()
       // `local.client` passa pelo guarda de versão: sob mismatch some e nenhum `screenStatus` sai.
-      if (local?.client && local.connection.kind === 'online') {
+      const client = local?.client
+      if (local && client && local.connection.kind === 'online') {
         const epoch = local.screenEpoch
-        const screen = normalizeScreen(await local.client.call<ScreenState>('screenStatus', {}))
+        const raw = await client.call<ScreenState & { portalRestoreNotice?: unknown }>('screenStatus', {})
+        const screen = normalizeScreen(raw)
         // R1: o estado da tela é do Space (e do Hub) da store que perguntou; uma resposta atrasada não vale para outra.
         // R2/R3/R5: se o link caiu, a época mudou ou ainda não foi observada pelo stream, não guarda quem usa.
         const stale = local.connection.kind !== 'online' || !local.screenObserved(epoch)
         this.screen = this.app.local !== local ? null : screen && stale ? screenWithoutAgent(screen) : screen
-      } else this.screen = null
+        this.restoreObservation = this.app.local === local && local.client === client && !stale
+          && screen?.platform === 'linux' && screen.enabled && screen.connected
+          && raw.portalRestoreNotice === 'stateDirectoryNotPrivate' ? { local, client, epoch } : null
+      } else {
+        this.screen = null
+        this.restoreObservation = null
+      }
       this.checkError = null
       const granted = this.lastRequest === 'portal'
         ? this.screen?.capture && this.screen.input
@@ -51,6 +68,7 @@ export class ComputerAccess extends Observable {
       if (granted || this.step === 'ready') this.actionError = null
     } catch (error) {
       this.screen = null
+      this.restoreObservation = null
       this.checkError = message(error)
     } finally {
       this.refreshing = false

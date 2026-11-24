@@ -16,7 +16,7 @@ pub struct Display {
 }
 
 /// What the helper reports about itself.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HelperStatus {
     #[serde(default)]

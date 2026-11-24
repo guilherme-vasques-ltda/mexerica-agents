@@ -365,6 +365,8 @@ export const textos = {
   'ajustes.acesso.compartilhar': 'Compartilhar e controlar a tela',
   'ajustes.acesso.compartilharDetalhe': 'Escolha uma tela e permita o acesso ao mouse e ao teclado. Você pode parar de compartilhar a qualquer momento.',
   'ajustes.acesso.escolherTela': 'Escolher a tela e permitir o controle',
+  'ajustes.acesso.restauracaoPortalIndisponivelTitulo': 'Restauração automática indisponível',
+  'ajustes.acesso.restauracaoPortalIndisponivelDetalhe': 'A restauração automática precisa de uma pasta de estado privada e regular. Na próxima vez, o Portal pedirá sua permissão de novo.',
   'ajustes.acesso.notaOnboarding': 'As permissões ficam neste computador. Você pode mudar depois em Ajustes → Acesso ao computador.',
   'ajustes.acesso.notaAjustes': 'As permissões ficam neste computador. Seus outros computadores têm as próprias permissões.',
   'ajustes.acesso.continuar': 'Continuar',

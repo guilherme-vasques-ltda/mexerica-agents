@@ -368,6 +368,8 @@ export const textos: Traducao<typeof fonte> = {
   'ajustes.acesso.compartilhar': '共享并控制屏幕',
   'ajustes.acesso.compartilharDetalhe': '选择一个屏幕并允许访问鼠标和键盘。你可以随时停止共享。',
   'ajustes.acesso.escolherTela': '选择屏幕并允许控制',
+  'ajustes.acesso.restauracaoPortalIndisponivelTitulo': '无法自动恢复',
+  'ajustes.acesso.restauracaoPortalIndisponivelDetalhe': '自动恢复需要一个私有的常规状态目录。下次系统门户会再次请求你的许可。',
   'ajustes.acesso.notaOnboarding': '权限只保存在这台电脑上。之后可以在“设置 → 电脑访问权限”中更改。',
   'ajustes.acesso.notaAjustes': '权限只保存在这台电脑上。你的其他电脑有各自的权限。',
   'ajustes.acesso.continuar': '继续',

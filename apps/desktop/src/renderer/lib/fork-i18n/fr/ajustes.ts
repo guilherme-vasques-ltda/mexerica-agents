@@ -368,6 +368,8 @@ export const textos: Traducao<typeof fonte> = {
   'ajustes.acesso.compartilhar': 'Partager et contrôler l’écran',
   'ajustes.acesso.compartilharDetalhe': 'Choisissez un écran et autorisez l’accès à la souris et au clavier. Vous pouvez arrêter le partage à tout moment.',
   'ajustes.acesso.escolherTela': 'Choisir l’écran et autoriser le contrôle',
+  'ajustes.acesso.restauracaoPortalIndisponivelTitulo': 'Restauration automatique indisponible',
+  'ajustes.acesso.restauracaoPortalIndisponivelDetalhe': 'La restauration automatique nécessite un répertoire d’état privé et ordinaire. Le portail vous redemandera votre autorisation la prochaine fois.',
   'ajustes.acesso.notaOnboarding': 'Les autorisations restent sur cet ordinateur. Vous pourrez les modifier dans Réglages → Accès à l’ordinateur.',
   'ajustes.acesso.notaAjustes': 'Les autorisations restent sur cet ordinateur. Vos autres ordinateurs ont les leurs.',
   'ajustes.acesso.continuar': 'Continuer',

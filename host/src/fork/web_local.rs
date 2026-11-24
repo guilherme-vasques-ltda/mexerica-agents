@@ -176,6 +176,17 @@ impl WebState {
         }
     }
 
+    #[cfg(all(test, target_os = "linux"))]
+    pub(crate) fn fixture_session_headers(&self) -> HeaderMap {
+        let (id, csrf) = self.sessions.locked().create();
+        let mut headers = HeaderMap::new();
+        headers.insert(header::HOST, self.expected_host.parse().expect("fixture host"));
+        headers.insert(header::ORIGIN, self.expected_origin.parse().expect("fixture origin"));
+        headers.insert(header::COOKIE, format!("{COOKIE}={id}").parse().expect("fixture cookie"));
+        headers.insert(CSRF_HEADER, csrf.parse().expect("fixture csrf"));
+        headers
+    }
+
     fn base_guard(&self, headers: &HeaderMap, peer: SocketAddr) -> bool {
         peer.ip().to_canonical().is_loopback() && self.host_ok(headers)
     }

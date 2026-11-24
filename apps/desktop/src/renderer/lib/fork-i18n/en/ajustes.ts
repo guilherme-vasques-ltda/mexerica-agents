@@ -368,6 +368,8 @@ export const textos: Traducao<typeof fonte> = {
   'ajustes.acesso.compartilhar': 'Share and control the screen',
   'ajustes.acesso.compartilharDetalhe': 'Choose a screen and allow mouse and keyboard access. You can stop sharing at any time.',
   'ajustes.acesso.escolherTela': 'Choose the screen and allow control',
+  'ajustes.acesso.restauracaoPortalIndisponivelTitulo': 'Automatic restoration unavailable',
+  'ajustes.acesso.restauracaoPortalIndisponivelDetalhe': 'Automatic restoration requires a private, regular state directory. The portal will ask for your permission again next time.',
   'ajustes.acesso.notaOnboarding': 'Permissions stay on this computer. You can change them later in Settings → Computer access.',
   'ajustes.acesso.notaAjustes': 'Permissions stay on this computer. Your other computers have their own.',
   'ajustes.acesso.continuar': 'Continue',
