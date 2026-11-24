@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Button, Spinner } from '../../../components/Controls'
 import { Icon } from '../../../components/Icon'
 import { useT } from '../../../lib/fork-i18n/estado'
+import { AvisoInstalacaoLocal } from '../aviso-instalacao-local/AvisoInstalacaoLocal'
 import type { HostClient } from '../../../client/host-client'
 import type { HostState } from '../../../../shared/ipc'
 import { forkFeatures } from '../../../../shared/fork-features.ts'
@@ -265,6 +266,7 @@ export function Step3Wizard({
                     : 'onboarding.passo3.local.bloqueadoPlataforma')}
                 </p>
               )}
+              <AvisoInstalacaoLocal />
             </section>
           ) : (
             <section className="onboarding-panel-card" aria-label={t('onboarding.passo3.remoto.titulo')}>

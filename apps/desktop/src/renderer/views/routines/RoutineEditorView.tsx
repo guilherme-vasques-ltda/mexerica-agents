@@ -6,6 +6,7 @@ import { Dialog, ModalHeader } from '../../components/Overlay'
 import { HStack, Spacer, VStack } from '../../components/Stack'
 import { Text } from '../../components/Text'
 import { useStore } from '../../store/context'
+import { AvisoInstalacaoLocal } from '../fork/aviso-instalacao-local/AvisoInstalacaoLocal'
 import { emptyDraft, errorText, isManual, rawError, repeatChoice, type Routine, type RoutineScheduleDraft, type RoutineSchedulePreview, type RoutineTrigger } from './routine'
 import { Field } from '../bots/parts'
 import { LabeledRow, RoutineScheduleFields } from './RoutineScheduleFields'
@@ -20,12 +21,13 @@ import './routines.css'
 
 const saveShortcut = window.codync.platform === 'darwin' ? '⌘S' : 'Ctrl+S'
 
-export function RoutineEditorView({ botId, routine, saved, duplicated, initialTriggers, subtitle }: {
+export function RoutineEditorView({ botId, routine, saved, duplicated, initialTriggers, subtitle, avisaCriacao = false }: {
   botId: string
   routine: Routine | null
   /** Donnabot (D85): a new routine's schedule to start from, and a line under the title. */
   initialTriggers?: RoutineTrigger[]
   subtitle?: string
+  avisaCriacao?: boolean
   /** Called after a save (the routine) or a delete (null). */
   saved: (routine: Routine | null) => void
   duplicated: (routine: Routine) => void
@@ -229,6 +231,7 @@ export function RoutineEditorView({ botId, routine, saved, duplicated, initialTr
                   {t('rotinas.editor.carregandoAgenda')}
                 </HStack>
               )}
+              {avisaCriacao && !routine && schedule.kind === 'cron' ? <AvisoInstalacaoLocal /> : null}
             </VStack>
             <VStack gap={10}>
               <button className="press routine-advanced" aria-expanded={advanced} onClick={() => setAdvanced((a) => !a)}>
