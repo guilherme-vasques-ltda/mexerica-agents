@@ -37,7 +37,7 @@ test('arquivo só ASCII, só pull_request e sem gatilhos que rodam código de fo
 });
 
 test('todo job roda em runner fixo do GitHub, com permissões e timeout explícitos', () => {
-  assert.deepEqual(Object.keys(jobs), ['leves', 'vazamento', 'hub', 'desktop', 'ci-ok']);
+  assert.deepEqual(Object.keys(jobs), ['leves', 'vazamento', 'hub', 'desktop', 'screen-linux', 'ci-ok']);
   for (const [name, job] of Object.entries(jobs)) {
     const runsOn = job.filter((l) => /^    runs-on:/.test(l));
     assert.equal(runsOn.length, 1, `${name}: exatamente um runs-on`);
@@ -67,9 +67,10 @@ test('leves: verificadores da main antes de qualquer código do PR; auditoria s�
   assert.ok(!/continue-on-error/.test(body('leves').split('\n    steps:')[0]), 'o job leves não é aviso');
 });
 
-test('Hub e Desktop só ligam máquina quando selecionados e fora de rascunho ou PR empilhado', () => {
+test('Hub, Desktop e screen-linux só ligam máquina quando selecionados e fora de rascunho ou PR empilhado', () => {
   assert.match(body('hub'), /^    needs: leves\n    if: \$\{\{ needs\.leves\.outputs\.host == 'true' && needs\.leves\.outputs\.heavy == 'true' \}\}$/m);
   assert.match(body('desktop'), /^    needs: leves\n    if: \$\{\{ needs\.leves\.outputs\.desktop == 'true' && needs\.leves\.outputs\.heavy == 'true' \}\}$/m);
+  assert.match(body('screen-linux'), /^    needs: leves\n    if: \$\{\{ needs\.leves\.outputs\.screen-linux == 'true' && needs\.leves\.outputs\.heavy == 'true' \}\}$/m);
   const leves = body('leves');
   assert.match(leves, /\[ "\$BASE_REF" = main \] \|\| stacked=true/);
   assert.match(leves, /if \[ "\$DRAFT" = true \] \|\| \[ "\$stacked" = true \]; then heavy=false; fi/);
@@ -99,7 +100,7 @@ test('ci-ok sempre roda, recusa fork, PR empilhado e job obrigatório pulado', (
   const ok = body('ci-ok');
   assert.match(ok, /^    name: ci-ok$/m);
   assert.match(ok, /^    if: \$\{\{ always\(\) \}\}$/m);
-  assert.match(ok, /^    needs: \[leves, vazamento, hub, desktop\]$/m);
+  assert.match(ok, /^    needs: \[leves, vazamento, hub, desktop, screen-linux\]$/m);
   assert.match(ok, /^    permissions: \{\}$/m);
   assert.ok(!ok.includes('uses:'), 'ci-ok não faz checkout nem usa actions');
   assert.match(ok, /head\.repo\.full_name != github\.repository/);
@@ -108,7 +109,8 @@ test('ci-ok sempre roda, recusa fork, PR empilhado e job obrigatório pulado', (
   assert.match(ok, /\(\.leves\.outputs\.stacked == "false"\)/);
   assert.match(ok, /if selected\("host"\) then \.hub\.result == "success" else \.hub\.result == "skipped" end/);
   assert.match(ok, /if selected\("desktop"\) then \.desktop\.result == "success" else \.desktop\.result == "skipped" end/);
-  assert.match(ok, /flag\("host"\) and flag\("desktop"\) and flag\("heavy"\)/);
+  assert.match(ok, /flag\("host"\) and flag\("desktop"\) and flag\("heavy"\) and flag\("screen-linux"\)/);
+  assert.ok(ok.includes('if selected("screen-linux") then selected("heavy") and .["screen-linux"].result == "success" else .["screen-linux"].result == "skipped" end'));
 });
 
 test('Hub e Desktop rodam as provas completas', () => {
@@ -123,6 +125,19 @@ test('Hub e Desktop rodam as provas completas', () => {
   for (const cmd of ['npm ci --no-audit --no-fund', 'npm run typecheck', 'npm test', 'npm run test:open --if-present']) assert.ok(desktop.includes(cmd), cmd);
   assert.match(desktop, /MEXERICA_CI_BASE_SHA: \$\{\{ github\.event\.pull_request\.base\.sha \}\}/);
   assert.match(desktop, /fetch-depth: 0/);
+});
+
+test('screen-linux: verifica só o crate, sem publicar, executar serviço ou negociar ICE', () => {
+  const screen = body('screen-linux');
+  assert.match(screen, /^    permissions:\n      contents: read$/m);
+  assert.match(screen, /^        working-directory: apps\/screen-linux$/m);
+  assert.doesNotMatch(screen, /continue-on-error:|upload-artifact|cache@|service |systemctl|cargo run/);
+  const runs = [...screen.matchAll(/run: (cargo .+)$/gm)].map((match) => match[1]);
+  assert.deepEqual(runs, [
+    'cargo build --locked',
+    'cargo clippy --all-targets --locked -- -D warnings',
+    'cargo test --locked -- --skip stream::video_tests::baseline_offer_starts_video_after_the_answer_is_negotiated',
+  ]);
 });
 
 test('secret só no passo cujo executor veio da main', () => {
@@ -141,6 +156,13 @@ test('seleção reprova se o diff falhar e cobre configuração do Cargo', () =>
   assert.match(changes, /done < "\$RUNNER_TEMP\/alterados\.z"/);
   assert.ok(!changes.includes('done < <('), 'sem substituição de processo, que engole o erro');
   for (const p of ['Cargo.toml', 'Cargo.lock', '.cargo/*', 'rustfmt.toml', 'clippy.toml']) assert.ok(changes.includes(p), p);
+  assert.match(changes, /screen-linux: \$\{\{ steps\.selection\.outputs\.screen-linux \}\}/);
+  assert.match(changes, /^          screen_linux=false$/m);
+  const paths = changes.match(/^              (.+)\) screen_linux=true ;;$/m)?.[1].split('|');
+  assert.deepEqual(paths, [
+    '.github/workflows/ci.yml', 'apps/screen-linux/*', 'rust-toolchain', 'rust-toolchain.toml',
+    'Cargo.toml', 'Cargo.lock', '.cargo/*', 'clippy.toml', '.clippy.toml',
+  ]);
 });
 
 test('Semgrep usa manifesto e regras da main, nunca os do PR', () => {
