@@ -173,12 +173,8 @@ fn usage(usage: &serde_json::Value) -> Result<super::background_history::Usage> 
     let cache = |field: &str| -> Result<u64> { if usage.get(field).is_none() { Ok(0) } else { count(field) } };
     let read = cache("cache_read_input_tokens")?;
     let write = cache("cache_creation_input_tokens")?;
-    let input = count("input_tokens")?
-        .checked_add(read)
-        .and_then(|n| n.checked_add(write))
-        .ok_or_else(|| anyhow!("Uso Anthropic inválido."))?;
     Ok(super::background_history::Usage {
-        input,
+        input: count("input_tokens")?,
         output: count("output_tokens")?,
         cached_input: Some(read),
         cached_write: Some(write),
@@ -207,7 +203,7 @@ mod tests {
         let text = parse_text(&valid, &key).unwrap();
         let usage = usage(&valid["usage"]).unwrap();
         assert_eq!(text, "Resposta de teste");
-        assert_eq!((usage.input, usage.output, usage.cached_input, usage.cached_write), (11, 3, Some(4), Some(5)));
+        assert_eq!((usage.input, usage.output, usage.cached_input, usage.cached_write), (2, 3, Some(4), Some(5)));
         for (field, invalid) in [
             ("stop_reason", Value::Null),
             ("content", json!([{"type":"tool_use"}])),

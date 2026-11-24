@@ -195,7 +195,18 @@ pub(crate) fn complete_background(
     };
     let tokens = Tokens { input, read, write, output, invalid };
     let politica = super::precos::politica_cache(&uso_backend, uso_versao.as_deref());
-    let estimado = model.and_then(|m| super::precos::estimar(m, &tokens, politica));
+    let estimado = model.and_then(|m| {
+        super::precos::estimar(m, &tokens, politica).or_else(|| {
+            if uso_backend != "anthropic" {
+                return None;
+            }
+            let (base, date) = m.rsplit_once('-')?;
+            if !base.starts_with("claude-") || date.len() != 8 || !date.bytes().all(|b| b.is_ascii_digit()) {
+                return None;
+            }
+            super::precos::estimar(base, &tokens, politica)
+        })
+    });
     store.db.locked().execute(
         "UPDATE donna_turn_usage SET model=COALESCE(?2,model), input_tokens=?3, cached_read_tokens=?4,
          cached_write_tokens=?5, output_tokens=?6, amount=?7, currency=?8,
