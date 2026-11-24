@@ -1,6 +1,7 @@
 package com.codync.android.core
 
 import java.io.IOException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.first
@@ -14,6 +15,7 @@ class WorkspaceChannelTrustTest {
     private class HubWire : ChannelSocket {
         val incoming = Channel<String>(8)
         val requests = Channel<JsonObject>(8)
+        val socketClosed = CompletableDeferred<Unit>()
         private val seed = ByteArray(32) { 1 }
         private val signingKey = RelayCrypto.signingPublic(seed)
         private val computer = Computer(RelayCrypto.computerId(signingKey), "Fixture", signingKey.base64Url())
@@ -54,22 +56,43 @@ class WorkspaceChannelTrustTest {
         }
 
         override suspend fun receive(): String = incoming.receive()
-        override fun close(code: Int) { incoming.close(); requests.close() }
+        override fun close(code: Int) {
+            incoming.close()
+            requests.close()
+            socketClosed.complete(Unit)
+        }
     }
 
     @Test fun `plaintext workspace and device rejects after a signed welcome are not authenticated denials`() = runBlocking {
-        for (code in listOf("workspace_revoked", "role_changed", "device_revoked")) withTimeout(3_000) {
+        val rejects = listOf("revoked" to "workspace_revoked", "revoked" to "role_changed",
+            "revoked" to "device_revoked", "unsupportedVersion" to "device_revoked")
+        for ((legacy, stable) in rejects) withTimeout(3_000) {
             val wire = HubWire()
             wire.channel.start().use { channel ->
                 val pending = async { runCatching { channel.call("send") } }
                 assertEquals("send", wire.requests.receive().text("m"))
-                wire.incoming.send("""{"t":"reject","code":"revoked","stableCode":"$code","message":"Access removed"}""")
+                wire.incoming.send("""{"t":"reject","code":"$legacy","stableCode":"$stable","message":"Access removed"}""")
                 val failed = channel.state.first { it is LinkState.Failed } as LinkState.Failed
                 assertNull(failed.status)
                 assertNotEquals("Access removed", failed.message)
                 val stopped = pending.await().exceptionOrNull()
                 assertTrue(stopped is IOException && stopped !is HostError)
+                wire.socketClosed.await()
                 assertTrue(wire.requests.receiveCatching().isClosed)
+            }
+        }
+    }
+
+    @Test fun `version reject retains the same local diagnostic as the version close`() = runBlocking {
+        for (versionReject in listOf(true, false)) withTimeout(3_000) {
+            val wire = HubWire()
+            wire.channel.start().use { channel ->
+                if (versionReject) {
+                    wire.incoming.send("""{"t":"reject","code":"unsupportedVersion","message":"Access removed"}""")
+                } else wire.incoming.close(ChannelClosed(4400))
+                val failed = channel.state.first { it is LinkState.Failed } as LinkState.Failed
+                assertEquals(426, failed.status)
+                assertEquals(ChannelClosed(4400).message, failed.message)
             }
         }
     }

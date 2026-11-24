@@ -160,12 +160,15 @@ class EncryptedChannel internal constructor(
                 firstState.complete(Unit)
             }
             "reject" -> {
+                val code = wire.text("code")
+                if (code == "unsupportedVersion" && wire["stableCode"] == null) {
+                    throw HostError(426, "Update Mexerica to connect to this computer.")
+                }
                 if (!pairing) throw UnverifiedChannelStop()
                 val message = wire.text("message")
-                throw when (wire.text("code")) {
+                throw when (code) {
                     // The computer couldn't confirm the account's approval lately; it may again, so the owner retries.
                     "leaseExpired" -> IOException(message ?: "The computer can't confirm this device's access right now. Try again shortly.")
-                    "unsupportedVersion" -> HostError(426, message ?: "Update Mexerica to connect to this computer.")
                     else -> HostError(403, message ?: "This device isn't allowed on the computer. Pair it again.")
                 }
             }

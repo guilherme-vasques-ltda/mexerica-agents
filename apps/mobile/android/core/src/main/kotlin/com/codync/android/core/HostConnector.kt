@@ -49,7 +49,6 @@ object HostConnector {
             catch (_: IOException) { /* Try the direct candidates below. */ }
         }
         var directError: Throwable? = null
-        var unverifiedStop: UnverifiedChannelStop? = null
         var ownedWinner: EncryptedChannel? = null
         val direct = try { coroutineScope {
             val attempts = Channel<Result<EncryptedChannel>>(Channel.UNLIMITED,
@@ -79,7 +78,6 @@ object HostConnector {
                             winner = outcome.getOrNull()
                             ownedWinner = winner
                             directError = outcome.exceptionOrNull() ?: directError
-                            unverifiedStop = outcome.exceptionOrNull() as? UnverifiedChannelStop ?: unverifiedStop
                         }
                     }
                     winner
@@ -91,7 +89,6 @@ object HostConnector {
         } } catch (error: Throwable) { ownedWinner?.close(); throw error }
         if (direct != null) return direct
         if (directError is SecurityException) throw requireNotNull(directError)
-        unverifiedStop?.let { throw it }
         if (computer.cloud != null && computer.route == ConnectionRoute.Automatic) return relay(computer, identity, pairing)
         throw directError ?: IOException("Can't reach the computer. Check its connection and try again.")
     }
