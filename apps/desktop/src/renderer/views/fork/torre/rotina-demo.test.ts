@@ -29,6 +29,15 @@ test('an uncertain effect blocks generic retry', () => {
   assert.equal(session.steps[3]?.state, 'uncertain')
 })
 
+test('an uncertain later step blocks continuation at the waiting step', () => {
+  const steps = savedRun.map((step) => ({ ...step }))
+  steps[3]!.state = 'uncertain'
+  const session = new RoutineDemoSession(true, steps)
+  assert.equal(session.continueOnce(), false)
+  assert.equal(session.recorded, false)
+  assert.equal(session.steps[2]?.state, 'waiting')
+})
+
 test('a rapid second click cannot record another intention', () => {
   const session = new RoutineDemoSession(true)
   assert.equal(session.continueOnce(), true)

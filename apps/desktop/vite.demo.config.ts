@@ -8,6 +8,7 @@ const desktop = resolve(dirname(fileURLToPath(import.meta.url)))
 export default defineConfig({
   plugins: [react()],
   root: resolve(desktop, 'src/renderer/demo'),
+  server: { open: '/rotina-etapas.html' },
   build: {
     outDir: resolve(desktop, 'dist/demo/rotina-etapas'),
     emptyOutDir: true,

@@ -1,27 +1,30 @@
 import { useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { RoutineDemoSession } from './rotina-etapas'
+import { useT } from '../lib/fork-i18n/estado'
 
 const enabled = new URLSearchParams(location.search).get('rotina-etapas') === 'on'
 
 function RoutineCard() {
   const [session] = useState(() => new RoutineDemoSession(enabled))
   const [, render] = useState(0)
+  const t = useT()
+  const stepLabel = (state: string) => state === 'done' ? t('torre.demo.step.done') : state === 'waiting' ? t('torre.demo.step.waiting') : state === 'uncertain' ? t('torre.demo.step.uncertain') : t('torre.demo.step.next')
   const blocked = !session.enabled || session.recorded || session.steps.some((step) => step.state === 'uncertain')
   return <main className="routine-demo">
-    <header><span className="routine-demo__eyebrow">Esperando você</span><h1>Revisar rascunho</h1>
-      <p>Quando chegar uma mensagem, prepare uma resposta e mostre antes de enviar.</p></header>
+    <header><span className="routine-demo__eyebrow">{t('torre.esperandoVoce.titulo')}</span><h1>{t('torre.demo.title')}</h1>
+      <p>{t('torre.demo.description')}</p></header>
     <article className="routine-demo__card">
-      <div className="routine-demo__top"><div><span className="routine-demo__badge">SIMULAÇÃO · DADOS FICTÍCIOS</span><h2>Rotina de exemplo</h2></div><span className="routine-demo__status">Aguardando revisão</span></div>
-      <p className="routine-demo__summary">Uma mensagem fictícia chegou em <code>caixa@example.invalid</code>. O estado foi retomado de um snapshot de demonstração.</p>
+      <div className="routine-demo__top"><div><span className="routine-demo__badge">{t('torre.demo.badge')}</span><h2>{t('torre.demo.name')}</h2></div><span className="routine-demo__status">{t('torre.demo.status')}</span></div>
+      <p className="routine-demo__summary">{t('torre.demo.arrived')} <code>caixa@example.invalid</code>. {t('torre.demo.snapshot')}</p>
       <ol className="routine-demo__steps">{session.steps.map((step, index) => <li key={step.id} className={`routine-demo__step is-${step.state}`}>
-        <span className="routine-demo__number">{step.state === 'done' ? '✓' : index + 1}</span><span>{step.title}</span>
-        <small>{step.state === 'done' ? 'Concluída' : step.state === 'waiting' ? 'Esperando você' : step.state === 'uncertain' ? 'Efeito não confirmado · reenvio bloqueado' : 'Próxima'}</small>
+        <span className="routine-demo__number">{step.state === 'done' ? '✓' : index + 1}</span><span>{t(`torre.demo.step.${step.id}` as 'torre.demo.step.read')}</span>
+        <small>{stepLabel(step.state)}</small>
       </li>)}</ol>
-      <div className="routine-demo__draft"><b>Rascunho</b><p>Olá! Obrigado pela mensagem. Vou revisar os detalhes e retorno em breve.</p><small>Prévia local · nenhuma mensagem será enviada</small></div>
-      {!session.enabled && <p className="routine-demo__hint" role="status">A demonstração está desligada. Para ativar somente este cenário, use <code>?rotina-etapas=on</code>.</p>}
-      {session.recorded && <p className="routine-demo__hint" role="status">Intenção simulada registrada nesta sessão. Nenhuma ação externa foi executada.</p>}
-      <button disabled={blocked} onClick={() => { session.continueOnce(); render((value) => value + 1) }}>Continuar</button>
+      <div className="routine-demo__draft"><b>{t('torre.demo.draft')}</b><p>{t('torre.demo.draft.text')}</p><small>{t('torre.demo.draft.note')}</small></div>
+      {!session.enabled && <p className="routine-demo__hint" role="status">{t('torre.demo.disabled')} <code>?rotina-etapas=on</code>.</p>}
+      {session.recorded && <p className="routine-demo__hint" role="status">{t('torre.demo.intentRecorded')}</p>}
+      <button disabled={blocked} onClick={() => { session.continueOnce(); render((value) => value + 1) }}>{t('torre.demo.continue')}</button>
     </article>
   </main>
 }

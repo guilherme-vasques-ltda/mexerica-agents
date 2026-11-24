@@ -18,7 +18,7 @@ export class RoutineDemoSession {
   }
 
   continueOnce() {
-    if (!this.enabled || this.intentionRecorded) return false
+    if (!this.enabled || this.intentionRecorded || this.steps.some((step) => step.state === 'uncertain')) return false
     const current = this.steps.find((step) => step.state !== 'done')
     if (!current || current.state === 'uncertain') return false
     this.intentionRecorded = true
