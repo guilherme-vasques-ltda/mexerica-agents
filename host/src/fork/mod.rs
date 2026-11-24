@@ -1,4 +1,5 @@
 //! Regras próprias da Mexerica, com ganchos curtos no código herdado.
+pub(crate) mod anthropic_automation;
 pub(crate) mod antigravity;
 pub mod autoridade;
 pub mod bootstrap;

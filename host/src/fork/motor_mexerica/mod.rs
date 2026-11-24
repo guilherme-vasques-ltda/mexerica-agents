@@ -32,6 +32,8 @@ pub(crate) mod entrar_chatgpt_jwt;
 #[cfg(unix)]
 pub(crate) mod entrar_openrouter;
 #[cfg(unix)]
+mod fork_anthropic_usage;
+#[cfg(unix)]
 pub(crate) mod historico;
 #[cfg(unix)]
 pub(crate) mod link;

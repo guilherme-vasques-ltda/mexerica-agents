@@ -13,6 +13,7 @@ import { AuthorLabel, Bubble, TimeSeparator } from './ChatRows'
 import { MarkdownText } from './Markdown'
 import { ContratoTarefa } from '../fork/contrato/ContratoTarefa'
 import { useT } from '../../lib/fork-i18n/estado'
+import { subscriptionNoticeText } from './notice-label'
 import './bot-conversation.css'
 
 /** The compact chat row for bot-to-bot messages with one peer: who, never what. Opens the conversation. */
@@ -132,7 +133,7 @@ function ConversationRow({ row }: { row: BotConversationRow }) {
       )
     case 'status': {
       const failed = row.outcome.kind === 'failed'
-      const text = row.outcome.kind === 'failed' ? row.outcome.detail || t('conversa.mensagens.entreBots.naoConcluiu') : t('conversa.mensagens.entreBots.aguardando', { bot: awaitingName })
+      const text = row.outcome.kind === 'failed' ? subscriptionNoticeText(t, row.outcome.detail) || t('conversa.mensagens.entreBots.naoConcluiu') : t('conversa.mensagens.entreBots.aguardando', { bot: awaitingName })
       return <Text as="div" size="footnote" tone={failed ? 'danger' : 'secondary'} className="selectable bot-conversation-status">{text}</Text>
     }
   }

@@ -14,6 +14,7 @@ import { outcomeLabel, runOutcomeText } from './run-outcome'
 import { RoutineEditorView } from './RoutineEditorView'
 import { useRoutineCopyFeedback } from './useRoutineCopyFeedback'
 import { routinesScreen } from '../rotinas-central/navigation'
+import { subscriptionNoticeText } from '../thread/notice-label'
 import type { AppLanguage } from '../../../shared/fork-idioma.ts'
 import { localeDe } from '../../lib/fork-i18n/index.ts'
 import { superficieIdioma, tradutor, useIdioma } from '../../lib/fork-i18n/estado'
@@ -36,6 +37,10 @@ export function routineLine(routine: Routine, runs: RoutineRun[], idioma: AppLan
   if (active) return { text: runLabel(active, idioma) }
   if (routine.lastError) return { text: t('rotinas.painel.atencao') }
   const last = runs.find((r) => r.routineId === routine.id)
+  if (last?.detail) {
+    const detail = subscriptionNoticeText(t, last.detail)
+    if (detail !== last.detail) return { text: detail }
+  }
   const outcome = last ? runOutcomeText(last.status, last.outcome, idioma) : null
   if (outcome && (outcome.tone === 'danger' || outcome.tone === 'attention' || outcome.unconfirmed)) {
     return { text: t('rotinas.painel.ultima', { estado: outcome.label.toLocaleLowerCase(localeDe(idioma)) }), detail: outcome.sentence ? outcomeLabel(outcome) : undefined }

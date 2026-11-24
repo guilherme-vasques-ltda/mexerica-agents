@@ -369,9 +369,16 @@ impl Pending {
             };
             Some(Cost { amount: last.amount - baseline, currency: last.currency.clone() })
         });
+        let model = self.model.as_deref().map(|model| {
+            if self.backend == crate::fork::motor_mexerica::ENGINE_ID {
+                model.strip_prefix("anthropic/").unwrap_or(model)
+            } else {
+                model
+            }
+        });
         let priced = price(
             &tokens,
-            self.model.as_deref(),
+            model,
             motor,
             self.custo.presente(),
             super::precos::politica_cache(&self.backend, self.adapter_versao.as_deref()),

@@ -806,7 +806,10 @@ impl Actor {
         }
         // Conservar RpcError tipado: hint de uso não transforma uma falha comum em limite.
         let rpc = e.chain().find_map(|cause| cause.downcast_ref::<crate::agent::acp::RpcError>());
-        let done = Err(if e.is::<crate::fork::antigravity::ModeUnconfirmed>() {
+        let anthropic_refused = e.downcast_ref::<crate::fork::anthropic_automation::Refusal>().copied();
+        let done = Err(if let Some(reason) = anthropic_refused {
+            reason.into()
+        } else if e.is::<crate::fork::antigravity::ModeUnconfirmed>() {
             crate::fork::antigravity::ModeUnconfirmed.into()
         } else {
             rpc.map_or_else(
@@ -827,6 +830,9 @@ impl Actor {
             return;
         }
         if self.waiting.is_some() {
+            if anthropic_refused.is_some() && self.active_routine.is_some() {
+                self.turn = self.turn.or_else(|| Some(self.hub.store.max_turn(&self.lane.chat)));
+            }
             self.finish_turn(&done);
             return;
         }
@@ -877,10 +883,15 @@ impl Actor {
         };
         let subscription_refused = e.downcast_ref::<crate::fork::assinatura_pessoal::Refusal>().is_some();
         let mut observed = crate::fork::rotina_resultado::Observed::failed(reason);
-        observed.terminal = subscription_refused;
-        self.finish_routine(observed, Some(format!("Could not start routine: {e:#}")), None);
+        observed.terminal = subscription_refused || anthropic_refused.is_some();
+        let anthropic_notice = anthropic_refused.map(|reason| reason.to_string());
+        self.finish_routine(
+            observed,
+            Some(anthropic_notice.clone().unwrap_or_else(|| format!("Could not start routine: {e:#}"))),
+            None,
+        );
         self.complete_request(
-            Err(anyhow!("couldn't start recipient: {e:#}")),
+            Err(anthropic_refused.map_or_else(|| anyhow!("couldn't start recipient: {e:#}"), anyhow::Error::from)),
             false,
             crate::fork::retornos::Fim::FalhaInicio,
         );
@@ -907,7 +918,7 @@ impl Actor {
                 if e.is::<crate::fork::antigravity::ModeUnconfirmed>() {
                     crate::fork::antigravity::MODE_UNCONFIRMED
                 } else {
-                    &text
+                    anthropic_notice.as_deref().unwrap_or(&text)
                 },
                 NoticeStyle::Error,
             );
