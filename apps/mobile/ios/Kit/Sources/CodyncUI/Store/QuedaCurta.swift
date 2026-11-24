@@ -91,6 +91,7 @@ struct TransporteDoLink: HostTransport {
         do {
             return try await base.call(method, body: body, timeout: timeout, onLink: link)
         } catch let error as HostError {
+            guard await currentLink() == link else { throw HostError.unreachable }
             if let motivo = error.recusaDefinitiva(identificando: method == "hello") {
                 aoRecusar(motivo)
             } else if case .http(403, _) = error {

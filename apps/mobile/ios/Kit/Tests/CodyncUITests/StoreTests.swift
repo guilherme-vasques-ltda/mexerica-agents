@@ -44,6 +44,21 @@ actor FakeRemote: RemoteTransport {
     private var replaceAfter: String?
     /// Right after the next `method` call, the link is replaced by a new channel (a reconnect in between).
     func replaceLink(after method: String) { replaceAfter = method }
+    func replaceLink() { generation += 1 }
+    private var heldRefusal: (method: String, error: HostError)?
+    private var refusalWaiter: CheckedContinuation<Void, Never>?
+    var refusalWaiting: Bool { refusalWaiter != nil }
+    func holdRefusal(_ method: String, _ error: HostError) { heldRefusal = (method, error) }
+    func releaseRefusal() {
+        refusalWaiter?.resume()
+        refusalWaiter = nil
+    }
+    private func lateRefusal(_ method: String, onLink link: Int) async throws {
+        guard !isShutdown, generation == link, let heldRefusal, heldRefusal.method == method else { return }
+        self.heldRefusal = nil
+        await withCheckedContinuation { refusalWaiter = $0 }
+        throw heldRefusal.error
+    }
     private var errors: [String: HostError] = [:]
     /// Every `method` call fails with `error` from now on (a real 401/403 from the host).
     func fail(_ method: String, with error: HostError) { errors[method] = error }
@@ -93,6 +108,26 @@ actor FakeRemote: RemoteTransport {
 
     func emit(_ json: String) {
         for s in eventSinks { s.yield(Data(json.utf8)) }
+    }
+
+    private var linkAvailable = true
+    func loseLinkWithoutStateUpdate(error: HostError? = nil) {
+        linkAvailable = false
+        for s in eventSinks { s.finish(throwing: error) }
+    }
+
+    private var holdLinkLookup = false
+    private var linkLookupWaiter: CheckedContinuation<Void, Never>?
+    var linkLookupWaiting: Bool { linkLookupWaiter != nil }
+    func holdNextLinkLookup() { holdLinkLookup = true }
+    func releaseLinkLookup() {
+        holdLinkLookup = false
+        linkLookupWaiter?.resume()
+        linkLookupWaiter = nil
+    }
+
+    func failEvents(_ error: HostError) {
+        for s in eventSinks { s.finish(throwing: error) }
     }
 
     func emit(_ event: MailboxEvent) {
@@ -153,12 +188,17 @@ actor FakeRemote: RemoteTransport {
 
     nonisolated func call(_ method: String, body: Data, timeout: TimeInterval, onLink link: Int) async throws -> Data {
         if method == "hello" { await helloGate() }
+        try await lateRefusal(method, onLink: link)
         return try await respond(method, body, link: link)
     }
 
     func currentLink() async -> Int? {
-        guard !isShutdown, case .ready = state else { return nil }
-        return generation
+        let snapshot: Int? = if !isShutdown, linkAvailable, case .ready = state { generation } else { nil }
+        if holdLinkLookup {
+            holdLinkLookup = false
+            await withCheckedContinuation { linkLookupWaiter = $0 }
+        }
+        return snapshot
     }
 
     private func addEvents(_ c: AsyncThrowingStream<Data, Error>.Continuation) {
@@ -1409,6 +1449,128 @@ func refusalFromHelloLetsGoAtOnce(_ status: Int) async throws {
     #expect(await until { await fake.calls.filter { $0 == "hello" }.count == hellos + 1 })
     #expect(await until { store.temAutoridade })
     #expect(store.estadoConexao == .conectado)
+}
+
+@MainActor @Test func actionUnauthorizedAfterGoingOnlineEndsAccess() async throws {
+    let (storage, suite) = context()
+    defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+    let fake = FakeRemote(.ready(.direct))
+    let store = await lojaConectada(storage, fake)
+    defer { store.retire() }
+    let denied = HostError.http(401, "Refused")
+    let message = try #require(denied.errorDescription)
+    await fake.fail("newSession", with: denied)
+    store.newSession("b1")
+    #expect(await until { store.connection == .unauthorized(message) })
+    #expect(!store.temAutoridade)
+}
+
+@MainActor @Test(arguments: [false, true]) func eventsRetryWithoutALinkWithdrawsAuthority(streamThrows: Bool) async throws {
+    let (storage, suite) = context()
+    defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+    let fake = FakeRemote(.ready(.direct))
+    let store = await lojaConectada(storage, fake)
+    defer { store.retire() }
+    try #require(store.temAutoridade)
+    await fake.loseLinkWithoutStateUpdate(error: streamThrows ? .unreachable : nil)
+    #expect(await until { store.client == nil && store.refusalListener == nil })
+    #expect(!store.temAutoridade)
+    #expect(store.connection == .online)
+}
+
+@MainActor @Test func oldEventsCatchCannotWithdrawAuthorityAfterNewLinkIsOnline() async throws {
+    let (storage, suite) = context()
+    defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+    let fake = FakeRemote(.ready(.direct))
+    let store = await lojaConectada(storage, fake)
+    defer { store.retire() }
+    let oldTask = try #require(store.eventsTask)
+    await fake.holdNextLinkLookup()
+    await fake.failEvents(.unreachable)
+    let newListener: UUID
+    let newLifetime: UUID
+    do {
+        try #require(await until { await fake.linkLookupWaiting })
+        await fake.set(.connecting)
+        try #require(await until { oldTask.isCancelled && !store.temAutoridade })
+        await fake.replaceLink()
+        await fake.set(.ready(.direct))
+        try #require(await until { await fake.eventSubscriptionCount == 2 })
+        await fake.emit(botEvent("b1", name: "Bot", rev: 2))
+        try #require(await until { store.temAutoridade })
+        newListener = try #require(store.refusalListener)
+        newLifetime = try #require(store.refusalLink?.lifetime)
+    } catch {
+        await fake.releaseLinkLookup()
+        throw error
+    }
+    await fake.releaseLinkLookup()
+    await oldTask.value
+    #expect(store.temAutoridade)
+    #expect(store.refusalListener == newListener)
+    #expect(store.refusalLink?.lifetime == newLifetime)
+}
+
+@MainActor @Test(arguments: [401, 403]) func lateActionRefusalCannotAffectReopenedLink(_ status: Int) async throws {
+    let (storage, suite) = context()
+    defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+    let fake = FakeRemote(.ready(.direct))
+    let store = await lojaConectada(storage, fake)
+    defer { store.retire() }
+    let old = try #require(store.client)
+    await fake.holdRefusal("newSession", .http(status, "Old refusal"))
+    let action = Task { try await old.newSession("b1") }
+    let waiting = await until { await fake.refusalWaiting }
+    #expect(waiting)
+    guard waiting else { return }
+    await fake.set(.connecting)
+    let disconnected = await until { !store.temAutoridade }
+    #expect(disconnected)
+    await fake.replaceLink()
+    await fake.set(.ready(.direct))
+    let subscribed = await until { await fake.eventSubscriptionCount == 2 }
+    #expect(subscribed)
+    await fake.emit(botEvent("b1", name: "Bot", rev: 2))
+    let reopened = await until { store.temAutoridade }
+    #expect(reopened)
+    let helloCount = await fake.calls.filter { $0 == "hello" }.count
+    await fake.releaseRefusal()
+    await #expect(throws: HostError.unreachable) { try await action.value }
+    #expect(store.temAutoridade)
+    #expect(await fake.calls.filter { $0 == "hello" }.count == helloCount)
+}
+
+@MainActor @Test(arguments: [401, 403]) func actionRefusalStillAppliesAfterResyncOnTheSameLink(_ status: Int) async throws {
+    let (storage, suite) = context()
+    defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+    let fake = FakeRemote(.ready(.direct))
+    let store = await lojaConectada(storage, fake)
+    defer { store.retire() }
+    let old = try #require(store.client)
+    let link = try #require(await fake.currentLink())
+    let listener = try #require(store.refusalListener)
+    let denied = HostError.http(status, "Refused")
+    await fake.holdRefusal("newSession", denied)
+    let action = Task { try await old.newSession("b1") }
+    try #require(await until { await fake.refusalWaiting })
+    await fake.emit(#"{"type":"resync"}"#)
+    let resubscribed = await until { await fake.eventSubscriptionCount == 2 }
+    #expect(resubscribed)
+    let hellos = await fake.calls.filter { $0 == "hello" }.count
+    #expect(hellos == 2)
+    #expect(await fake.currentLink() == link)
+    #expect(store.refusalListener != listener)
+    await fake.releaseRefusal()
+    await #expect(throws: denied) { try await action.value }
+    if status == 401 {
+        let message = try #require(denied.errorDescription)
+        #expect(await until { store.connection == .unauthorized(message) })
+        #expect(!store.temAutoridade)
+    } else {
+        #expect(await until { await fake.calls.filter { $0 == "hello" }.count == hellos + 1 })
+        #expect(await until { store.temAutoridade })
+        #expect(await fake.currentLink() == link)
+    }
 }
 
 @MainActor @Test func actionRefusedBecauseTheDeviceWasRevokedLetsGoAtOnce() async throws {

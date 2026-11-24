@@ -10,18 +10,43 @@ extension BotStore {
     func runEvents(_ client: HostClient) async {
         var backoff: Double = 1
         while !Task.isCancelled {
+            let base = client.transport
+            var attempt: (link: Int, listener: UUID)?
             do {
                 // Authority belongs to the channel the Hub identifies itself on now; every action after
                 // this goes out on that channel or fails.
-                guard let link = await client.transport.currentLink() else { throw HostError.unreachable }
+                let previousListener = refusalListener
+                let previousLifetime = refusalLink?.lifetime
+                let currentLink = await base.currentLink()
+                guard !Task.isCancelled, !retired, refusalListener == previousListener,
+                      refusalLink?.lifetime == previousLifetime else { return }
+                guard let link = currentLink else {
+                    if previousLifetime != nil { encerrarAutoridade() }
+                    throw HostError.unreachable
+                }
+                let lifetime = refusalLink.flatMap { $0.channel == link ? $0.lifetime : nil } ?? UUID()
+                refusalLink = (link, lifetime)
                 guard !Task.isCancelled, !retired else { return }
+                let listener = UUID()
+                reverificacao?.cancel()
+                reverificacao = nil
+                refusalListener = listener
+                attempt = (link, listener)
                 let vinculado = HostClient(transport: TransporteDoLink(
-                    base: client.transport, link: link,
+                    base: base, link: link,
                     aoRecusar: { [weak self] motivo in
-                        Task { @MainActor in self?.soltarPorRecusa(motivo) }
+                        Task { @MainActor in
+                            guard let self, self.refusalLink?.lifetime == lifetime,
+                                  await base.currentLink() == link, self.refusalLink?.lifetime == lifetime else { return }
+                            self.soltarPorRecusa(motivo)
+                        }
                     },
                     aoDuvidar: { [weak self] in
-                        Task { @MainActor in self?.reverificarAcesso() }
+                        Task { @MainActor in
+                            guard let self, self.refusalLink?.lifetime == lifetime,
+                                  await base.currentLink() == link, self.refusalLink?.lifetime == lifetime else { return }
+                            self.reverificarAcesso()
+                        }
                     }))
                 try await refreshHello(vinculado)
                 guard !Task.isCancelled, !retired else { return }
@@ -57,13 +82,24 @@ extension BotStore {
             } catch is CancellationError {
                 return
             } catch {
-                if Task.isCancelled || retired { return }
-                clienteAutorizado = nil
+                guard !Task.isCancelled, !retired else { return }
                 log.info("stream ended: \(error.localizedDescription)")
                 // 401/403 from `hello` or the events stream end this device's access, like `.unauthorized`.
-                if let motivo = (error as? HostError)?.recusaDefinitiva(identificando: true) {
-                    soltarPorRecusa(motivo)
-                    return
+                if let attempt, refusalListener == attempt.listener, let lifetime = refusalLink?.lifetime {
+                    let currentLink = await base.currentLink()
+                    guard !Task.isCancelled, !retired, refusalListener == attempt.listener,
+                          refusalLink?.lifetime == lifetime else { return }
+                    if currentLink != attempt.link {
+                        encerrarAutoridade()
+                    } else if let motivo = (error as? HostError)?.recusaDefinitiva(identificando: true) {
+                        soltarPorRecusa(motivo)
+                        return
+                    } else {
+                        clienteAutorizado = nil
+                        refusalListener = nil
+                        reverificacao?.cancel()
+                        reverificacao = nil
+                    }
                 }
             }
             try? await Task.sleep(for: .seconds(backoff))
