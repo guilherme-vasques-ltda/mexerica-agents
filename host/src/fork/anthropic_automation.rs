@@ -3,16 +3,24 @@ use anyhow::Result;
 
 pub(crate) const UNAVAILABLE: &str = "anthropic_automation_platform: Rotinas e delegação com chave de API da Anthropic ainda não estão disponíveis neste sistema. Nenhuma outra conta foi usada.";
 
-#[derive(Debug)]
-pub(crate) struct UnsupportedPlatform;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Refusal {
+    Platform,
+    PersonalOnly,
+    VaultKey,
+}
 
-impl std::fmt::Display for UnsupportedPlatform {
+impl std::fmt::Display for Refusal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(UNAVAILABLE)
+        f.write_str(match self {
+            Self::Platform => UNAVAILABLE,
+            Self::PersonalOnly => "anthropic_automation_personal: A chave Anthropic para automação só pode ser usada no Pessoal, sem comando personalizado nem outra conta de motor.",
+            Self::VaultKey => "anthropic_automation_vault: Cadastre uma chave de API da Anthropic válida no cofre do Hub.",
+        })
     }
 }
 
-impl std::error::Error for UnsupportedPlatform {}
+impl std::error::Error for Refusal {}
 
 pub(crate) fn check(store: &crate::store::Store, cfg: &BotConfig) -> Result<()> {
     check_platform(cfg, cfg!(target_os = "linux"))?;
@@ -25,23 +33,25 @@ pub(crate) fn check(store: &crate::store::Store, cfg: &BotConfig) -> Result<()> 
             && !cfg.is_group()
             && cfg.command.is_none()
             && cfg.fork_editor.engine_account_id.is_none(),
-        "A chave Anthropic do Motor Mexerica só pode ser usada no Pessoal."
+        Refusal::PersonalOnly
     );
     crate::fork::motor_mexerica::ensure_runnable()?;
-    anyhow::ensure!(vault_key(store)?.is_some(), "Cadastre a chave Anthropic no cofre do Hub.");
+    anyhow::ensure!(vault_key(store)?.is_some(), Refusal::VaultKey);
     Ok(())
 }
 
 pub(crate) fn vault_key(store: &crate::store::Store) -> Result<Option<zeroize::Zeroizing<String>>> {
     let slot = crate::fork::motor_mexerica::credential_slot("anthropic");
     let Some(raw) = store.kv_read(&slot)? else { return Ok(None) };
-    let key = zeroize::Zeroizing::new(crate::market::vault::open_ciphertext(store, &slot, &raw)?);
-    crate::fork::background_anthropic::api_key(&key)?;
+    let key = zeroize::Zeroizing::new(
+        crate::market::vault::open_ciphertext(store, &slot, &raw).map_err(|_| Refusal::VaultKey)?,
+    );
+    crate::fork::background_anthropic::api_key(&key).map_err(|_| Refusal::VaultKey)?;
     Ok(Some(key))
 }
 
 fn check_platform(cfg: &BotConfig, linux: bool) -> Result<()> {
-    anyhow::ensure!(!uses_anthropic(cfg) || linux, UnsupportedPlatform);
+    anyhow::ensure!(!uses_anthropic(cfg) || linux, Refusal::Platform);
     Ok(())
 }
 
@@ -60,7 +70,7 @@ mod tests {
         let mut cfg: BotConfig = serde_json::from_value(json!({"id":"bot","name":"Bot","backend":"mexerica",
             "model":"anthropic/claude-fixture"}))
         .unwrap();
-        assert!(check_platform(&cfg, false).unwrap_err().is::<UnsupportedPlatform>());
+        assert_eq!(check_platform(&cfg, false).unwrap_err().downcast_ref(), Some(&Refusal::Platform));
         assert!(check_platform(&cfg, true).is_ok());
         cfg.model = Some("openai/modelo-ficticio".into());
         assert!(check_platform(&cfg, false).is_ok());

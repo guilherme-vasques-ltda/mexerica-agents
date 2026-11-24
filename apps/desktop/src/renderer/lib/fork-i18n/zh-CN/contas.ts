@@ -304,6 +304,8 @@ export const textos: Traducao<typeof fonte> = {
   "contas.assinaturaSemTroca": "Claude 订阅不会自动切换账号。请手动选择账号后继续。",
   "contas.assinaturaFundoIndisponivel": "此后台任务不可用。它不接受个人订阅，也没有其他兼容的连接可用。没有使用其他账号。",
   "contas.automacaoAnthropicIndisponivel": "此系统暂不支持使用 Anthropic API 密钥运行例程或委派任务。未使用其他账号。",
+  "contas.automacaoAnthropicPessoal": "Anthropic 自动化仅可在个人空间中使用，且不能使用自定义命令或其他引擎账号。",
+  "contas.automacaoAnthropicCofre": "请在 Hub 的保险库中添加有效的 Anthropic API 密钥。",
   "contas.apiDireta.erro.semPermissao": "该密钥无权列出模型。请在提供商控制台检查其权限。",
   "contas.apiDireta.erro.limite": "提供商因用量限制或余额不足而拒绝。请稍后再试。",
   "contas.apiDireta.erro.fornecedorFalhou": "提供商返回了错误。请几分钟后再试。",

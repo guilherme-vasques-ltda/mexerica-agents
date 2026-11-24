@@ -310,6 +310,8 @@ export const textos: Traducao<typeof fonte> = {
   "contas.assinaturaSemTroca": "L’abonnement Claude ne change pas automatiquement de compte. Choisissez un compte manuellement pour continuer.",
   "contas.assinaturaFundoIndisponivel": "Cette tâche en arrière-plan est indisponible. Elle n’accepte pas les abonnements personnels et aucune autre connexion compatible n’est disponible. Aucun autre compte n’a été utilisé.",
   "contas.automacaoAnthropicIndisponivel": "Les routines et la délégation avec une clé API Anthropic ne sont pas encore disponibles sur ce système. Aucun autre compte n’a été utilisé.",
+  "contas.automacaoAnthropicPessoal": "L’automatisation Anthropic est réservée à l’espace Personnel, sans commande personnalisée ni autre compte de moteur.",
+  "contas.automacaoAnthropicCofre": "Ajoutez une clé API Anthropic valide au coffre du Hub.",
   "contas.apiDireta.erro.semPermissao": "La clé n'a pas le droit de lister les modèles. Vérifiez ses autorisations dans la console du fournisseur.",
   "contas.apiDireta.erro.limite": "Le fournisseur a refusé pour une limite d'usage ou un manque de crédit. Réessayez plus tard.",
   "contas.apiDireta.erro.fornecedorFalhou": "Le fournisseur a renvoyé une erreur. Réessayez dans quelques minutes.",

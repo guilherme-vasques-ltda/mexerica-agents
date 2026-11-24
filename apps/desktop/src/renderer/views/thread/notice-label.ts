@@ -12,6 +12,8 @@ export function subscriptionNoticeText(t: Tradutor, text: string): string {
   if (text.startsWith('meta_standard_unverified: ')) return t('contas.apiDireta.erro.metaStandard')
   if (text.startsWith('background_subscription_unavailable: ')) return t('contas.assinaturaFundoIndisponivel')
   if (text.startsWith('anthropic_automation_platform: ')) return t('contas.automacaoAnthropicIndisponivel')
+  if (text.startsWith('anthropic_automation_personal: ')) return t('contas.automacaoAnthropicPessoal')
+  if (text.startsWith('anthropic_automation_vault: ')) return t('contas.automacaoAnthropicCofre')
   return text
 }
 
