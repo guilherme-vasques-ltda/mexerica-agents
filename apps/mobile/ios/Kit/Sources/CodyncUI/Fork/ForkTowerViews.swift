@@ -514,12 +514,24 @@ enum ForkTowerFixtureCatalog {
         ),
     ]
 
+    private static func allowsBotInterrupt(_ kind: WorkOriginKind) -> Bool {
+        kind == .delegated || kind == .routine
+    }
+
     static func tower(for perspective: TowerPerspective) -> TowerViewSnapshot {
-        let visible: [WorkCard]
+        let filtered: [WorkCard]
         switch perspective {
-        case .overview: visible = cards
-        case .director: visible = cards.filter { $0.directorBotId == directorBotId }
-        case .bot: visible = cards.filter { $0.assigneeBotId == botId }
+        case .overview: filtered = cards
+        case .director: filtered = cards.filter { $0.directorBotId == directorBotId }
+        case .bot: filtered = cards.filter { $0.assigneeBotId == botId }
+        }
+        let visible = filtered.map { (card: WorkCard) -> WorkCard in
+            var card = card
+            card.capabilities = WorkCapabilities(
+                canDirectorInterrupt: perspective == .director && allowsBotInterrupt(card.origin.kind),
+                canOwnerAccept: perspective == .overview && card.capabilities.canOwnerAccept
+            )
+            return card
         }
         return TowerViewSnapshot(
             version: 1,

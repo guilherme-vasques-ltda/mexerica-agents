@@ -232,6 +232,17 @@ private func doctorReport(overall: DoctorOverallStatus, checks: [DoctorCheck]) -
     #expect(!blocked.canDirectorInterrupt)
 }
 
+@MainActor @Test func capabilitiesFollowEachPerspectiveProjection() {
+    let overview = ForkTowerFixtureCatalog.tower(for: .overview).cards
+    let director = ForkTowerFixtureCatalog.tower(for: .director).cards
+    let bot = ForkTowerFixtureCatalog.tower(for: .bot).cards
+    #expect(overview.first { $0.taskId == "task-1" }?.capabilities == WorkCapabilities(canDirectorInterrupt: false, canOwnerAccept: true))
+    #expect(overview.first { $0.taskId == "task-3" }?.capabilities == WorkCapabilities(canDirectorInterrupt: false, canOwnerAccept: false))
+    #expect(director.first { $0.taskId == "task-1" }?.capabilities == WorkCapabilities(canDirectorInterrupt: false, canOwnerAccept: false))
+    #expect(director.first { $0.taskId == "task-2" }?.capabilities == WorkCapabilities(canDirectorInterrupt: true, canOwnerAccept: false))
+    #expect(bot.first?.capabilities == WorkCapabilities(canDirectorInterrupt: false, canOwnerAccept: false))
+}
+
 @MainActor @Test func fixtureAcceptanceFollowsHubProjectionInvariants() {
     for card in ForkTowerFixtureCatalog.cards {
         #expect(card.delivery.acceptedByOwner == (card.state == "done"))
