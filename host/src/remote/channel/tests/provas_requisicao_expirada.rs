@@ -37,6 +37,11 @@ async fn request_account_propria_expirada_fecha_sem_dados_apos_renovacao() {
         online: None,
         quadros: false,
         browser: None,
+        sessao: None,
+        prazo: tokio::sync::watch::channel(None).0,
+        th: [0; 32],
+        epoch: hub.workspace.atual(),
+        nonces: crate::fork::sessao_clerk::posse::Nonces::default(),
     };
     let original = canal.caller.clone();
     assert!(canal.tx.try_send(ToDevice::Inner(json!({"sentinela":true}))).is_ok());

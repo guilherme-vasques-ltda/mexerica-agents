@@ -37,6 +37,7 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
             crate::voice::set_key(&hub.store, provider, b["key"].as_str().unwrap_or_default()).await?
         }
         "voiceSession" => {
+            crate::fork::sessao_clerk::negar_sem_corte(hub, caller)?;
             let provider = crate::voice::Provider::parse(str_arg(&b, "provider")?)?;
             crate::voice::session(&hub.store, provider, str_arg(&b, "model")?, str_arg(&b, "voice")?).await?
         }
@@ -235,6 +236,7 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
             screen_projection::state(hub, space)
         }
         "screenPrepare" => {
+            crate::fork::sessao_clerk::negar_sem_corte(hub, caller)?;
             if !hub.screen.enabled() {
                 bail!("Remote screen is turned off on this computer.");
             }
@@ -249,6 +251,7 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
             result
         }
         "screenOffer" => {
+            crate::fork::sessao_clerk::negar_sem_corte(hub, caller)?;
             let display = b["display"].as_u64().and_then(|d| u32::try_from(d).ok());
             hub.screen.offer(caller.device_key(), str_arg(&b, "sdp")?, str_arg(&b, "session")?, display).await?
         }
@@ -260,6 +263,7 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
             json!({})
         }
         "screenTakeover" => {
+            crate::fork::sessao_clerk::negar_sem_corte(hub, caller)?;
             hub.screen.takeover(b["on"].as_bool().unwrap_or(false));
             screen_projection::state(hub, space)
         }

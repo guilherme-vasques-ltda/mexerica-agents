@@ -143,6 +143,7 @@ impl Store {
         let rev = next_rev(&tx)?;
         tx.execute("UPDATE bots SET read_rev = ?2, rev = ?2 WHERE id = ?1", params![id, rev])?;
         tx.execute("UPDATE donna_space_conversations SET read_revision=?2 WHERE id=?1", params![id, rev])?;
+        crate::fork::sessao_clerk::conferir_no_efeito(&tx)?;
         tx.commit()?;
         Ok(rev)
     }

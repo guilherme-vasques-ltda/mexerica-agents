@@ -306,6 +306,10 @@ pub(super) async fn call(
             }
             let nonce = b["clientNonce"].as_str().unwrap_or_default();
             let row = hub.store.bot(bot)?.filter(|r| !r.deleted).ok_or_else(|| anyhow!("unknown bot"))?;
+            // A rodada do grupo e os turnos dos membros correm sem a guarda da sessão: negado com vínculo.
+            if row.config.is_group() {
+                crate::fork::sessao_clerk::negar_sem_corte(hub, caller)?;
+            }
             let mut attachments = Vec::new();
             if !uploads.is_empty() {
                 let root = crate::chat::uploads::root(&row.config);
@@ -340,7 +344,6 @@ pub(super) async fn call(
                 }
                 .into());
             }
-            let turn = hub.store.alloc_turn(bot)?;
             // A group has no agent of its own to queue behind; its message stays pending until the room's first
             // round has passed it to the members (`fork::grupo_entrega`), so a restart in between can resume it.
             let status = match (row.config.is_group(), open_turn.is_some()) {
@@ -387,7 +390,7 @@ pub(super) async fn call(
             };
             crate::fork::idioma_app::carimbar(&hub.store, caller, &mut data); // D395
             // MB-1b: a mensagem humana responde, na mesma transação, as perguntas pendentes desta conversa.
-            let e = match crate::fork::owner_question::add_human_message(hub, &lane, turn, &data)? {
+            let e = match crate::fork::owner_question::add_human_message_no_turno(hub, &lane, &data)? {
                 crate::fork::owner_question::Human::New(e) => e,
                 crate::fork::owner_question::Human::Replayed(e) => return Ok(ControlFlow::Break(json!({"entry": e}))),
             };
@@ -397,7 +400,7 @@ pub(super) async fn call(
                 tracing::warn!(%error, bot, "couldn't mark bot read after send");
             }
             if let Some(ticket) = open_turn {
-                crate::fork::open_chat::run(hub, ticket, &row.config, lane, turn, e.id.clone(), text.to_owned());
+                crate::fork::open_chat::run(hub, ticket, &row.config, lane, e.turn, e.id.clone(), text.to_owned());
             } else if row.config.is_group() {
                 // Each member reads it in its room prompt (`chat::group`).
                 crate::chat::group::start(hub, &row.config, lane, crate::fork::grupo_entrega::Delivery::new(&e.id));

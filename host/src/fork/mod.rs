@@ -115,6 +115,7 @@ pub(crate) mod retornos;
 #[allow(dead_code, reason = "MX-175: contrato de sandbox preparado; sem consumidor de execução no Hub.")]
 pub(crate) mod sandbox;
 pub(crate) mod secret_refs;
+pub(crate) mod sessao_clerk;
 pub(crate) mod sessoes;
 pub(crate) mod skill_catalog;
 pub(crate) mod skill_selection;
@@ -150,6 +151,7 @@ pub(crate) mod runtime_audiencia;
 pub(crate) fn migrate(store: &crate::store::Store) -> anyhow::Result<()> {
     nunca_fazer::migrate(&store.db.locked())?;
     workspace::migrate(&store.db.locked())?;
+    sessao_clerk::migrate(&store.db.locked())?;
     instrucao_geral::migrate(&store.db.locked())?;
     custo::migrate(&store.db.locked())?;
     autoridade::concessao::migrate(&store.db.locked())?;

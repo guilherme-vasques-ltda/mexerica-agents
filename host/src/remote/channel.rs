@@ -22,8 +22,8 @@ use crate::hub::Hub;
 use crate::remote::crypto::{self, FrameError, Opener, Sealer};
 use crate::store::{Device, DeviceSource, Scope, now_ms};
 use axum::extract::ws::{CloseFrame, Message, WebSocket};
-use barreira_workspace::Barreira;
 pub(crate) use barreira_workspace::Porta;
+use barreira_workspace::{Barreira, Terminal};
 use futures::{SinkExt as _, StreamExt as _};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
@@ -187,8 +187,8 @@ async fn write_frames(
         let msg = tokio::select! {
             biased;
             () = Barreira::mudou(barreira.as_mut()) => {
-                if let Some(reject) = barreira.as_ref().and_then(Barreira::terminal) {
-                    send_terminal(&out, reject).await;
+                if let Some(t) = barreira.as_ref().and_then(Barreira::terminal) {
+                    send_terminal(&out, t).await;
                 }
                 return;
             }
@@ -209,9 +209,9 @@ async fn write_frames(
                 Some(b) => b.resolver().await,
                 None => None,
             };
-            if let Some(reject) = terminal {
+            if let Some(t) = terminal {
                 drop(slot);
-                send_terminal(&out, reject).await;
+                send_terminal(&out, t).await;
                 return;
             }
             slot.send(frame);
@@ -229,9 +229,9 @@ fn sealed(sealer: &mut Sealer, bytes: &[u8]) -> (Vec<Out>, bool) {
     }
 }
 
-async fn send_terminal(out: &mpsc::Sender<Out>, reject: Value) {
-    if out.send(Out::Msg(reject)).await.is_ok() {
-        let _ = out.send(Out::Close(RejectCode::Revoked.close_code(), "rejected")).await;
+async fn send_terminal(out: &mpsc::Sender<Out>, t: Terminal) {
+    if out.send(Out::Msg(t.reject)).await.is_ok() {
+        let _ = out.send(Out::Close(t.close, "rejected")).await;
     }
 }
 
@@ -284,7 +284,13 @@ pub async fn run(hub: Arc<Hub>, t: Transport, kind: ChannelKind) {
     let aviso = hub.workspace.assinar();
     let epoch = aviso.borrow().valor;
     let Some(hs) = handshake(&hub, &mut incoming, &outgoing, &kind).await else { return };
-    let barreira = hs.device.as_ref().map(|_| Barreira::nova(hub.clone(), hs.key.clone(), aviso, epoch));
+    // Hub com vínculo: o aparelho tem pouco tempo para apresentar a sessão; depois, vale o `exp`.
+    let espera = match crate::fork::sessao_clerk::exigencia(&hub) {
+        crate::fork::sessao_clerk::Exigencia::Livre => None,
+        _ => Some(crate::fork::sessao_clerk::Limite::em(crate::fork::sessao_clerk::ESPERA_SESSAO_MS)),
+    };
+    let (prazo, prazo_rx) = tokio::sync::watch::channel(hs.device.as_ref().and(espera));
+    let barreira = hs.device.as_ref().map(|_| Barreira::nova(hub.clone(), hs.key.clone(), aviso, epoch, prazo_rx));
     if let Some(barreira) = &barreira {
         porta.armar(barreira.clone());
     }
@@ -307,6 +313,11 @@ pub async fn run(hub: Arc<Hub>, t: Transport, kind: ChannelKind) {
         online: None,
         quadros: hs.quadros,
         browser: None,
+        sessao: None,
+        prazo,
+        th: hs.th,
+        epoch,
+        nonces: crate::fork::sessao_clerk::posse::Nonces::default(),
     };
     let opener = Opener::new(
         hs.keys.d2h,
@@ -348,6 +359,8 @@ struct Handshake {
     bootstrap: Option<BootstrapLink>,
     /// Capacidade de quadros negociada no `hello`; ausente no cliente antigo.
     quadros: bool,
+    /// Hash do handshake: a prova de posse de cada pedido só vale neste canal.
+    th: [u8; 32],
 }
 
 async fn send_reject(out: &mpsc::Sender<Out>, code: RejectCode) {
@@ -401,6 +414,14 @@ async fn handshake(
             || hello.to_string().len() > crate::fork::bootstrap::codec::LIMIT
         {
             protocol_error().await;
+            return None;
+        }
+        // Só num Hub comprovadamente sem vínculo; o commit da prova relê o vínculo na própria Tx.
+        if !matches!(
+            crate::fork::sessao_clerk::vinculo::ler(hub),
+            crate::fork::sessao_clerk::vinculo::Estado::SemVinculo
+        ) {
+            send_reject(out, RejectCode::Unauthorized).await;
             return None;
         }
         let Ok(now) = crate::fork::bootstrap::clock::now() else {
@@ -499,7 +520,7 @@ async fn handshake(
     if out.send(Out::Msg(welcome)).await.is_err() {
         return None;
     }
-    Some(Handshake { key: dk, keys: crypto::channel_keys(&shared, &th), device, bootstrap, quadros })
+    Some(Handshake { key: dk, keys: crypto::channel_keys(&shared, &th), device, bootstrap, quadros, th })
 }
 
 enum Job {
@@ -550,6 +571,15 @@ struct Channel {
     online: Option<Online>,
     quadros: bool,
     browser: Option<BrowserConn>,
+    /// Sessão Clerk verificada (Hub com vínculo).
+    sessao: Option<crate::fork::sessao_clerk::Sessao>,
+    /// Fim da sessão, lido pela barreira do escritor e pelas assinaturas.
+    prazo: tokio::sync::watch::Sender<Option<crate::fork::sessao_clerk::Limite>>,
+    th: [u8; 32],
+    /// `workspaceEpoch` de quando o canal abriu.
+    epoch: u64,
+    /// Nonces de prova de posse já usados neste canal.
+    nonces: crate::fork::sessao_clerk::posse::Nonces,
 }
 
 type CloseWith = (u16, &'static str);
@@ -678,6 +708,7 @@ impl Channel {
         }
         let v: Value = serde_json::from_slice(bytes).map_err(|_| protocol)?;
         let id = v["id"].as_u64().filter(|id| u32::try_from(*id).is_ok()).ok_or(protocol)?;
+        // Antes de sessão e prova: só encerra uma assinatura deste mesmo canal (`jobs` é do canal).
         if v["cancel"] == true {
             self.cancel(id).await;
             return Ok(());
@@ -688,6 +719,7 @@ impl Channel {
         }
         // Every request re-checks the device (revocation, lease) before it runs.
         self.recheck().await?;
+        let Some(caller) = self.sessao_do_pedido(id, &v).await? else { return Ok(()) };
         let browser = v["m"].as_str().filter(|m| browser_canal::METODOS.contains(m));
         // A classe da tabela vem antes das guardas próprias do navegador (escopo, Hub/Space/bot e sessão).
         if let Some(method) = browser
@@ -714,17 +746,85 @@ impl Channel {
             v["b"].clone()
         };
         if let Some(method) = browser {
-            self.handle_browser(id, method, &b).await;
+            self.handle_browser(id, method, &b, &caller).await;
             return Ok(());
         }
         if let Some(kind) = v["sub"].as_str() {
-            self.subscribe(id, kind, &b, v["b"][crate::fork::workspace::EPOCH_FIELD].as_u64()).await;
+            let epoch = v["b"][crate::fork::workspace::EPOCH_FIELD].as_u64();
+            self.subscribe(id, kind, &b, epoch, caller).await;
         } else if let Some(method) = v["m"].as_str() {
-            self.request(id, method.to_owned(), v["b"].clone()).await;
+            self.request(id, method.to_owned(), v["b"].clone(), caller).await;
         } else {
             return Err(protocol);
         }
         Ok(())
+    }
+
+    /// Hub com vínculo: `sessionAuthenticate` abre ou renova a sessão; qualquer outro pedido passa
+    /// por [`crate::fork::sessao_clerk::conferir_pedido`], exige `workspaceEpoch` (menos
+    /// `workspaceContext`) e segue com o `Caller` que leva a guarda da sessão. `None`: o pedido já
+    /// foi respondido. Envelope ambíguo (`m` e `sub` juntos, ou nenhum) fecha o canal. Sem vínculo,
+    /// nada muda: o `Caller` do canal.
+    async fn sessao_do_pedido(&mut self, id: u64, v: &Value) -> Result<Option<Arc<Caller>>, CloseWith> {
+        use crate::fork::sessao_clerk::{self as sessao, Exigencia, Guarda, Posse, Prazo};
+        let vinculo = match sessao::exigencia(&self.hub) {
+            Exigencia::Livre => return Ok(Some(self.caller.clone())),
+            Exigencia::Negar(recusa) => {
+                self.send(sessao::erro_canal(id, recusa)).await;
+                return Ok(None);
+            }
+            Exigencia::Sessao(vinculo) => vinculo,
+        };
+        // Discriminador presente com outro tipo conta como envelope inválido, não como ausente.
+        let (metodo, continuo) = match (v.get("m"), v.get("sub")) {
+            (Some(Value::String(m)), None) => (m.clone(), m == "browserStreamSubscribe"),
+            (None, Some(Value::String(kind))) => (format!("sub:{kind}"), true),
+            _ => return Err((close::PROTOCOL, "protocolError")),
+        };
+        if metodo == sessao::METODO {
+            let Caller::Device { autoridade: Some(original), .. } = self.caller.as_ref() else {
+                self.send(sessao::erro_canal(id, sessao::Recusa::DeviceUnpaired)).await;
+                return Ok(None);
+            };
+            let canal = sessao::Canal { chave: &self.key, original, epoch: self.epoch };
+            let posse = Posse { th: &self.th, nonces: &mut self.nonces };
+            let resposta = match sessao::autenticar(&self.hub, &vinculo, &canal, posse, self.sessao.as_ref(), v).await {
+                Ok(nova) => {
+                    let ok = json!({"userId": nova.sub(), "role": nova.papel().nome(), "expiresAt": nova.limite.expira_em_ms()});
+                    self.prazo.send_replace(Some(nova.limite));
+                    let resposta = json!({"id": id, "ok": ok});
+                    self.sessao = Some(nova);
+                    resposta
+                }
+                Err(recusa) => sessao::erro_canal(id, recusa),
+            };
+            self.send(resposta).await;
+            return Ok(None);
+        }
+        let posse = Posse { th: &self.th, nonces: &mut self.nonces };
+        if let Err(recusa) =
+            sessao::conferir_pedido(&self.hub, &self.key, posse, self.sessao.as_ref(), &metodo, &v["pop"])
+        {
+            self.send(sessao::erro_canal(id, recusa)).await;
+            return Ok(None);
+        }
+        if metodo != crate::fork::workspace::METHOD && v["b"][crate::fork::workspace::EPOCH_FIELD].as_u64().is_none() {
+            self.send(epoch_mismatch(id)).await;
+            return Ok(None);
+        }
+        let (Some(atual), Caller::Device { key, scopes, autoridade: Some(original) }) =
+            (self.sessao.as_ref(), self.caller.as_ref())
+        else {
+            self.send(sessao::erro_canal(id, sessao::Recusa::AuthInvalid)).await;
+            return Ok(None);
+        };
+        let prazo = if continuo { Prazo::Canal(self.prazo.subscribe()) } else { Prazo::Fixo(atual.limite) };
+        let guarda = Arc::new(Guarda::nova(&self.hub, &self.key, atual, &vinculo, self.epoch, prazo));
+        Ok(Some(Arc::new(Caller::Device {
+            key: key.clone(),
+            scopes: scopes.clone(),
+            autoridade: Some(Arc::new(original.com_sessao(guarda))),
+        })))
     }
 
     /// Não antecipa a imagem enquanto houver intenção pendente de entrada.
@@ -738,7 +838,7 @@ impl Channel {
         }
     }
 
-    async fn handle_browser(&mut self, id: u64, method: &str, b: &Value) {
+    async fn handle_browser(&mut self, id: u64, method: &str, b: &Value, caller: &Caller) {
         match method {
             "browserStreamSubscribe" => {
                 let Some((escopo, sessao, target)) = browser_canal::analisar_inscricao(b) else {
@@ -747,7 +847,7 @@ impl Channel {
                 };
                 let autoridade = Arc::new(browser_canal::AutoridadeCanal::nova(
                     self.hub.clone(),
-                    (*self.caller).clone(),
+                    caller.clone(),
                     escopo,
                     sessao.clone(),
                 ));
@@ -818,18 +918,18 @@ impl Channel {
         self.jobs.locked().values().filter(|j| matches!(j, Job::Sub(_)) == subs).count()
     }
 
-    async fn request(&self, id: u64, method: String, b: Value) {
+    async fn request(&self, id: u64, method: String, b: Value, caller: Arc<Caller>) {
         if self.count(false) >= MAX_REQUESTS {
             self.send(err(id, 429, "too many requests in flight")).await;
             return;
         }
-        let (hub, caller, jobs, tx) = (self.hub.clone(), self.caller.clone(), self.jobs.clone(), self.tx.clone());
+        let (hub, jobs, tx) = (self.hub.clone(), self.jobs.clone(), self.tx.clone());
         let mut list = self.jobs.locked();
         let task = tokio::spawn(requisicao_autorizada::executar(id, method, b, hub, caller, jobs, tx));
         list.insert(id, Job::Request(task.abort_handle()));
     }
 
-    async fn subscribe(&self, id: u64, kind: &str, b: &Value, epoch: Option<u64>) {
+    async fn subscribe(&self, id: u64, kind: &str, b: &Value, epoch: Option<u64>, caller: Arc<Caller>) {
         if self.count(true) >= MAX_SUBS {
             self.send(err(id, 429, "too many subscriptions")).await;
             return;
@@ -844,7 +944,7 @@ impl Channel {
                 &self.hub,
                 b["since"].as_i64().unwrap_or(0),
                 b["client"].as_str(),
-                &self.caller,
+                &caller,
                 b["spaceId"].as_str(),
                 epoch,
             ) {
@@ -858,7 +958,7 @@ impl Channel {
                     return;
                 }
             },
-            "term" => match api::term_events(&self.hub, b["term"].as_str().unwrap_or_default(), &self.caller) {
+            "term" => match api::term_events(&self.hub, b["term"].as_str().unwrap_or_default(), &caller) {
                 Ok(Some(stream)) => stream.boxed(),
                 Ok(None) => {
                     self.send(err(id, 404, "that terminal is gone")).await;
@@ -875,7 +975,7 @@ impl Channel {
                 return;
             }
         };
-        let (jobs, tx, hub, caller) = (self.jobs.clone(), self.tx.clone(), self.hub.clone(), self.caller.clone());
+        let (jobs, tx, hub) = (self.jobs.clone(), self.tx.clone(), self.hub.clone());
         // Held while spawning so the task can't finish (and remove itself) before it's listed.
         let mut list = self.jobs.locked();
         let task = tokio::spawn(assinatura_autorizada::executar(id, stream, hub, caller, jobs, tx, login));
@@ -1006,6 +1106,30 @@ impl Channel {
             return protocol;
         }
         let b = &v["b"];
+        let usuario = match crate::fork::sessao_clerk::exigencia(&self.hub) {
+            crate::fork::sessao_clerk::Exigencia::Livre => None,
+            crate::fork::sessao_clerk::Exigencia::Negar(recusa) => {
+                self.send(crate::fork::sessao_clerk::erro_canal(id, recusa)).await;
+                return (close::UNAUTHORIZED, "unauthorized");
+            }
+            // Executor num Hub com vínculo ainda não tem sessão própria: recusa antes do código.
+            crate::fork::sessao_clerk::Exigencia::Sessao(_) if b["role"] == "executor" => {
+                self.send(err(id, 403, "executor pairing isn't available on this computer yet")).await;
+                return (close::UNAUTHORIZED, "unauthorized");
+            }
+            crate::fork::sessao_clerk::Exigencia::Sessao(vinculo) => {
+                let mut nonces = crate::fork::sessao_clerk::posse::Nonces::default();
+                let posse = crate::fork::sessao_clerk::Posse { th: &self.th, nonces: &mut nonces };
+                match crate::fork::sessao_clerk::autenticar_pareamento(&self.hub, &vinculo, &self.key, posse, &v).await
+                {
+                    Ok(par) => Some(par),
+                    Err(recusa) => {
+                        self.send(crate::fork::sessao_clerk::erro_canal(id, recusa)).await;
+                        return (close::UNAUTHORIZED, "unauthorized");
+                    }
+                }
+            }
+        };
         if b["role"] == "executor" {
             let (reply, code) = match crate::computers::pairing::redeem(&self.hub, &self.key, b, source) {
                 Ok(ok) => (json!({"id": id, "ok": ok}), close::PAIRED),
@@ -1040,8 +1164,17 @@ impl Channel {
             created_at: now_ms(),
             last_seen_at: None,
         };
-        // Código mostrado no próprio computador: a pessoa repareou esta chave.
-        if let Err(e) = crate::fork::workspace::readmitir_pareado(&self.hub.store, &device) {
+        // Código mostrado no próprio computador: a pessoa repareou esta chave. Com vínculo, a Tx
+        // relê vínculo, prazo e papel e liga o `userId` verificado à chave.
+        let gravado = match &usuario {
+            Some(par) => crate::fork::sessao_clerk::readmitir_vinculado(&self.hub, &device, par),
+            None => crate::fork::workspace::readmitir_pareado(&self.hub.store, &device).map(Ok),
+        };
+        if let Ok(Err(recusa)) = gravado {
+            self.send(crate::fork::sessao_clerk::erro_canal(id, recusa)).await;
+            return (close::UNAUTHORIZED, "unauthorized");
+        }
+        if let Err(e) = gravado {
             tracing::error!(error = format!("{e:#}"), "couldn't save a paired device");
             self.send(err(id, 500, "couldn't save this device")).await;
             return (close::NORMAL, "");
@@ -1068,6 +1201,7 @@ mod tests {
     mod provas_navegador;
     mod provas_requisicao_expirada;
     mod provas_requisicoes;
+    mod provas_sessao_clerk;
     mod provas_tabela;
     mod provas_workspace;
 
@@ -1088,6 +1222,8 @@ mod tests {
         rx: mpsc::Receiver<Out>,
         sealer: Option<Sealer>,
         opener: Option<Opener>,
+        /// Hash do handshake deste canal (prova de posse).
+        th: [u8; 32],
         /// The host's side of this channel.
         run: tokio::task::JoinHandle<()>,
     }
@@ -1097,7 +1233,7 @@ mod tests {
             let (tx, incoming) = mpsc::channel(64);
             let (outgoing, rx) = mpsc::channel(64);
             let run = tokio::spawn(run(hub.clone(), Transport { incoming, outgoing, porta: Porta::default() }, kind));
-            Self { key, tx, rx, sealer: None, opener: None, run }
+            Self { key, tx, rx, sealer: None, opener: None, th: [0; 32], run }
         }
 
         fn direct(hub: &Arc<Hub>, key: SigningKey) -> Self {
@@ -1131,6 +1267,7 @@ mod tests {
                 crypto::verify(&hub.identity.sign_pub(), &th, &crypto::unb64_n(w["sig"].as_str().unwrap()).unwrap())
                     .expect("welcome is signed by the host");
                 let keys = crypto::channel_keys(&crypto::x25519(&ek, &ek_h).unwrap(), &th);
+                self.th = th;
                 self.sealer = Some(Sealer::new(keys.d2h));
                 self.opener = Some(Opener::new(keys.h2d, 16 << 20));
             }
