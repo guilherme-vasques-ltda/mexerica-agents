@@ -297,8 +297,7 @@ impl Fixture {
                 .store
                 .kv_get("turn.waiting.bot")
                 .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
-                .map(|checkpoint| checkpoint["phase"].clone())
-                .unwrap_or(Value::Null);
+                .map_or(Value::Null, |checkpoint| checkpoint["phase"].clone());
             panic!(
                 "{label}: {error:?}; bot=bot; checkpoint_phase={checkpoint_phase}; bot_status={:?}; prompts={}",
                 self.hub.runtime("bot").status,
