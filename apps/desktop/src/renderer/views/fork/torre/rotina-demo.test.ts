@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { RoutineDemoSession, savedRun } from './rotina-etapas.ts'
+import { RoutineDemoSession, savedRun } from '../../../demo/rotina-etapas.ts'
 
 test('demo is off by default and cannot record intent', () => {
   const session = new RoutineDemoSession()
