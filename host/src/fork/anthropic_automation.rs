@@ -65,7 +65,7 @@ fn check_platform(cfg: &BotConfig, linux: bool) -> Result<()> {
     Ok(())
 }
 
-fn uses_anthropic(cfg: &BotConfig) -> bool {
+pub(crate) fn uses_anthropic(cfg: &BotConfig) -> bool {
     cfg.backend == crate::fork::motor_mexerica::ENGINE_ID
         && cfg.model.as_deref().is_some_and(|model| model.starts_with("anthropic/"))
 }

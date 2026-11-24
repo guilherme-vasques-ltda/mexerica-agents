@@ -2151,6 +2151,47 @@ async fn rotina_anthropic_sem_motor_isolado_ou_chave_nao_envia_prompt() {
 }
 
 #[tokio::test]
+async fn chat_anthropic_com_chave_legada_pede_recadastro_sem_repetir_o_envio() {
+    let f = Fixture::with_config("mexerica", |bot| {
+        bot.command = None;
+        bot.model = Some("anthropic/claude-fixture".into());
+    });
+    let slot = crate::fork::motor_mexerica::credential_slot("anthropic");
+    f.hub.store.kv_set(&slot, "credencial-legada-ficticia").unwrap();
+    let entry = f
+        .hub
+        .add_entry(
+            &crate::store::Lane::main("bot"),
+            EntryKind::User,
+            1,
+            &json!({"text":"Mensagem de prova", "status":"queued"}),
+        )
+        .unwrap();
+    f.hub
+        .send_cmd(
+            "bot",
+            super::Cmd::Send {
+                lane: crate::store::Lane::main("bot"),
+                entry_id: entry.id.clone(),
+                text: "Mensagem de prova".into(),
+            },
+        )
+        .unwrap();
+    let reason = crate::fork::anthropic_automation::Refusal::VaultKey.to_string();
+    f.until("recusa da chave legada no chat", &f.hub, || {
+        f.hub
+            .store
+            .entry(&entry.id)
+            .is_some_and(|entry| entry.data["status"] == "failed" && entry.data["error"] == reason)
+            && f.hub.store.history("bot", i64::MAX, 20).unwrap().iter().any(|entry| entry.data["text"] == reason)
+    })
+    .await;
+    assert_eq!(f.prompts(), [] as [Value; 0]);
+    f.hub.shutdown().await;
+    let _ = std::fs::remove_dir_all(&f.dir);
+}
+
+#[tokio::test]
 #[cfg(target_os = "linux")]
 async fn rotina_e_delegacao_anthropic_usam_a_chave_do_cofre() {
     let Some(case) = crate::fork::motor_exec::test_support::case(
@@ -2167,6 +2208,7 @@ const net = require('node:net');
 const readline = require('node:readline');
 const wire = new net.Socket({fd: 3});
 let keyOk = false;
+let modelOk = false;
 const credential = new Promise((resolve) => {
   readline.createInterface({input:wire}).once('line', (line) => {
     const key = JSON.parse(line).result?.key;
@@ -2183,12 +2225,13 @@ readline.createInterface({input:process.stdin}).on('line', async (line) => {
     const key = ['sk-ant-api', '-automation-fixture-not-live'].join('');
     if (!keyOk || m.provider !== 'anthropic' || m.modelId !== 'claude-haiku-4-5' ||
         [...process.argv, ...Object.values(process.env)].some((value) => value.includes(key))) process.exit(1);
+    modelOk = true;
   }
   emit({type:'response',id:m.id,success:true,result:{disposition:'started'}});
   if (m.type === 'prompt') {
     const origin = m.message.includes('ROTINA-ANTHROPIC-FIXTURE') ? 'rotina' :
       m.message.includes('DELEGACAO-ANTHROPIC-FIXTURE') ? 'delegacao' : '';
-    if (!keyOk || !origin) process.exit(1);
+    if (!modelOk || !origin) process.exit(1);
     fs.appendFileSync(require('node:path').join(__dirname, origin), 'ok');
     const message = {role:'assistant',stopReason:'end',content:[{type:'text',text:'Resposta de prova'}],
       usage:{input:10,cacheRead:3,cacheWrite:4,output:5}};

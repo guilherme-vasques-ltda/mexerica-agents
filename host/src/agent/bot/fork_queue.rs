@@ -7,7 +7,9 @@ use std::time::{Duration, Instant};
 
 impl Actor {
     pub(super) fn stop_subscription_retry(&mut self, ids: &[String], error: &anyhow::Error) {
-        if error.downcast_ref::<crate::fork::assinatura_pessoal::Refusal>().is_none() {
+        if !error.is::<crate::fork::assinatura_pessoal::Refusal>()
+            && !error.is::<crate::fork::anthropic_automation::Refusal>()
+        {
             return;
         }
         for id in ids {

@@ -244,6 +244,16 @@ impl Actor {
         let (cfg, promoted) = self.turn_config(&lane, entry_ids, hidden, prepared_token.as_deref())?;
         if self.active_routine.is_some() || self.active_request.is_some() {
             crate::fork::anthropic_automation::check(&self.hub.store, &cfg)?;
+        } else if !hidden
+            && !entry_ids.is_empty()
+            && self.active_group.is_none()
+            && cfg.context.is_none()
+            && cfg.space_id == crate::fork::spaces::PERSONAL
+            && crate::fork::anthropic_automation::uses_anthropic(&cfg)
+            && let Err(error) = crate::fork::anthropic_automation::vault_key(&self.hub.store)
+        {
+            self.stop_subscription_retry(entry_ids, &error);
+            return Err(error);
         }
         let personal_lane =
             self.active_request.is_none() && self.active_group.is_none() && self.active_routine.is_none();
