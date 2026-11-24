@@ -392,15 +392,17 @@ export function SaudeHubLive({
     session.open(source, spaceId)
     return () => session.close()
   }, [session, source, spaceId])
-  return <SaudeHubCard state={session.state} onRetry={onRetry} />
+  return <SaudeHubCard state={session.state} onRetry={onRetry} onReread={() => session.reread()} />
 }
 
 export function SaudeHubCard({
   state,
   onRetry,
+  onReread,
 }: {
   state: SaudeHubState
   onRetry?: () => void
+  onReread?: () => void
 }) {
   const t = useT()
   const idioma = useIdioma()
@@ -450,6 +452,9 @@ export function SaudeHubCard({
           </span>
         </div>
         <p className="saude-summary">{t('torre.saude.naoInformadoTexto')}</p>
+        {(state.reason === 'invalid' || state.reason === 'error') && onReread ? (
+          <button className="torre-button" onClick={onReread}>{t('torre.saude.tentarDeNovo')}</button>
+        ) : null}
       </section>
     )
   }

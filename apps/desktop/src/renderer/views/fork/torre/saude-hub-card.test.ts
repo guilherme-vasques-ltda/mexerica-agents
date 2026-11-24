@@ -58,10 +58,21 @@ runInNewContext(bundle.outputFiles[0]!.text, {
 const m = module.exports
 const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms))
 
-function renderState(state: unknown, language = 'pt-BR') {
+function renderState(state: unknown, language = 'pt-BR', onReread?: () => void) {
   m.idiomaPref.set(language)
-  return m.renderToStaticMarkup(m.createElement(m.SaudeHubCard, { state, onRetry: () => {} }))
+  return m.renderToStaticMarkup(m.createElement(m.SaudeHubCard, { state, onRetry: () => {}, onReread }))
 }
+
+test('SaudeHubCard oferece nova leitura só para falha recuperável', () => {
+  for (const reason of ['error', 'invalid']) {
+    const html = renderState({ kind: 'unavailable', reason }, 'pt-BR', () => {})
+    assert.match(html, /Tentar de novo/)
+  }
+  for (const reason of ['unsupported', 'denied']) {
+    const html = renderState({ kind: 'unavailable', reason })
+    assert.doesNotMatch(html, /<button/)
+  }
+})
 
 test('SaudeHubCard não usa API exclusiva do Electron', () => {
   const source = readFileSync(new URL('./SaudeHubCard.tsx', import.meta.url), 'utf8')
@@ -220,7 +231,8 @@ test('DoctorSession recupera o stream na mesma origem e cancela retries antigos'
       return () => { stream.stopped = true }
     } }),
   }
-  const source: TowerSource = { hello: { hostId: 'h1', rev: 1 }, principalEpoch: 1, connectedClient: client, subscribe: () => () => {} }
+  const listeners = new Set<() => void>()
+  const source: TowerSource = { hello: { hostId: 'h1', rev: 1 }, principalEpoch: 1, connectedClient: client, subscribe: (fn) => { listeners.add(fn); return () => listeners.delete(fn) } }
   const session = new m.DoctorSession()
   session.open(source, 'personal')
   try {
@@ -249,6 +261,37 @@ test('DoctorSession recupera o stream na mesma origem e cancela retries antigos'
   } finally {
     session.close()
   }
+})
+
+test('DoctorSession reread mantém origem, serializa leituras e descarta resposta após troca de origem', async () => {
+  let finish!: (answer: unknown) => void
+  let calls = 0
+  const client: TowerLink = {
+    call() {
+      calls++
+      return new Promise((resolve) => { finish = resolve })
+    },
+    inSpace: () => ({ events: () => () => {} }),
+  }
+  const source: TowerSource = { hello: { hostId: 'h1', rev: 1 }, principalEpoch: 1, connectedClient: client, subscribe: () => () => {} }
+  const session = new m.DoctorSession()
+  session.open(source, 'personal')
+  session.reread()
+  assert.equal(calls, 1)
+  finish({ version: 1, hubId: 'h1', spaceId: 'personal', collectedAt: 1, overall: 'healthy', checks: [
+    { id: 'hub', area: 'hub', status: 'ok', code: 'hub_ok', count: null, actionKind: 'none' },
+  ] })
+  await tick()
+  assert.equal(session.state.kind, 'ready')
+  session.reread()
+  source.hello = { hostId: 'h2', rev: 2 }
+  source.connectedClient = { ...client }
+  source.principalEpoch++
+  for (const listener of listeners) listener()
+  finish({ version: 1, hubId: 'h1', spaceId: 'personal', collectedAt: 2, overall: 'healthy', checks: [] })
+  await tick()
+  assert.notEqual(session.state.kind, 'ready')
+  session.close()
 })
 
 test('parseEvent aceita donnaDoctorChanged e donnaControlTowerChanged do JSON cru e reconsulta via HostClient', async () => {
