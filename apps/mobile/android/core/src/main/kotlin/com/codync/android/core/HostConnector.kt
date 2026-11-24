@@ -1,6 +1,7 @@
 // Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 package com.codync.android.core
 
+import com.codync.android.core.fork.UnverifiedChannelStop
 import java.io.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
@@ -44,9 +45,11 @@ object HostConnector {
             try { return relay(computer, identity, pairing) }
             catch (error: CancellationException) { throw error }
             catch (error: SecurityException) { throw error }
+            catch (error: UnverifiedChannelStop) { throw error }
             catch (_: IOException) { /* Try the direct candidates below. */ }
         }
         var directError: Throwable? = null
+        var unverifiedStop: UnverifiedChannelStop? = null
         var ownedWinner: EncryptedChannel? = null
         val direct = try { coroutineScope {
             val attempts = Channel<Result<EncryptedChannel>>(Channel.UNLIMITED,
@@ -76,6 +79,7 @@ object HostConnector {
                             winner = outcome.getOrNull()
                             ownedWinner = winner
                             directError = outcome.exceptionOrNull() ?: directError
+                            unverifiedStop = outcome.exceptionOrNull() as? UnverifiedChannelStop ?: unverifiedStop
                         }
                     }
                     winner
@@ -87,6 +91,7 @@ object HostConnector {
         } } catch (error: Throwable) { ownedWinner?.close(); throw error }
         if (direct != null) return direct
         if (directError is SecurityException) throw requireNotNull(directError)
+        unverifiedStop?.let { throw it }
         if (computer.cloud != null && computer.route == ConnectionRoute.Automatic) return relay(computer, identity, pairing)
         throw directError ?: IOException("Can't reach the computer. Check its connection and try again.")
     }
@@ -103,6 +108,7 @@ object HostConnector {
             catch (error: SocketRefused) {
                 if (error.status == 426) throw HostError(426, "Update Mexerica to connect to this computer.")
                 if (error.status != 403) throw error
+                if (pairing == null) throw UnverifiedChannelStop()
                 if (attempt == 3) throw HostError(403, "This device isn't allowed on the computer. Pair it again.")
                 // The new device can reach the relay before the host's post-pairing ACL does.
                 delay((attempt + 1) * 500L)
