@@ -145,6 +145,7 @@ pub struct Hub {
     /// change so open channels re-check their device (and the ACL is republished).
     pub auth: watch::Sender<u64>,
     pub pairing: Mutex<Pairing>,
+    pub(crate) limite_hello: Mutex<crate::remote::channel::LimiteHello>,
     /// Device key -> open channels that have exchanged at least one frame.
     pub connected: Mutex<HashMap<String, usize>>,
     /// The cloud's `/v1/host/state` was applied on the current relay connection;
@@ -210,6 +211,7 @@ impl Hub {
             keep_awake: Mutex::default(),
             auth: watch::Sender::new(0),
             pairing: Mutex::default(),
+            limite_hello: Mutex::default(),
             connected: Mutex::default(),
             cloud_synced: crate::fork::autoridade::sincronizacao::EstadoSincronizado::new(false),
             cloud: crate::remote::cloud::Cloud::default(),

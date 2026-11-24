@@ -64,7 +64,11 @@ async fn bump_com_canal_aberto_fecha_sem_entregar_evento_em_voo() {
         .await
         .unwrap();
     let Out::Msg(reject) = impostor.next().await else { panic!("expected reject") };
-    assert_eq!(reject["code"], "badSignature", "{reject}");
+    let mut desconhecido = Phone::direct(&hub, falsa);
+    let Out::Msg(recusa_desconhecida) = desconhecido.hello(&hub, false).await else { panic!("expected reject") };
+    assert_eq!(reject, recusa_desconhecida);
+    assert!(reject.get("prova").is_none());
+    assert_eq!(closed(&impostor.next().await), closed(&desconhecido.next().await));
     hub.store
         .put_device(&Device {
             key: sai_dk,
