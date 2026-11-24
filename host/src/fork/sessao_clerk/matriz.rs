@@ -386,6 +386,7 @@ pub(crate) const MATRIZ: &[(&str, Minimo)] = &[
     ("donnaConectorTentativa", Nenhum),
     ("donnaConectorRascunho", Nenhum),
     ("donnaPersonalBootstrapStatus", Nenhum),
+    ("workspaceBind", Nenhum),
     ("donnaRuleDelete", Nenhum),
     ("donnaRuleSave", Nenhum),
     ("donnaRuleSetEnabled", Nenhum),

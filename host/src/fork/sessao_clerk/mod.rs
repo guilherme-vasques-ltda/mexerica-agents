@@ -13,10 +13,14 @@
 //! papel registrado, vínculo e `userId` ligado à concessão atual do aparelho. Uma renovação da
 //! sessão não prolonga pedido já admitido.
 //!
+//! O vínculo só é gravado por [`gravacao`] (`workspaceBind`, só no computador do Hub), atrás de
+//! [`GRAVACAO_VINCULO_LIBERADA`], desligado.
+//!
 //! Hub sem vínculo (`personal:unbound`): nada muda para os aparelhos pareados. Negar o remoto sem
 //! vínculo é um interruptor desligado ([`NEGAR_REMOTO_SEM_VINCULO`]).
 //!
 //! Identidade nunca vem do corpo do pedido: `userId`, `orgId` e `role` no corpo são ignorados.
+pub(crate) mod gravacao;
 pub(crate) mod jwks;
 pub(crate) mod matriz;
 pub(crate) mod posse;
@@ -48,6 +52,9 @@ pub(crate) const NEGAR_REMOTO_SEM_VINCULO: bool = false;
 /// Interruptor de produto: vínculo `team`. Desligado até existir conversa por membro; com ele
 /// desligado, um vínculo `team` nega todo o acesso remoto e não pode ser gravado. O pessoal segue.
 pub(crate) const VINCULO_TIME_LIBERADO: bool = false;
+/// Interruptor de produto: gravar o vínculo (`workspaceBind`). Desligado: o vínculo segue sem
+/// ativação até a prova com tokens reais dos clientes.
+pub(crate) const GRAVACAO_VINCULO_LIBERADA: bool = false;
 /// Num Hub com vínculo, o canal sem sessão fecha depois disto.
 pub(crate) const ESPERA_SESSAO_MS: i64 = 30_000;
 
@@ -58,6 +65,9 @@ pub(crate) struct Estado {
     /// Provas: o caminho `team` com o interruptor ligado, só neste Hub.
     #[cfg(test)]
     time_para_prova: std::sync::atomic::AtomicBool,
+    /// Provas: a gravação do vínculo ligada, só neste Hub.
+    #[cfg(test)]
+    gravacao_para_prova: std::sync::atomic::AtomicBool,
 }
 
 impl Estado {
@@ -73,6 +83,20 @@ impl Estado {
     #[cfg(test)]
     pub(crate) fn liberar_time_para_prova(&self) {
         self.time_para_prova.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    #[cfg_attr(not(test), expect(clippy::unused_self, reason = "o estado só muda o interruptor nas provas"))]
+    pub(crate) fn gravacao_liberada(&self) -> bool {
+        #[cfg(test)]
+        if self.gravacao_para_prova.load(std::sync::atomic::Ordering::SeqCst) {
+            return true;
+        }
+        GRAVACAO_VINCULO_LIBERADA
+    }
+
+    #[cfg(test)]
+    pub(crate) fn liberar_gravacao_para_prova(&self) {
+        self.gravacao_para_prova.store(true, std::sync::atomic::Ordering::SeqCst);
     }
 }
 

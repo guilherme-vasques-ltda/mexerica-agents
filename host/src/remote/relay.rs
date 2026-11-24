@@ -1210,6 +1210,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn recado_guardado_antes_da_gravacao_do_vinculo_e_recusado() {
+        use crate::api::dispatch;
+        use crate::fork::sessao_clerk::prova;
+        let (hub, _dir) = temp_hub();
+        let phone = SigningKey::from_bytes(&crypto::random());
+        let dk = b64(phone.verifying_key().as_bytes());
+        hub.store
+            .put_device(&Device {
+                key: dk.clone(),
+                name: "Phone".into(),
+                platform: "ios".into(),
+                source: DeviceSource::Local,
+                grant_id: None,
+                scopes: vec![Scope::Control],
+                lease_until: None,
+                created_at: now_ms(),
+                last_seen_at: None,
+            })
+            .unwrap();
+        let cwd = temp_cwd();
+        let cfg: BotConfig = serde_json::from_value(
+            json!({"id": "", "name": "B", "cwd": cwd.path(), "backend": "custom", "command": "true"}),
+        )
+        .unwrap();
+        let bot_id = hub.create_bot(cfg).unwrap()["id"].as_str().unwrap().to_owned();
+        // O recado é selado e guardado antes do vínculo existir.
+        let nonce = uuid::Uuid::new_v4().to_string().to_uppercase();
+        let inner = json!({"m": "send", "b": {"botId": bot_id, "text": "oi", "clientNonce": nonce}, "ts": now_ms()});
+        let blob = seal_mailbox(&hub, &phone, &nonce, inner.to_string().as_bytes());
+        let item = json!({"t": "mbox.item", "seq": 1, "from": dk, "nonce": nonce, "d": blob, "exp": now_ms() + 60_000});
+        hub.sessao_clerk.jwks.servir(|| Ok(prova::jwks_padrao()));
+        hub.sessao_clerk.liberar_gravacao_para_prova();
+        let b = json!({"kind": "personal", "ownerUserId": prova::DONO, "issuer": prova::EMISSOR,
+            "jwksUrl": prova::JWKS_URL, "authorizedParties": [prova::AZP],
+            "sessionToken": prova::token(&prova::afirmacoes(prova::DONO))});
+        dispatch(&hub, &devices::Caller::Local, "workspaceBind", b).await.unwrap();
+        let ack = mailbox_item(&hub, &item).await;
+        assert_eq!((ack["ok"].as_bool(), ack["code"].as_str()), (Some(false), Some("unauthorized")));
+        assert!(!hub.store.history(&bot_id, i64::MAX, 50).unwrap().iter().any(|e| e.data["clientNonce"] == nonce));
+    }
+
+    #[tokio::test]
     async fn connects_publishes_acl_past_a_stale_version_and_delivers_mail() {
         let (hub, _dir) = temp_hub();
         let fake = Arc::new(Fake::default());

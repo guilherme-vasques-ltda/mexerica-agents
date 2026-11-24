@@ -235,6 +235,7 @@ pub(crate) const SO_LOCAL: &[&str] = &[
     "setVoiceKey",
     "track",
     "unclaim",
+    "workspaceBind",
 ];
 
 pub(crate) const PONTE: &[&str] = &[

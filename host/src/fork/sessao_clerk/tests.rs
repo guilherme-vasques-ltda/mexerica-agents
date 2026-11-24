@@ -1202,3 +1202,157 @@ async fn tentativa_conta_do_inicio_do_get_depois_da_espera() {
     assert_eq!(j.chave(&url(), "kid-novo", quase + ms(1)).await.err(), Some(Recusa::AuthInvalid));
     assert_eq!(j.buscas(), antes + 1);
 }
+
+fn proposta(token: &str) -> Value {
+    json!({"kind": "personal", "ownerUserId": DONO, "issuer": EMISSOR, "jwksUrl": JWKS_URL,
+        "authorizedParties": [AZP], "sessionToken": token})
+}
+
+async fn gravar(hub: &Arc<Hub>, b: Value) -> Result<Value> {
+    crate::api::dispatch(hub, &Caller::Local, gravacao::METHOD, b).await
+}
+
+fn codigo(r: Result<Value>) -> &'static str {
+    r.unwrap_err().downcast_ref::<crate::api::GroupError>().map_or("outro", |g| g.code)
+}
+
+fn hub_para_gravar() -> Arc<Hub> {
+    let hub = hub();
+    hub.sessao_clerk.jwks.servir(|| Ok(jwks_padrao()));
+    hub.sessao_clerk.liberar_gravacao_para_prova();
+    hub
+}
+
+#[tokio::test]
+async fn gravacao_do_vinculo_fica_desligada_e_so_no_computador() {
+    let hub = hub();
+    hub.sessao_clerk.jwks.servir(|| Ok(jwks_padrao()));
+    assert_eq!(codigo(gravar(&hub, proposta(&token(&afirmacoes(DONO)))).await), "workspace_bind_disabled");
+    hub.sessao_clerk.liberar_gravacao_para_prova();
+    hub.store.put_device(&aparelho("fone")).unwrap();
+    let (_, fone) = crate::fork::autoridade::autenticar(&hub, "fone").unwrap();
+    let remoto = crate::api::dispatch(&hub, &fone, gravacao::METHOD, proposta(&token(&afirmacoes(DONO)))).await;
+    assert!(remoto.is_err(), "aparelho não grava vínculo");
+    assert!(matches!(vinculo::ler(&hub), vinculo::Estado::SemVinculo));
+}
+
+#[tokio::test]
+async fn gravacao_recusa_prova_fraca_e_jwks_fora_da_origem_do_emissor() {
+    let hub = hub_para_gravar();
+    let agora = now_ms() / 1000;
+    let mut velho = afirmacoes(DONO);
+    velho["iat"] = json!(agora - 61);
+    velho["nbf"] = json!(agora - 62);
+    velho["exp"] = json!(agora - 1);
+    assert_eq!(codigo(gravar(&hub, proposta(&token(&velho))).await), "auth_invalid", "token velho");
+    assert_eq!(codigo(gravar(&hub, proposta(&token(&afirmacoes(OUTRO)))).await), "workspace_forbidden", "outro sub");
+    let mut azp = afirmacoes(DONO);
+    azp["azp"] = json!("https://outro-app.example.invalid");
+    assert_eq!(codigo(gravar(&hub, proposta(&token(&azp))).await), "auth_invalid", "azp fora da lista");
+    let valido = token(&afirmacoes(DONO));
+    let mudar = |campo: &str, valor: Value| {
+        let mut b = proposta(&valido);
+        b[campo] = valor;
+        b
+    };
+    for (campo, valor, esperado) in [
+        ("jwksUrl", json!("https://outro.example.invalid/.well-known/jwks.json"), "invalid_field"),
+        ("jwksUrl", json!("http://clerk.example.invalid/.well-known/jwks.json"), "invalid_field"),
+        ("authorizedParties", json!([]), "invalid_field"),
+        ("kind", json!("team"), "workspace_kind_unsupported"),
+    ] {
+        assert_eq!(codigo(gravar(&hub, mudar(campo, valor.clone())).await), esperado, "{campo} = {valor}");
+    }
+    let mut ip = mudar("issuer", json!("https://192.0.2.1"));
+    ip["jwksUrl"] = json!("https://192.0.2.1/.well-known/jwks.json");
+    assert_eq!(codigo(gravar(&hub, ip).await), "invalid_field", "IP literal");
+    let mut sem_token = proposta(&valido);
+    sem_token.as_object_mut().unwrap().remove(CAMPO_TOKEN);
+    assert_eq!(codigo(gravar(&hub, sem_token).await), "auth_invalid");
+    assert!(matches!(vinculo::ler(&hub), vinculo::Estado::SemVinculo), "nada gravado");
+}
+
+#[test]
+fn jwks_proposta_so_conecta_a_endereco_publico() {
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+    let v4 = |a, b, c, d| IpAddr::V4(Ipv4Addr::new(a, b, c, d));
+    let v6 = |s: [u16; 8]| IpAddr::V6(Ipv6Addr::new(s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7]));
+    let fora = [
+        v4(127, 0, 0, 1),
+        v4(10, 1, 2, 3),
+        v4(172, 16, 0, 1),
+        v4(192, 168, 1, 1),
+        v4(169, 254, 169, 254),
+        v4(100, 64, 0, 1),
+        v4(0, 0, 0, 0),
+        v4(224, 0, 0, 1),
+        v6([0, 0, 0, 0, 0, 0, 0, 1]),
+        v6([0; 8]),
+        v6([0xfe80, 0, 0, 0, 0, 0, 0, 1]),
+        v6([0xfc00, 0, 0, 0, 0, 0, 0, 1]),
+        v6([0xfd12, 0, 0, 0, 0, 0, 0, 1]),
+        v6([0, 0, 0, 0, 0, 0xffff, 0x0a00, 1]),
+        v6([0, 0, 0, 0, 0, 0xffff, 0x7f00, 1]),
+        v6([0xfec0, 0, 0, 0, 0, 0, 0, 1]),
+        v6([0x2002, 0x0a00, 1, 0, 0, 0, 0, 1]),
+        v6([0x2001, 0, 0, 0, 0, 0, 0, 1]),
+        v6([0x64, 0xff9b, 0, 0, 0, 0, 0x0a00, 1]),
+        v6([0x64, 0xff9b, 1, 0, 0, 0, 0, 1]),
+    ];
+    for ip in fora {
+        assert!(!jwks::publico(ip), "{ip}");
+    }
+    for ip in [v4(11, 22, 33, 44), v6([0x2a00, 1, 0, 0, 0, 0, 0, 1])] {
+        assert!(jwks::publico(ip), "{ip}");
+    }
+}
+
+#[tokio::test]
+async fn primeiro_vinculo_por_compare_and_swap_e_troca_de_dono_recusada() {
+    let hub = hub_para_gravar();
+    let com = |esperado: Option<&str>, afirmacoes: &Value| {
+        let mut b = proposta(&token(afirmacoes));
+        b["ownerUserId"] = afirmacoes["sub"].clone();
+        if let Some(id) = esperado {
+            b["expectedWorkspaceId"] = json!(id);
+        }
+        b
+    };
+    let dono = format!("personal:{DONO}");
+    assert_eq!(codigo(gravar(&hub, com(Some(&dono), &afirmacoes(DONO))).await), "workspace_bind_conflict");
+    let e = epoch_gravado(&hub);
+    let feito = gravar(&hub, com(None, &afirmacoes(DONO))).await.unwrap();
+    assert_eq!(feito["workspaceId"], dono.as_str());
+    assert_eq!(epoch_gravado(&hub), e + 1);
+    assert!(matches!(vinculo::ler(&hub), vinculo::Estado::Vinculado(v) if v.workspace_id() == dono));
+    assert_eq!(codigo(gravar(&hub, com(None, &afirmacoes(DONO))).await), "workspace_bind_conflict", "já há vínculo");
+    assert_eq!(
+        codigo(gravar(&hub, com(Some(&dono), &afirmacoes(OUTRO))).await),
+        "workspace_swap_unsupported",
+        "troca de dono"
+    );
+    assert_eq!(epoch_gravado(&hub), e + 1, "recusa não sobe o epoch");
+}
+
+#[tokio::test]
+async fn regravacao_do_mesmo_workspace_limpa_sessoes_e_papeis_e_sobe_o_epoch() {
+    let hub = hub_para_gravar();
+    vincular(&hub, &vinculo_pessoal());
+    hub.sessao_clerk.liberar_gravacao_para_prova();
+    let _ = aparelho_com_sessao(&hub, &aparelho("fone"), DONO, Papel::Dono);
+    let contar = |tabela: &str| -> i64 {
+        hub.store.db.locked().query_row(&format!("SELECT COUNT(*) FROM {tabela}"), [], |r| r.get(0)).unwrap()
+    };
+    assert_eq!((contar("fork_sessao_aparelho_usuario"), contar("fork_sessao_papel")), (1, 1));
+    let e = epoch_gravado(&hub);
+    // Só a JWKS muda: o mesmo workspace, regravado.
+    let nova = "https://clerk.example.invalid/outra/jwks.json";
+    let mut b = proposta(&token(&afirmacoes(DONO)));
+    b["jwksUrl"] = json!(nova);
+    b["expectedWorkspaceId"] = json!(format!("personal:{DONO}"));
+    gravar(&hub, b).await.unwrap();
+    assert_eq!((contar("fork_sessao_aparelho_usuario"), contar("fork_sessao_papel")), (0, 0));
+    assert_eq!(epoch_gravado(&hub), e + 1);
+    assert_eq!(crate::fork::workspace::reject_canal(&hub.workspace.retrato())["stableCode"], "workspace_revoked");
+    assert!(matches!(vinculo::ler(&hub), vinculo::Estado::Vinculado(v) if v.jwks.as_str() == nova));
+}

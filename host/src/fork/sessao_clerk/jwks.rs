@@ -217,6 +217,35 @@ impl Jwks {
         buscar_com(cliente, url).await
     }
 
+    /// Chave `kid` de um vínculo proposto: busca avulsa, sem cache e sem tocar no conjunto do
+    /// vínculo gravado, pelo cliente que só conecta a endereço público. Falha é recusa.
+    pub(crate) async fn chave_proposta(
+        &self,
+        url: &reqwest::Url,
+        kid: &str,
+    ) -> Result<RsaPublicKeyComponents<Vec<u8>>, Recusa> {
+        let corpo = self.buscar_proposta(url).await.map_err(|_| Recusa::AuthInvalid)?;
+        let chave = interpretar(&corpo)
+            .map_err(|_| Recusa::AuthInvalid)?
+            .into_iter()
+            .find(|c| c.kid == kid)
+            .ok_or(Recusa::AuthInvalid)?;
+        Ok(RsaPublicKeyComponents { n: chave.n, e: chave.e })
+    }
+
+    async fn buscar_proposta(&self, url: &reqwest::Url) -> Result<Vec<u8>> {
+        #[cfg(test)]
+        {
+            let fonte = self.fonte.lock().map_err(|_| anyhow!("fonte"))?.clone();
+            if let Some(fonte) = fonte {
+                self.buscas.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                return fonte().map(|(corpo, _)| corpo);
+            }
+        }
+        let (corpo, _) = buscar_com(&cliente_publico()?, url).await?;
+        Ok(corpo)
+    }
+
     /// Provas: avança o relógio controlado da busca.
     #[cfg(test)]
     pub(crate) fn avancar(&self, quanto: Duration) {
@@ -310,6 +339,73 @@ pub(crate) fn cliente(https_only: bool) -> Result<reqwest::Client> {
         .connect_timeout(PRAZO)
         .build()
         .map_err(|_| anyhow!("cliente da JWKS indisponível"))
+}
+
+/// Cliente da JWKS proposta: os limites de [`cliente`] e só endereços públicos na resolução (o
+/// próprio cliente conecta ao endereço conferido).
+fn cliente_publico() -> Result<reqwest::Client> {
+    reqwest::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .https_only(true)
+        .timeout(PRAZO)
+        .connect_timeout(PRAZO)
+        .dns_resolver(SoPublico)
+        .build()
+        .map_err(|_| anyhow!("cliente da JWKS indisponível"))
+}
+
+struct SoPublico;
+
+impl reqwest::dns::Resolve for SoPublico {
+    fn resolve(&self, nome: reqwest::dns::Name) -> reqwest::dns::Resolving {
+        let host = nome.as_str().to_owned();
+        Box::pin(async move {
+            let enderecos: Vec<std::net::SocketAddr> = tokio::net::lookup_host((host.as_str(), 0)).await?.collect();
+            if enderecos.is_empty() || !enderecos.iter().all(|a| publico(a.ip())) {
+                return Err("destino da JWKS fora da rede pública".into());
+            }
+            Ok(Box::new(enderecos.into_iter()) as reqwest::dns::Addrs)
+        })
+    }
+}
+
+/// Endereço roteável na internet: nada de loopback, rede privada, link-local, CGNAT, multicast,
+/// documentação ou não especificado, nem IPv4 embutido ou traduzido num IPv6 (mapeado, 6to4,
+/// Teredo, NAT64).
+pub(crate) fn publico(ip: std::net::IpAddr) -> bool {
+    use std::net::IpAddr;
+    match ip {
+        IpAddr::V4(v4) => {
+            let [a, b, ..] = v4.octets();
+            !(v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.is_broadcast()
+                || v4.is_documentation()
+                || v4.is_unspecified()
+                || v4.is_multicast()
+                || a == 0
+                || (a == 100 && (64..128).contains(&b))
+                || (a == 198 && (b == 18 || b == 19))
+                || a >= 240)
+        }
+        IpAddr::V6(v6) => {
+            if let Some(v4) = v6.to_ipv4_mapped().or_else(|| v6.to_ipv4()) {
+                return publico(IpAddr::V4(v4));
+            }
+            let [primeiro, segundo, ..] = v6.segments();
+            !(v6.is_loopback()
+                || v6.is_unspecified()
+                || v6.is_multicast()
+                || (primeiro & 0xfe00) == 0xfc00
+                || (primeiro & 0xffc0) == 0xfe80
+                || (primeiro & 0xffc0) == 0xfec0
+                || primeiro == 0x2001 && (segundo == 0x0db8 || segundo == 0)
+                || primeiro == 0x2002
+                || primeiro == 0x0064 && segundo == 0xff9b)
+        }
+    }
 }
 
 /// Só `200`; redirect, outro status ou corpo acima do teto falham. Devolve o corpo e a validade.

@@ -1,5 +1,6 @@
-//! Vínculo do Hub com um workspace, só leitura nesta fatia: quem grava ou troca o vínculo é outra
-//! etapa. Sem vínculo gravado, o Hub segue `personal:unbound`. Vínculo ilegível nega o acesso remoto.
+//! Vínculo do Hub com um workspace. Só [`super::gravacao`] grava (atrás de um interruptor
+//! desligado). Sem vínculo gravado, o Hub segue `personal:unbound`. Vínculo ilegível nega o acesso
+//! remoto.
 use super::Recusa;
 use super::token::Afirmacoes;
 use crate::LockExt;
@@ -126,7 +127,6 @@ fn https(raw: &str) -> Option<reqwest::Url> {
 
 /// Porta da gravação do vínculo (a etapa que grava passa por aqui): o `team` é recusado enquanto
 /// [`super::VINCULO_TIME_LIBERADO`] estiver desligado.
-#[allow(dead_code, reason = "a gravação do vínculo é a etapa seguinte; ela tem de passar por esta porta")]
 pub(crate) fn conferir_gravacao(v: &Vinculo, time_liberado: bool) -> Result<(), Recusa> {
     match v.tipo {
         Tipo::Time { .. } if !time_liberado => Err(Recusa::WorkspaceForbidden),
@@ -175,7 +175,7 @@ pub(crate) fn ler_on(db: &Connection) -> Estado {
     }
 }
 
-/// Fixture de prova: esta fatia não tem caminho de gravação do vínculo.
+/// Fixture de prova: grava o vínculo direto, sem a prova do dono de [`super::gravacao`].
 #[cfg(test)]
 pub(crate) fn gravar_para_prova(hub: &Hub, raw: &str) {
     hub.store
