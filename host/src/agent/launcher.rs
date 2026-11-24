@@ -74,14 +74,13 @@ fn check_known_launch(cfg: &BotConfig, words: &[String], depth: u8) -> Result<()
         }
         "npx" | "bunx" | "pnpm" => {
             let tail = if bin == "pnpm" {
-                let Some(dlx) = args.iter().position(|arg| arg == "dlx") else {
-                    return Ok(());
-                };
-                ensure!(dlx == 0 || !args[0].starts_with('-'), "{}", unknown());
-                if dlx != 0 {
-                    return Ok(());
+                let offset = args.iter().take_while(|arg| matches!(arg.as_str(), "--silent" | "-s")).count();
+                match args.get(offset).map(String::as_str) {
+                    Some("dlx") => {}
+                    Some(option) if option.starts_with('-') => return Err(unknown()),
+                    _ => return Ok(()),
                 }
-                &args[dlx + 1..]
+                &args[offset + 1..]
             } else {
                 args
             };
@@ -247,6 +246,7 @@ mod tests {
             ("bash -lc 'claude-code'", true),
             ("bash -c -e claude-code", true),
             ("pnpm --silent dlx @anthropic-ai/claude-code@1", true),
+            ("pnpm --silent run meu-adaptador dlx", false),
             ("env -- LANG=C claude-code", true),
             ("env -i -u PATH claude-code", true),
             ("env env claude-code", true),
