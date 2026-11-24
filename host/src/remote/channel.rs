@@ -479,6 +479,7 @@ async fn handshake(
         None
     };
     let mut fato_recusa = None;
+    let mut recusa_generica = false;
     let device = if bootstrap.is_some() {
         None
     } else if pair {
@@ -491,17 +492,13 @@ async fn handshake(
         use autoridade::RecusaHello::{Codigo, SemLinha};
         match autoridade::autenticar_hello(hub, &dk) {
             Ok(d) => Some(d),
-            Err(erro @ (SemLinha | Codigo(RejectCode::Revoked))) => {
-                let fato = fork_recusa_hello::fato(&hub.store.db.locked(), &dk);
-                let codigo = match erro {
-                    Codigo(codigo) => codigo,
-                    SemLinha => RejectCode::Unauthorized,
-                };
-                let Some(fato) = fato else {
-                    send_reject(out, codigo).await;
-                    return None;
-                };
-                fato_recusa = Some(fato);
+            Err(SemLinha | Codigo(RejectCode::Revoked)) => {
+                fato_recusa = fork_recusa_hello::fato(&hub.store.db.locked(), &dk);
+                recusa_generica = fato_recusa.is_none();
+                None
+            }
+            Err(Codigo(RejectCode::Unauthorized)) => {
+                recusa_generica = true;
                 None
             }
             Err(Codigo(code)) => {
@@ -510,11 +507,13 @@ async fn handshake(
             }
         }
     };
-    let field = |k: &str| hello[k].as_str().unwrap_or_default();
-    let (Ok(ek_d), Ok(n), Ok(sig)) =
-        (crypto::unb64_n::<32>(field("ek")), crypto::unb64_n::<32>(field("n")), crypto::unb64_n::<64>(field("sig")))
-    else {
-        if fato_recusa.is_some() {
+    let field = |k: &str, tamanho: usize| hello[k].as_str().filter(|v| v.len() == tamanho).unwrap_or_default();
+    let (Ok(ek_d), Ok(n), Ok(sig)) = (
+        crypto::unb64_n::<32>(field("ek", 43)),
+        crypto::unb64_n::<32>(field("n", 43)),
+        crypto::unb64_n::<64>(field("sig", 86)),
+    ) else {
+        if recusa_generica || fato_recusa.is_some() {
             send_reject(out, RejectCode::Unauthorized).await;
         } else {
             protocol_error().await;
@@ -522,7 +521,13 @@ async fn handshake(
         return None;
     };
     let cid = hub.identity.cid_raw();
-    if crypto::verify(&dk_raw, &crypto::hs1_input(&cid, &dk_raw, &ek_d, &n), &sig).is_err() {
+    let posse = crypto::verify(&dk_raw, &crypto::hs1_input(&cid, &dk_raw, &ek_d, &n), &sig);
+    if recusa_generica {
+        let _ = std::hint::black_box(posse);
+        send_reject(out, RejectCode::Unauthorized).await;
+        return None;
+    }
+    if posse.is_err() {
         let code = if fato_recusa.is_some() { RejectCode::Unauthorized } else { RejectCode::BadSignature };
         send_reject(out, code).await;
         return None;
@@ -534,7 +539,8 @@ async fn handshake(
     if let Some(estavel) = fato_recusa {
         let recusa = fork_assinatura_terminal::Recusa { cid, dk: dk_raw, ek_d, n, estavel };
         let sig = fork_recusa_hello::prova(&hub.store.db.locked(), &recusa, &hub.identity);
-        send_handshake_reject(out, estavel.codigo(), sig).await;
+        let code = sig.as_ref().map_or(RejectCode::Unauthorized, |_| estavel.codigo());
+        send_handshake_reject(out, code, sig).await;
         return None;
     }
     let ek_h = StaticSecret::from(crypto::random::<32>());

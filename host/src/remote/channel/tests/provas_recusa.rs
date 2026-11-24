@@ -123,3 +123,27 @@ async fn teto_por_chave_exige_posse_e_nao_assina_nem_readmite_quando_saturado() 
     assert_eq!((rejeicao["code"].as_str(), fechamento), (Some("revoked"), 4003));
     assert!(rejeicao.get("prova").is_some());
 }
+
+#[tokio::test]
+async fn aparelho_com_bloqueio_e_leitura_incerta_recebe_recusa_generica() {
+    let hub = temp_hub();
+    let revogada = paired_phone(&hub).await;
+    let dk = crypto::b64(revogada.verifying_key().as_bytes());
+    let aparelho = hub.store.device(&dk).unwrap();
+    assert!(hub.revoke_device(&dk).unwrap());
+    hub.store.put_device(&aparelho).unwrap();
+    hub.store.db.locked().execute("DROP TABLE donna_device_concessao", []).unwrap();
+    assert!(matches!(
+        autoridade::autenticar_hello(&hub, &dk),
+        Err(autoridade::RecusaHello::Codigo(RejectCode::Revoked))
+    ));
+
+    let desconhecida = SigningKey::from_bytes(&crypto::random());
+    let (generica, fechamento, _, _) = recusa(&hub, &desconhecida, true, false).await;
+    for valido in [false, true] {
+        let (rejeicao, codigo, _, _) = recusa(&hub, &revogada, valido, false).await;
+        assert_eq!(rejeicao, generica);
+        assert_eq!(codigo, fechamento);
+        assert!(rejeicao.get("prova").is_none());
+    }
+}
