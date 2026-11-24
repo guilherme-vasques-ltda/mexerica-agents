@@ -52,6 +52,7 @@ pub(crate) const DO_CANAL: &[&str] = &["subscribe", "pair"];
 #[cfg(test)]
 pub(crate) const FORA_DA_TABELA: &[(&str, &str)] = &[
     ("pair", "remote/channel.rs"),
+    ("hello", "remote/channel.rs"),
     ("bootstrap.challenge", "remote/channel.rs"),
     ("bootstrap.prove", "remote/channel.rs"),
     ("hello", "fork/personal_bootstrap/probe.rs"),
@@ -78,7 +79,7 @@ pub(crate) const PELA_TABELA: &[(&str, &str)] = &[
 /// leitura nova reprova até ser declarada.
 #[cfg(test)]
 pub(crate) const LEITURAS_DO_NOME: &[(&str, usize)] = &[
-    ("remote/channel.rs", 4),
+    ("remote/channel.rs", 5),
     ("remote/relay.rs", 3),
     ("fork/personal_bootstrap/probe.rs", 1),
     ("fork/personal_bootstrap/relay.rs", 1),
