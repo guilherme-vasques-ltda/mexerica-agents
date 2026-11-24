@@ -2132,11 +2132,11 @@ async fn rotina_anthropic_sem_motor_isolado_ou_chave_nao_envia_prompt() {
         .unwrap();
     let run = f.enqueue(routine["routine"]["id"].as_str().unwrap(), "test", true).await;
     f.hub.send_cmd("bot", super::Cmd::Routine(run["run"]["id"].as_str().unwrap().into())).unwrap();
-    f.until(|| f.hub.routines.list("bot")["runs"][0]["status"] == "failed").await;
+    f.until("recusa da rotina Anthropic", &f.hub, || f.hub.routines.list("bot")["runs"][0]["status"] == "failed").await;
     assert_eq!(f.prompts(), [] as [Value; 0]);
     assert!(!f.waiting_checkpoint_published());
     if !cfg!(target_os = "linux") {
-        f.until(|| {
+        f.until("aviso da plataforma", &f.hub, || {
             f.hub
                 .store
                 .history_in_session("bot", Some("bot"), i64::MAX, 30)
@@ -2236,7 +2236,7 @@ readline.createInterface({input:process.stdin}).on('line', async (line) => {
         .unwrap();
     let run = f.enqueue(routine["routine"]["id"].as_str().unwrap(), "test", true).await;
     f.hub.send_cmd("bot", super::Cmd::Routine(run["run"]["id"].as_str().unwrap().into())).unwrap();
-    f.until(|| case.dir.join("rotina").exists()).await;
+    f.until("prompt da rotina", &f.hub, || case.dir.join("rotina").exists()).await;
     f.hub.team.start_turn(&source.id, None);
     crate::chat::team::call(
         &f.hub,
@@ -2246,8 +2246,8 @@ readline.createInterface({input:process.stdin}).on('line', async (line) => {
     )
     .await
     .unwrap();
-    f.until(|| case.dir.join("delegacao").exists()).await;
-    f.until(|| {
+    f.until("prompt da delegação", &f.hub, || case.dir.join("delegacao").exists()).await;
+    f.until("registro de uso das duas execuções", &f.hub, || {
         f.hub
             .store
             .db
@@ -2266,8 +2266,10 @@ readline.createInterface({input:process.stdin}).on('line', async (line) => {
     f.hub.store.kv_set("donna.spend-ceiling.v1", &json!({"enabled":true,"tokens":1}).to_string()).unwrap();
     let run = f.enqueue(routine["routine"]["id"].as_str().unwrap(), "test", true).await;
     f.hub.send_cmd("bot", super::Cmd::Routine(run["run"]["id"].as_str().unwrap().into())).unwrap();
-    f.until(|| crate::fork::teto::turn_holds_of(&f.hub.store.db.locked(), "bot").is_ok_and(|holds| !holds.is_empty()))
-        .await;
+    f.until("rotina retida pelo teto", &f.hub, || {
+        crate::fork::teto::turn_holds_of(&f.hub.store.db.locked(), "bot").is_ok_and(|holds| !holds.is_empty())
+    })
+    .await;
     assert_eq!(std::fs::read_to_string(case.dir.join("rotina")).unwrap(), "ok");
     f.hub.shutdown().await;
     let _ = std::fs::remove_dir_all(&f.dir);
