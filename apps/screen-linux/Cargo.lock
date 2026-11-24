@@ -299,6 +299,7 @@ dependencies = [
  "gstreamer-app",
  "gstreamer-sdp",
  "gstreamer-webrtc",
+ "rustix",
  "serde_json",
  "tokio",
  "tracing",

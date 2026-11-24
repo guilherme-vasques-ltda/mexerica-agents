@@ -142,7 +142,7 @@ pub(super) fn tools() -> Vec<Value> {
         },
         {
             "name": "open_app",
-            "description": "Open or bring an application to the front by name (e.g. `firefox`). Returns a screenshot afterwards.",
+            "description": "Open or bring an application to the front using its exact desktop-file ID, preserving case. The `.desktop` suffix is optional (e.g. `firefox` or `firefox.desktop`); the desktop launcher resolves the ID. Returns a screenshot afterwards.",
             "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]},
         },
     ]);

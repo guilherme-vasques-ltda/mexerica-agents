@@ -520,7 +520,11 @@ O cofre cifra fora da transação e grava sob a autoridade original de contas,
 reconferida no commit. A resposta contém nomes, nunca valores. Os outros caminhos
 de escrita do cofre continuam locais. Guardar a chave não confirma assinatura.
 
-O Antigravity não é iniciado pelo Hub: a execução pelo catálogo ACP, o terminal
-e a sondagem de login estão indisponíveis. Um pedido local ao Hub não prova
-presença humana. O uso pessoal permanece no CLI oficial em um cliente ACP
-interativo, fora do app.
+O chat pessoal do Antigravity usa apenas o CLI oficial verificado com `agy acp`.
+Cada prompt requer uma mensagem digitada no chat, de um aparelho autenticado do
+dono, vinculada ao turno. Um pedido HTTP local não fornece essa autorização.
+Rotinas, delegações, canais externos e reenvios automáticos não usam o login
+pessoal. O Hub não copia credenciais, não usa o catálogo como alternativa e
+não inicia o login. Pedidos ACP de aprovação só recebem uma decisão pelo cartão,
+sem aprovação permanente; as regras nativas do CLI podem permitir ações que
+ele não encaminha ao cliente ACP.

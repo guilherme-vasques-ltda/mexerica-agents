@@ -3,6 +3,13 @@ import type { textos as fonte } from '../../pt-BR/extensoes/geral.ts'
 
 // Fatia 8a (D454): extensoes/geral (registro.ts), a tela e as folhas de Extensões (views/marketplace, fork/extensoes). Chaves completas; docs/guides/idiomas.md.
 export const textos: Traducao<typeof fonte> = {
+  "extensoes.motor.antigravityComputador": "Antigravity en {computador}",
+  "extensoes.motor.antigravityInstalacao": "Instala o actualiza el CLI oficial en el equipo indicado. Usa la versión compatible que se muestra abajo.",
+  "extensoes.motor.antigravityVersao": "Descargar la versión 1.5.15",
+  "extensoes.motor.antigravityGuia": "Instrucciones de Google",
+  "extensoes.motor.antigravityLoginLocal": "En el terminal del equipo indicado, ejecuta agy acp --login y sigue las instrucciones de Google. La sesión queda en el CLI; la app no recibe tus credenciales.",
+  "extensoes.motor.antigravityGemini": "Alternativa: clave de API de Gemini",
+  "extensoes.motor.antigravityGeminiDetalhe": "Para automatizar, añade una clave de Google en Cuentas de IA → Claves de API en el equipo que ejecutará la rutina. Elige Gemini en el motor Mexerica. No se usa el inicio de sesión de Antigravity.",
   "extensoes.titulo": "Extensiones",
   "extensoes.paginas": "Páginas de Extensiones",
   "extensoes.voltar": "Volver",
@@ -139,7 +146,8 @@ export const textos: Traducao<typeof fonte> = {
   "extensoes.motor.adicionarNode": "Añadir Node.js",
   "extensoes.motor.conferindoPrimeira": "Consultando con {motor}… La primera comprobación puede descargarlo.",
   "extensoes.terminal.dicaAntigravity": "Elige Google OAuth, abre el enlace, entra y pega el código aquí. Entrar en agy no confirma ACP.",
-  "extensoes.motor.antigravityInterativo": "No disponible en esta app. Usa la CLI oficial con tu cuenta en un cliente ACP interactivo.",
+  "extensoes.motor.antigravityInterativo": "Para uso personal, instala la CLI oficial e inicia sesión con agy acp --login. Escribe en el chat desde un dispositivo autenticado del propietario. Para automatizar, usa una clave Gemini/Vertex en un motor compatible o elige otro motor.",
+  "extensoes.motor.antigravityPermissoes": "Antigravity puede actuar sin mostrar una tarjeta de aprobación. La app solo puede pedirte permiso cuando la CLI envía una solicitud por ACP.",
   "extensoes.terminal.dicaOpenCode": "Elige el proveedor con las flechas y pulsa Enter. Para OpenCode Go, usa la clave en la bóveda.",
   "extensoes.terminal.dicaGrok": "Abre el enlace en el navegador y confirma el código del dispositivo.",
   "extensoes.terminal.dicaCursor": "Abre el enlace en el navegador. El acceso se comprueba automáticamente.",

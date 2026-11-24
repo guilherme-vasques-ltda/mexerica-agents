@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used)]
 
-use super::{EVENT, READ, SAVE, call, event, model::ArchiveState, store};
+use super::{EVENT, READ, SAVE, call, call_with_commit_boundary, event, model::ArchiveState, store};
 use crate::{
     LockExt,
     api::devices::Caller,
@@ -49,6 +49,24 @@ impl Fixture {
 
     async fn save(&self, request: Value) -> anyhow::Result<Value> {
         call(&self.hub, &Caller::Local, SAVE, request).await
+    }
+
+    fn control(&self, key: &str) -> Caller {
+        self.hub
+            .store
+            .put_device(&Device {
+                key: key.into(),
+                name: "fixture".into(),
+                platform: "fixture".into(),
+                source: DeviceSource::Local,
+                grant_id: None,
+                scopes: vec![Scope::Control],
+                lease_until: None,
+                created_at: now_ms(),
+                last_seen_at: None,
+            })
+            .unwrap();
+        crate::fork::autoridade::autenticar(&self.hub, key).unwrap().1
     }
 }
 
@@ -205,6 +223,46 @@ async fn current_control_can_save_but_revocation_before_write_stops_effect_and_e
     while let Ok(input) = events.try_recv() {
         assert_ne!(input["type"], EVENT);
     }
+}
+
+#[tokio::test]
+async fn committed_change_reaches_current_control_even_when_writer_loses_reply() {
+    let fixture = Fixture::new();
+    let hub = &fixture.hub;
+    let writer = fixture.control("solicitante");
+    let reader = fixture.control("destinatario");
+    let mut events = hub.events.subscribe();
+
+    let mut policy = fixture.read().await["policy"].clone();
+    policy["titleInstruction"] = json!("Título da equipe");
+    let request = fixture.request(0, policy.clone());
+    let owned_hub = hub.clone();
+    let err = call_with_commit_boundary(hub, &writer, SAVE, request.clone(), move || {
+        {
+            let db = owned_hub.store.db.locked();
+            assert!(db.is_autocommit());
+            assert_eq!(store::snapshot(&db, &owned_hub.host_id, PERSONAL).unwrap().revision, 1);
+        }
+        assert!(owned_hub.revoke_device("solicitante").unwrap());
+    })
+    .await
+    .unwrap_err();
+    assert!(err.is::<crate::fork::autoridade::AutorizacaoEncerrada>(), "{err:#}");
+
+    let current = fixture.read().await;
+    assert_eq!(current["policy"], policy);
+    assert_eq!(
+        call(hub, &reader, SAVE, request.clone()).await.unwrap(),
+        json!({
+            "snapshot": current, "receipt": {"clientRequestId":request["clientRequestId"],"revision":1}
+        })
+    );
+    let hint = events.try_recv().unwrap();
+    assert_eq!(hint, json!({"type":EVENT,"hubId":hub.host_id,"spaceId":PERSONAL}));
+    assert_eq!(event(hub, &reader, PERSONAL, &hint), Some(hint.clone()));
+    assert!(event(hub, &writer, PERSONAL, &hint).is_none());
+    assert!(event(hub, &reader, "outro-space", &hint).is_none());
+    assert!(matches!(events.try_recv(), Err(tokio::sync::broadcast::error::TryRecvError::Empty)));
 }
 
 #[test]

@@ -39,6 +39,13 @@ class ConnectionPresentationTest {
         assertEquals("Offline · seen ${RelativeTime.day(seen)}", statusText(state(LinkState.ComputerOffline(seen))))
     }
 
+    @Test fun unverifiedChannelStopDoesNotPresentRemoval() {
+        val stopped = state(LinkState.Failed("Connection to the computer ended."))
+        assertEquals("Can't reach", statusText(stopped))
+        assertEquals("Offline", connectionLabel(stopped))
+        assertFalse(stopped.isStale)
+    }
+
     @Test fun aComputerBehindTheAppNeedsAnUpdate() {
         val online = state(LinkState.Ready(HostRoute.Direct)).copy(hello = buildJsonObject { put("version", "2.0.0"); put("minApp", "2.0.0") })
         assertEquals("Needs update", statusText(online))

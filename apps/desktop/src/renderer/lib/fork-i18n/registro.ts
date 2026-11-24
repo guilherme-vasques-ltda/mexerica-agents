@@ -91,6 +91,7 @@ export const MODULOS: readonly { readonly modulo: string; readonly prefixo: stri
   { modulo: 'sistema/barra', prefixo: 'sistema.barra.' },
   { modulo: 'sistema/conversa', prefixo: 'sistema.conversa.' },
   { modulo: 'web/login', prefixo: 'web.login.' },
+  { modulo: 'computadores/mapa', prefixo: 'mapaComputadores.' },
 ]
 
 /** O módulo dono de uma chave: o de prefixo mais longo que a contém; sem nenhum, `null`. */

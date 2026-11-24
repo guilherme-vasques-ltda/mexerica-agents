@@ -278,6 +278,29 @@ impl Actor {
         // do bot fazia (`Cmd::Reconfigure`).
         let fast_changed = cfg.fast_mode != self.cfg.fast_mode;
         self.cfg = cfg;
+        self.antigravity_grant = None;
+        if crate::agent::backends::is_antigravity(&self.cfg.backend)
+            || entry_ids.iter().any(|id| {
+                self.hub.store.entry(id).is_some_and(|e| e.data[crate::fork::antigravity::ENTRY_MARKER] == true)
+            })
+        {
+            use crate::fork::antigravity::{self, INTERACTIVE};
+            antigravity::config(&self.cfg)?;
+            anyhow::ensure!(
+                !hidden
+                    && prepared_token.is_none()
+                    && self.waiting.is_none()
+                    && self.dispatch.is_none()
+                    && self.active_routine.is_none()
+                    && self.active_group.is_none()
+                    && self.active_request.is_none(),
+                "{INTERACTIVE}"
+            );
+            let [entry] = entry_ids else { anyhow::bail!("{INTERACTIVE}") };
+            let grant = self.hub.antigravity_grants.take(entry).ok_or_else(|| anyhow!("{INTERACTIVE}"))?;
+            grant.check(&self.hub, &lane, entry_ids)?;
+            self.antigravity_grant = Some(grant);
+        }
         if fast_changed || (promoted && self.cfg.fast_mode) {
             self.fast_mode_changed();
         }
@@ -532,6 +555,16 @@ impl Actor {
         }
         if let Some(conn) = self.conn.as_mut() {
             while let Ok(inc) = conn.rx.try_recv() {
+                if self.antigravity_grant.is_some()
+                    && let Incoming::Notification { method, params } = &inc
+                    && method == "session/update"
+                    && params["sessionId"].as_str() == self.turn_session.as_deref()
+                    && crate::fork::antigravity::mode_diverged(&params["update"])
+                {
+                    self.antigravity_grant = None;
+                    self.stop_antigravity().await;
+                    anyhow::bail!("O Antigravity mudou de modo antes do envio. Reenvie a mensagem.");
+                }
                 if let Incoming::Request { id, .. } = inc {
                     let _ = conn.acp.respond_error(id, -32601, "not supported").await;
                 }
@@ -586,6 +619,7 @@ impl Actor {
         if self.turn.is_none() {
             return;
         }
+        self.antigravity_active = None;
         if let Some(conn) = self.conn.as_mut() {
             conn.compaction_usage = super::CompactionUsage::Idle;
         }
@@ -596,6 +630,7 @@ impl Actor {
         // F6-B (regra (b)): com reserva, a conta esgotada descansa e o pedido segue na próxima, sem espera D72.
         let fallback_trocou = limit.is_some_and(|limit| self.fallback_on_limit(limit.resets_at));
         if let Some(limit) = limit
+            && self.cfg.backend != crate::fork::antigravity::ID
             && !fallback_trocou
             && self.wait_on_limit(limit)
         {
@@ -696,6 +731,9 @@ impl Actor {
         let notice = match (&done, stop_reason.as_str()) {
             _ if held => Ok(()),
             _ if limited && !stopped => self.try_notice(&limit_notice, NoticeStyle::Info),
+            (Err(e), _) if !self.stop_requested && e.is::<crate::fork::antigravity::ModeUnconfirmed>() => {
+                self.try_notice(crate::fork::antigravity::MODE_UNCONFIRMED, NoticeStyle::Error)
+            }
             (Err(e), _) if !self.stop_requested => {
                 let tail = self.exit_tail.take().filter(|t| !t.is_empty());
                 if self.invite_sign_in(e) {

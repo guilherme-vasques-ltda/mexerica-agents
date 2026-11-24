@@ -3,6 +3,13 @@ import type { textos as fonte } from '../../pt-BR/extensoes/geral.ts'
 
 // Fatia 8a (D454): extensoes/geral (registro.ts), a tela e as folhas de Extensões (views/marketplace, fork/extensoes). Chaves completas; docs/guides/idiomas.md.
 export const textos: Traducao<typeof fonte> = {
+  "extensoes.motor.antigravityComputador": "Antigravity on {computador}",
+  "extensoes.motor.antigravityInstalacao": "Install or update the official CLI on the computer above. Use the supported version below.",
+  "extensoes.motor.antigravityVersao": "Download version 1.5.15",
+  "extensoes.motor.antigravityGuia": "Google’s instructions",
+  "extensoes.motor.antigravityLoginLocal": "In the terminal on the computer above, run agy acp --login and follow Google’s instructions. The session stays in the CLI; the app does not receive your credentials.",
+  "extensoes.motor.antigravityGemini": "Alternative: Gemini API key",
+  "extensoes.motor.antigravityGeminiDetalhe": "For automation, add a Google key in AI Accounts → API Keys on the computer that will run the routine. Choose Gemini in the Mexerica engine. This does not use Antigravity sign-in.",
   "extensoes.titulo": "Extensions",
   "extensoes.paginas": "Extensions pages",
   "extensoes.voltar": "Back",
@@ -139,7 +146,8 @@ export const textos: Traducao<typeof fonte> = {
   "extensoes.motor.adicionarNode": "Add Node.js",
   "extensoes.motor.conferindoPrimeira": "Checking with {motor}… The first check may download it.",
   "extensoes.terminal.dicaAntigravity": "Choose Google OAuth, open the link, sign in and paste the code here. agy sign-in does not confirm ACP.",
-  "extensoes.motor.antigravityInterativo": "Unavailable in this app. Use the official CLI with your own account in an interactive ACP client.",
+  "extensoes.motor.antigravityInterativo": "For personal use, install the official CLI and run agy acp --login. Type in chat from an authenticated owner device. For automation, use a Gemini/Vertex key with a compatible engine or choose another engine.",
+  "extensoes.motor.antigravityPermissoes": "Antigravity can act without showing an approval card. The app can only ask for your approval when the CLI sends a request over ACP.",
   "extensoes.terminal.dicaOpenCode": "Pick the provider with the arrows and press Enter. For OpenCode Go, prefer the vault key.",
   "extensoes.terminal.dicaGrok": "Open the link in your browser and confirm the device code.",
   "extensoes.terminal.dicaCursor": "Open the link in your browser. Sign-in is checked automatically.",

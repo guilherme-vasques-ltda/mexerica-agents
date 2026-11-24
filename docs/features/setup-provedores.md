@@ -313,10 +313,15 @@ legado permanece no disco; ele não é copiado para o novo login. Seleção de v
 contas para esses motores ainda não faz parte deste contrato. O cofre Go usa o
 slot do motor já existente. Claude/Codex preservam seus perfis gerenciados.
 
-**Antigravity:** a integração no app está suspensa. Para uso pessoal, use o
-[CLI oficial em modo ACP](https://antigravity.google/docs/ide/extensions/acp/)
-em um editor interativo. Faça login diretamente no CLI com `agy acp --login`
-ou em uma sessão interativa do `agy`. O Hub não inicia o CLI nem gerencia a conta.
+**Antigravity:** indisponível quando o Hub executa motores sob uma conta de sistema separada.
+Nos outros casos, instale o binário oficial 1.5.15 no aparelho que roda o Hub e,
+na mesma conta do sistema que executa o Hub, entre com `agy acp --login` ou em uma sessão interativa do
+`agy`. O Hub confere o hash do executável e só usa
+[`agy acp`](https://antigravity.google/docs/ide/extensions/acp/) no chat pessoal,
+a partir de uma mensagem digitada por um aparelho autenticado do dono. Não há
+instalação ou login em segundo plano. Para rotinas, delegações e canais, use
+uma chave Gemini/Vertex em um motor compatível ou escolha outro motor.
+No Linux, se o CLI usa o chaveiro da sessão, o Hub precisa ter acesso ao mesmo barramento de sessão D-Bus do login.
 
 Referências e trechos adaptados: [Tucano, login-terminal.ts](https://github.com/eduwxyz/tucano/blob/9474545f0415f4bb2a439e1a7727912254b69972/src/core/login-terminal.ts),
 [autenticação Cursor](https://cursor.com/docs/cli/reference/authentication),

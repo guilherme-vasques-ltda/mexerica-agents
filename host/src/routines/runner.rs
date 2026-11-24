@@ -848,6 +848,225 @@ mod recovery_tests {
 }
 
 #[cfg(test)]
+mod dispatch_recovery_tests {
+    use super::*;
+    use crate::{
+        LockExt, fork::bot_admission as admission, remote::identity::Identity, routines::Status, store::BotConfig,
+    };
+    use std::{path::Path, sync::Arc};
+
+    fn config() -> BotConfig {
+        serde_json::from_value(serde_json::json!({"id":"bot","name":"Bot"})).unwrap()
+    }
+
+    fn catchup_hub() -> (Arc<Hub>, tempfile::TempDir, String, i64) {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(Path::new(":memory:")).unwrap();
+        store.save_bot(&config()).unwrap();
+        let hub = Hub::new(store, "test".into(), Identity::load_or_create(dir.path()).unwrap(), "test".into(), 0);
+        let due_at = now_ms() + 60_000;
+        let routine = {
+            let mut state = hub.routines.state.locked();
+            let mut routine = crate::routines::tests::routine();
+            routine.id = "delayed".into();
+            routine.bot_id = "bot".into();
+            routine.triggers = vec![crate::routines::Trigger::Once { at: due_at }];
+            routine.next_runs = vec![Some(due_at)];
+            routine.created_at = due_at - 10_000;
+            routine.updated_at = due_at - 10_000;
+            state.available_at = due_at + 1;
+            state.routines.push(routine.clone());
+            routine
+        };
+        let raw = serde_json::to_string(&*hub.routines.state.locked()).unwrap();
+        hub.store.kv_set("routines.v1", &raw).unwrap();
+        (hub, dir, routine.id, due_at)
+    }
+
+    fn queue_catchup(hub: &Hub, routine_id: &str, due_at: i64) -> String {
+        {
+            let state = hub.routines.state.locked();
+            let routine = state.routines.iter().find(|routine| routine.id == routine_id).unwrap();
+            assert_eq!(routine.next_runs, vec![Some(due_at)], "fixture occurrence is exact");
+            assert_eq!(state.available_at, due_at + 1, "boot availability is after occurrence");
+        }
+        hub.routines.schedule_due_com(&hub.store, due_at - 1, || due_at - 1).unwrap();
+        assert!(hub.routines.state.locked().runs.is_empty(), "não dispara antes do horário vencido");
+        hub.routines.schedule_due_com(&hub.store, due_at + 1, || due_at + 1).unwrap();
+        let run = hub.routines.state.locked().runs[0].clone();
+        assert!(run.status == Status::Pending);
+        assert!(run.catchup);
+        assert_eq!(run.routine_id, routine_id);
+        hub.routines
+            .change(&hub.store, |state| {
+                state.runs.iter_mut().find(|r| r.id == run.id).unwrap().created_at = due_at - 1;
+                Ok(())
+            })
+            .unwrap();
+        run.id
+    }
+
+    #[tokio::test]
+    async fn catchup_queue_failure_retries_twice_then_successfully_delivers_once() {
+        let (hub, _dir, routine_id, due_at) = catchup_hub();
+        let run_id = queue_catchup(&hub, &routine_id, due_at);
+        let mut retry = OrphanRetry::default();
+        for attempt in 1..=CATCHUP_MAX_RETRIES {
+            let closed = hub.test_bot_commands("bot");
+            drop(closed);
+            tick(&hub, &mut retry).unwrap();
+            let run = hub.routines.state.locked().runs[0].clone();
+            assert!(run.status == Status::Pending);
+            assert_eq!(run.attempts, attempt);
+            assert!(run.detail.is_none(), "a known send_cmd failure is retriable, not terminal");
+        }
+
+        let mut positive = hub.test_bot_commands("bot");
+        hub.routines.active.locked().remove("bot");
+        tick(&hub, &mut retry).unwrap();
+        assert!(matches!(positive.try_recv(), Ok(crate::agent::bot::Cmd::Routine(ref id)) if id == &run_id));
+        assert!(positive.try_recv().is_err());
+        tick(&hub, &mut retry).unwrap();
+        assert!(positive.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn catchup_queue_failure_terminates_after_retry_limit_without_dispatch() {
+        let (hub, _dir, routine_id, due_at) = catchup_hub();
+        let run_id = queue_catchup(&hub, &routine_id, due_at);
+        let mut retry = OrphanRetry::default();
+        for attempt in 0..=CATCHUP_MAX_RETRIES {
+            let closed = hub.test_bot_commands("bot");
+            drop(closed);
+            tick(&hub, &mut retry).unwrap();
+            hub.routines.active.locked().remove("bot");
+            if attempt < CATCHUP_MAX_RETRIES {
+                let run = hub.routines.state.locked().runs[0].clone();
+                assert!(run.status == Status::Pending);
+                assert_eq!(run.attempts, attempt + 1);
+            }
+        }
+        let failed = hub.routines.state.locked().runs[0].clone();
+        assert!(failed.status == Status::Failed);
+        assert_eq!(failed.attempts, CATCHUP_MAX_RETRIES);
+        assert!(failed.detail.as_deref().is_some_and(|detail| detail.contains("Could not queue routine")));
+        let positive = hub.test_bot_commands("bot");
+        hub.routines.active.locked().remove("bot");
+        tick(&hub, &mut retry).unwrap();
+        assert!(hub.routines.state.locked().runs.iter().any(|run| run.id == run_id && run.status == Status::Failed));
+        assert!(positive.is_empty());
+    }
+
+    #[tokio::test]
+    async fn dispatched_receipt_restores_interrupted_without_replay_or_duplicate_delivery() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("routines.db");
+        let store = Store::open(&db_path).unwrap();
+        store.save_bot(&config()).unwrap();
+        let hub = Hub::new(store, "test".into(), Identity::load_or_create(dir.path()).unwrap(), "test".into(), 0);
+        let created = hub
+            .routines
+            .save(
+                &hub,
+                "bot",
+                &serde_json::json!({
+                    "name":"Webhook fixture",
+                    "instruction":"Check status",
+                    "triggers":[{"type":"webhook"}],
+                }),
+            )
+            .unwrap();
+        let routine_id = created["routine"]["id"].as_str().unwrap().to_owned();
+        let queued = hub
+            .routines
+            .enqueue(&hub.store, "bot", &routine_id, Value::Null, Some("stable-delivery".into()), false)
+            .unwrap();
+        let run_id = queued["run"]["id"].as_str().unwrap().to_owned();
+        hub.routines
+            .change(&hub.store, |state| {
+                state.runs.iter_mut().find(|run| run.id == run_id).unwrap().status = Status::Starting;
+                Ok(())
+            })
+            .unwrap();
+        let receipt = hub.routines.prepare_attempt(&hub.store, "bot", &run_id).unwrap();
+        let admission_ticket = admission::reserve(
+            &hub.store,
+            &config(),
+            "bot",
+            &run_id,
+            &admission::Origin::Routine { id: run_id.clone() },
+        )
+        .unwrap();
+        admission::permit_with(
+            &hub.store,
+            &config(),
+            &admission_ticket,
+            None,
+            &[],
+            None,
+            admission::ClaimHooks::default(),
+        )
+        .unwrap()
+        .unwrap();
+        hub.routines.mark_started(&hub.store, "bot", &run_id, &receipt).unwrap();
+        assert_eq!(
+            crate::fork::cadeias::admissao::fase(&hub.store, &receipt).unwrap(),
+            crate::fork::cadeias::modelo::Fase::EnvioPossivel
+        );
+        drop(hub);
+
+        let reopened_store = Store::open(&db_path).unwrap();
+        let restored =
+            Hub::new(reopened_store, "test".into(), Identity::load_or_create(dir.path()).unwrap(), "test".into(), 0);
+        restored.routines.restore(&restored.store).unwrap();
+        let run = restored.routines.list("bot")["runs"][0].clone();
+        assert_eq!(run["id"], run_id);
+        assert_eq!(run["status"], "interrupted");
+        assert!(run["detail"].as_str().unwrap().contains("pode haver efeito já realizado"));
+        assert_eq!(
+            admission::current(&restored.store, "bot").unwrap().unwrap().origin,
+            admission::Origin::Routine { id: run_id.clone() },
+            "simula somente a fase de admissão permitida da própria run; não a pausa do ator nem sua execução completa",
+        );
+        let mut no_replay = restored.test_bot_commands("bot");
+        tick(&restored, &mut OrphanRetry::default()).unwrap();
+        assert!(no_replay.try_recv().is_err(), "dispatch incerto persistido não é reenviado");
+        let duplicate = restored
+            .routines
+            .enqueue(&restored.store, "bot", &routine_id, Value::Null, Some("stable-delivery".into()), false)
+            .unwrap();
+        assert_eq!(duplicate["run"]["id"], run_id);
+        tick(&restored, &mut OrphanRetry::default()).unwrap();
+        assert!(no_replay.try_recv().is_err(), "delivery repetida não cria outro despacho");
+
+        let next_routine = restored
+            .routines
+            .save(
+                &restored,
+                "bot",
+                &serde_json::json!({
+                    "name":"Positive channel fixture",
+                    "instruction":"Check status",
+                    "triggers":[{"type":"webhook"}],
+                }),
+            )
+            .unwrap();
+        let next_id = next_routine["routine"]["id"].as_str().unwrap();
+        let next_run = restored
+            .routines
+            .enqueue(&restored.store, "bot", next_id, Value::Null, Some("positive-delivery".into()), false)
+            .unwrap();
+        let next_run_id = next_run["run"]["id"].as_str().unwrap();
+        let mut positive_after_restart = restored.test_bot_commands("bot");
+        tick(&restored, &mut OrphanRetry::default()).unwrap();
+        assert!(
+            matches!(positive_after_restart.try_recv(), Ok(crate::agent::bot::Cmd::Routine(ref id)) if id == next_run_id)
+        );
+        assert!(positive_after_restart.try_recv().is_err());
+    }
+}
+
+#[cfg(test)]
 mod pause_tests {
     use super::*;
     use crate::routines::{Trigger, new_run, tests::routine};

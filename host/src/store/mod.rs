@@ -60,6 +60,7 @@ pub struct Store {
     /// Conjuntos 3D gerados pelo usuário (fase 2b), fora do repo e do bundle.
     pub(crate) gerados_root: std::path::PathBuf,
     pub(crate) db: mutex_observado::ObservedMutex,
+    unexpired_entries: Mutex<std::collections::HashSet<String>>,
     /// Serializa intenções do usuário e mudanças do MCP manage, sem segurar locks SQLite durante aprovação.
     pub(crate) team_lock: Arc<tokio::sync::Mutex<()>>,
     pub(crate) connector_lock: Mutex<()>,

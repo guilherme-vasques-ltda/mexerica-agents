@@ -596,39 +596,41 @@ impl Store {
             st.query_map([now_ms()], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?
         };
         for id in &ids {
-            // A pergunta volta uma vez, com outro cartão; a resposta ao antigo nunca mais vale. Falha num cartão só o
-            // expira como antes: não interrompe a varredura nem impede o Hub de abrir.
             match self.restore_permission_question(id) {
                 Ok(true) => continue,
                 Ok(false) => {}
-                Err(error) => {
-                    tracing::warn!(entry = %id, error = format!("{error:#}"), "pergunta de permissão não restaurada; expira");
-                }
+                Err(_) => tracing::warn!(entry = %id, "falha ao restaurar pergunta de permissão; expira"),
             }
-            if let Some(mut e) = self.entry(id) {
-                let status = if e.kind == EntryKind::Notice.as_str() {
-                    let heading = e.data["heading"].as_str().unwrap_or("Bot request");
-                    e.data["text"] = format!(
-                        "{heading}\nInterrupted by host restart. Partial work may have happened; check before retrying."
-                    )
-                    .into();
-                    if let Some(message) = e.data.get_mut("botMessage").and_then(Value::as_object_mut) {
-                        message.insert(
-                            "detail".into(),
-                            "Interrupted by host restart. Partial work may have happened; check before retrying."
-                                .into(),
-                        );
-                    }
-                    e.data["style"] = "error".into();
-                    "failed"
-                } else {
-                    "expired"
-                };
-                e.data["status"] = status.into();
-                self.update_entry(id, &e.data)?;
+            if self.expire_entry(id).is_err() {
+                self.unexpired_entries.locked().insert(id.clone());
+                tracing::warn!(entry = %id, "falha ao expirar cartão no reinício");
             }
         }
         Ok(ids.len())
+    }
+
+    fn expire_entry(&self, id: &str) -> Result<()> {
+        let entry = Self::entry_on(&self.db.locked(), id)?;
+        let Some(mut e) = entry else { return Ok(()) };
+        let status = if e.kind == EntryKind::Notice.as_str() {
+            let heading = e.data["heading"].as_str().unwrap_or("Bot request");
+            let detail = "Interrupted by host restart. Partial work may have happened; check before retrying.";
+            e.data["text"] = format!("{heading}\n{detail}").into();
+            if let Some(message) = e.data.get_mut("botMessage").and_then(Value::as_object_mut) {
+                message.insert("detail".into(), detail.into());
+            }
+            e.data["style"] = "error".into();
+            "failed"
+        } else {
+            "expired"
+        };
+        e.data["status"] = status.into();
+        self.update_entry(id, &e.data)?;
+        Ok(())
+    }
+
+    pub(crate) fn expiration_failed(&self, id: &str) -> bool {
+        self.unexpired_entries.locked().contains(id)
     }
 }
 

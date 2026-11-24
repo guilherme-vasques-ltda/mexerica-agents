@@ -28,7 +28,7 @@ export function gruposDeMotores(backends: readonly Backend[]) {
 /** O estado de um motor no Hub, no idioma pedido (DON-917), só com o que o Hub informou. */
 export function motorEstado(b: Backend, idioma: AppLanguage): MotorEstado {
   const t = (chave: ChaveTexto) => (traduzir as (i: AppLanguage, c: ChaveTexto) => string)(idioma, chave)
-  if (b.id === 'antigravity') return { selo: t('memoria.modelo.conta.indisponivel'), tom: 'neutro', detalhe: t('extensoes.motor.antigravityInterativo'), instalado: b.installed === true }
+  if (b.id === 'antigravity') return { selo: t(b.available ? 'contas.motor.loginNaoVerificado' : 'memoria.modelo.conta.indisponivel'), tom: 'neutro', detalhe: t('extensoes.motor.antigravityInterativo'), instalado: b.installed === true }
   const contas = MOTORES_COM_CONTAS.has(b.id)
   if (b.installed !== true && b.curated === true) {
     return { selo: t('contas.motor.naoInstalado'), tom: 'neutro', detalhe: t(b.canInstall ? 'contas.motor.instaladorOficial' : 'contas.motor.instalacaoManual'), instalado: false }

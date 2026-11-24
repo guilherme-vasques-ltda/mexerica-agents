@@ -126,7 +126,35 @@ async fn sem_identidade_separada_recusa_spawn() {
     }
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "linux")))]
+#[tokio::test]
+async fn sem_protecao_de_descritores_recusa_spawn() {
+    let (child_end, _hub_end) = std::os::unix::net::UnixStream::pair().unwrap();
+    let mut command = tokio::process::Command::new("/usr/bin/true");
+    let Err(error) = spawn_with_vault_fd(&mut command, &child_end) else {
+        panic!("abertura sem proteção de descritores foi aceita");
+    };
+    assert!(error.to_string().contains("proteção de descritores"), "{error:#}");
+}
+
+#[cfg(all(unix, not(target_os = "linux")))]
+#[tokio::test]
+async fn motor_ligado_recusa_spawn_fora_do_linux() {
+    let Some(_case) = crate::fork::motor_exec::test_support::case(
+        "fork::motor_mexerica::tests::motor_ligado_recusa_spawn_fora_do_linux",
+    ) else {
+        return;
+    };
+    let store = Arc::new(Store::open(std::path::Path::new(":memory:")).unwrap());
+    let Err(error) = Engine::spawn(store, "faux", &[]) else {
+        panic!("abertura do motor foi aceita fora do Linux");
+    };
+    let motivo =
+        if cfg!(target_os = "macos") { "motor_macos_indisponivel" } else { "identidade separada pelo ajudante Linux" };
+    assert!(error.to_string().contains(motivo), "{error:#}");
+}
+
+#[cfg(target_os = "linux")]
 #[tokio::test]
 async fn conversa_responde_pelo_provedor_falso() {
     let Some(_case) = crate::fork::motor_exec::test_support::case(
@@ -144,7 +172,7 @@ async fn conversa_responde_pelo_provedor_falso() {
     engine.finish().await.unwrap();
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 #[tokio::test]
 async fn identidade_de_cache_chega_ao_motor_e_e_conferida() {
     let Some(_case) = crate::fork::motor_exec::test_support::case(
@@ -168,7 +196,7 @@ async fn identidade_de_cache_chega_ao_motor_e_e_conferida() {
     engine.finish().await.unwrap();
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 #[tokio::test]
 async fn chave_nunca_em_argv_log_ou_saida() {
     let Some(_case) =
@@ -245,7 +273,7 @@ async fn cofre_preso_ao_slot_do_provedor_e_sem_escrita() {
     server.abort();
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 #[tokio::test]
 async fn sem_chave_o_turno_falha_fechado() {
     let Some(_case) =

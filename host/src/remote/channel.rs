@@ -756,7 +756,7 @@ impl Channel {
                     return;
                 }
                 let estado = Arc::new(Mutex::new(BrowserStream::new(sessao.clone(), target, self.quadros)));
-                let Some(guarda) = browser_canal::registrar(&sessao, estado.clone(), autoridade.clone()) else {
+                let Some(guarda) = browser_canal::registrar(&sessao, estado.clone(), &autoridade) else {
                     self.send(err(id, 403, "browser_scope_unavailable")).await;
                     return;
                 };

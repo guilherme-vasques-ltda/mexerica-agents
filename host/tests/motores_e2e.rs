@@ -489,15 +489,16 @@ async fn antigravity_recusa_bot_setup_e_modelos_com_cli_e_adaptador_presentes() 
     let lista = atualizar(&host).await;
     let backend = motor(&lista, "antigravity");
     assert_eq!(backend["installed"], true);
-    assert_eq!(backend["available"], false);
     assert_eq!(backend["canInstall"], false);
+    let bot = host.call("createBot", json!({"name":"Interactive", "backend":"antigravity"})).await;
+    let bot_id = bot["bot"]["id"].as_str().unwrap();
+    let erro = host.refused("send", json!({"botId":bot_id,"text":"teste","clientNonce":"fixture-nonce","contentOrigin":common::host::typed_origin("teste")})).await;
+    assert!(erro.contains("aparelho autenticado"), "{erro}");
 
     for id in ["antigravity", "antigravity-acp", " AGY "] {
         for (method, args) in [
-            ("createBot", json!({"name":"Interactive", "backend":id})),
             ("agentSetup", json!({"step":"login", "backend":id})),
             ("agentSetup", json!({"step":"install", "backend":id})),
-            ("agentModels", json!({"backend":id})),
             ("agentAuthenticate", json!({"backend":id,"method":"oauth-personal"})),
             ("setAgentEnv", json!({"backend":id,"vars":{"GEMINI_API_KEY":"fixture"}})),
         ] {
@@ -507,8 +508,9 @@ async fn antigravity_recusa_bot_setup_e_modelos_com_cli_e_adaptador_presentes() 
         let status = host.call("agentAuth", json!({"backend":id})).await;
         assert_eq!(status, json!({"signedIn":null,"methods":[],"savedEnv":[],"login":false}));
     }
+    assert_eq!(host.call("agentModels", json!({"backend":"antigravity"})).await, json!({"models":[]}));
 
-    for command in ["agy -p pedido", "agy acp", "'/somewhere/AGY.EXE' acp", "antigravity-acp"] {
+    for command in ["agy -p pedido", "agy acp", "'/somewhere/AGY.EXE' acp", "agy.bat acp", "antigravity-acp"] {
         let erro = host.refused("createBot", json!({"name":"Custom", "backend":"custom","command":command})).await;
         assert!(erro.contains("cliente ACP interativo"), "{command}: {erro}");
     }

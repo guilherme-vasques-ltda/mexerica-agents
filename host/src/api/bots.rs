@@ -363,6 +363,17 @@ pub(super) async fn call(
                 data["replyTo"] = reply;
             }
             data["contentOrigin"] = crate::guard_hub::origem::capture(caller, &b, &data);
+            let mut effective = row.config.clone();
+            if !row.config.is_group() {
+                crate::fork::sessoes::admissao::apply_configured(&hub.store.db.locked(), &lane, &mut effective)?;
+            }
+            let antigravity_owner = if crate::agent::backends::is_antigravity(&effective.backend) {
+                crate::fork::antigravity::config(&effective)?;
+                data[crate::fork::antigravity::ENTRY_MARKER] = json!(true);
+                Some(crate::fork::antigravity::owner(hub, caller, &data["contentOrigin"])?)
+            } else {
+                None
+            };
             crate::fork::idioma_app::carimbar(&hub.store, caller, &mut data); // D395
             // MB-1b: a mensagem humana responde, na mesma transação, as perguntas pendentes desta conversa.
             let (lane, turn, e) = if let Some(delivery) = mailbox {
@@ -394,6 +405,9 @@ pub(super) async fn call(
             } else {
                 // `/skill …` reaches the agent as "read this skill first"; the chat keeps what was typed.
                 let prompt = crate::chat::prompt::of_entry(hub, &row.config, &e.data);
+                if let Some(owner) = antigravity_owner {
+                    hub.antigravity_grants.insert(owner, lane.clone(), &e);
+                }
                 hub.send_cmd(bot, Cmd::Send { lane, entry_id: e.id.clone(), text: prompt })?;
             }
             json!({"entry": e})
@@ -464,7 +478,14 @@ pub(super) async fn call(
             let e = hub.react(str_arg(&b, "entryId")?, str_arg(&b, "emoji")?)?;
             json!({"entry": e})
         }
-        "respondPermission" => crate::fork::permission_card::respond(hub, &b).await?,
+        "respondPermission" => {
+            if let Some(entry) = b["entryId"].as_str().and_then(|id| hub.store.entry(id))
+                && entry.data["ownerDeviceOnly"] == true
+            {
+                crate::fork::antigravity::authenticated_owner(hub, caller)?;
+            }
+            crate::fork::permission_card::respond(hub, &b).await?
+        }
         _ => return Ok(ControlFlow::Continue(b)),
     };
     if read_result {
