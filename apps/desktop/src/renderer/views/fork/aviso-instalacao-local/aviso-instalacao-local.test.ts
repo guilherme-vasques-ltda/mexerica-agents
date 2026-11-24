@@ -14,8 +14,7 @@ const manual = { type: 'webhook' }
 const visao = (routines: { triggers: { type: string }[] }[], teams = cobertura.teams) => ({ routines, teams })
 
 const pode = (overrides: Partial<Parameters<typeof avisaPrimeiraAgendada>[0]>) => avisaPrimeiraAgendada({
-  local,
-  store: deste,
+  hubLocal: true,
   visao: visao([]),
   botsDaTela: [bot],
   ...overrides,
@@ -38,7 +37,7 @@ test('uma rotina agendada ligada ou desligada impede o aviso de criação', () =
 })
 
 test('Hub remoto e overview ausente não mostram o aviso de criação', () => {
-  assert.equal(pode({ store: remoto }), false)
+  assert.equal(pode({ hubLocal: false }), false)
   assert.equal(pode({ visao: null }), false)
 })
 

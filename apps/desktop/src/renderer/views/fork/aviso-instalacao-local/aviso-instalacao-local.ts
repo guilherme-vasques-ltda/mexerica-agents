@@ -8,13 +8,12 @@ export function ehHubDesteComputador(local: { computer: { id: string } } | null,
  * pode escolher, e nenhuma rotina existente (ligada ou desligada) tem gatilho cron.
  */
 export function avisaPrimeiraAgendada(input: {
-  local: { computer: { id: string } } | null
-  store: { computer: { id: string } }
+  hubLocal: boolean
   visao: { routines: { triggers: { type: string }[] }[]; teams: { botIds: string[] }[] } | null
   botsDaTela: { id: string }[]
 }): boolean {
-  const { local, store, visao, botsDaTela } = input
-  if (!ehHubDesteComputador(local, store) || visao === null) return false
+  const { hubLocal, visao, botsDaTela } = input
+  if (!hubLocal || visao === null) return false
   const cobertos = new Set(visao.teams.flatMap((team) => team.botIds))
   if (!botsDaTela.every((bot) => cobertos.has(bot.id))) return false
   return !visao.routines.some((rotina) => rotina.triggers.some((gatilho) => gatilho.type === 'cron'))

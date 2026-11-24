@@ -64,7 +64,7 @@ export function RoutinesCentralView() {
   }
   return (
     <StoreContext.Provider value={store}>
-      <RoutinesPage />
+      <RoutinesPage hubLocal={ehHubDesteComputador(app.local, store)} />
     </StoreContext.Provider>
   )
 }
@@ -100,9 +100,8 @@ function Page({ header, children }: { header?: ReactNode; children: ReactNode })
 }
 
 /** A tela segue só o que usa da store (nomes, ordem, conexão), não o streaming das conversas. */
-const RoutinesPage = memo(function RoutinesPage() {
+const RoutinesPage = memo(function RoutinesPage({ hubLocal }: { hubLocal: boolean }) {
   const t = useT()
-  const app = useApp()
   const store = useStoreRef()
   // O memo não re-renderiza com o idioma sozinho: os textos são lidos na hora (texts.ts).
   const idioma = useIdioma()
@@ -162,7 +161,7 @@ const RoutinesPage = memo(function RoutinesPage() {
   const inSection = (bot: Bot) => filters.sectionId === ALL || !sectionSnapshot || inGroup(sectionSnapshot, bot.id, filters.sectionId)
   const withRoutines = new Set(data?.routines.map((r) => r.botId))
   // O bot do filtro fica sempre entre as opções (mesmo oculto e sem rotinas): o seletor nunca fica sem nome.
-  const avisaCriacao = avisaPrimeiraAgendada({ local: app.local, store, visao: overview.error ? null : data, botsDaTela: agents })
+  const avisaCriacao = avisaPrimeiraAgendada({ hubLocal, visao: overview.error ? null : data, botsDaTela: agents })
   const filterBots = agents.filter((b) => b.id === filters.botId || (inSection(b) && (!b.hidden || withRoutines.has(b.id))))
   const panelBots = store.roster.filter((b) => !isGroup(b) && inSection(b))
   const disabled = store.isOffline
@@ -254,6 +253,7 @@ const RoutinesPage = memo(function RoutinesPage() {
   return (
     <Page header={header}>
       <GlobalPause model={pause} offline={store.isOffline} />
+      {hubLocal ? <AvisoInstalacaoLocal /> : null}
       {actionError ? <p className="rc-action-error" role="alert">{errorText(actionError)}</p> : null}
       <div className={copyId ? 'rc-banner' : 'rc-sr-only'} role="status">{copyId ? t('rotinas.editor.duplicada') : ''}</div>
       {mode === 'calendar' ? (
@@ -286,7 +286,6 @@ const RoutinesPage = memo(function RoutinesPage() {
         />
       ) : (
         <div className="rc-content">
-          {ehHubDesteComputador(app.local, store) ? <AvisoInstalacaoLocal /> : null}
           {!data ? (
             <LoadState loading={overview.loading} error={overview.error} retry={overview.reload} />
           ) : data.routines.length === 0 ? (
