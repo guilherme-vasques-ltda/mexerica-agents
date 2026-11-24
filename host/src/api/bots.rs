@@ -367,7 +367,7 @@ pub(super) async fn call(
                 (false, _) => "queued",
             };
             let mut data = json!({"text": text, "clientNonce": nonce, "status": status, "attachments": attachments, "intent": intent});
-            if effect_authority.is_some() && status == "queued" {
+            if effect_authority.is_some() && status == "queued" && open_turn.is_none() {
                 data["remoteAdmissionRequired"] = json!(true);
             }
             crate::computers::registry::remember_source(&hub.store, &b, &mut data);

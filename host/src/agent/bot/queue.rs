@@ -11,7 +11,7 @@ use crate::market::requests;
 use crate::store::{EntryKind, Lane};
 use anyhow::{Result, anyhow};
 use serde_json::json;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 impl Actor {
@@ -28,7 +28,7 @@ impl Actor {
         if let Some(conn) = self.conn.take() {
             if let Some(sid) = &self.turn_session {
                 let _ = tokio::time::timeout(
-                    std::time::Duration::from_millis(250),
+                    Duration::from_millis(250),
                     conn.acp.notify("session/cancel", json!({"sessionId":sid})),
                 )
                 .await;
@@ -156,15 +156,18 @@ impl Actor {
                 }
             }
             Cmd::Send { lane, entry_id, text } => {
-                if self
-                    .hub
-                    .store
-                    .entry(&entry_id)
-                    .is_none_or(|entry| entry.kind == EntryKind::User.as_str() && entry.data["status"] != "queued")
-                {
-                    return true;
+                let entry = crate::store::Store::entry_on(&self.hub.store.db.locked(), &entry_id);
+                match entry {
+                    Ok(Some(entry)) if entry.kind != EntryKind::User.as_str() || entry.data["status"] == "queued" => {}
+                    Ok(_) => return true,
+                    Err(error) => {
+                        tracing::warn!(%error, "queued message will be read again");
+                        self.queue_restore_retry_at = Some(Instant::now() + Duration::from_secs(5));
+                        return true;
+                    }
                 }
-                if self.hub.admit_remote_turn(&entry_id).is_err() {
+                if let Err(error) = self.hub.admit_remote_turn(&entry_id) {
+                    self.retry_failed_queue_read(&error);
                     return true;
                 }
                 // O startup pode ter recuperado o SQLite enquanto este comando aguardava no canal.
@@ -538,7 +541,7 @@ impl Actor {
     /// As entradas já são duráveis; reconstrói o prompt completo (anexos/citações incluídos).
     pub(super) fn restore_waiting_queue(&mut self) -> Result<()> {
         // Armar antes do I/O: erro não deixa o boot depender de fila já preenchida.
-        self.queue_restore_retry_at = Some(Instant::now() + std::time::Duration::from_secs(5));
+        self.queue_restore_retry_at = Some(Instant::now() + Duration::from_secs(5));
         self.persist_subscription_refusals()?;
         let entries = self.hub.store.queued_user_entries_for_identity(&self.cfg.id)?;
         let ids = entries
@@ -710,11 +713,18 @@ impl Actor {
                 && (first || (!self.send_now_marked(entry_id) && !self.hub.antigravity_grants.contains(entry_id)))
             {
                 first = false;
-                if let Some(Queued::User { entry_id, text, .. }) = self.queue.remove(next)
-                    && self.hub.store.entry(&entry_id).is_some_and(|entry| entry.data["status"] == "queued")
-                    && self.hub.admit_remote_turn(&entry_id).is_ok()
-                {
-                    batch.push((entry_id, text));
+                if let Some(Queued::User { entry_id, text, .. }) = self.queue.remove(next) {
+                    let entry = crate::store::Store::entry_on(&self.hub.store.db.locked(), &entry_id);
+                    match entry {
+                        Ok(Some(entry)) if entry.data["status"] == "queued" => {
+                            match self.hub.admit_remote_turn(&entry_id) {
+                                Ok(()) => batch.push((entry_id, text)),
+                                Err(error) => self.retry_failed_queue_read(&error),
+                            }
+                        }
+                        Ok(_) => {}
+                        Err(error) => self.retry_failed_queue_read(&error.into()),
+                    }
                 }
                 if solo {
                     break;
@@ -765,6 +775,15 @@ impl Actor {
         }
     }
 
+    fn retry_failed_queue_read(&mut self, error: &anyhow::Error) {
+        if !error.is::<crate::fork::autoridade::AutorizacaoEncerrada>()
+            && !error.is::<crate::fork::autoridade::EpochDaRequisicaoEncerrado>()
+        {
+            tracing::warn!(%error, "queued message will be read again");
+            self.queue_restore_retry_at = Some(Instant::now() + Duration::from_secs(5));
+        }
+    }
+
     /// Repete somente preparação sem envio, na fila e com a reserva originais.
     fn defer_chain_preparation(&mut self, error: &anyhow::Error) -> bool {
         let persistence = error.downcast_ref::<crate::fork::cadeias::modelo::PreparacaoNaoPersistida>().is_some();
@@ -787,7 +806,7 @@ impl Actor {
             tracing::error!(run = %id, error = format!("{error:#}"), "não foi possível salvar a preparação da rotina; reserva mantida");
         }
         self.queue.push_front(Queued::Routine(id));
-        self.queue_retry_at = Some(Instant::now() + std::time::Duration::from_secs(1));
+        self.queue_retry_at = Some(Instant::now() + Duration::from_secs(1));
         self.turn = None;
         self.input = None;
         self.routine_deadline = None;
