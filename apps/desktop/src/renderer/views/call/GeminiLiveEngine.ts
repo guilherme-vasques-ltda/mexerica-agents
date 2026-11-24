@@ -200,12 +200,12 @@ export class GeminiLiveEngine extends VoiceEngine {
     }
     const content = msg.serverContent
     const interaction = geminiInteractionState(this.extendedThinking, content?.interactionStatus ?? msg.interactionStatus, content?.turnComplete)
-    if (interaction === 'busy') this.turnDone = false
     if (this.despedida.fechando) {
       for (const part of content?.modelTurn?.parts ?? []) {
         if (typeof part?.inlineData?.data === 'string') this.play(part.inlineData.data)
       }
       if (interaction === 'idle') this.turnDone = true
+      if (interaction === 'busy') this.turnDone = false
       if (this.turnDone && this.queued === 0) this.despedida.audioTerminou()
       return
     }
@@ -244,6 +244,7 @@ export class GeminiLiveEngine extends VoiceEngine {
         }
       }
     }
+    if (interaction === 'busy') this.turnDone = false
     if (interaction === 'idle') {
       if (this.userSpoke) {
         this.clearUserSpeech()

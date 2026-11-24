@@ -113,6 +113,7 @@ function engineHarness(name: 'OpenAIRealtimeEngine' | 'GeminiLiveEngine', model 
     events?: { readyState: string; send: (s: string) => void }
     socket?: { readyState: number; send: (s: string) => void }
     stopMic?: () => void
+    origem?: operadorVoz.OrigemGemini
     opened: () => void
     sendSetup?: (socket: Engine['socket']) => void
     received: (s: string) => void
@@ -169,7 +170,11 @@ function engineHarness(name: 'OpenAIRealtimeEngine' | 'GeminiLiveEngine', model 
   return { engine, sent, receive }
 }
 
-for (const [model, extended] of [['gemini-3.8-live', false], ['gemini-3.8-live-extended-thinking', true]] as const) {
+for (const [model, extended] of [
+  ['gemini-3.8-live', false],
+  ['gemini-3.8-live-extended-thinking', true],
+  ['gemini-3.8-live-extended-thinking-preview', true],
+] as const) {
   test(`${model}: configuração e resposta de ferramenta respeitam o protocolo`, () => {
     const { engine, sent, receive } = engineHarness('GeminiLiveEngine', model)
     engine.sendSetup!(engine.socket)
@@ -198,6 +203,18 @@ test('Gemini Extended Thinking só entrega avisos quando a interação volta a I
   assert.deepEqual(sent.at(-1), { toolResponse: { functionResponses: [
     { id: 'waiting', name: 'bot_updates', response: { result: { messages: ['[Notice] Aviso pendente'] } } },
   ] } })
+})
+
+test('Gemini Extended Thinking preserva o limite anterior para transcrição no mesmo evento IN_PROGRESS', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const { engine, receive } = engineHarness('GeminiLiveEngine', 'gemini-3.8-live-extended-thinking')
+  const transcricao = t.mock.method(engine.origem!, 'transcricao')
+  receive({ setupComplete: {} })
+  receive({ interactionStatus: 'IDLE' })
+  receive({ serverContent: { interactionStatus: 'IN_PROGRESS', inputTranscription: { text: 'Sim' } } })
+  receive({ serverContent: { inputTranscription: { text: ' agora' } } })
+  assert.deepEqual(transcricao.mock.calls.map(c => c.arguments[0]), [true, false])
+  receive({ interactionStatus: 'IDLE' })
 })
 
 test('OpenAI inicia a espera em silêncio e entrega a resposta somente no resultado correlacionado', () => {
