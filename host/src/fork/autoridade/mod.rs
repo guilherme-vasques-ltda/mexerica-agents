@@ -80,6 +80,25 @@ enum Original {
 /// Captura Device + concessão na MESMA Connection, antes de qualquer fila/await.
 /// A chave já vem do transporte criptográfico, não de argumentos de uma ação.
 pub(crate) fn autenticar(hub: &Hub, chave: &str) -> std::result::Result<(Device, Caller), RejectCode> {
+    autenticar_hello(hub, chave).map_err(|e| match e {
+        RecusaHello::Codigo(codigo) => codigo,
+        RecusaHello::SemLinha => RejectCode::Unauthorized,
+    })
+}
+
+#[derive(Debug)]
+pub(crate) enum RecusaHello {
+    SemLinha,
+    Codigo(RejectCode),
+}
+
+impl From<RejectCode> for RecusaHello {
+    fn from(codigo: RejectCode) -> Self {
+        Self::Codigo(codigo)
+    }
+}
+
+pub(crate) fn autenticar_hello(hub: &Hub, chave: &str) -> std::result::Result<(Device, Caller), RecusaHello> {
     hub.cloud
         .with_transport_owner(|dono, geracao_dono| {
             let mut db = hub.store.db.locked();
@@ -88,9 +107,11 @@ pub(crate) fn autenticar(hub: &Hub, chave: &str) -> std::result::Result<(Device,
             let resultado = (|| {
                 let dispositivo = dispositivo(&tx, chave).map_err(|erro| {
                     if erro.is::<crate::fork::workspace::Revogado>() {
-                        RejectCode::Revoked
+                        RejectCode::Revoked.into()
+                    } else if matches!(erro.downcast_ref(), Some(rusqlite::Error::QueryReturnedNoRows)) {
+                        RecusaHello::SemLinha
                     } else {
-                        RejectCode::Unauthorized
+                        RejectCode::Unauthorized.into()
                     }
                 })?;
                 if dispositivo.source == DeviceSource::Account
@@ -99,7 +120,7 @@ pub(crate) fn autenticar(hub: &Hub, chave: &str) -> std::result::Result<(Device,
                         || dono.is_none()
                         || dispositivo.lease_until.is_none_or(|prazo| prazo <= now_ms()))
                 {
-                    return Err(RejectCode::LeaseExpired);
+                    return Err(RejectCode::LeaseExpired.into());
                 }
                 let original = Autoridade {
                     captura: Arc::new(()),
@@ -127,7 +148,7 @@ pub(crate) fn autenticar(hub: &Hub, chave: &str) -> std::result::Result<(Device,
             tx.commit()?;
             Ok(resultado)
         })
-        .map_err(|_| RejectCode::Unauthorized)?
+        .map_err(|_| RecusaHello::Codigo(RejectCode::Unauthorized))?
 }
 
 /// Leitura estrita: corrupção de origem/escopos não vira outra identidade.

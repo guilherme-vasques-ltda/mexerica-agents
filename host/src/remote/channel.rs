@@ -11,6 +11,9 @@
 
 mod assinatura_autorizada;
 mod barreira_workspace;
+mod fork_assinatura_terminal;
+mod fork_limite_hello;
+mod fork_recusa_hello;
 mod requisicao_autorizada;
 
 use crate::LockExt;
@@ -24,6 +27,7 @@ use crate::store::{Device, DeviceSource, Scope, now_ms};
 use axum::extract::ws::{CloseFrame, Message, WebSocket};
 pub(crate) use barreira_workspace::Porta;
 use barreira_workspace::{Barreira, Terminal};
+pub(crate) use fork_limite_hello::Limite as LimiteHello;
 use futures::{SinkExt as _, StreamExt as _};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
@@ -373,7 +377,15 @@ struct Handshake {
 }
 
 async fn send_reject(out: &mpsc::Sender<Out>, code: RejectCode) {
-    let _ = out.send(Out::Msg(reject(code))).await;
+    send_handshake_reject(out, code, None).await;
+}
+
+async fn send_handshake_reject(out: &mpsc::Sender<Out>, code: RejectCode, sig: Option<[u8; 64]>) {
+    let mut msg = reject(code);
+    if let Some(sig) = sig {
+        msg["prova"] = json!({"v": 1, "tipo": "recusa", "sig": crypto::b64(&sig)});
+    }
+    let _ = out.send(Out::Msg(msg)).await;
     let _ = out.send(Out::Close(code.close_code(), "rejected")).await;
 }
 
@@ -412,6 +424,10 @@ async fn handshake(
         && (*open_dk != dk || *open_pair != pair)
     {
         protocol_error().await;
+        return None;
+    }
+    if hub.limite_hello.locked().permitir(dk_raw).is_err() {
+        send_reject(out, RejectCode::RateLimited).await;
         return None;
     }
     // Bootstrap is admitted only from an explicit relay purpose and an installed slot.
@@ -462,9 +478,7 @@ async fn handshake(
         }
         None
     };
-    // Authorization before any cryptography; a revoked key without a row is named only after
-    // the signature proves possession.
-    let mut revoked_without_row = false;
+    let mut fato_recusa = None;
     let device = if bootstrap.is_some() {
         None
     } else if pair {
@@ -474,13 +488,23 @@ async fn handshake(
         }
         None
     } else {
-        match autoridade::autenticar(hub, &dk) {
+        use autoridade::RecusaHello::{Codigo, SemLinha};
+        match autoridade::autenticar_hello(hub, &dk) {
             Ok(d) => Some(d),
-            Err(RejectCode::Unauthorized) if crate::fork::workspace::revogado_sem_linha(hub, &dk) => {
-                revoked_without_row = true;
+            Err(erro @ (SemLinha | Codigo(RejectCode::Revoked))) => {
+                let fato = fork_recusa_hello::fato(&hub.store.db.locked(), &dk).ok().flatten();
+                let codigo = match erro {
+                    Codigo(codigo) => codigo,
+                    SemLinha => RejectCode::Unauthorized,
+                };
+                let Some(fato) = fato else {
+                    send_reject(out, codigo).await;
+                    return None;
+                };
+                fato_recusa = Some(fato);
                 None
             }
-            Err(code) => {
+            Err(Codigo(code)) => {
                 send_reject(out, code).await;
                 return None;
             }
@@ -498,8 +522,10 @@ async fn handshake(
         send_reject(out, RejectCode::BadSignature).await;
         return None;
     }
-    if revoked_without_row {
-        send_reject(out, RejectCode::Revoked).await;
+    if let Some(estavel) = fato_recusa {
+        let recusa = fork_assinatura_terminal::Recusa { cid, dk: dk_raw, ek_d, n, estavel };
+        let sig = fork_recusa_hello::prova(&hub.store.db.locked(), &recusa, &hub.identity);
+        send_handshake_reject(out, estavel.codigo(), sig).await;
         return None;
     }
     let ek_h = StaticSecret::from(crypto::random::<32>());
@@ -1247,6 +1273,7 @@ mod tests {
     mod provas_encerramento;
     mod provas_grupos;
     mod provas_navegador;
+    mod provas_recusa;
     mod provas_requisicao_expirada;
     mod provas_requisicoes;
     mod provas_sessao_clerk;

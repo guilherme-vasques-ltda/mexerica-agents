@@ -401,20 +401,6 @@ impl std::fmt::Display for Revogado {
 }
 impl std::error::Error for Revogado {}
 
-/// Revogado e sem linha: só depois de o transporte provar a posse da chave.
-pub(crate) fn revogado_sem_linha(hub: &Hub, key: &str) -> bool {
-    hub.store
-        .db
-        .locked()
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM fork_workspace_revoked_devices WHERE key=?1)
-               AND NOT EXISTS(SELECT 1 FROM devices WHERE key=?1)",
-            [key],
-            |r| r.get(0),
-        )
-        .unwrap_or(false)
-}
-
 /// Pareamento por código mostrado no próprio computador: a pessoa repareou esta chave. Na Tx
 /// que grava o aparelho novo.
 pub(crate) fn liberar_pareamento_on(c: &Connection, key: &str) -> Result<()> {
