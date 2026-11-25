@@ -81,22 +81,21 @@ impl<'a> Vinculo<'a> {
         }
         Ok(Self { escopo, provedor, item: Item { grupo: grupo_do_app, identificador } })
     }
+
+    /// Escopo do vínculo (inclui a geração): a ligação confere a coerência
+    /// com o escopo da unidade antes de abrir o cofre.
+    pub(super) fn escopo(&self) -> Escopo {
+        self.escopo
+    }
 }
 
 /// Autorização da inferência: move-only e ligada à geração do vínculo.
-/// Consumida por valor no ponto do efeito — reuso não compila; cada
-/// autorização sai de uma consulta única ao cofre.
+/// Redimida por valor SÓ pelo cofre da geração ainda aberto
+/// (`Cofre::redimir`) — reuso não compila, cada autorização sai de uma
+/// consulta única ao cofre e a emitida antes da parada morre com ela.
 #[derive(Debug, PartialEq, Eq)]
 pub(super) struct Autorizacao {
     geracao: NonZeroU64,
-}
-
-impl Autorizacao {
-    /// Consumo único no ponto do efeito: devolve a geração do vínculo que
-    /// autorizou e destrói a autorização — depois disso ela não existe.
-    pub(super) fn consumir(self) -> NonZeroU64 {
-        self.geracao
-    }
 }
 
 /// Cofre da geração: aberto sobre o vínculo composto pelo Hub, fechado por
@@ -139,6 +138,22 @@ impl<'a> Cofre<'a> {
             return Err(Recusa::ItemDivergente);
         }
         Ok(Autorizacao { geracao: self.vinculo.escopo.geracao })
+    }
+
+    /// Redenção da autorização: só pelo cofre da geração AINDA ABERTO. O
+    /// token é consumido por valor — fechado o cofre, a autorização emitida
+    /// antes morre com ele; nunca por estado do portador, e sem redenção
+    /// não há efeito.
+    #[allow(clippy::needless_pass_by_value)]
+    pub(super) fn redimir(&self, autorizacao: Autorizacao) -> Result<NonZeroU64, Recusa> {
+        let Autorizacao { geracao } = autorizacao;
+        if self.fechado {
+            return Err(Recusa::Fechada);
+        }
+        if geracao != self.vinculo.escopo.geracao {
+            return Err(Recusa::Vinculo);
+        }
+        Ok(geracao)
     }
 }
 

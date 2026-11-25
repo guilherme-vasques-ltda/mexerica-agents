@@ -211,6 +211,23 @@ impl<'a> PortaAuditada<'a> {
         }
     }
 
+    /// Estado da parada com evidência: só a porta aberta expõe; sem
+    /// evidência nunca é sucesso falso.
+    pub(super) fn estado(&self, agora_ms: u64, evidencia: super::porta::Evidencia) -> super::porta::Parada {
+        self.porta.estado(agora_ms, evidencia)
+    }
+
+    /// Registra instância observada da unidade (motor ou descendente): o
+    /// censo é o que torna sobrevivente visível na parada.
+    pub(super) fn registrar(&mut self, instancia: super::porta::Instancia) -> bool {
+        self.porta.registrar(instancia)
+    }
+
+    /// Confirma a saída de uma instância registrada.
+    pub(super) fn confirmar_saida(&mut self, instancia: super::porta::Instancia) -> bool {
+        self.porta.confirmar_saida(instancia)
+    }
+
     /// Caminho de `parar` ("Parar tudo" na porta): fecha sem bloquear;
     /// havendo pendência, grava `fechada`. Gravação falha deixa o
     /// fechamento valendo, com a falha devolvida.

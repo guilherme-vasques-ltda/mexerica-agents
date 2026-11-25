@@ -1,4 +1,5 @@
 #[path = "../src/fork/fork-motor-macos/auditoria.rs"]
+#[allow(dead_code)]
 mod auditoria;
 #[path = "../src/fork/fork-motor-macos/porta.rs"]
 #[allow(dead_code)]

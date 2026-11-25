@@ -1,4 +1,5 @@
 #[path = "../src/fork/fork-motor-macos/cofre.rs"]
+#[allow(dead_code)]
 mod cofre;
 #[path = "../src/fork/fork-motor-macos/partida.rs"]
 #[allow(dead_code)]
@@ -80,7 +81,7 @@ fn autorizacao_nao_atravessa_geracoes() {
     assert_eq!(cofre.autorizar(Pedido::Inferencia(outra_geracao)), Err(Recusa::Vinculo));
     // A autorização que sai é ligada à geração do vínculo, não à do pedido alheio.
     let autorizacao = cofre.autorizar(Pedido::Inferencia(inferencia(ITEM_PROPRIO))).expect("autorizar");
-    assert_eq!(autorizacao.consumir(), id(5));
+    assert_eq!(cofre.redimir(autorizacao).expect("redimir pela geração do vínculo"), id(5));
 }
 
 #[test]
@@ -115,17 +116,28 @@ fn composicao_do_vinculo_recusa_grupo_ou_identificador_vazios() {
     assert_eq!(Vinculo::compor(GRUPO_DO_APP, escopo(), id(7), ""), Err(RecusaComposicao::IdentificadorVazio));
 }
 
-/// Ponto do efeito: consome a autorização por valor; reuso não compila
-/// (sem `Clone`/`Copy`).
-fn ponto_do_efeito(autorizacao: Autorizacao) -> NonZeroU64 {
-    autorizacao.consumir()
+/// Ponto do efeito: redime a autorização por valor, sempre pelo cofre da
+/// geração ainda aberto; reuso não compila (sem `Clone`/`Copy`).
+fn ponto_do_efeito(cofre: &cofre::Cofre<'_>, autorizacao: Autorizacao) -> NonZeroU64 {
+    cofre.redimir(autorizacao).expect("redimir no ponto do efeito")
 }
 
 #[test]
-fn autorizacao_move_only_e_consumida_por_valor() {
+fn autorizacao_move_only_e_redimida_pelo_cofre_aberto() {
     let cofre = cofre::Cofre::abrir(vinculo());
     let autorizacao = cofre.autorizar(Pedido::Inferencia(inferencia(ITEM_PROPRIO))).expect("autorizar");
-    assert_eq!(ponto_do_efeito(autorizacao), id(5));
+    assert_eq!(ponto_do_efeito(&cofre, autorizacao), id(5));
+}
+
+#[test]
+fn autorizacao_emitida_antes_da_parada_morre_com_o_cofre() {
+    let mut cofre = cofre::Cofre::abrir(vinculo());
+    let autorizacao = cofre.autorizar(Pedido::Inferencia(inferencia(ITEM_PROPRIO))).expect("autorizar");
+    cofre.parar();
+    // Redenção só pelo cofre ainda aberto: o token emitido antes morre com a
+    // parada, consumido por valor mesmo no fracasso — nunca pelo portador.
+    assert_eq!(cofre.redimir(autorizacao), Err(Recusa::Fechada));
+    assert_eq!(cofre.autorizar(Pedido::Inferencia(inferencia(ITEM_PROPRIO))), Err(Recusa::Fechada));
 }
 
 #[test]
