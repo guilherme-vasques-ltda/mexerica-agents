@@ -45,7 +45,7 @@ export function rc2Components(input: unknown): Rc2Component[] {
   })
   if (components.filter(component => component.role === 'hub').length !== 1) throw invalid()
   if (new Set(components.map(component => component.role)).size !== components.length) throw invalid()
-  if (new Set(components.map(component => component.path)).size !== components.length) throw invalid()
+  if (new Set(components.map(component => component.path.toLowerCase())).size !== components.length) throw invalid()
   return components
 }
 

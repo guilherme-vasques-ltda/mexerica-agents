@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { lstatSync, readFileSync, realpathSync } from 'node:fs'
-import { join, sep } from 'node:path'
+import { isAbsolute, join, normalize, parse, sep } from 'node:path'
 import type { Stats } from 'node:fs'
 import { rcPaths } from '../shared/fork-rc-profile.ts'
 import { rc2Paths, type Rc2Component } from '../shared/fork-rc2-profile.ts'
@@ -41,41 +41,32 @@ export function verifyRc2Artifact(root: string, components: Rc2Component[]): str
   return verified
 }
 
-// Volumes insensíveis a caixa tratam nomes diferentes como o mesmo caminho:
-// a comparação de sobreposição usa a forma canônica com caixa dobrada.
 export const rc2PathOverlaps = (path: string, root: string): boolean => {
-  const caseless = (value: string) => value.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
+  const caseless = (value: string) => value.normalize('NFD').toLowerCase()
   const target = caseless(path)
   const base = caseless(root)
-  return target === base || target.startsWith(`${base}/`)
+  return target === base || target.startsWith(`${base}${sep}`) || base.startsWith(`${target}${sep}`)
 }
 
-// As raízes da rc.2 são conferidas no que já existe no disco: cada componente
-// existente entre a âncora (home ou appData) e a raiz é resolvido dos dois
-// lados, nenhum pode ser link e nenhum caminho resolvido pode cair dentro de
-// raiz da rc.1 resolvida. Erro de acesso que não seja ausência recusa; o que
-// ainda não existe fica para a criação de armazenamento, atrás desta guarda.
 export function verifyRc2StorageRoots(home: string, appData: string): void {
-  const anchors = [home, appData]
+  if (!isAbsolute(home) || !isAbsolute(appData)) throw invalid()
   const resolveExisting = (target: string): string => {
-    const anchor = anchors.find(candidate => target === candidate || target.startsWith(`${candidate}${sep}`))
-    if (!anchor) throw invalid()
-    const segments = target === anchor ? [] : target.slice(anchor.length + sep.length).split(sep).filter(Boolean)
-    let existing = anchor
+    const absolute = normalize(target)
+    let existing = parse(absolute).root
+    const segments = absolute.slice(existing.length).split(sep).filter(Boolean)
     let depth = 0
     for (const segment of segments) {
+      const next = join(existing, segment)
       let stat: Stats
-      try { stat = lstatSync(join(existing, segment)) } catch (error) {
-        const code = (error as { code?: string }).code
-        if (code === 'ENOENT' && depth === 0) return target
-        if (code === 'ENOENT' || code === 'ENOTDIR') break
+      try { stat = lstatSync(next) } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') break
         throw invalid()
       }
-      if (stat.isSymbolicLink()) throw invalid()
-      existing = join(existing, segment)
+      if (!stat.isDirectory() || stat.isSymbolicLink()) throw invalid()
+      existing = next
       depth++
     }
-    return join(realpathSync(existing), ...segments.slice(depth))
+    try { return join(realpathSync(existing), ...segments.slice(depth)) } catch { throw invalid() }
   }
   const rc1 = Object.values(rcPaths(home, appData)).map(path => resolveExisting(`${path}`))
   for (const target of Object.values(rc2Paths(home, appData))) {

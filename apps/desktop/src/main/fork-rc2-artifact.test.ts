@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import * as fs from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { loadMainModule } from '../shared/test-support/main-module.ts'
+import * as path from 'node:path'
 import type { Rc2Component } from '../shared/fork-rc2-profile.ts'
 import { rc2PathOverlaps, verifyRc2Artifact, verifyRc2StorageRoots } from './fork-rc2-artifact.ts'
 
@@ -25,7 +28,7 @@ function inventory(root: string, hub: Rc2Component, helper?: Rc2Component): { ro
 }
 
 function fixture(t: object, hubPayload: (path: string) => void = () => {}) {
-  const root = mkdtempSync(join(tmpdir(), 'rc2-artifact-'))
+  const root = mkdtempSync(join(realpathSync(tmpdir()), 'rc2-artifact-'))
   ;(t as { after(clean: () => void): void }).after(() => rmSync(root, { recursive: true, force: true }))
   const hub: Rc2Component = { role: 'hub', path: 'rc2-hub/donnabot-host', arch: 'arm64', sha256: sha256(hubBytes), cdhash: 'ab'.repeat(20) }
   const helper: Rc2Component = { role: 'helper', path: 'codync-speech', arch: 'arm64', sha256: sha256(helperBytes), cdhash: 'cd'.repeat(20) }
@@ -73,8 +76,8 @@ test('pasta intermediária simbólica que sai da raiz é recusada mesmo com bin�
 })
 
 test('tabela de casos da guarda de raízes: um focal por linha', t => {
-  const home = mkdtempSync(join(tmpdir(), 'rc2-raiz-home-'))
-  const appData = mkdtempSync(join(tmpdir(), 'rc2-raiz-appdata-'))
+  const home = mkdtempSync(join(realpathSync(tmpdir()), 'rc2-raiz-home-'))
+  const appData = mkdtempSync(join(realpathSync(tmpdir()), 'rc2-raiz-appdata-'))
   t.after(() => { rmSync(home, { recursive: true, force: true }); rmSync(appData, { recursive: true, force: true }) })
   // ausente: nada existe sob as âncoras, nada a verificar no disco
   verifyRc2StorageRoots(home, appData)
@@ -105,22 +108,68 @@ test('tabela de casos da guarda de raízes: um focal por linha', t => {
 
 test('permissão negada em componente existente recusa em vez de tratar como ausente', t => {
   if (process.geteuid && process.geteuid() === 0) return
-  const home = mkdtempSync(join(tmpdir(), 'rc2-raiz-home-'))
-  const appData = mkdtempSync(join(tmpdir(), 'rc2-raiz-appdata-'))
+  const home = mkdtempSync(join(realpathSync(tmpdir()), 'rc2-raiz-home-'))
+  const appData = mkdtempSync(join(realpathSync(tmpdir()), 'rc2-raiz-appdata-'))
   t.after(() => { chmodSync(appData, 0o700); rmSync(home, { recursive: true, force: true }); rmSync(appData, { recursive: true, force: true }) })
   mkdirSync(join(appData, 'Mexerica RC 2'))
   chmodSync(appData, 0o000)
   assert.throws(() => verifyRc2StorageRoots(home, appData), /invalid_rc2_artifact/)
 })
 
-test('erro de I/O que não é ausência recusa a guarda', () => {
-  const home = join(tmpdir(), 'a'.repeat(300))
-  assert.throws(() => verifyRc2StorageRoots(home, join(tmpdir(), 'rc2-raiz-appdata-')), /invalid_rc2_artifact/)
+function loadStorageGuard(overrides: Partial<typeof fs>) {
+  return loadMainModule<{ verifyRc2StorageRoots: typeof verifyRc2StorageRoots }>('fork-rc2-artifact', {
+    'node:fs': { ...fs, ...overrides }, 'node:path': path, 'node:crypto': { createHash },
+  }).verifyRc2StorageRoots
+}
+
+test('erro de I/O que não é ausência recusa a guarda', t => {
+  const { root } = fixture(t)
+  const io = Object.assign(new Error('fixture'), { code: 'EIO' })
+  const verify = loadStorageGuard({ lstatSync: () => { throw io } })
+  assert.throws(() => verify(root, root), /invalid_rc2_artifact/)
+})
+
+test('recusa âncora simbólica mesmo quando a futura raiz da rc.2 ainda não existe', t => {
+  const { root } = fixture(t)
+  const home = join(root, 'conta')
+  const old = join(home, '.mexerica-rc')
+  mkdirSync(old, { recursive: true })
+  const alias = join(root, 'alias')
+  symlinkSync(old, alias, 'dir')
+  assert.throws(() => verifyRc2StorageRoots(home, alias), /invalid_rc2_artifact/)
+})
+
+test('recusa aninhamento nos dois sentidos sem links nos caminhos', t => {
+  const { root } = fixture(t)
+  const old = join(root, '.mexerica-rc')
+  const candidate = join(root, 'Mexerica RC 2')
+  mkdirSync(old)
+  mkdirSync(candidate)
+  assert.throws(() => verifyRc2StorageRoots(root, old), /invalid_rc2_artifact/, 'rc.2 dentro da rc.1')
+  assert.throws(() => verifyRc2StorageRoots(candidate, root), /invalid_rc2_artifact/, 'rc.1 dentro da rc.2')
+})
+
+test('compara os caminhos resolvidos dos dois lados, mesmo com raízes ainda ausentes', t => {
+  const { root } = fixture(t)
+  const canonical = realpathSync(root)
+  const first = join(canonical, 'primeira')
+  const second = join(canonical, 'segunda')
+  mkdirSync(first)
+  mkdirSync(second)
+  for (const [anchor, resolved] of [
+    [first, join(second, 'Mexerica RC 2')],
+    [second, join(first, '.mexerica-rc')],
+  ]) {
+    const verify = loadStorageGuard({ realpathSync: ((entry: string) => entry === anchor ? resolved : realpathSync(entry)) as typeof realpathSync })
+    assert.throws(() => verify(first, second), /invalid_rc2_artifact/)
+  }
 })
 
 test('sobreposição compara com caixa dobrada para volumes insensíveis', () => {
-  assert.equal(rc2PathOverlaps('/raiz/dados', '/RAIZ/Dados'), true)
-  assert.equal(rc2PathOverlaps('/raiz/dados/sub', '/RAIZ/Dados'), true)
-  assert.equal(rc2PathOverlaps('/raiz/dados 2', '/RAIZ/Dados'), false)
-  assert.equal(rc2PathOverlaps('/raiz/outra coisa', '/RAIZ/Dados'), false)
+  const base = join('RAIZ', 'Dados')
+  assert.equal(rc2PathOverlaps(join('raiz', 'dados'), base), true)
+  assert.equal(rc2PathOverlaps(join('raiz', 'dados', 'sub'), base), true)
+  assert.equal(rc2PathOverlaps(base, join('raiz', 'dados', 'sub')), true)
+  assert.equal(rc2PathOverlaps(join('raiz', 'dados 2'), base), false)
+  assert.equal(rc2PathOverlaps(join('raiz', 'outra coisa'), base), false)
 })

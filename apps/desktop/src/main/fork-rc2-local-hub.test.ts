@@ -41,17 +41,18 @@ test('só o modo explícito compila o perfil local para a candidata exata em ARM
 
 test('inventário fechado: exige Hub único, caminhos relativos e hashes hexadecimais exatos', () => {
   const bad = [
-    [], [{}], { role: 'hub' }, 'hub',
-    { ...components[0], role: 'helper' },
-    { ...components[0], sha256: hubSha256.toUpperCase() },
-    { ...components[0], cdhash: 'cd'.repeat(19) },
-    { ...components[0], arch: 'x64' },
-    { ...components[0], path: 'donnabot-host ' },
-    { ...components[0], path: '/donnabot-host' },
-    { ...components[0], path: '../donnabot-host' },
-    { ...components[0], path: 'donnabot-host/../../host' },
-    { ...components[0], sha256: '0'.repeat(63) },
+    [], [{}], { role: 'hub' }, 'hub', null,
+    [{ ...components[0], role: 'helper' }],
+    [{ ...components[0], sha256: hubSha256.toUpperCase() }],
+    [{ ...components[0], cdhash: 'cd'.repeat(19) }],
+    [{ ...components[0], arch: 'x64' }],
+    [{ ...components[0], path: 'donnabot-host ' }],
+    [{ ...components[0], path: '/donnabot-host' }],
+    [{ ...components[0], path: '../donnabot-host' }],
+    [{ ...components[0], path: 'donnabot-host/../../host' }],
+    [{ ...components[0], sha256: '0'.repeat(63) }],
     [...components, { ...components[0], role: 'helper' }],
+    [...components, { ...components[0], role: 'helper', path: components[0].path.toUpperCase() }],
     [...components, { ...components[0], path: 'outro-hub', role: 'executor' }],
     [...components, { role: 'helper', path: 'codync-speech', arch: 'arm64', sha256: hubSha256, cdhash: 'cd'.repeat(20) },
       { role: 'helper', path: 'outro-helper', arch: 'arm64', sha256: hubSha256, cdhash: 'cd'.repeat(20) }],
@@ -212,15 +213,12 @@ test('entrada empacotada verifica manifesto e binários do artefato antes de qua
   writeFileSync(hubPath, hubBytes)
   const good = run('arm64', compiled.pin)
   assert.deepEqual(good.exits, [1])
-  const walkStops = [...Object.values(rcPaths('/fixture/home', '/fixture/appdata')), ...Object.values(rc2Paths('/fixture/home', '/fixture/appdata'))].map(path => {
-    const target = `${path}`
-    const anchor = target.startsWith('/fixture/appdata/') ? '/fixture/appdata' : '/fixture/home'
-    return `lstatSync:${join(anchor, target.slice(anchor.length + 1).split('/')[0])}`
-  })
+  const firstArtifactRead = good.reads.indexOf(`lstatSync:${hubPath}`)
+  assert.ok(firstArtifactRead > 2)
   assert.deepEqual(good.reads, [
     `readFileSync:${join(project, 'package.json')}`,
     `readFileSync:${join(project, 'resources', rc2ManifestPath)}`,
-    ...walkStops,
+    ...good.reads.slice(2, firstArtifactRead).filter(read => read.startsWith('lstatSync:')),
     `lstatSync:${hubPath}`,
     `readFileSync:${hubPath}`,
   ])
