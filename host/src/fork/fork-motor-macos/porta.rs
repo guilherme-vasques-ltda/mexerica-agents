@@ -38,8 +38,8 @@ pub(super) enum EventoAuditoria {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct Pedido {
-    escopo: Escopo,
-    serie: u64,
+    pub(super) escopo: Escopo,
+    pub(super) serie: u64,
 }
 
 #[derive(Debug, PartialEq, Eq)]
