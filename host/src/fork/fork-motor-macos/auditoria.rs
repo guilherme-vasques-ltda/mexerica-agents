@@ -5,22 +5,32 @@
 //! A identidade da instância acompanha cada linha: séries que recomeçam entre
 //! instâncias nunca se confundem, e o registro é append-only, sem dedupe.
 //!
-//! Contrato de cada caminho:
+//! Contrato de cada caminho, com o fechamento exato de cada falha:
 //! - `pedir`: a expiração de uma pendência anterior é gravada antes de o
 //!   pedido novo nascer; sem gravação, a porta fecha e o pedido não nasce.
 //! - `resolver`: negar grava `negada`; vencer grava `expirada`; recusa de
-//!   pedido desconhecido não grava — a série é da porta que a emitiu.
+//!   pedido desconhecido não grava — a série é da porta que a emitiu. Na
+//!   falha da gravação, a recusa vale e a porta PERMANECE ABERTA: a falha
+//!   é devolvida e logada, sem reabrir o pedido.
 //! - `efetuar`: vencer na entrada grava `expirada` com o instante medido
 //!   pela porta; vencer depois da auditoria grava `expirada` pelo gancho —
-//!   nunca duas vezes. Sem gravação, o efeito não roda e a porta fecha.
+//!   nunca duas vezes. Gravação falha no gancho fecha a porta e nega o
+//!   efeito; gravação falha na entrada nega o efeito com a porta
+//!   PERMANECENDO ABERTA, falha devolvida e logada.
 //! - `parar`: o fechamento nunca é bloqueado; havendo pendência, grava
 //!   `fechada` — gravação falha deixa o fechamento valendo.
 //!
-//! Lacuna declarada: o gancho de intenção de `efetuar` não grava registro
-//! nesta fatia. A gravação durável da intenção, ordenada com a revogação
-//! antes do efeito, é condição explícita da fatia de integração — nenhum
-//! caminho de produção alcança este código enquanto a recusa
-//! `motor_macos_indisponivel` estiver na frente.
+//! Lacunas declaradas, condições antes da ativação:
+//! - O gancho de intenção de `efetuar` não grava registro nesta fatia. A
+//!   gravação durável da intenção, ordenada com a revogação antes do
+//!   efeito, é condição explícita da fatia de integração.
+//! - Fechar a porta quando a gravação falha nos caminhos de `resolver` e
+//!   na expiração de entrada de `efetuar` é decisão registrada para antes
+//!   da ativação: nesta fatia a recusa já vale e a porta segue aberta.
+//!
+//! Enquanto essas condições não existirem, nenhum caminho de produção
+//! alcança este código e a recusa `motor_macos_indisponivel` segue na
+//! frente de tudo.
 
 use std::num::NonZeroU64;
 
@@ -66,7 +76,7 @@ impl<'a> PortaAuditada<'a> {
                         codigo = "motor_macos_auditoria",
                         caminho = "pedir",
                         motivo = "expirada",
-                        erro = %erro,
+                        erro = %format_args!("{erro:#}"),
                         "gravação durável da recusa falhou; o pedido novo não nasce"
                     );
                     return false;
@@ -92,7 +102,7 @@ impl<'a> PortaAuditada<'a> {
                         codigo = "motor_macos_auditoria",
                         caminho = "resolver",
                         motivo = "negada",
-                        erro = %erro,
+                        erro = %format_args!("{erro:#}"),
                         "gravação durável da recusa falhou; a negação segue valendo"
                     );
                     return Err(Falha::Auditoria);
@@ -107,7 +117,7 @@ impl<'a> PortaAuditada<'a> {
                         codigo = "motor_macos_auditoria",
                         caminho = "resolver",
                         motivo = "expirada",
-                        erro = %erro,
+                        erro = %format_args!("{erro:#}"),
                         "gravação durável da recusa falhou; a expiração segue valendo"
                     );
                     return Err(Falha::Auditoria);
@@ -121,14 +131,18 @@ impl<'a> PortaAuditada<'a> {
     /// Caminho de `efetuar`: vencer na ENTRADA (antes de qualquer efeito)
     /// grava `expirada` com o instante medido pela porta; vencer DEPOIS da
     /// auditoria grava `expirada` pelo próprio gancho — as duas expirações
-    /// nunca gravam duas vezes a mesma recusa. Gravação falha deixa o efeito
-    /// negado e devolve a falha, sem retry.
+    /// nunca gravam duas vezes a mesma recusa. Gravação falha no gancho
+    /// fecha a porta e nega o efeito; gravação falha na entrada nega o
+    /// efeito com a porta permanecendo aberta — falha devolvida e logada,
+    /// sem retry em ambos.
     ///
-    /// Lacuna declarada: o gancho de intenção não grava registro nesta fatia.
-    /// A gravação durável da intenção — ordenada com a revogação, antes do
-    /// efeito — é condição explícita da fatia de integração; enquanto ela não
-    /// existir, nenhum caminho de produção alcança este código e a recusa
-    /// `motor_macos_indisponivel` segue na frente de tudo.
+    /// Lacuna declarada: o gancho de intenção não grava registro nesta
+    /// fatia; a gravação durável da intenção é condição da fatia de
+    /// integração. Fechar a porta quando a gravação falha na entrada é
+    /// decisão registrada para antes da ativação: nesta fatia a expiração
+    /// já vale e a porta segue aberta. Nenhum caminho de produção alcança
+    /// este código enquanto a recusa `motor_macos_indisponivel` estiver na
+    /// frente de tudo.
     pub(super) fn efetuar(
         &mut self,
         pedido: Pedido,
@@ -160,7 +174,7 @@ impl<'a> PortaAuditada<'a> {
                             codigo = "motor_macos_auditoria",
                             caminho = "efetuar",
                             motivo = "expirada",
-                            erro = %erro,
+                            erro = %format_args!("{erro:#}"),
                             "gravação durável da recusa falhou; o efeito segue negado"
                         );
                         return false;
@@ -179,7 +193,7 @@ impl<'a> PortaAuditada<'a> {
                         codigo = "motor_macos_auditoria",
                         caminho = "efetuar",
                         motivo = "expirada",
-                        erro = %erro,
+                        erro = %format_args!("{erro:#}"),
                         "gravação durável da recusa falhou; a expiração segue valendo"
                     );
                     return Err(Falha::Auditoria);
@@ -201,7 +215,7 @@ impl<'a> PortaAuditada<'a> {
                 codigo = "motor_macos_auditoria",
                 caminho = "parar",
                 motivo = "fechada",
-                erro = %erro,
+                erro = %format_args!("{erro:#}"),
                 "gravação durável da recusa falhou; o fechamento segue valendo"
             );
             Falha::Auditoria
