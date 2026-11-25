@@ -10,6 +10,7 @@ Hub já conhece como motor de bot. Cada plano é um item do catálogo em `host/s
 |---|---|---|---|
 | OpenCode Go | `opencode-go` | `OPENCODE_API_KEY` | `GET https://opencode.ai/inference/go/v1/models` com a chave |
 | Kimi Code | `kimi-code-plan-global` | `KIMI_API_KEY` | nenhuma: lista curta da documentação, estado `acesso_nao_confirmado` |
+| GLM Coding Plan | `zai-coding-plan` | `ZHIPU_API_KEY` | nenhuma: lista curta da documentação (GLM-5.3, GLM-5.3-Flash), estado `acesso_nao_confirmado` |
 
 O OpenCode Go é feito para o OpenCode e outros agentes de código, para uso próprio da conta. O uso além do limite do plano
 pode consumir o saldo da conta no OpenCode: o item traz o aviso `saldo_extra` para a tela mostrar.
@@ -38,6 +39,14 @@ pareado com o token é aceito como o dono: o relatório de origem que o app envi
 prova. Um processo com o token local, ou um dispositivo pareado com escopo Controle, pode enviar uma mensagem que
 conta como conversa e aciona o plano; não há prova da presença do dono. A regra impede o uso automático do Hub com a
 chave; não impede quem já controla o Hub do dono.
+
+**GLM Coding Plan: desligado.** O plano só vale nas ferramentas da lista oficial do fornecedor. O OpenCode está nela, mas
+o Mexerica conduzindo o OpenCode não está escrito. Por isso o plano nasce desligado (`sob_consulta`): não aparece em
+`planosCodigo`, `planoCodigoSalvar` e `planoCodigoTestar` respondem `plano_desligado`, o modelo `zai-coding-plan/...` não abre o
+OpenCode, e os modelos não entram na escolha. Ligar o plano é uma decisão registrada no próprio Hub depois da resposta do
+fornecedor (não há método para isso): enquanto ela não vem, a conexão não é oferecida a ninguém. O provedor
+`zai-coding-plan` é o do plano de código; a chave de pagamento por uso (`zai`) é outra conexão e não faz parte deste plano.
+Quando ligado, o repasse encaminha ao plano só `chat/completions` (`https://api.z.ai/api/coding/paas/v4`).
 
 ## Métodos (só deste computador)
 

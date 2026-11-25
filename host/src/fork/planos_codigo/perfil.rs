@@ -4,7 +4,7 @@
 //! plano: não enxerga o login, as chaves nem a configuração do OpenCode do dono, nem a configuração do projeto. A
 //! chave de verdade não entra no processo: no lugar dela o OpenCode recebe um código de sessão e o endereço do repasse
 //! local do Hub (`repasse.rs`), que troca o código pela chave ao falar com o fornecedor.
-use super::{Plano, plano_do_modelo, repasse::Concessao, repasse_do_hub, revisao, slot_chave};
+use super::{Plano, oferecido, plano_do_modelo, repasse::Concessao, repasse_do_hub, revisao, slot_chave};
 use crate::{hub::Hub, store::BotConfig, store::Store};
 use anyhow::{Context, Result, anyhow, ensure};
 use std::{path::PathBuf, sync::Arc};
@@ -50,6 +50,11 @@ pub(crate) async fn ambiente_do_bot(hub: &Arc<Hub>, cfg: &BotConfig, uso: Uso) -
         return Ok(None);
     }
     let Some(plano) = cfg.model.as_deref().and_then(plano_do_modelo) else { return Ok(None) };
+    ensure!(oferecido(&hub.store, plano), "plano_desligado: este plano ainda não está disponível neste computador.");
+    ensure!(
+        !(plano.so_conversa && uso == Uso::Automatico),
+        "plano_so_conversa: este plano só vale em conversa sua; rotinas, tarefas agendadas e pedidos de outros bots não o usam."
+    );
     ensure!(
         !(plano.so_conversa && uso == Uso::Automatico),
         "plano_so_conversa: este plano só vale em conversa sua; rotinas, tarefas agendadas e pedidos de outros bots não o usam."
