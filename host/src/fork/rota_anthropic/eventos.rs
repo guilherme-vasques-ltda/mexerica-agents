@@ -1,6 +1,22 @@
 //! Interpretação tipada do stream de mensagens. O adaptador aceita apenas
 //! texto: bloco de ferramenta, uso ausente, parada anormal, evento desconhecido
 //! e eco da credencial são recusas fechadas, não sucesso parcial.
+//!
+//! Máquina de estados do stream (`concluir` exige o estado final):
+//!
+//! | De | Evento | Para | Regra |
+//! |---|---|---|---|
+//! | vazio | `message_start` | iniciado | único; qualquer outro evento antes é recusa |
+//! | iniciado | `content_block_start` | bloco aberto | só tipo texto; índice obrigatório; sem aninhar |
+//! | bloco aberto | `content_block_delta` | bloco aberto | índice igual ao bloco; só `text_delta` |
+//! | bloco aberto | `content_block_stop` | bloco fechado | índice igual ao bloco |
+//! | iniciado/bloco fechado | `message_delta` | fase final | único; exige blocos fechados; totais cumulativos só crescem |
+//! | fase final | `message_stop` | terminado | — |
+//! | qualquer | `ping` | igual | ignorado |
+//! | qualquer | `error` | recusa | erro do provedor |
+//! | terminado | qualquer evento | recusa | nada depois do fim |
+//! | — | evento desconhecido | recusa | — |
+//! | — | fim do corpo sem `message_stop`, `end_turn` ou uso completo | recusa | — |
 use super::{CorpoBruto, Falha, Resposta, Segredo, Uso};
 use serde_json::Value;
 
@@ -15,6 +31,7 @@ const MAX_MODELO: usize = 128;
 #[derive(Default)]
 struct Acumulado {
     iniciou: bool,
+    fase_final: bool,
     bloco: Option<u64>,
     modelo: Option<String>,
     entrada: Option<u64>,
@@ -130,21 +147,28 @@ fn aplicar(estado: &mut Acumulado, valor: &Value, nome: Option<&str>) -> Result<
         }
         "ping" => {}
         "message_delta" => {
-            // A fase final exige todos os blocos fechados e vem uma vez só.
-            if estado.parada.is_some() || estado.bloco.is_some() {
+            // A fase final exige todos os blocos fechados e vem uma vez só, com
+            // ou sem motivo de parada declarado.
+            if estado.fase_final || estado.bloco.is_some() {
                 return Err(Falha::RespostaInvalida);
             }
+            estado.fase_final = true;
             let uso = &valor["usage"];
             estado.saida = Some(contagem(uso, "output_tokens")?);
             // `message_delta` pode repetir os totais cumulativos de entrada e de
-            // cache; presente manda, ausente preserva o `message_start`.
+            // cache; presente manda, ausente preserva o `message_start`. Total
+            // cumulativo que diminui é resposta inválida: nunca reduz o uso.
             for (campo, alvo) in [
                 ("input_tokens", &mut estado.entrada),
                 ("cache_read_input_tokens", &mut estado.cache_lido),
                 ("cache_creation_input_tokens", &mut estado.cache_escrito),
             ] {
                 if uso.get(campo).is_some() {
-                    *alvo = Some(contagem(uso, campo)?);
+                    let novo = contagem(uso, campo)?;
+                    if alvo.is_some_and(|atual| novo < atual) {
+                        return Err(Falha::RespostaInvalida);
+                    }
+                    *alvo = Some(novo);
                 }
             }
             estado.parada = valor["delta"]["stop_reason"].as_str().map(str::to_owned);

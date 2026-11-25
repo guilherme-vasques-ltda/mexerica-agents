@@ -501,6 +501,115 @@ async fn parser_usa_totais_cumulativos_do_message_delta() {
 }
 
 #[tokio::test]
+async fn parser_recusa_fase_final_duplicada_sem_motivo() {
+    let store = loja();
+    com_teto(&store, estimativa());
+    let inicio = serde_json::json!({"type":"message_start","message":{"model":MODELO,
+        "usage":{"input_tokens":2,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}});
+    let final_sem_motivo = serde_json::json!({"type":"message_delta","delta":{"stop_reason":null},
+        "usage":{"output_tokens":3}});
+    let fake = Fake::com(
+        [
+            evento(&inicio),
+            evento(
+                &serde_json::json!({"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}),
+            ),
+            evento(&serde_json::json!({"type":"content_block_stop","index":0})),
+            evento(&final_sem_motivo),
+            evento(&final_sem_motivo),
+        ]
+        .concat(),
+    );
+    assert_eq!(rodar(&store, &fake, &CofreBom).await.unwrap_err(), Falha::RespostaInvalida);
+}
+
+#[tokio::test]
+async fn parser_recusa_uso_decrescente() {
+    let store = loja();
+    com_teto(&store, estimativa());
+    let fake = Fake::com(
+        [
+            evento(&serde_json::json!({"type":"message_start","message":{"model":MODELO,
+            "usage":{"input_tokens":40,"cache_creation_input_tokens":5,"cache_read_input_tokens":0}}})),
+            evento(
+                &serde_json::json!({"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}),
+            ),
+            evento(&serde_json::json!({"type":"content_block_stop","index":0})),
+            evento(&serde_json::json!({"type":"message_delta","delta":{"stop_reason":"end_turn"},
+            "usage":{"input_tokens":10,"cache_creation_input_tokens":1,"output_tokens":3}})),
+            evento(&serde_json::json!({"type":"message_stop"})),
+        ]
+        .concat(),
+    );
+    assert_eq!(rodar(&store, &fake, &CofreBom).await.unwrap_err(), Falha::RespostaInvalida);
+}
+
+#[tokio::test]
+async fn parser_recusa_uso_fora_de_faixa() {
+    let store = loja();
+    com_teto(&store, estimativa());
+    let fake = Fake::com(stream(MODELO, "texto", u64::MAX, 3));
+    assert_eq!(rodar(&store, &fake, &CofreBom).await.unwrap_err(), Falha::UsoNaoConfirmado);
+    assert_eq!(limite::disponivel(&store, "bot:bot-fixture", AGORA).unwrap(), 0, "a reserva fica cheia");
+}
+
+#[tokio::test]
+async fn parser_recusa_stream_cortado() {
+    let store = loja();
+    com_teto(&store, estimativa());
+    let fake = Fake::com(
+        [
+            evento(&serde_json::json!({"type":"message_start","message":{"model":MODELO,
+            "usage":{"input_tokens":2,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}})),
+            evento(
+                &serde_json::json!({"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}),
+            ),
+            evento(&serde_json::json!({"type":"content_block_stop","index":0})),
+        ]
+        .concat(),
+    );
+    assert_eq!(rodar(&store, &fake, &CofreBom).await.unwrap_err(), Falha::RespostaInvalida);
+}
+
+#[tokio::test]
+async fn parser_recusa_bloco_aninhado() {
+    let store = loja();
+    com_teto(&store, estimativa());
+    let fake = Fake::com(
+        [
+            evento(&serde_json::json!({"type":"message_start","message":{"model":MODELO,
+            "usage":{"input_tokens":2,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}})),
+            evento(
+                &serde_json::json!({"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}),
+            ),
+            evento(
+                &serde_json::json!({"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}),
+            ),
+        ]
+        .concat(),
+    );
+    assert_eq!(rodar(&store, &fake, &CofreBom).await.unwrap_err(), Falha::RespostaInvalida);
+}
+
+#[tokio::test]
+async fn parser_recusa_fechamento_de_outro_bloco() {
+    let store = loja();
+    com_teto(&store, estimativa());
+    let fake = Fake::com(
+        [
+            evento(&serde_json::json!({"type":"message_start","message":{"model":MODELO,
+            "usage":{"input_tokens":2,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}})),
+            evento(
+                &serde_json::json!({"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}),
+            ),
+            evento(&serde_json::json!({"type":"content_block_stop","index":1})),
+        ]
+        .concat(),
+    );
+    assert_eq!(rodar(&store, &fake, &CofreBom).await.unwrap_err(), Falha::RespostaInvalida);
+}
+
+#[tokio::test]
 async fn uso_acima_da_reserva_nao_vira_sucesso() {
     let store = loja();
     com_teto(&store, estimativa());
