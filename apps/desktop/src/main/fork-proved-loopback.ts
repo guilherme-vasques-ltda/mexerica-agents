@@ -26,7 +26,7 @@ function pedir(agente: Agent, url: string, init: Pedido, errado: (socket: Socket
     const alvo = new URL(url)
     const req = request(
       {
-        host: alvo.hostname,
+        hostname: alvo.hostname.startsWith('[') ? alvo.hostname.slice(1, -1) : alvo.hostname,
         port: Number(alvo.port),
         path: `${alvo.pathname}${alvo.search}`,
         method: init.method,
@@ -108,11 +108,13 @@ async function umaVez(url: string, path: string, token: string, pedido: Pedido, 
  * outra. Quem chama deve consumir ou destruir a resposta para fechar a rodada.
  */
 export function postProvado(url: string, path: string, token: string, body: string, timeoutMs: number, options?: { signal?: AbortSignal; atual?: () => boolean }): Promise<IncomingMessage> {
+  const prazo = AbortSignal.timeout(timeoutMs)
+  const signal = options?.signal ? AbortSignal.any([options.signal, prazo]) : prazo
   return umaVez(url, path, token, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'Content-Length': String(Buffer.byteLength(body)) },
     body,
-  }, timeoutMs, options?.signal, options?.atual)
+  }, timeoutMs, signal, options?.atual)
 }
 
 /**

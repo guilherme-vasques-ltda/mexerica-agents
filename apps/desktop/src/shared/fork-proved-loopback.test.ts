@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
+import { once } from 'node:events'
 import { createServer, type Server } from 'node:http'
 import test from 'node:test'
 import { deferred, loadMainModule } from './test-support/main-module.ts'
@@ -22,7 +23,7 @@ const hmac = (key: string, rotulo: string, nonce: string, extra?: string) => {
 const campos = () => [IDENTIDADE.hostId, IDENTIDADE.computerId, IDENTIDADE.binaryPath, IDENTIDADE.binaryHash].join('\n')
 
 /** Hub de mentira que registra cada requisição com a conexão que a atendeu. */
-function hubOf(token: string, options: { mataAposProva?: boolean; recusaProva?: boolean; corpoAtrasado?: Promise<void>; pausarProva?: () => void } = {}) {
+function hubOf(token: string, options: { mataAposProva?: boolean; recusaProva?: boolean; corpoAtrasado?: Promise<void>; corpoPingando?: boolean; pausarProva?: () => void } = {}) {
   const seen: { url: string; authorization: string | undefined; socketId: number }[] = []
   const sockets = new Map<number, import('node:net').Socket>()
   let proximo = 1
@@ -35,7 +36,11 @@ function hubOf(token: string, options: { mataAposProva?: boolean; recusaProva?: 
       request.on('data', (parte) => (body += parte))
       request.on('end', () => {
         response.writeHead(200, { 'content-type': 'application/json' })
-        if (options.corpoAtrasado) {
+        if (options.corpoPingando) {
+          response.write(' ')
+          const timer = setInterval(() => response.write(' '), 20)
+          response.once('close', () => clearInterval(timer))
+        } else if (options.corpoAtrasado) {
           response.write('{"ok":')
           void options.corpoAtrasado.then(() => response.end('true}'))
         } else {
@@ -72,12 +77,12 @@ function hubOf(token: string, options: { mataAposProva?: boolean; recusaProva?: 
   })
   return {
     seen,
-    listen: async () => {
-      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    listen: async (host = '127.0.0.1') => {
+      await once(server.listen(0, host), 'listening')
       servidores.add(server)
       const address = server.address()
       assert.ok(address && typeof address === 'object')
-      return `http://127.0.0.1:${address.port}`
+      return `http://${host === '::1' ? '[::1]' : host}:${address.port}`
     },
     close: () => Promise.all([...servidores].map((open) => new Promise<void>((resolve) => open.close(() => resolve())))),
   }
@@ -107,6 +112,39 @@ test('the proof and credential share a connection and the full response survives
   assert.equal(saude.authorization, undefined, 'a prova não carrega credencial')
   assert.equal(api.authorization, `Bearer ${TOKEN}`, 'a chamada carrega o bearer')
   assert.equal(api.socketId, saude.socketId, 'prova e credencial na MESMA conexão')
+})
+
+test('IPv6 loopback also sends the proof and bearer on the same connection', async (t) => {
+  const { postProvado, fecharProvedLoopback } = load()
+  const hub = hubOf(TOKEN)
+  t.after(async () => { await fecharProvedLoopback(); await hub.close() })
+  let url: string
+  try {
+    url = await hub.listen('::1')
+  } catch (erro) {
+    if (['EAFNOSUPPORT', 'EADDRNOTAVAIL'].includes((erro as NodeJS.ErrnoException).code ?? '')) {
+      return t.skip('IPv6 loopback unavailable')
+    }
+    throw erro
+  }
+  const res = await postProvado(url, '/api/snapshot', TOKEN, '{}', 5_000)
+  assert.equal(res.statusCode, 200)
+  const fim = once(res, 'end')
+  res.resume()
+  await fim
+  assert.equal(hub.seen.length, 2)
+  assert.equal(hub.seen[0]?.authorization, undefined)
+  assert.equal(hub.seen[1]?.authorization, `Bearer ${TOKEN}`)
+  assert.equal(hub.seen[0]?.socketId, hub.seen[1]?.socketId)
+})
+
+test('a POST with an active but unfinished body expires at the total deadline', { timeout: 5_000 }, async (t) => {
+  const { postProvado, fecharProvedLoopback } = load()
+  const hub = hubOf(TOKEN, { corpoPingando: true })
+  t.after(async () => { await fecharProvedLoopback(); await hub.close() })
+  const res = await postProvado(await hub.listen(), '/api/snapshot', TOKEN, '{}', 700)
+  assert.equal(res.statusCode, 200)
+  await assert.rejects(async () => { for await (const _ of res) { /* consume */ } }, { code: 'ECONNRESET' })
 })
 
 test('a stream cancelled before or during proof never sends the bearer', async (t) => {
