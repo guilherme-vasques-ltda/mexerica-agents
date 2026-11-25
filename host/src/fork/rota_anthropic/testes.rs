@@ -1,7 +1,7 @@
 //! Provas da rota com transporte falso: nenhum caso toca a rede, o Keychain do
 //! sistema ou um provedor real. O foco é recusar antes do envio e nunca
 //! transformar dúvida em sucesso. `executar` é a porta fechada; o caminho aberto
-//! do turno, que só existe aqui, é `turno`.
+//! do turno, que só existe aqui, é `turno_inerte`.
 #![allow(clippy::unwrap_used)]
 use super::{cofre, limite, transporte::FalhaTransporte, *};
 use crate::{LockExt, store::Store};
@@ -151,17 +151,128 @@ async fn rodar<T: Transporte>(store: &Store, fake: &T, cofre: &dyn Cofre) -> Res
     turno(store, fake, cofre, &vinculo(), &pedido(), AGORA).await
 }
 
-#[tokio::test]
-async fn ativacao_fechada_recusa_antes_de_banco_cofre_e_rede() {
+fn porta_fixture<'a>(vinculo: &Vinculo<'a>, pedido: &Pedido<'a>) -> ativacao::Porta<'a> {
+    ativacao::Porta::fixture(vinculo.bot, vinculo.concessao, pedido.modelo, std::time::Duration::from_secs(15 * 60))
+}
+
+async fn turno<T: Transporte>(
+    store: &Store,
+    fake: &T,
+    cofre: &dyn Cofre,
+    vinculo: &Vinculo<'_>,
+    pedido: &Pedido<'_>,
+    agora: i64,
+) -> Result<Resposta, Falha> {
+    turno_inerte(&porta_fixture(vinculo, pedido), store, fake, cofre, vinculo, pedido, agora).await
+}
+
+#[test]
+fn ativacao_fechada_recusa_antes_de_banco_cofre_e_rede() {
     let store = loja();
     com_teto(&store, estimativa());
     let fake = Fake::com(stream(MODELO, "texto", 2, 3));
     let cofre = CofreContado { chamadas: AtomicUsize::new(0) };
-    let falha = executar(&store, &fake, &cofre, &vinculo(), &pedido(), AGORA).await.unwrap_err();
+    let falha = executar(&store, &fake, &cofre, &vinculo(), &pedido(), AGORA).unwrap_err();
     assert_eq!(falha, Falha::AtivacaoPendente);
     assert_eq!(cofre.chamadas.load(Ordering::SeqCst), 0, "nenhuma leitura de cofre");
     assert_eq!(fake.chamadas(), 0, "nenhum envio");
     assert_eq!(limite::disponivel(&store, "bot:bot-fixture", AGORA).unwrap(), estimativa(), "nenhuma reserva");
+}
+
+#[tokio::test]
+async fn resposta_de_outro_modelo_com_preco_fecha_o_periodo() {
+    let store = loja();
+    com_teto(&store, estimativa() * 3);
+    let tabela: serde_json::Value = serde_json::from_str(include_str!("../custo/precos.json")).unwrap();
+    let familia = MODELO.split_once('-').unwrap().0;
+    let outro_modelo = tabela["modelos"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .find(|id| {
+            id.split_once('-').is_some_and(|(prefixo, _)| prefixo == familia)
+                && id.as_str() != MODELO
+                && reserva_conservadora_micros(id).is_some()
+        })
+        .unwrap();
+    let fake = Fake::com(stream(outro_modelo, "texto fictício", 2, 3));
+
+    assert_eq!(rodar(&store, &fake, &CofreBom).await.unwrap_err(), Falha::RespostaInvalida);
+    assert_eq!(fake.chamadas(), 1);
+    assert_eq!(limite::disponivel(&store, "bot:bot-fixture", AGORA).unwrap(), estimativa() * 2);
+    assert_eq!(rodar(&store, &fake, &CofreBom).await.unwrap_err(), Falha::UsoIncerto);
+    assert_eq!(fake.chamadas(), 1);
+}
+
+#[tokio::test]
+async fn gate_revogado_no_cofre_nao_envia_e_libera_a_reserva() {
+    struct CofreQueRevoga<'a>(&'a ativacao::Porta<'static>);
+    impl Cofre for CofreQueRevoga<'_> {
+        fn abrir(&self, vinculo: &Vinculo<'_>) -> Result<Segredo, RecusaCofre> {
+            self.0.revogar().unwrap();
+            CofreBom.abrir(vinculo)
+        }
+    }
+
+    let store = loja();
+    com_teto(&store, estimativa());
+    let porta = porta_fixture(&vinculo(), &pedido());
+    let fake = Fake::com(stream(MODELO, "texto", 2, 3));
+    assert_eq!(
+        turno_inerte(&porta, &store, &fake, &CofreQueRevoga(&porta), &vinculo(), &pedido(), AGORA).await.unwrap_err(),
+        Falha::AtivacaoPendente
+    );
+    assert_eq!(fake.chamadas(), 0);
+    assert_eq!(limite::disponivel(&store, "bot:bot-fixture", AGORA).unwrap(), estimativa());
+}
+
+#[tokio::test]
+async fn gate_revogado_depois_de_tentar_fecha_o_periodo() {
+    struct Pendente(AtomicUsize);
+    impl Transporte for Pendente {
+        async fn enviar(&self, _: &Pedido<'_>, _: &Segredo) -> Result<CorpoBruto, FalhaTransporte> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            std::future::pending().await
+        }
+    }
+
+    let store = loja();
+    com_teto(&store, estimativa() * 2);
+    let vinculo = vinculo();
+    let pedido = pedido();
+    let porta = porta_fixture(&vinculo, &pedido);
+    let fake = Pendente(AtomicUsize::new(0));
+    let mut envio = std::pin::pin!(turno_inerte(&porta, &store, &fake, &CofreBom, &vinculo, &pedido, AGORA));
+    assert!(futures::poll!(&mut envio).is_pending());
+    porta.revogar().unwrap();
+    assert_eq!(envio.await.unwrap_err(), Falha::AtivacaoPendente);
+    assert_eq!(fake.0.load(Ordering::SeqCst), 1);
+    assert_eq!(limite::disponivel(&store, "bot:bot-fixture", AGORA).unwrap(), estimativa());
+    assert!(matches!(limite::reservar(&store, "bot:bot-fixture", 1, AGORA), Err(Falha::UsoIncerto)));
+}
+
+#[tokio::test(start_paused = true)]
+async fn gate_ocupado_recusa_antes_de_banco_e_cofre() {
+    let vinculo = vinculo();
+    let pedido = pedido();
+    let store_sem_tabelas = Store::open(std::path::Path::new(":memory:")).unwrap();
+    store_sem_tabelas
+        .db
+        .locked()
+        .execute_batch(
+            "DROP TABLE IF EXISTS donna_rota_anthropic_orcamento; DROP TABLE IF EXISTS donna_rota_anthropic_reservas;",
+        )
+        .unwrap();
+    let porta = porta_fixture(&vinculo, &pedido);
+    let _vaga = porta.admitir(vinculo.bot, vinculo.concessao, pedido.modelo).unwrap();
+    let fake = Fake::com(stream(MODELO, "texto", 2, 3));
+    let cofre = CofreContado { chamadas: AtomicUsize::new(0) };
+    assert_eq!(
+        turno_inerte(&porta, &store_sem_tabelas, &fake, &cofre, &vinculo, &pedido, AGORA).await.unwrap_err(),
+        Falha::AtivacaoOcupada
+    );
+    assert_eq!(cofre.chamadas.load(Ordering::SeqCst), 0);
+    assert_eq!(fake.chamadas(), 0);
 }
 
 #[tokio::test]
@@ -230,7 +341,7 @@ async fn teto_baixado_depois_da_reserva_nao_envia() {
 }
 
 #[tokio::test]
-async fn revalidacao_com_uso_incerto_fecha_sem_enviar_e_sem_devolver_margem() {
+async fn revalidacao_com_uso_incerto_preserva_so_a_margem_do_envio_incerto() {
     let store = loja();
     com_teto(&store, estimativa().saturating_mul(3));
     let fake = Fake::com(stream(MODELO, "texto", 2, 3));
@@ -239,9 +350,10 @@ async fn revalidacao_com_uso_incerto_fecha_sem_enviar_e_sem_devolver_margem() {
     assert_eq!(fake.chamadas(), 0);
     assert_eq!(
         limite::disponivel(&store, "bot:bot-fixture", AGORA).unwrap(),
-        estimativa(),
-        "as duas reservas ficam cheias e incertas"
+        estimativa() * 2,
+        "a reserva incerta anterior continua cheia; a atual não chegou ao transporte"
     );
+    assert!(matches!(limite::reservar(&store, "bot:bot-fixture", 1, AGORA), Err(Falha::UsoIncerto)));
 }
 
 #[tokio::test]

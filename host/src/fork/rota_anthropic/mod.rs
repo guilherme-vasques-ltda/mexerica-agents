@@ -15,12 +15,12 @@
 //! provado. Tokenizador, enquadramento real da requisição, preços vigentes e
 //! identificadores de modelo só se comprovam contra o contrato do provedor, com
 //! teto imposto por ele, no artefato exato — é o roteiro da chave de teste. Nesta
-//! fatia [`ATIVACAO_ABERTA`] é `false`: [`executar`] recusa sempre, antes de
-//! banco, cofre ou rede, e não existe parâmetro nem caminho que a abra. A fatia
-//! de ativação substitui esta constante por uma prova verificável, ligada a
-//! origem, artefato em execução, modelo e preços.
+//! fatia [`executar`] recusa sempre, antes de banco, cofre ou rede. A máquina
+//! de ativação e o caminho que ela admite são compilados só nos testes.
 #![allow(dead_code)] // Fatia inerte: entrega o ponto de ligação sem ligar chamada real.
 
+#[cfg(test)]
+mod ativacao;
 pub(crate) mod cofre;
 mod eventos;
 mod limite;
@@ -40,10 +40,6 @@ const MAX_ENTRADA: usize = 128_000;
 const MAX_SAIDA_TOKENS: u32 = 4096;
 /// Envelope JSON do pedido (papéis, chaves, delimitadores) contado como token.
 const MARGEM_ENVELOPE: usize = 4096;
-
-/// Rota fechada por construção nesta fatia: sem prova verificável de ativação
-/// não há como ligá-la. Trocar por uma verificação de prova é a fatia seguinte.
-const ATIVACAO_ABERTA: bool = false;
 
 /// Pedido tipado: sem ferramenta, sem histórico e sem escolha de provedor.
 pub(crate) struct Pedido<'a> {
@@ -121,6 +117,7 @@ pub(crate) enum Falha {
     TetoExcedido,
     /// A prova verificável de ativação ainda não existe; a rota não roda.
     AtivacaoPendente,
+    AtivacaoOcupada,
     Cofre(RecusaCofre),
     Transporte,
     Provedor {
@@ -147,6 +144,7 @@ impl Falha {
             Self::SemPreco => "sem_preco",
             Self::TetoExcedido => "teto_excedido",
             Self::AtivacaoPendente => "ativacao_pendente",
+            Self::AtivacaoOcupada => "ativacao_ocupada",
             Self::Cofre(recusa) => recusa.codigo(),
             Self::Transporte => "transporte",
             Self::Provedor { .. } => "provedor",
@@ -172,6 +170,7 @@ impl std::fmt::Display for Falha {
             Self::SemPreco => "O modelo não tem preço verificado; o teto não é conferível.",
             Self::TetoExcedido => "O uso medido passou da reserva; a chamada não vira sucesso.",
             Self::AtivacaoPendente => "A rota ainda não tem a ativação comprovada; ela não roda.",
+            Self::AtivacaoOcupada => "A rota já tem um turno em andamento.",
             Self::Cofre(recusa) => return recusa.fmt(f),
             Self::Transporte => "Não foi possível enviar a chamada.",
             Self::Provedor { .. } => "O provedor recusou a chamada.",
@@ -227,32 +226,24 @@ fn micros(custo: &crate::fork::custo::Cost) -> Option<i64> {
 
 /// Executa um turno da rota. Nesta fatia sempre recusa: a rota é fechada por
 /// construção e não há parâmetro que a abra.
-pub(crate) async fn executar<T, C>(
-    store: &Store,
-    transporte: &T,
-    cofre: &C,
-    vinculo: &Vinculo<'_>,
-    pedido: &Pedido<'_>,
-    agora: i64,
+pub(crate) fn executar<T, C>(
+    _store: &Store,
+    _transporte: &T,
+    _cofre: &C,
+    _vinculo: &Vinculo<'_>,
+    _pedido: &Pedido<'_>,
+    _agora: i64,
 ) -> Result<Resposta, Falha>
 where
     T: Transporte,
     C: Cofre + ?Sized,
 {
-    if !ATIVACAO_ABERTA {
-        return Err(Falha::AtivacaoPendente);
-    }
-    let resultado = turno(store, transporte, cofre, vinculo, pedido, agora).await;
-    if let Err(falha) = &resultado {
-        tracing::warn!(motivo = falha.codigo(), "rota Anthropic recusada");
-    }
-    resultado
+    Err(Falha::AtivacaoPendente)
 }
 
-/// Caminho aberto do turno: teto reservado, cofre do vínculo, uma chamada,
-/// texto tipado e liquidação pelo uso medido. Só o teste o alcança, porque
-/// [`executar`] fecha a porta antes.
-async fn turno<T, C>(
+#[cfg(test)]
+async fn turno_inerte<T, C>(
+    porta: &ativacao::Porta<'_>,
     store: &Store,
     transporte: &T,
     cofre: &C,
@@ -266,8 +257,17 @@ where
 {
     vinculo.validar().map_err(|_| Falha::VinculoInvalido)?;
     pedido.validar()?;
+    let mut vaga = porta.admitir(vinculo.bot, vinculo.concessao, pedido.modelo).map_err(|motivo| match motivo {
+        ativacao::Recusa::Escopo => Falha::VinculoInvalido,
+        ativacao::Recusa::Ocupada => Falha::AtivacaoOcupada,
+        _ => Falha::AtivacaoPendente,
+    })?;
     let estimativa = reserva_conservadora_micros(pedido.modelo).ok_or(Falha::SemPreco)?;
     let reserva = limite::reservar(store, &escopo(vinculo.bot), estimativa, agora)?;
+    if vaga.conferir().is_err() {
+        limite::liberar_sem_envio(store, reserva)?;
+        return Err(Falha::AtivacaoPendente);
+    }
     let chave = match cofre.abrir(vinculo) {
         Ok(chave) => chave,
         Err(recusa) => {
@@ -276,20 +276,22 @@ where
         }
     };
     if let Err(falha) = limite::revalidar(store, &escopo(vinculo.bot), agora) {
-        // Dúvida sobre o período: a reserva fica cheia e incerta, sem devolver
-        // margem. Só teto rebaixado ou ilegível (nada saiu) devolve a margem.
-        if falha == Falha::UsoIncerto {
-            limite::incerta(store, reserva, agora)?;
-        } else {
-            limite::liberar_sem_envio(store, reserva)?;
-        }
+        limite::liberar_sem_envio(store, reserva)?;
         return Err(falha);
     }
-    let corpo = match transporte.enviar(pedido, &chave).await {
-        Ok(corpo) => corpo,
-        Err(falha) => {
+    let corpo = match vaga.enviar(|| transporte.enviar(pedido, &chave)).await {
+        Ok(Ok(corpo)) => corpo,
+        Ok(Err(falha)) => {
             limite::incerta(store, reserva, agora)?;
             return Err(falha.into());
+        }
+        Err(_) => {
+            if vaga.iniciada() {
+                limite::incerta(store, reserva, agora)?;
+            } else {
+                limite::liberar_sem_envio(store, reserva)?;
+            }
+            return Err(Falha::AtivacaoPendente);
         }
     };
     let resposta = match eventos::interpretar(&corpo, &chave) {
@@ -299,12 +301,17 @@ where
             return Err(falha);
         }
     };
-    let Some(uso) = uso_micros(&resposta.modelo, resposta.uso) else {
+    if resposta.modelo != pedido.modelo {
+        limite::incerta(store, reserva, agora)?;
+        return Err(Falha::RespostaInvalida);
+    }
+    let Some(uso) = uso_micros(pedido.modelo, resposta.uso) else {
         limite::incerta(store, reserva, agora)?;
         return Err(Falha::UsoNaoConfirmado);
     };
     if limite::liquidar(store, reserva, uso, agora)? {
         return Err(Falha::TetoExcedido);
     }
+    vaga.concluir().map_err(|_| Falha::AtivacaoPendente)?;
     Ok(resposta)
 }
