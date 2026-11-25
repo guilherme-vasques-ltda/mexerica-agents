@@ -36,11 +36,17 @@ async fn adaptadores_do_path_do_hub_nao_entram_no_modo_separado() {
             let commands = managed::adapter_commands(backend).await;
             if backend == "claude" && !crate::fork::claude_ponte::legado() {
                 // A ponte é o próprio executável do Hub; nada do PATH entra, em nenhum modo.
-                assert_eq!(commands.unwrap(), vec![crate::fork::claude_ponte::comando(None).unwrap()]);
+                assert_eq!(
+                    commands.unwrap().into_iter().map(|c| c.linha).collect::<Vec<_>>(),
+                    vec![crate::fork::claude_ponte::comando(None).unwrap()]
+                );
             } else if separate {
                 assert!(commands.is_err(), "sem adaptador do motor, a seleção deve recusar");
             } else {
-                assert_eq!(commands.unwrap(), vec![crate::shell::quote(&dir.join(name).to_string_lossy())]);
+                assert_eq!(
+                    commands.unwrap().into_iter().map(|c| c.linha).collect::<Vec<_>>(),
+                    vec![crate::shell::quote(&dir.join(name).to_string_lossy())]
+                );
             }
         }
         return;

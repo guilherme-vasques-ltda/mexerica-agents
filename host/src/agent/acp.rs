@@ -275,6 +275,7 @@ impl Drop for Reaping {
             while !matches!(child.try_wait(), Ok(Some(_))) {
                 std::thread::sleep(Duration::from_millis(20));
             }
+            drop(child);
             drop(plano);
             drop(done);
         });
@@ -292,7 +293,7 @@ impl Acp {
         Self::spawn_plan(command, cwd, env, None)
     }
 
-    pub(crate) fn spawn_plan(
+    fn spawn_plan(
         command: &str,
         cwd: &str,
         env: &[(String, String)],
@@ -318,6 +319,53 @@ impl Acp {
         Self::spawn_mode(command, cwd, env, false, true, None)
     }
 
+    pub(crate) async fn spawn_registered(
+        command: &super::registry::Comando,
+        cwd: &str,
+        env: &[(String, String)],
+        protected: bool,
+        background: bool,
+    ) -> Result<(Arc<Self>, mpsc::UnboundedReceiver<Incoming>)> {
+        Self::spawn_registered_plan(command, cwd, env, protected, background, None).await
+    }
+
+    pub(crate) async fn spawn_registered_plan(
+        command: &super::registry::Comando,
+        cwd: &str,
+        env: &[(String, String)],
+        protected: bool,
+        background: bool,
+        plano: Option<Arc<Concessao>>,
+    ) -> Result<(Arc<Self>, mpsc::UnboundedReceiver<Incoming>)> {
+        if command.uso.is_none() {
+            if plano.is_some() {
+                return Self::spawn_mode(command, cwd, env, protected, background, plano);
+            }
+            return match (protected, background) {
+                (true, _) => Self::spawn_protected(command, cwd, env),
+                (false, true) => Self::spawn_background(command, cwd, env),
+                (false, false) => Self::spawn(command, cwd, env),
+            };
+        }
+        // A marca de uso é gravada antes, fora da fila de criação: esperar uma trava por
+        // agente ali pararia lançamentos de outros agentes.
+        command.preparar().await?;
+        let (command, cwd, env) = (command.clone(), cwd.to_owned(), env.to_vec());
+        let runtime = tokio::runtime::Handle::current();
+        crate::fork::motor_exec::criador::criar(
+            move || Self::spawn_mode(&command, &cwd, &env, protected, background, plano),
+            move |resultado| {
+                // Chamador sumiu depois do spawn: encerra o processo criado, sem órfão.
+                if let Ok((acp, _rx)) = resultado {
+                    runtime.spawn(async move {
+                        acp.kill_and_wait().await;
+                    });
+                }
+            },
+        )
+        .await?
+    }
+
     fn spawn_mode(
         command: &str,
         cwd: &str,
@@ -339,7 +387,7 @@ impl Acp {
             .envs(super::environment::inherited(std::env::vars_os()))
             .envs(shell.env)
             .envs(env.iter().map(|(k, v)| (k, v)));
-        Self::spawn_process(process, command, cwd, protected, background, false, plano)
+        Self::spawn_process(process, cwd, protected, background, false, plano)
     }
 
     pub(crate) fn spawn_antigravity(
@@ -365,12 +413,11 @@ impl Acp {
                 .any(|key| name.eq_ignore_ascii_case(key))
             })
         }));
-        Self::spawn_process(process, "agy acp", cwd, true, false, true, None)
+        Self::spawn_process(process, cwd, true, false, true, None)
     }
 
     fn spawn_process(
         mut process: Command,
-        command: &str,
         cwd: &str,
         protected: bool,
         background: bool,
@@ -386,8 +433,8 @@ impl Acp {
         // Its own group, so `kill` can stop everything it started.
         #[cfg(unix)]
         process.process_group(0);
-        let mut child =
-            crate::fork::motor_exec::spawn(&mut process).with_context(|| format!("starting `{command}`"))?;
+        let mut child = crate::fork::motor_exec::spawn(&mut process)
+            .map_err(|e| anyhow::anyhow!("Inicialização do agente falhou: categoria={:?}", e.kind()))?;
         let stdin = Writer::Child(child.stdin.take().expect("stdin is piped"));
         let stdout = child.stdout.take().expect("stdout is piped");
         let stderr = child.stderr.take().expect("stderr is piped");
@@ -720,7 +767,8 @@ impl Drop for Acp {
             && let Some(child) = process.child.as_ref()
         {
             crate::fork::engine_setup::kill_setup_group(child.id());
-        } else if (self.background || process.plano.is_some())
+        }
+        if ((!self.protected && self.background) || process.plano.is_some())
             && let Some(child) = process.child.take()
         {
             self.stdin.get_mut().take();
@@ -765,7 +813,8 @@ async fn reap(child: &mut Child) {
         let _ = tree.stdout(Stdio::null()).stderr(Stdio::null()).status().await;
     }
     // Already exited is fine; anything else is worth a log line.
-    if let Err(error) = child.kill().await
+    let finalizado = child.kill().await;
+    if let Err(error) = &finalizado
         && error.kind() != std::io::ErrorKind::InvalidInput
     {
         tracing::debug!(%error, "couldn't kill agent process");
@@ -835,7 +884,7 @@ mod tests {
             let script = r#"if IFS= read -r line; then printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"stopReason":"end_turn"}}'; fi"#;
             let mut process = Command::new("/bin/sh");
             process.args(["-c", script]);
-            let (acp, _updates) = Acp::spawn_process(process, "fixture", "/tmp", true, false, false, None).unwrap();
+            let (acp, _updates) = Acp::spawn_process(process, "/tmp", true, false, false, None).unwrap();
             let calls = Cell::new(0);
             let result = acp
                 .send_guarded_prompt(json!({"sessionId":"fixture","prompt":[]}), |effect| {
@@ -873,7 +922,7 @@ mod tests {
         let script = r#"printf '%s\n' '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"fixture","update":{"sessionUpdate":"current_mode_update","currentModeId":"auto"}}}'; cat"#;
         let mut process = Command::new("/bin/sh");
         process.args(["-c", script]);
-        let (acp, mut updates) = Acp::spawn_process(process, "fixture", "/tmp", true, false, true, None).unwrap();
+        let (acp, mut updates) = Acp::spawn_process(process, "/tmp", true, false, true, None).unwrap();
         let notification = tokio::time::timeout(Duration::from_secs(5), updates.recv()).await.unwrap();
         assert!(matches!(notification, Some(Incoming::Notification { .. })));
         let result = acp

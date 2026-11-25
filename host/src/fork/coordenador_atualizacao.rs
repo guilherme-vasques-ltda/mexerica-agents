@@ -1311,6 +1311,13 @@ fn observar_publicacao() -> Result<PublicacaoObservada> {
     Ok(PublicacaoObservada { certidao: ler_opcional(Nome::Certidao)?, status: ler_opcional(Nome::Status)?, seletor })
 }
 
+/// Aceitar a candidata exige saúde e compatibilidade de modo: em build de release
+/// com o modo separado configurado, a candidata recusaria o lançamento de agentes,
+/// então saúde e `hello` não bastam — o desfecho é a volta, nunca o aceite.
+fn aceitar_candidata(ambiente: crate::environment::Environment, motor_configurado: bool, saudavel: bool) -> bool {
+    saudavel && !super::motor_exec::modo_separado_proibido(ambiente, motor_configurado)
+}
+
 pub(crate) fn executar(opcoes: Opcoes) -> Result<()> {
     ensure!(uid() != 0, "o coordenador executa como o usuário do Hub, nunca root");
     ensure!(
@@ -1322,11 +1329,18 @@ pub(crate) fn executar(opcoes: Opcoes) -> Result<()> {
     ensure!(dir_unidade().join(UNIDADE).is_file(), "unidade {UNIDADE} do usuário ausente");
     let executavel = exec_start()?.first().cloned().context("unidade sem executável")?;
     exigir_unidade_com_gate(&executavel, Path::new("/proc/self/exe"))?;
+    // Release recusa o modo separado no lançamento: atualizar para um Hub que não poderia
+    // iniciar agentes é recusado antes de qualquer efeito. A retomada de uma coordenação
+    // interrompida segue liberada, porque é reversão ao estado que funcionava.
+    let raiz_backups_existente = data.join("atualizacao-privilegiada");
+    let sem_interrupcao = coordenacao_interrompida(&raiz_backups_existente)?.is_none();
+    if sem_interrupcao {
+        super::motor_exec::exigir_modo_suportado()?;
+    }
     let publicacao_antes = observar_publicacao()?;
     let estava_ativo = ativo()?;
     parar()?;
     let trava = crate::service::lock_host_at(&data.join("host.lock"))?;
-    let raiz_backups_existente = data.join("atualizacao-privilegiada");
     if let Some((dir, manifesto)) = coordenacao_interrompida(&raiz_backups_existente)? {
         println!("coordenador: coordenação anterior interrompida antes do apontamento; concluindo pela volta");
         retomar_interrompida(&data, &dir, &manifesto, &trava)?;
@@ -1339,6 +1353,15 @@ pub(crate) fn executar(opcoes: Opcoes) -> Result<()> {
         bail!(
             "atualização interrompida foi revertida e o serviço anterior restabelecido; execute novamente para atualizar"
         );
+    }
+    // Revalida o modo aqui: a dispensa do gate vale só para a reversão acima. Se a
+    // interrupção desapareceu entre as consultas, o caminho abaixo é atualização nova.
+    if let Err(erro) = super::motor_exec::exigir_modo_suportado() {
+        drop(trava);
+        if estava_ativo {
+            iniciar()?;
+        }
+        return Err(erro);
     }
     let id = format!("{}-{}", chrono::Utc::now().format("%Y%m%dT%H%M%SZ"), uuid::Uuid::new_v4().simple());
     let raiz_backups = data.join("atualizacao-privilegiada");
@@ -1394,7 +1417,17 @@ pub(crate) fn executar(opcoes: Opcoes) -> Result<()> {
             // A trava só é liberada para o Hub novo poder obtê-la ao iniciar.
             trava = None;
             iniciar()?;
-            if !saudavel(opcoes.saude_segundos, true)? {
+            let saudavel = saudavel(opcoes.saude_segundos, true)?;
+            // Saúde e `hello` não provam compatibilidade de modo: com o modo separado
+            // configurado, este build recusaria o lançamento de agentes, então a
+            // candidata não é aceita e o caminho é a volta — inclusive quando quem
+            // conduz a atualização é um coordenador anterior a este gate.
+            if !aceitar_candidata(
+                crate::environment::Environment::current(),
+                super::motor_exec::modo_separado_configurado(),
+                saudavel,
+            ) {
+                println!("coordenador: candidata incompatível com o modo de motor configurado; executando a volta");
                 return Ok(false);
             }
             conferir_hello(porta, &release.versao)?;
@@ -1901,6 +1934,20 @@ mod tests {
         assert_eq!(segundos_systemd("45s"), Some(45));
         assert_eq!(segundos_systemd("infinity"), Some(3600));
         assert_eq!(segundos_systemd("2x"), None);
+    }
+
+    #[test]
+    fn candidata_com_modo_separado_em_release_nao_e_aceita_e_volta() {
+        use crate::environment::Environment;
+        // Saúde e hello não bastam: release com motor separado configurado não aceita,
+        // e o desfecho do fluxo é a volta (Ok(false) no bloco de conferência).
+        assert!(!aceitar_candidata(Environment::Main, true, true));
+        // Modo local em release e modo separado em desenvolvimento seguem aceitáveis.
+        assert!(aceitar_candidata(Environment::Main, false, true));
+        assert!(aceitar_candidata(Environment::Dev, true, true));
+        // Sem saúde, nada é aceito em modo algum.
+        assert!(!aceitar_candidata(Environment::Main, false, false));
+        assert!(!aceitar_candidata(Environment::Dev, true, false));
     }
 
     #[test]

@@ -92,6 +92,100 @@ fn publicacao_revalida_pai_e_destino_contra_links() {
 }
 
 #[test]
+fn pacote_com_recibo_legado_nao_planta_a_prova_nova() {
+    let bytes = tar_com_programa(|tar| {
+        let mut cabecalho = tar::Header::new_gnu();
+        cabecalho.set_size(5);
+        cabecalho.set_mode(0o644);
+        tar.append_data(&mut cabecalho, ".publicada", &b"velho"[..]).unwrap();
+    });
+    let raiz = pasta_temporaria();
+    let destino = raiz.path().join("agente");
+    let cmd = Path::new("bin/programa");
+    let hash = super::super::sha256_hex(&bytes);
+    publicar(&destino, "pacote.tar", &bytes, &hash, cmd).unwrap();
+    assert!(publicada_por_este_protocolo(&destino), "a prova é a do protocolo, não a do pacote");
+    assert_ne!(fs::read(destino.join(RECIBO)).unwrap(), b"velho");
+    // Recibo legado solto, sem o vínculo com o marcador, não vira prova.
+    fs::write(destino.join(RECIBO), b"velho").unwrap();
+    assert!(!publicada_por_este_protocolo(&destino));
+    fs::remove_file(destino.join(RECIBO)).unwrap();
+    assert!(!publicada_por_este_protocolo(&destino));
+}
+
+#[test]
+fn recusa_executavel_no_caminho_do_recibo_sem_trocar_a_instalacao() {
+    let bytes = tar_com_programa(|tar| {
+        let mut cabecalho = tar::Header::new_gnu();
+        cabecalho.set_size(5);
+        cabecalho.set_mode(0o644);
+        tar.append_data(&mut cabecalho, ".publicada/programa", &b"velho"[..]).unwrap();
+    });
+    let raiz = pasta_temporaria();
+    let destino = raiz.path().join("agente");
+    let hash = super::super::sha256_hex(&bytes);
+    publicar(&destino, "pacote.tar", &bytes, &hash, Path::new("bin/programa")).unwrap();
+    let erro = publicar(&destino, "pacote.tar", &bytes, &hash, Path::new(".publicada/programa")).unwrap_err();
+    assert!(erro.to_string().contains("executável do agente"));
+    assert_eq!(fs::read(destino.join("bin/programa")).unwrap(), b"conteudo");
+    assert!(publicada_por_este_protocolo(&destino));
+}
+
+#[test]
+fn troca_interrompida_entre_renames_recupera_a_anterior() {
+    let raiz = pasta_temporaria();
+    let destino = raiz.path().join("1.0.0");
+    // Interrupção depois do primeiro rename: destino ausente, anterior esperando.
+    let copia = pasta_anterior(raiz.path(), &destino).unwrap();
+    let anterior = copia.join("instalacao");
+    fs::create_dir_all(&anterior).unwrap();
+    fs::write(anterior.join("programa"), b"anterior").unwrap();
+    recuperar_anterior(raiz.path(), &destino).unwrap();
+    assert_eq!(fs::read(destino.join("programa")).unwrap(), b"anterior");
+    assert!(!copia.exists());
+    // Destino presente: o resto é cópia velha e sai sem tocar no destino.
+    fs::create_dir_all(&anterior).unwrap();
+    fs::write(anterior.join("programa"), b"velha").unwrap();
+    recuperar_anterior(raiz.path(), &destino).unwrap();
+    assert_eq!(fs::read(destino.join("programa")).unwrap(), b"anterior");
+    assert!(!copia.exists());
+}
+
+#[test]
+fn erro_ao_consultar_o_destino_preserva_a_copia_anterior() {
+    let raiz = pasta_temporaria();
+    // Destino sob um arquivo comum: consultar dá erro que não é ausência.
+    let bloqueio = raiz.path().join("bloqueio");
+    fs::write(&bloqueio, b"arquivo").unwrap();
+    let destino = bloqueio.join("1.0.0");
+    let copia = pasta_anterior(raiz.path(), &destino).unwrap();
+    let anterior = copia.join("instalacao");
+    fs::create_dir_all(&anterior).unwrap();
+    fs::write(anterior.join("programa"), b"anterior").unwrap();
+    assert!(recuperar_anterior(raiz.path(), &destino).is_err());
+    assert_eq!(fs::read(anterior.join("programa")).unwrap(), b"anterior", "a única cópia fica intacta");
+}
+
+#[test]
+fn publica_e_substitui_no_mesmo_destino_com_recuperacao_portatil() {
+    let raiz = pasta_temporaria();
+    let destino = raiz.path().join("1.0.0");
+    let copia = pasta_anterior(raiz.path(), &destino).unwrap();
+    let nome = copia.file_name().unwrap().to_str().unwrap();
+    assert!(caminho_relativo(Path::new(nome)).is_ok());
+    assert!(super::super::safe_component(nome).is_none());
+    let cmd = Path::new("programa");
+    for conteudo in [b"anterior".as_slice(), b"nova"] {
+        let hash = super::super::sha256_hex(conteudo);
+        publicar(&destino, "programa", conteudo, &hash, cmd).unwrap();
+        assert!(cache_verificado(&destino, &hash, cmd).unwrap());
+        assert!(publicada_por_este_protocolo(&destino));
+        assert_eq!(fs::read(destino.join(cmd)).unwrap(), conteudo);
+        assert!(!copia.exists());
+    }
+}
+
+#[test]
 fn recusa_expansao_acima_do_teto_no_zip_e_no_tar() {
     let raiz = pasta_temporaria();
     let dados = vec![0_u8; 8192];

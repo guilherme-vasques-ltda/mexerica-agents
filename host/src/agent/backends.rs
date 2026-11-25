@@ -824,10 +824,7 @@ pub async fn launch_candidates(
                 format!("Claude Code isn't set up on this computer. {}", harness(id).map_or("", |h| h.setup)),
             ));
         };
-        return Ok(vec![registry::Cmd {
-            program: crate::fork::claude_ponte::comando(Some(&programa))?,
-            args: String::new(),
-        }]);
+        return Ok(vec![registry::Cmd::new(crate::fork::claude_ponte::comando(Some(&programa))?, String::new())]);
     }
     let mut out: Vec<registry::Cmd> = local_candidate(id).into_iter().collect();
     let h = harness(id);
@@ -881,7 +878,7 @@ pub fn login_available(id: &str) -> bool {
 }
 
 /// Codync's own sign-in command for `id`, with `{bin}` resolved.
-pub async fn login_command(id: &str) -> anyhow::Result<String> {
+pub(crate) async fn login_command(id: &str) -> anyhow::Result<registry::Comando> {
     require_supported_execution(id)?;
     anyhow::ensure!(
         !crate::fork::motores_retirados::retirado(id),
@@ -889,15 +886,18 @@ pub async fn login_command(id: &str) -> anyhow::Result<String> {
         crate::fork::motores_retirados::msg_lancar(id)
     );
     let h = harness(id).ok_or_else(|| anyhow::anyhow!("no sign-in command for {id}"))?;
-    let bin = match h.bins.iter().find_map(|b| which(b)) {
-        Some(p) => shell::quote(&p.to_string_lossy()),
+    let login = |bin: &str| h.login.replace("{bin}", bin);
+    Ok(match h.bins.iter().find_map(|b| which(b)) {
+        Some(p) => login(&shell::quote(&p.to_string_lossy())).into(),
         None => match registry_cli(h) {
-            Some(agent) => registry::command(&agent, |_, _| {}).await?.program,
-            None if !h.login.contains("{bin}") => String::new(),
+            Some(agent) => {
+                let cmd = registry::command(&agent, |_, _| {}).await?;
+                cmd.com_linha(login(&cmd.program))
+            }
+            None if !h.login.contains("{bin}") => login("").into(),
             None => anyhow::bail!("Install {} first.", h.name),
         },
-    };
-    Ok(h.login.replace("{bin}", &bin))
+    })
 }
 
 /// The installed CLI's own ACP mode, if it has one and it's installed.
@@ -910,7 +910,7 @@ pub fn local_candidate(id: &str) -> Option<registry::Cmd> {
     let template = h.local?;
     let path = h.bins.iter().find_map(|b| which(b))?;
     let args = template.strip_prefix("{bin}").unwrap_or(template).trim().to_owned();
-    Some(registry::Cmd { program: shell::quote(&path.to_string_lossy()), args })
+    Some(registry::Cmd::new(shell::quote(&path.to_string_lossy()), args))
 }
 
 #[cfg(test)]

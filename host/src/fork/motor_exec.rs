@@ -1,8 +1,10 @@
 //! Fronteira Unix dos processos Motor. A ausência da configuração conserva o fluxo legado.
+use anyhow::Result;
 use std::path::Path;
 use tokio::process::Command;
 
 mod child;
+pub(crate) mod criador;
 #[cfg(all(test, unix))]
 pub(crate) use child::fixture;
 #[cfg(unix)]
@@ -14,7 +16,8 @@ pub(crate) mod login_cleanup;
 pub(crate) mod read;
 pub(crate) use child::{Child, Group, output, spawn};
 
-pub(crate) const CONFIG: &str = "/etc/donnabot/motor.conf";
+#[cfg(target_os = "linux")]
+pub(crate) use crate::modo_motor::CONFIG;
 pub(crate) const HELPER: &str = "/opt/donnabot/bin/donnabot-motor-exec";
 pub(crate) const HELPER_GERIDO: &str = "/opt/donnabot/releases/ativo/donnabot-motor-exec";
 
@@ -34,6 +37,32 @@ pub(crate) fn helper_path() -> std::path::PathBuf {
     HELPER.into()
 }
 
+/// Builds de release recusam o modo separado até existir a separação de UID entre quem grava
+/// a instalação e quem executa o agente (ver limitações do PR do registro de versões).
+///
+/// A recusa é explícita: uma instalação migrada, com configuração de motor presente, nunca
+/// cai silenciosamente no UID do Hub nem num legado disfarçado.
+pub(crate) fn modo_separado_proibido(ambiente: crate::environment::Environment, configurado: bool) -> bool {
+    matches!(ambiente, crate::environment::Environment::Main) && configurado
+}
+
+pub(crate) fn exigir_modo_suportado_em(ambiente: crate::environment::Environment, configurado: bool) -> Result<()> {
+    crate::modo_motor::exigir_local(modo_separado_proibido(ambiente, configurado))
+}
+
+/// Fronteira de lançamento, instalação e terminal: recusa antes de qualquer caminho.
+pub(crate) fn exigir_modo_suportado() -> Result<()> {
+    exigir_modo_suportado_em(crate::environment::Environment::current(), modo_separado_configurado())
+}
+
+/// Configuração de motor separado presente na máquina (só consulta metadados).
+pub(crate) fn modo_separado_configurado() -> bool {
+    #[cfg(target_os = "linux")]
+    return crate::modo_motor::configurado_em(Path::new(CONFIG));
+    #[cfg(not(target_os = "linux"))]
+    false
+}
+
 pub(crate) fn configured() -> bool {
     if crate::environment::Environment::is_open() {
         return false;
@@ -42,12 +71,7 @@ pub(crate) fn configured() -> bool {
     if std::env::var_os("DONNABOT_MOTOR_TEST_HELPER").is_some() {
         return true;
     }
-    cfg!(target_os = "linux") && configured_at(Path::new(CONFIG))
-}
-
-fn configured_at(path: &Path) -> bool {
-    // Só ENOENT desliga o modo; configuração ilegível/insegura falha no ajudante.
-    !matches!(std::fs::symlink_metadata(path), Err(e) if e.kind() == std::io::ErrorKind::NotFound)
+    modo_separado_configurado()
 }
 
 pub(crate) fn command(program: impl AsRef<std::ffi::OsStr>, cwd: &Path) -> Command {
@@ -90,7 +114,7 @@ pub(crate) fn hub_cwd(cwd: &Path) -> &Path {
     if configured() { Path::new("/") } else { cwd }
 }
 
-pub(crate) fn refuse(operation: &str) -> anyhow::Result<()> {
+pub(crate) fn refuse(operation: &str) -> Result<()> {
     anyhow::ensure!(!configured(), "modo de motor separado: {operation} indisponível até a migração da raiz do motor");
     Ok(())
 }
@@ -106,6 +130,29 @@ mod tests {
     use super::*;
     use std::{io::Read, os::unix::fs::PermissionsExt};
     #[test]
+    fn instalacao_migrada_em_release_e_recusada_sem_fallback() {
+        use crate::environment::Environment;
+        // Configuração presente em build de release: recusa explícita, não modo ausente.
+        assert!(modo_separado_proibido(Environment::Main, true));
+        assert!(exigir_modo_suportado_em(Environment::Main, true).is_err());
+        // Release sem configuração e build de desenvolvimento seguem como antes.
+        assert!(!modo_separado_proibido(Environment::Main, false));
+        assert!(exigir_modo_suportado_em(Environment::Main, false).is_ok());
+        assert!(exigir_modo_suportado_em(Environment::Dev, true).is_ok());
+        assert!(exigir_modo_suportado_em(Environment::Open, true).is_ok());
+    }
+
+    #[test]
+    fn partida_da_candidata_em_release_com_modo_separado_recusa() {
+        use crate::environment::Environment;
+        // É a decisão que `serve` aplica na partida: release com a configuração do
+        // modo separado presente não inicia; sem ela, ou em desenvolvimento, inicia.
+        assert!(exigir_modo_suportado_em(Environment::Main, true).is_err());
+        assert!(exigir_modo_suportado_em(Environment::Main, false).is_ok());
+        assert!(exigir_modo_suportado_em(Environment::Dev, true).is_ok());
+    }
+
+    #[test]
     fn pasta_de_lancamento_troca_home_e_dados_so_no_modo_separado() {
         let (dados, home, bot) = (Path::new("/dados"), Path::new("/home/user"), Path::new("/home/user/bot"));
         let motor = Path::new(crate::fork::motor_roots::MOTOR);
@@ -118,7 +165,7 @@ mod tests {
     async fn ausente_preserva_comando_e_separado_chama_ajudante() {
         let dir = std::env::temp_dir().join(format!("motor-exec-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir(&dir).unwrap();
-        assert!(!configured_at(&dir.join("ausente")));
+        assert!(!crate::modo_motor::configurado_em(&dir.join("ausente")));
         let legacy = command_with("/bin/echo".as_ref(), &dir, false, Path::new("/nao-existe"));
         assert_eq!(legacy.as_std().get_program(), "/bin/echo");
         // Ajudante fictício devolve argv e ambiente, sem precisar de root.
@@ -158,6 +205,7 @@ mod tests {
 
 pub(crate) fn pty(program: impl AsRef<std::ffi::OsStr>, cwd: &Path) -> std::io::Result<portable_pty::CommandBuilder> {
     crate::open_hub::require_executor()?;
+    exigir_modo_suportado().map_err(std::io::Error::other)?;
     Ok(pty_with(program.as_ref(), launch_cwd(cwd), configured(), &helper_path()))
 }
 

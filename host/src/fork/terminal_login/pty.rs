@@ -31,11 +31,12 @@ impl Terms {
         self.spawn_with(
             (login.backend.clone(), Step::Login),
             owner,
-            &Linha { comando: String::new(), cabecalho: String::new() },
+            &Linha { comando: String::new().into(), cabecalho: String::new() },
             cols,
             rows,
             Some(login),
         )
+        .map(|(id, _posse)| id)
     }
     #[cfg(test)]
     pub(crate) fn fixture_login(
@@ -49,11 +50,12 @@ impl Terms {
         self.spawn_with(
             (backend.into(), Step::Login),
             Some(caller.device_key().into()),
-            &Linha { comando: String::new(), cabecalho: String::new() },
+            &Linha { comando: String::new().into(), cabecalho: String::new() },
             80,
             24,
             Some(login),
         )
+        .map(|(id, _posse)| id)
     }
     #[cfg(test)]
     pub(crate) fn fixture_login_timeout(
@@ -79,11 +81,12 @@ impl Terms {
         self.spawn_with(
             (backend.into(), Step::Login),
             Some(caller.device_key().into()),
-            &Linha { comando: String::new(), cabecalho: String::new() },
+            &Linha { comando: String::new().into(), cabecalho: String::new() },
             80,
             24,
             Some(login),
         )
+        .map(|(id, _posse)| id)
     }
 }
 

@@ -84,16 +84,10 @@ pub(crate) enum RootAction {
     },
 }
 
-pub(crate) fn install(port: u16, helper: Option<PathBuf>) -> Result<()> {
-    #[cfg(target_os = "linux")]
-    {
-        root::request_install(port, helper)
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        let _ = (port, helper);
-        anyhow::bail!("instalador separado exige Linux")
-    }
+pub(crate) fn recusar_instalacao_separada() -> Result<()> {
+    anyhow::bail!(
+        "este instalador criaria motor.conf e ativaria o modo separado, indisponível nesta release; +         para uma instalação em modo local, use a instalação gerida"
+    )
 }
 
 pub(crate) fn uninstall(remove_user: bool) -> Result<()> {

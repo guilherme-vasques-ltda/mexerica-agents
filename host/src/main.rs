@@ -15,6 +15,8 @@ mod guard_hub;
 mod hub;
 mod market;
 mod mcp;
+#[path = "atualizacao/modo_motor.rs"]
+mod modo_motor;
 mod open_hub;
 mod remote;
 mod routines;
@@ -277,7 +279,7 @@ enum Sub {
     Install {
         #[arg(long, default_value_t = service::DEFAULT_PORT)]
         port: u16,
-        /// Linux: ajudante do mesmo pacote, instalado com sudo.
+        /// Opção legada do instalador de motor separado no Linux.
         #[arg(long)]
         ajudante: Option<std::path::PathBuf>,
     },
@@ -753,9 +755,9 @@ async fn main() -> Result<()> {
         }
         Sub::InstallMotor { action } => fork::linux_installer::privileged(action).await,
         Sub::MigrarMotor { action } => fork::linux_installer::migrate(action),
-        Sub::Install { port, ajudante } => {
+        Sub::Install { port, .. } => {
             if cfg!(target_os = "linux") {
-                return fork::linux_installer::install(port, ajudante);
+                return fork::linux_installer::recusar_instalacao_separada();
             }
             // Windows: the shell Claude Code runs status lines in varies (Git Bash, PowerShell), so
             // the line stays the user's; usage still comes from `claude -p /usage` and ACP.
@@ -913,6 +915,13 @@ async fn serve(
     // Coordenação da atualização interrompida (queda): nenhum par grava antes da retomada.
     #[cfg(target_os = "linux")]
     fork::coordenador_atualizacao::exigir_sem_coordenacao_interrompida(&service::data_dir())?;
+    // A candidata prova a compatibilidade na própria partida: em build de release com
+    // o modo separado configurado, o Hub recusa iniciar (fail-closed), em vez de
+    // parecer saudável e só recusar o lançamento de agentes depois. Quem conduz a
+    // atualização — inclusive um coordenador anterior a este gate — vê a candidata
+    // não saudável e executa a volta.
+    #[cfg(target_os = "linux")]
+    fork::motor_exec::exigir_modo_suportado()?;
     // Confere o seletor depois de adquirir a trava que o coordenador mantém na troca.
     #[cfg(target_os = "linux")]
     fork::guarda_atualizacao::verificar()?;

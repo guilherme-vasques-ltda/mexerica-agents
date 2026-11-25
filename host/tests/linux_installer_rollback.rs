@@ -14,6 +14,39 @@ impl Drop for Fixture {
     }
 }
 
+#[test]
+fn instalador_separado_recusa_antes_de_tocar_nos_dados() -> Result<()> {
+    let home = tempfile::tempdir()?;
+    let data = home.path().join("dados");
+    for args in [
+        &["install"][..],
+        &[
+            "install-motor",
+            "instalar",
+            "--hub-uid",
+            "1000",
+            "--host",
+            "/nao-existe",
+            "--ajudante",
+            "/nao-existe",
+            "--data-dir",
+            "/nao-existe",
+        ],
+    ] {
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_donnabot-host"))
+            .args(args)
+            .env_clear()
+            .env("HOME", home.path())
+            .env("MEXERICA_HOME", &data)
+            .output()?;
+        assert!(!output.status.success());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("motor.conf") && stderr.contains("instalação gerida"), "{stderr}");
+        assert!(!data.exists());
+    }
+    Ok(())
+}
+
 fn serve_refused(data: &Path, home: &Path) -> Result<()> {
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
     let output = runtime.block_on(async {

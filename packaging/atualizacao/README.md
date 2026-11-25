@@ -87,11 +87,17 @@ contra o fingerprint independente. Preflight: `fs.protected_hardlinks=1`, cgroup
 systemd, `/opt` e `/var/lib` sem `nosuid`, relógio com `NTPSynchronized=yes`, D-Bus
 de sistema e gerenciador `systemd --user` do Hub alcançável (é o caminho do guard).
 Login inequívoco em `/etc/passwd`. Estado: todos os objetos ausentes (instala),
-todos presentes (só confere) ou misto/F4/`motor.conf` de outra instalação (recusa
-sem alterar). Antes de qualquer alteração grava a baseline root (presença anterior
+todos presentes (só confere) ou misto/F4 (recusa sem alterar). A release só aceita
+modo local: se `/etc/donnabot/motor.conf` estiver presente ou inacessível, a
+instalação e a atualização recusam antes de mexer no serviço ou nos dados. Preserve
+a instalação anterior e consulte o administrador antes de migrar; nenhum fluxo
+remove a configuração automaticamente. No Linux, o `donnabot-host install` direto
+também recusa, pois instalaria o modo separado; para uma instalação nova em modo
+local, use o fluxo gerido com `--hub-novo`.
+Antes de qualquer alteração grava a baseline root (presença anterior
 de cada objeto, `motor.conf` e o Hub legado por hashes). Cria conta `donnabot-motor`
 nologin, grupo `donnabot-trabalho`, `/var/lib/donnabot/motor` 0700 e `trabalho`
-2770, `motor.conf`, wrapper/guard/instalador root 0755 em `/opt/donnabot/sbin`,
+2770 e wrapper/guard/instalador root 0755 em `/opt/donnabot/sbin`, sem criar `motor.conf`;
 `/opt/donnabot/releases`, estado root 0700 com política (UID/GID locais),
 histórico com a raiz pinada e marca do relógio, cgroup com os limites da política
 (recriado no boot por `donnabot-cgroup-atualizacao.service`), guard habilitado e,

@@ -14,7 +14,7 @@ use std::{
 };
 
 pub(crate) struct Directory(pub File);
-fn name(value: &OsStr) -> Result<CString> {
+pub(crate) fn name(value: &OsStr) -> Result<CString> {
     ensure!(
         !value.as_bytes().is_empty() && !value.as_bytes().contains(&b'/') && value != "." && value != "..",
         "componente inválido"
@@ -99,13 +99,66 @@ impl Directory {
         Ok(file)
     }
     pub(crate) fn names(&self) -> Result<Vec<std::ffi::OsString>> {
+        self.names_limit(usize::MAX)
+    }
+    #[cfg(not(target_os = "macos"))]
+    pub(crate) fn names_limit(&self, limit: usize) -> Result<Vec<std::ffi::OsString>> {
         #[cfg(target_os = "linux")]
         let base = "/proc/self/fd";
         #[cfg(not(target_os = "linux"))]
         let base = "/dev/fd";
-        std::fs::read_dir(Path::new(base).join(self.0.as_raw_fd().to_string()))?
-            .map(|entry| Ok(entry?.file_name()))
-            .collect()
+        let mut names = Vec::new();
+        for entry in std::fs::read_dir(Path::new(base).join(self.0.as_raw_fd().to_string()))? {
+            ensure!(names.len() < limit, "limite de entradas do diretório excedido");
+            names.push(entry?.file_name());
+        }
+        Ok(names)
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(crate) fn names_limit(&self, limit: usize) -> Result<Vec<std::ffi::OsString>> {
+        use std::ffi::{CStr, OsString};
+        use std::os::unix::ffi::OsStringExt;
+        struct Entries(*mut libc::DIR);
+        impl Drop for Entries {
+            fn drop(&mut self) {
+                // SAFETY: fdopendir entregou este DIR e só este guard o fecha.
+                unsafe { libc::closedir(self.0) };
+            }
+        }
+        // SAFETY: abre um descritor independente para enumerar o diretório já ancorado.
+        let fd = unsafe {
+            libc::openat(self.0.as_raw_fd(), c".".as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC)
+        };
+        if fd < 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        // SAFETY: fd é novo e válido; fdopendir assume posse somente no sucesso.
+        let dir = unsafe { libc::fdopendir(fd) };
+        if dir.is_null() {
+            let erro = std::io::Error::last_os_error();
+            drop(owned(fd));
+            return Err(erro.into());
+        }
+        let dir = Entries(dir);
+        let mut nomes = Vec::new();
+        loop {
+            // SAFETY: errno pertence à thread e dir ainda está aberto.
+            let entry = unsafe {
+                *libc::__error() = 0;
+                libc::readdir(dir.0)
+            };
+            if entry.is_null() {
+                let erro = std::io::Error::last_os_error();
+                return if erro.raw_os_error() == Some(0) { Ok(nomes) } else { Err(erro.into()) };
+            }
+            // SAFETY: readdir retornou uma entrada com nome terminado em NUL; copia antes de iterar.
+            let nome = unsafe { CStr::from_ptr((*entry).d_name.as_ptr()) }.to_bytes();
+            if nome != b"." && nome != b".." {
+                ensure!(nomes.len() < limit, "limite de entradas do diretório excedido");
+                nomes.push(OsString::from_vec(nome.to_vec()));
+            }
+        }
     }
 }
 pub(crate) fn own(file: &File) -> Result<()> {

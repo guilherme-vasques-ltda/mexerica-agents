@@ -9,6 +9,7 @@ use super::{
     armazenamento::Diretorio,
     baseline::{Baseline, Legado},
     journal::{Evento, Motivo, Operacao, Origem, Resultado},
+    modo_motor::{self, CONFIG as MOTOR_CONF},
     politica::Politica,
     sudoers, tuf,
 };
@@ -29,7 +30,6 @@ pub const ESTADO: &str = "/var/lib/donnabot/atualizacao";
 const SBIN: &str = "/opt/donnabot/sbin";
 const RELEASES: &str = "/opt/donnabot/releases";
 const SUDOERS: &str = "/etc/sudoers.d/donnabot";
-const MOTOR_CONF: &str = "/etc/donnabot/motor.conf";
 const MOTOR_USER: &str = "donnabot-motor";
 const MOTOR_HOME: &str = "/var/lib/donnabot/motor";
 const TRABALHO: &str = "/var/lib/donnabot/trabalho";
@@ -529,7 +529,7 @@ fn criar_estado(pacote: &Pacote, politica: &Politica, baseline: &Baseline) -> Re
     Ok(())
 }
 
-fn contas(hub: &Hub) -> Result<u32> {
+fn contas(hub: &Hub) -> Result<()> {
     if grupo(GRUPO_TRABALHO)?.is_none() {
         executar("groupadd", &[os("--system"), os(GRUPO_TRABALHO)])?;
     }
@@ -561,7 +561,7 @@ fn contas(hub: &Hub) -> Result<u32> {
     }
     diretorio(MOTOR_HOME, uid, gid, 0o700)?;
     diretorio(TRABALHO, hub.uid, gid_trabalho, 0o2770)?;
-    Ok(gid_trabalho)
+    Ok(())
 }
 
 /// O guard para a unidade por `systemctl --user --machine=LOGIN@.host`: sem o
@@ -579,25 +579,6 @@ fn guard_alcanca_gerenciador(hub: &Hub) -> Result<()> {
         &[os("--user"), os(&maquina), os("--no-pager"), os("show"), os("-p"), os("Id"), os("donnabot-host.service")],
     )
     .context("o guard não alcança o gerenciador systemd do usuário do Hub (dbus-user-session e linger exigidos)")?;
-    Ok(())
-}
-
-fn texto_motor_conf(hub: &Hub, gid_trabalho: u32) -> String {
-    format!("motor_user={MOTOR_USER}\nhub_uid={}\nwork_gid={gid_trabalho}\n", hub.uid)
-}
-
-/// Mesma instalação ou ausente; qualquer outra configuração recusa sem alterar.
-fn conferir_motor_conf_previo(hub: &Hub) -> Result<()> {
-    if let Some(texto) =
-        sha_arquivo(Path::new(MOTOR_CONF))?.map(|_| ler_limitado(Path::new(MOTOR_CONF), 64 * 1024)).transpose()?
-    {
-        let texto = String::from_utf8(texto)?;
-        ensure!(
-            texto.lines().any(|l| l == format!("hub_uid={}", hub.uid))
-                && texto.lines().any(|l| l == format!("motor_user={MOTOR_USER}")),
-            "motor.conf pertence a outra instalação; nada alterado"
-        );
-    }
     Ok(())
 }
 
@@ -632,6 +613,7 @@ fn conferir_sudo(hub: &Hub) -> Result<()> {
 
 pub fn verificar(login: &str) -> Result<()> {
     exigir_root_direto(None)?;
+    modo_motor::exigir_local(modo_motor::configurado_em(Path::new(MOTOR_CONF)))?;
     let hub = hub(login)?;
     let estado = Diretorio::abrir(Path::new(ESTADO))?;
     let politica = Politica::ler(&estado)?;
@@ -658,8 +640,6 @@ pub fn verificar(login: &str) -> Result<()> {
     conferir_sudo(&hub)?;
     guard_alcanca_gerenciador(&hub)?;
     conferir_canal_motor(&hub)?;
-    let texto = String::from_utf8(ler_limitado(Path::new(MOTOR_CONF), 64 * 1024)?)?;
-    ensure!(texto.lines().any(|l| l == format!("hub_uid={}", hub.uid)), "motor.conf divergente");
     ensure!(ler_cgroup("memory.max")? == politica.cgroup_memoria.to_string(), "cgroup divergente da política");
     let guarda = format!("donnabot-guarda-atualizacao@{}.service", hub.uid);
     ensure!(executar("systemctl", &[os("is-active"), os(&guarda)])?.trim() == "active", "guard inativo");
@@ -849,6 +829,7 @@ pub fn instalar(
 ) -> Result<()> {
     let hub = hub(login)?;
     exigir_root_direto(Some(hub.uid))?;
+    modo_motor::exigir_local(modo_motor::configurado_em(Path::new(MOTOR_CONF)))?;
     preflight()?;
     let pacote = Pacote::ler(pacote_dir, fingerprint_pacote, fingerprint_raiz)?;
     guard_alcanca_gerenciador(&hub)?;
@@ -875,7 +856,6 @@ pub fn instalar(
         presentes.is_empty(),
         "estado misto: já existem {presentes:?}; nada foi alterado, revisão administrativa exigida"
     );
-    conferir_motor_conf_previo(&hub)?;
     // Baseline antes de qualquer alteração (ausências inclusive).
     let mut objetos = BTreeMap::new();
     for objeto in [
@@ -899,6 +879,7 @@ pub fn instalar(
     } else {
         super::snapshot::Configuracao::Ausente
     };
+    modo_motor::exigir_local(!matches!(configuracao, super::snapshot::Configuracao::Ausente))?;
     let baseline = Baseline {
         versao: 1,
         login: hub.login.clone(),
@@ -912,11 +893,8 @@ pub fn instalar(
     let estado = Diretorio::abrir(Path::new(ESTADO))?;
     auditar(&estado, Resultado::Inicio, Motivo::Solicitacao)?;
     let resultado = (|| -> Result<()> {
-        let gid_trabalho = contas(&hub)?;
+        contas(&hub)?;
         diretorio("/etc/donnabot", 0, 0, 0o755)?;
-        if !existe(MOTOR_CONF) {
-            gravar_arquivo(MOTOR_CONF, texto_motor_conf(&hub, gid_trabalho).as_bytes(), 0o644)?;
-        }
         diretorio("/opt/donnabot", 0, 0, 0o755)?;
         diretorio(SBIN, 0, 0, 0o755)?;
         for (origem, destino) in BINARIOS {
