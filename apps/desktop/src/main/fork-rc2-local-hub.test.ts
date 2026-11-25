@@ -597,6 +597,51 @@ test('prazos ausentes, nulos, negativos ou de tipo errado são recusados na cons
     { open: 1, close: 1, eof: 1, sigterm: 1, sigkill: 1, extra: 1 },
     { open: Number.NaN, close: 1, eof: 1, sigterm: 1, sigkill: 1 },
     { open: '1', close: 1, eof: 1, sigterm: 1, sigkill: 1 },
+    { open: 2 ** 31, close: 1, eof: 1, sigterm: 1, sigkill: 1 },
   ]) assert.throws(() => new Rc2HubLifecycle(session, transport, { deadlines: deadlines as never, schedule: manualClock().schedule }), /invalid_rc2_deadlines/)
   assert.ok(new Rc2HubLifecycle(session, transport, { deadlines: shortDeadlines, schedule: manualClock().schedule }))
+})
+
+test('descarte de conexão tardia limita o close pendurado e ainda encerra o filho tardio', async () => {
+  const clock = manualClock()
+  const attempt = deferred<Rc2Connection>()
+  const { child: lateChild, calls: lateCalls } = fakeChild({ terminate: true })
+  const closePending = deferred<void>()
+  let session: object | null = {}
+  const transport = async () => attempt.promise
+  const lifecycle = new Rc2HubLifecycle(() => session, transport, { deadlines: shortDeadlines, schedule: clock.schedule })
+  const first = lifecycle.start()
+  await flush()
+  clock.fire()
+  assert.equal(await first, false)
+  attempt.resolve(connectionFixture(lateChild, () => closePending.promise))
+  await flush()
+  clock.fire()
+  await flush()
+  clock.fire()
+  await lateChild.exited
+  assert.deepEqual(lateCalls, ['end', 'terminate'])
+  closePending.resolve()
+})
+
+test('abertura pendurada não prende hello nem eventos além do prazo', async () => {
+  const clock = manualClock()
+  const attempt = deferred<Rc2Connection>()
+  const { child: lateChild } = fakeChild({ end: true })
+  const closed: string[] = []
+  let session: object | null = {}
+  const transport = async () => attempt.promise
+  const lifecycle = new Rc2HubLifecycle(() => session, transport, { deadlines: shortDeadlines, schedule: clock.schedule })
+  const first = lifecycle.start()
+  const pendingHello = lifecycle.hello()
+  const pendingEvent = lifecycle.events().next()
+  await flush()
+  clock.fire()
+  assert.equal(await first, false)
+  assert.equal(await pendingHello, null)
+  assert.equal((await pendingEvent).done, true)
+  assert.equal(await lifecycle.start(), false)
+  attempt.resolve(connectionFixture(lateChild, async () => { closed.push('late') }))
+  await flush()
+  assert.deepEqual(closed, ['late'])
 })

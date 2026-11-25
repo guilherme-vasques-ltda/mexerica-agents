@@ -37,6 +37,8 @@ const defaultDeadlines: Rc2Deadlines = { open: 15000, close: 5000, eof: 2000, si
 
 const deadlineKeys = ['open', 'close', 'eof', 'sigterm', 'sigkill'] as const
 
+const maxDeadline = 2 ** 31 - 1
+
 const defaultSchedule: Rc2Schedule = (ms, fire) => {
   const timer = setTimeout(fire, ms)
   return () => clearTimeout(timer)
@@ -71,7 +73,7 @@ export class Rc2HubLifecycle {
     if (options.deadlines) {
       const entries = Object.entries(options.deadlines)
       if (entries.length !== deadlineKeys.length || deadlineKeys.some(key => !Object.hasOwn(options.deadlines!, key)) ||
-          entries.some(([, value]) => typeof value !== 'number' || !Number.isFinite(value) || value <= 0)) {
+          entries.some(([, value]) => typeof value !== 'number' || !Number.isFinite(value) || value <= 0 || value > maxDeadline)) {
         throw new Error('invalid_rc2_deadlines')
       }
     }
@@ -109,7 +111,7 @@ export class Rc2HubLifecycle {
   }
 
   async #discard(connection: Rc2Connection): Promise<void> {
-    try { await connection.close() } catch { /* estado já marcado inseguro */ }
+    try { await this.#settled(connection.close(), this.#deadlines.close) } catch { /* estado já marcado inseguro */ }
     await this.#reap(connection.child)
   }
 
@@ -197,7 +199,8 @@ export class Rc2HubLifecycle {
   async hello(): Promise<Rc2Hello | null> {
     const generation = this.#generation
     if (!generation || !this.#current(generation)) return null
-    const connection = await generation.opened
+    const opened = await this.#raceOpened(generation.opened)
+    const connection = opened.timedOut ? null : opened.value
     if (!connection || !this.#current(generation)) return null
     try {
       const { computerId, hostId } = await connection.hello()
@@ -208,7 +211,8 @@ export class Rc2HubLifecycle {
   async *events(): AsyncGenerator<string> {
     const generation = this.#generation
     if (!generation || !this.#current(generation)) return
-    const connection = await generation.opened
+    const opened = await this.#raceOpened(generation.opened)
+    const connection = opened.timedOut ? null : opened.value
     if (!connection || !this.#current(generation)) return
     try {
       for await (const event of connection.events()) {
