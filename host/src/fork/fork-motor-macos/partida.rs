@@ -41,7 +41,15 @@ pub(super) enum Capacidade {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct Partida<'a> {
-    pub(super) perfil: Perfil<'a>,
+    perfil: Perfil<'a>,
+}
+
+impl Partida<'_> {
+    /// Acesso somente leitura: quem recebe a partida sabe sob qual perfil a
+    /// unidade foi admitida; ninguém constrói uma partida fora da verificação.
+    pub(super) fn perfil(&self) -> Perfil<'_> {
+        self.perfil
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -49,6 +57,7 @@ pub(super) enum Recusa {
     Sudo,
     Shell,
     Tela,
+    SemMediada,
     PerfilMalFormado,
     PerfilAusente,
     PerfilInvalido,
@@ -62,6 +71,7 @@ impl Recusa {
             Recusa::Sudo => "sudo sempre negado",
             Recusa::Shell => "shell desligado por padrão",
             Recusa::Tela => "tela desligada",
+            Recusa::SemMediada => "partida exige a capacidade mediada explícita",
             Recusa::PerfilMalFormado => "perfil esperado mal formado",
             Recusa::PerfilAusente => "perfil não carregado",
             Recusa::PerfilInvalido => "perfil carregado divergente do esperado",
@@ -86,6 +96,10 @@ pub(super) fn partir<'a>(
     }
     if capacidades.contains(&Capacidade::Tela) {
         return Err(Recusa::Tela);
+    }
+    // Ausência de sinal não é permissão: sem o pedido mediado explícito, nega.
+    if !capacidades.contains(&Capacidade::Mediada) {
+        return Err(Recusa::SemMediada);
     }
     if esperado.identificador.is_empty() || esperado.sha256 == [0; 32] {
         return Err(Recusa::PerfilMalFormado);

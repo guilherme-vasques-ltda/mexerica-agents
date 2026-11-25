@@ -106,13 +106,22 @@ fn descendente_fora_do_perfil_recusa_a_partida() {
 }
 
 #[test]
+fn capacidades_vazias_recusam_a_partida() {
+    // Ausência de pedido não é permissão: sem a capacidade mediada explícita, nega.
+    assert_eq!(partir_mediado(ObservacaoPerfil::Carregado(PERFIL), censo_limpo(vec![]), &[]), Err(Recusa::SemMediada));
+    let estavel = recusa_estavel(Recusa::SemMediada).to_string();
+    assert!(estavel.starts_with("motor_macos_indisponivel: "), "recusa fora do código estável: {estavel}");
+}
+
+#[test]
 fn partida_autorizada_so_com_perfil_censo_e_capacidade_mediada() {
     let capacidades = [Capacidade::Mediada];
     for censo in [censo_limpo(vec![]), censo_limpo(vec![membro(32, Some(PERFIL)), membro(33, Some(PERFIL))])] {
-        assert_eq!(
-            partir_mediado(ObservacaoPerfil::Carregado(PERFIL), censo, &capacidades),
-            Ok(partida::Partida { perfil: PERFIL })
-        );
+        // A interface da partida é somente leitura: o perfil sai da verificação,
+        // nunca entra; construir uma partida fora dela é erro de compilação.
+        let autorizada = partir_mediado(ObservacaoPerfil::Carregado(PERFIL), censo, &capacidades)
+            .expect("partida autorizada pela verificação");
+        assert_eq!(autorizada.perfil(), PERFIL);
     }
 }
 
@@ -136,6 +145,7 @@ fn toda_recusa_vira_o_codigo_estavel_antes_de_motor_e_mcp() {
             vec![Capacidade::Mediada],
         ),
         (PERFIL, Recusa::PerfilAusente, ObservacaoPerfil::FalhaDeCarga, censo_limpo(vec![]), vec![Capacidade::Mediada]),
+        (PERFIL, Recusa::SemMediada, ObservacaoPerfil::Carregado(PERFIL), censo_limpo(vec![]), vec![]),
         (
             PERFIL,
             Recusa::PerfilInvalido,
