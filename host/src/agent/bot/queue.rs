@@ -678,10 +678,10 @@ impl Actor {
                     continue;
                 }
                 Some(Queued::Compact { .. }) => {
-                    let Some(Queued::Compact { idle, manual }) = self.queue.remove(next) else {
+                    let Some(Queued::Compact { idle, manual, dono }) = self.queue.remove(next) else {
                         unreachable!("item é uma compactação")
                     };
-                    self.start_requested_compaction(idle, manual, done_tx).await;
+                    self.start_requested_compaction(idle, manual, dono, done_tx).await;
                     continue;
                 }
                 _ => {}

@@ -3,10 +3,8 @@
 //! passa pelo `send` real da API (por onde tarefa e aviso entram, com a marca Hub-side) e pelo `ensure_session` real
 //! do ator, o mesmo ponto por onde todo turno começa.
 //!
-//! Limites conhecidos: o teste da compactação monta o estado do ator direto (rotina terminada, `compacting`), sem
-//! passar pela fila real (`Queued::Compact`); a decisão testada é a mesma que a fila usa, mas o caminho completo da
-//! fila não é coberto aqui. Os processos de teste (`cat`) seguem o padrão dos demais testes do crate e não são
-//! portáveis ao Windows, onde o crate de testes não é alvo do CI.
+//! Limite conhecido: os processos de teste (`cat`) seguem o padrão dos demais testes do crate e não são portáveis ao
+//! Windows, onde o crate de testes não é alvo do CI.
 #![allow(clippy::unwrap_used)]
 use super::*;
 use crate::LockExt;
@@ -132,6 +130,39 @@ Mensagem"
         owner: None,
     });
     assert_eq!(actor.uso_do_plano(), Uso::Conversa, "compactar a pedido do dono pela API continua a conversa dele");
+}
+
+#[tokio::test]
+async fn compactacao_enfileirada_ao_fim_da_conversa_conserva_a_origem_na_fila() {
+    let (hub, cfg) = com_plano();
+    let mut actor = new_actor(hub.clone(), cfg);
+    // A conversa do dono terminou de verdade: o `ensure_session` real reconheceu a entrada dele.
+    let dono = enviar(&hub, "me ajuda com esse código", false).await;
+    actor.turn_entries = vec![dono.id.clone()];
+    assert_eq!(actor.uso_do_plano(), Uso::Conversa);
+    let uso = actor.uso_do_plano();
+    actor.ultimo_turno_do_dono = uso == Uso::Conversa;
+    assert!(actor.ultimo_turno_do_dono);
+
+    // O fim do turno dela enfileira a compactação pela fila real, preservando a origem.
+    actor.queue.push_back(Queued::Compact { idle: false, manual: None, dono: actor.ultimo_turno_do_dono });
+    let Some(Queued::Compact { idle, manual, dono }) = actor.queue.pop_front() else {
+        panic!("a compactação foi enfileirada")
+    };
+    assert!(!idle && manual.is_none());
+    assert!(dono, "a origem é a do enfileiramento, não do estado do momento");
+
+    // Um turno automático cruza antes da execução e zera o estado do turno anterior: o preservado na fila é que vale.
+    actor.ultimo_turno_do_dono = false;
+    actor.compactacao_do_dono = false;
+    actor.compacting = Some(false);
+    // É o que `start_requested_compaction` grava ao executar, antes do `ensure_session`.
+    actor.compactacao_do_dono = manual.is_some() || dono;
+    assert_eq!(
+        actor.uso_do_plano(),
+        Uso::Conversa,
+        "a compactação enfileirada pela conversa do dono continua a conversa dele"
+    );
 }
 
 #[tokio::test]

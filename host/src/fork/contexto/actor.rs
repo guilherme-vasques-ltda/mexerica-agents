@@ -139,7 +139,7 @@ impl Actor {
             let _ = manual.reply.send(Err(error));
             return;
         }
-        self.queue.push_back(Queued::Compact { idle: false, manual: Some(manual) });
+        self.queue.push_back(Queued::Compact { idle: false, manual: Some(manual), dono: true });
         self.next_in_queue(done_tx).await;
     }
 
@@ -147,10 +147,11 @@ impl Actor {
         &mut self,
         idle: bool,
         manual: Option<Manual>,
+        dono: bool,
         done_tx: &mpsc::UnboundedSender<super::PromptDone>,
     ) {
         let Some(manual) = manual else {
-            self.start_compaction(idle, None, done_tx).await;
+            self.start_compaction(idle, None, dono, done_tx).await;
             return;
         };
         if let Err(error) = self.context_validate(&manual, true) {
@@ -158,7 +159,7 @@ impl Actor {
             return;
         }
         self.context_compaction = Some(ActiveCompaction { target: manual.target.clone(), owner: manual.owner });
-        self.start_compaction(false, Some(manual.target.lane.clone()), done_tx).await;
+        self.start_compaction(false, Some(manual.target.lane.clone()), dono, done_tx).await;
         let result = if self.compacting.is_some() && self.turn_session == manual.target.acp {
             Ok(json!({"accepted":true}))
         } else {

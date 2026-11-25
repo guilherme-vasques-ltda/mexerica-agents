@@ -262,7 +262,7 @@ impl Actor {
         // automática. Sem compactação, vale a palavra do dono com o ingresso que o Hub carimbou.
         let automatico = match self.compacting {
             Some(true) => true,
-            Some(false) => self.context_compaction.is_none() && !self.ultimo_turno_do_dono,
+            Some(false) => self.context_compaction.is_none() && !self.compactacao_do_dono,
             None => {
                 self.active_routine.is_some()
                     || self.active_group.is_some()

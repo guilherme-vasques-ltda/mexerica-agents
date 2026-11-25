@@ -232,6 +232,7 @@ impl Actor {
         }
         // The compaction turn itself is no turn of the conversation: it neither counts nor resets the idle clock.
         if compacting.is_some() {
+            self.compactacao_do_dono = false;
             self.save_conversation(&sid, &c);
             return;
         }
@@ -245,7 +246,7 @@ impl Actor {
         self.save_conversation(&sid, &c);
         match self.compaction_at_turn_end(&c, now) {
             Decision::Compact if self.compact_command().is_some() => {
-                self.queue.push_back(Queued::Compact { idle: false, manual: None });
+                self.queue.push_back(Queued::Compact { idle: false, manual: None, dono: self.ultimo_turno_do_dono });
             }
             Decision::Rollover => self.draft_handoff(&sid, handoff::Reason::Full),
             _ => {}
@@ -263,7 +264,7 @@ impl Actor {
         let now = now_ms();
         let life = self.cache_life();
         if self.compaction_while_idle(&c, life, now) && self.compact_command().is_some() {
-            self.queue.push_back(Queued::Compact { idle: true, manual: None });
+            self.queue.push_back(Queued::Compact { idle: true, manual: None, dono: false });
         } else if rules::rollover_due(&c, life, now) && handoff::pending(&self.hub.store, &self.cfg.id).is_none() {
             let reason = if now - c.last_turn >= life.ms() { handoff::Reason::Cold } else { handoff::Reason::Away };
             self.draft_handoff(&sid, reason);
@@ -295,9 +296,11 @@ impl Actor {
         &mut self,
         idle: bool,
         lane: Option<Lane>,
+        dono: bool,
         done_tx: &tokio::sync::mpsc::UnboundedSender<super::PromptDone>,
     ) {
         let manual = lane.is_some();
+        self.compactacao_do_dono = manual || dono;
         let lane = lane.unwrap_or_else(|| Lane::main(&self.cfg.id));
         if !manual {
             self.context_compaction = None;
