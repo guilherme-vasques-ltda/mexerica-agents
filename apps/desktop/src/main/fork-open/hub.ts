@@ -94,7 +94,9 @@ export function registerOpenHub(profile: string, temp: string, chatURL: string, 
         try {
           const stat = lstatSync(socket)
           if (!stat.isSocket() || stat.uid !== process.getuid?.() || (stat.mode & 0o077) !== 0) throw new Error()
-          const response = await requestOpenHub(socket, '/health', '', null, startup)
+          // A identidade do `/health` exige o bearer local; sem ele o Hub responde só o anônimo.
+          const token = readToken(home)
+          const response = await requestOpenHub(socket, '/health', token, null, startup)
           const health: unknown = JSON.parse(await readOpenResponse(response))
           if (response.statusCode !== 200 || !health || typeof health !== 'object' ||
             !('environment' in health) || health.environment !== open.environment ||
@@ -102,7 +104,7 @@ export function registerOpenHub(profile: string, temp: string, chatURL: string, 
             throw new Error()
           }
           if (startup.aborted) break
-          connection = { socket, token: readToken(home), signal: controller.signal }
+          connection = { socket, token, signal: controller.signal }
           publish({ kind: 'running' }, { computerId: health.computerId, baseURL: origin, token: '' })
           return
         } catch {

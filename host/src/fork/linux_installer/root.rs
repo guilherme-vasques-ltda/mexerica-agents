@@ -328,51 +328,53 @@ fn query_until(hub: &User, args: &[&str], deadline: std::time::Instant) -> Resul
 
 /// Processo que o systemd iniciou para a unidade, se ele executa o binário instalado e é dono
 /// do socket que escuta na porta do Hub. Qualquer leitura que falhe conta como "ainda não".
-fn serving_pid(hub: &User, port: u16, host: &Path, deadline: std::time::Instant) -> Result<bool> {
-    {
-        let active = query_until(hub, &["is-active", "--quiet", "donnabot-host.service"], deadline)?;
-        if !active.status.success() {
-            return Ok(false);
-        }
-        let out = query_until(hub, &["show", "--property=MainPID", "--value", "donnabot-host.service"], deadline)?;
-        let pid: u32 = String::from_utf8(out.stdout)?.trim().parse()?;
-        if pid == 0 || fs::read_link(format!("/proc/{pid}/exe")).ok().as_deref() != Some(host) {
-            return Ok(false);
-        }
-        let mut listening = Vec::new();
-        for table in ["/proc/net/tcp", "/proc/net/tcp6"] {
-            let text = match fs::read_to_string(table) {
-                Ok(text) => text,
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
-                Err(e) => return Err(e.into()),
-            };
-            for line in text.lines().skip(1) {
-                let fields: Vec<&str> = line.split_whitespace().collect();
-                let local_port =
-                    fields.get(1).and_then(|a| a.rsplit(':').next()).and_then(|p| u16::from_str_radix(p, 16).ok());
-                if local_port == Some(port) && fields.get(3) == Some(&"0A") {
-                    listening.extend(fields.get(9).map(|inode| format!("socket:[{inode}]")));
-                }
-            }
-        }
-        for entry in fs::read_dir(format!("/proc/{pid}/fd"))? {
-            if let Ok(target) = fs::read_link(entry?.path())
-                && listening.iter().any(|socket| target.as_os_str() == socket.as_str())
-            {
-                return Ok(true);
-            }
-        }
-        Ok(false)
+pub(super) fn serving_pid(hub: &User, port: u16, host: &Path, deadline: std::time::Instant) -> Result<bool> {
+    let active = query_until(hub, &["is-active", "--quiet", "donnabot-host.service"], deadline)?;
+    if !active.status.success() {
+        return Ok(false);
     }
+    let out = query_until(hub, &["show", "--property=MainPID", "--value", "donnabot-host.service"], deadline)?;
+    process_serves(String::from_utf8(out.stdout)?.trim().parse()?, port, host)
 }
 
-/// O Hub novo precisa ser o processo da unidade, dono da porta, e responder no /health com o
-/// binário instalado antes de o par anterior sair. Toda a espera, inclusive as consultas ao
-/// systemd, respeita o prazo de 30 s.
+/// `pid` executa `exe` (por `/proc/<pid>/exe`) e tem aberto um socket em `LISTEN` na `port`.
+pub(crate) fn process_serves(pid: u32, port: u16, exe: &Path) -> Result<bool> {
+    if pid == 0 || fs::read_link(format!("/proc/{pid}/exe")).ok().as_deref() != Some(exe) {
+        return Ok(false);
+    }
+    let mut listening = Vec::new();
+    for table in ["/proc/net/tcp", "/proc/net/tcp6"] {
+        let text = match fs::read_to_string(table) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(e.into()),
+        };
+        for line in text.lines().skip(1) {
+            let fields: Vec<&str> = line.split_whitespace().collect();
+            let local_port =
+                fields.get(1).and_then(|a| a.rsplit(':').next()).and_then(|p| u16::from_str_radix(p, 16).ok());
+            if local_port == Some(port) && fields.get(3) == Some(&"0A") {
+                listening.extend(fields.get(9).map(|inode| format!("socket:[{inode}]")));
+            }
+        }
+    }
+    for entry in fs::read_dir(format!("/proc/{pid}/fd"))? {
+        if let Ok(target) = fs::read_link(entry?.path())
+            && listening.iter().any(|socket| target.as_os_str() == socket.as_str())
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// O Hub novo precisa ser o processo da unidade, dono da porta, e responder no /health antes de o
+/// par anterior sair. Quem roda o binário instalado é provado por `/proc` antes e depois da
+/// resposta, sem credencial na conexão. Toda a espera, inclusive as consultas ao systemd,
+/// respeita o prazo de 30 s.
 fn wait_ready(hub: &User, port: u16, host: &Path) -> Result<()> {
     use std::io::{Read, Write};
     use std::time::{Duration, Instant};
-    let expected = format!("\"binaryPath\":\"{}\"", host.display());
     let deadline = Instant::now() + Duration::from_secs(30);
     let left = || deadline.saturating_duration_since(Instant::now());
     // Falha de leitura conta como "ainda não"; o último motivo vai na mensagem de prazo.
@@ -406,13 +408,20 @@ fn wait_ready(hub: &User, port: u16, host: &Path) -> Result<()> {
                     Ok(n) => response.extend_from_slice(&chunk[..n]),
                 }
             }
-            let text = String::from_utf8_lossy(&response);
-            if text.contains("\"ok\":true") && text.contains(&expected) && serving(&mut reason) && !left().is_zero() {
+            if response_ok(&response) && serving(&mut reason) && !left().is_zero() {
                 return Ok(());
             }
         }
         std::thread::sleep(Duration::from_millis(250).min(left()));
     }
+}
+
+/// Resposta HTTP crua do `/health` aceita pela mesma regra do host (`crate::health_ok`).
+fn response_ok(response: &[u8]) -> bool {
+    let Some(split) = response.windows(4).position(|w| w == b"\r\n\r\n") else { return false };
+    let status = response[..split].split(|&b| b == b' ').nth(1);
+    let status = status.filter(|code| code.len() == 3).and_then(|code| std::str::from_utf8(code).ok()?.parse().ok());
+    status.is_some_and(|status| crate::health_ok(status, &response[split + 4..]).is_some())
 }
 
 fn config_owner(hub: &User) -> Result<()> {
@@ -868,6 +877,35 @@ pub(super) async fn execute(action: RootAction) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn response_ok_exige_2xx_e_json_com_ok() {
+        assert!(response_ok(b"HTTP/1.1 200 OK\r\ncontent-type: application/json\r\n\r\n{\"ok\":true,\"busy\":false}"));
+        for response in [
+            &b"HTTP/1.1 500 Internal Server Error\r\n\r\n{\"ok\":true}"[..],
+            b"HTTP/1.1 302 Found\r\nlocation: http://example.invalid/\r\n\r\n{\"ok\":true}",
+            b"HTTP/1.1 200 OK\r\n\r\n{\"ok\":true",
+            b"HTTP/1.1 200 OK\r\n\r\n<p>\"ok\":true</p>",
+            b"HTTP/1.1 200 OK\r\n\r\n{\"ok\":false}",
+            b"HTTP/1.1 200 OK\r\n{\"ok\":true}",
+            b"{\"ok\":true}",
+        ] {
+            assert!(!response_ok(response), "{}", String::from_utf8_lossy(response));
+        }
+    }
+
+    #[test]
+    fn process_serves_confere_binario_e_dono_da_porta() {
+        let exe = std::env::current_exe().unwrap();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let pid = std::process::id();
+        assert!(process_serves(pid, port, &exe).unwrap());
+        assert!(!process_serves(pid, port, Path::new("/usr/bin/true")).unwrap());
+        assert!(!process_serves(0, port, &exe).unwrap());
+        drop(listener);
+        assert!(!process_serves(pid, port, &exe).unwrap());
+    }
 
     #[test]
     fn caminho_do_sudo_exige_pastas_do_root_sem_escrita_alheia() {

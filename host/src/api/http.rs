@@ -120,17 +120,32 @@ impl IntoResponse for ApiError {
     }
 }
 
-async fn health(State(hub): State<Arc<Hub>>) -> Json<Value> {
-    Json(json!({
+/// Sem credencial, só o mínimo de vida e a atividade. A identidade do Hub e do binário exige o
+/// bearer local (`Caller::Local`: loopback ou socket do Open); qualquer outro `Authorization` é
+/// recusado em vez de cair na resposta anônima.
+async fn health(
+    State(hub): State<Arc<Hub>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ApiError> {
+    let mut body = json!({
         "ok": true,
-        "hostId": hub.host_id,
-        "computerId": hub.identity.computer_id(),
         "version": env!("CARGO_PKG_VERSION"),
-        "binaryPath": crate::service::binary_identity().map(|(path, _)| path),
         "environment": crate::environment::Environment::current().name(),
-        "binaryHash": crate::service::binary_identity().map(|(_, hash)| hash),
         "busy": hub.busy(),
-    }))
+    });
+    if !headers.contains_key("authorization") {
+        return Ok(Json(body));
+    }
+    if !authorized(&hub, &headers, peer) {
+        return Err(unauthorized());
+    }
+    let binary = crate::service::binary_identity();
+    body["hostId"] = json!(hub.host_id);
+    body["computerId"] = json!(hub.identity.computer_id());
+    body["binaryPath"] = json!(binary.map(|(path, _)| path));
+    body["binaryHash"] = json!(binary.map(|(_, hash)| hash));
+    Ok(Json(body))
 }
 
 async fn statusline(
@@ -460,6 +475,73 @@ mod tests {
         for vazado in ["Marcador7f3", "INJETADO", "forjado", "local-test", "chave-marcadora-9c1", "corpo-marcador-5e2"]
         {
             assert!(!log.contains(vazado), "{vazado} no log: {log}");
+        }
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    const IDENTITY: [&str; 4] = ["hostId", "computerId", "binaryPath", "binaryHash"];
+
+    #[tokio::test]
+    async fn health_shows_identity_only_to_the_local_bearer() {
+        let dir = std::env::temp_dir().join(format!("codync-health-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let token = "token-local-ficticio";
+        let hub = Hub::new(
+            crate::store::Store::open(std::path::Path::new(":memory:")).expect("store"),
+            "host-ficticio".into(),
+            crate::remote::identity::Identity::load_or_create(&dir).expect("identity"),
+            token.into(),
+            19222,
+        );
+        let loopback: SocketAddr = "127.0.0.1:50000".parse().expect("addr");
+        let call = |peer: SocketAddr, authorization: Option<&str>| {
+            let mut headers = HeaderMap::new();
+            if let Some(value) = authorization {
+                headers.insert("authorization", value.parse().expect("header"));
+            }
+            health(State(hub.clone()), ConnectInfo(peer), headers)
+        };
+
+        let Ok(Json(anonymous)) = call(loopback, None).await else { panic!("anonymous health must answer") };
+        assert_eq!(anonymous["ok"], true);
+        assert_eq!(anonymous["version"], env!("CARGO_PKG_VERSION"));
+        assert_eq!(anonymous["environment"], crate::environment::Environment::current().name());
+        assert_eq!(anonymous["busy"], false);
+        assert_eq!(anonymous.as_object().map(serde_json::Map::len), Some(4), "{anonymous}");
+        for field in IDENTITY {
+            assert!(anonymous.get(field).is_none(), "{field} leaked: {anonymous}");
+        }
+
+        let bearer = format!("Bearer {token}");
+        let Ok(Json(local)) = call(loopback, Some(&bearer)).await else { panic!("local bearer must answer") };
+        assert_eq!(local["hostId"], "host-ficticio");
+        assert_eq!(local["computerId"], hub.identity.computer_id());
+        assert_eq!(local.as_object().map(serde_json::Map::len), Some(8), "{local}");
+        for field in IDENTITY {
+            assert!(local.get(field).is_some(), "{field} missing: {local}");
+        }
+        assert_eq!(local["ok"], true);
+
+        let mapped: SocketAddr = "[::ffff:127.0.0.1]:50000".parse().expect("addr");
+        assert!(call(mapped, Some(&bearer)).await.is_ok(), "IPv4 loopback seen through `--bind ::`");
+
+        let outside: SocketAddr = "192.0.2.10:50000".parse().expect("addr");
+        let refused = [
+            (loopback, "Bearer outro-token-ficticio"),
+            (loopback, "Bearer "),
+            (loopback, "Basic dXNlcjpwYXNz"),
+            (loopback, token),
+            (outside, bearer.as_str()),
+        ];
+        for (peer, authorization) in refused {
+            let Err(error) = call(peer, Some(authorization)).await else {
+                panic!("{authorization} from {peer} must be refused")
+            };
+            let response = error.into_response();
+            assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{authorization} from {peer}");
+            let body = axum::body::to_bytes(response.into_body(), 4096).await.expect("body");
+            let body = String::from_utf8_lossy(&body);
+            assert!(!body.contains(token) && !body.contains("outro-token"), "{body}");
         }
         let _ = std::fs::remove_dir_all(dir);
     }

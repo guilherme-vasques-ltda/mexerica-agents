@@ -111,6 +111,18 @@ test('an uninstalled host does not acquire a restart marker', async () => {
   assert.equal(f.prefs.get('hostRestartAfterAppUpdate'), false)
 })
 
+test('an unreadable host token leaves the app unattached instead of trusting the anonymous health', async () => {
+  const f = hostUpdateFixture()
+  f.behavior.token = null
+  await f.host.refresh()
+  await settle()
+  await settle()
+  // O anônimo responde (o Hub está de pé), mas sem o token não há identidade para anexar.
+  assert.ok(f.reads.includes('health'))
+  assert.equal(f.host.local, null)
+  assert.ok(f.host.state.kind === 'starting' || f.host.state.kind === 'failed', f.host.state.kind)
+})
+
 test('idle detection distinguishes working, offline and idle hosts', async () => {
   const f = hostUpdateFixture()
   assert.equal(await f.host.isIdleForUpdate(), true)

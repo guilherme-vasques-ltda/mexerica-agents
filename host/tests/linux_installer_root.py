@@ -118,7 +118,7 @@ try:
     manager = True
     args = ['--host', host, '--ajudante', helper, '--data-dir', home / '.mexerica', '--port', '19422']
     stage('instalar', *args)
-    assert health()['environment'] == 'main'
+    assert health()['environment'] == 'main' and 'binaryPath' not in health()
     motor = pwd.getpwnam('donnabot-motor')
     assert motor.pw_uid not in [0, hub.pw_uid]
     assert motor.pw_dir == str(base / 'motor') and motor.pw_shell.endswith('/nologin')

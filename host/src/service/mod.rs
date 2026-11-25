@@ -22,6 +22,8 @@ pub mod mac_local;
 mod unix;
 #[cfg(target_os = "linux")]
 pub(crate) use unix::preparar_executable as preparar_executavel;
+#[cfg(target_os = "linux")]
+pub use unix::serves;
 #[cfg(unix)]
 pub use unix::{install, installed, require_executable, start, started_by_service, stop, uninstall};
 #[cfg(windows)]

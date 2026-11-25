@@ -24,6 +24,8 @@ export function hostUpdateFixture(options: { environment?: 'main' | 'dev'; rc?: 
   let timerId = 0
   const behavior = {
     stopStatus: 0,
+    /** O token que o app lê do Hub (`null`: arquivo ilegível). O `/health` só mostra identidade com ele. */
+    token: 'fixture-token' as string | null,
     installStatus: 0,
     installed: options.installed ?? true,
     busy: false,
@@ -54,7 +56,11 @@ export function hostUpdateFixture(options: { environment?: 'main' | 'dev'; rc?: 
     mkdirSync: () => {},
     writeFileSync: (_name: string, value: string) => { Object.assign(persisted, JSON.parse(value)) },
     promises: {
-      readFile: async (name: string) => name.endsWith('/token') ? 'fixture-token' : binaryBytes,
+      readFile: async (name: string) => {
+        if (!name.endsWith('/token')) return binaryBytes
+        if (behavior.token === null) throw new Error('token ausente')
+        return behavior.token
+      },
       rm: async (name: string) => { if (behavior.rmFails) throw new Error('permission denied'); removed.push(name); behavior.installed = false },
     },
   }
@@ -101,10 +107,13 @@ export function hostUpdateFixture(options: { environment?: 'main' | 'dev'; rc?: 
     process: { env: { ...(options.devPort ? { [options.devPortVar ?? 'DONNABOT_PORT']: options.devPort } : {}), ...options.env }, resourcesPath: '/bundle', getuid: () => 501 },
     setTimeout: (callback: () => void, ms: number) => { const id = ++timerId; timers.set(id, { callback, ms }); return id },
     clearTimeout: (id: number) => timers.delete(id),
-    fetch: async () => {
+    fetch: async (_url: string, init?: { headers?: Record<string, string> }) => {
       reads.push('health')
       if (!behavior.reachable) throw new Error('Host offline')
-      return { ok: true, json: async () => ({ environment: behavior.runningEnvironment, computerId: 'fixture-computer', busy: behavior.busy, binaryPath: binary, binaryHash: behavior.wrongBinary ? 'stale' : crypto.createHash('sha256').update(binaryBytes).digest('hex') }) }
+      // Como o Hub: a identidade só vem com o bearer local; sem ele, só o anônimo.
+      const identified = behavior.token !== null && init?.headers?.authorization === `Bearer ${behavior.token}`
+      const anonymous = { ok: true, environment: behavior.runningEnvironment, busy: behavior.busy }
+      return { ok: true, json: async () => identified ? { ...anonymous, computerId: 'fixture-computer', binaryPath: binary, binaryHash: behavior.wrongBinary ? 'stale' : crypto.createHash('sha256').update(binaryBytes).digest('hex') } : anonymous }
     },
   })
   const host = new module.HostController(() => options.canUseHost ?? true)

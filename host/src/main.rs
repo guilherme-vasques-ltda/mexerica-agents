@@ -106,6 +106,33 @@ pub fn http() -> &'static reqwest::Client {
     &CLIENT
 }
 
+/// Cliente HTTP para o `/health` do Hub nesta máquina: sem proxy do ambiente e sem seguir
+/// redirecionamento, para a consulta não sair de `127.0.0.1`.
+pub fn http_local() -> &'static reqwest::Client {
+    static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
+        reqwest::Client::builder()
+            .no_proxy()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .expect("TLS setup failed: install the ca-certificates package")
+    });
+    &CLIENT
+}
+
+/// Resposta do `/health` que o host aceita: status 2xx e corpo JSON válido com `ok: true`.
+/// Redirecionamento (3xx) e erro não contam como Hub de pé.
+pub fn health_ok(status: u16, body: &[u8]) -> Option<serde_json::Value> {
+    let body: serde_json::Value = serde_json::from_slice(body).ok()?;
+    ((200..300).contains(&status) && body["ok"] == true).then_some(body)
+}
+
+/// `/health` anônimo do Hub nesta máquina, por `http_local()`, aceito só por `health_ok`.
+pub async fn health_local(port: u16, timeout: Duration) -> Option<serde_json::Value> {
+    let response = http_local().get(format!("http://127.0.0.1:{port}/health")).timeout(timeout).send().await.ok()?;
+    let status = response.status().as_u16();
+    health_ok(status, &response.bytes().await.ok()?)
+}
+
 /// Cliente HTTP para a nuvem e chamadas que levam credencial (assinatura `Codync-Sig`,
 /// bearer, tickets): nunca segue redirecionamento, para a credencial não ir a outro endereço.
 pub fn http_cloud() -> &'static reqwest::Client {
@@ -830,12 +857,7 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Sub::Status { port } => {
-            let running = http()
-                .get(format!("http://127.0.0.1:{port}/health"))
-                .timeout(Duration::from_secs(2))
-                .send()
-                .await
-                .is_ok_and(|r| r.status().is_success());
+            let running = health_local(port, Duration::from_secs(2)).await.is_some();
             println!(
                 "installed: {}\nrunning:   {running}\nport:      {port}\ndata:      {}",
                 service::installed(),
@@ -1260,12 +1282,7 @@ async fn info(port: u16, as_json: bool) -> Result<()> {
         eprintln!("start {} once first", self_command());
         std::process::exit(1);
     };
-    let running = http()
-        .get(format!("http://127.0.0.1:{port}/health"))
-        .timeout(Duration::from_secs(2))
-        .send()
-        .await
-        .is_ok_and(|r| r.status().is_success());
+    let running = health_local(port, Duration::from_secs(2)).await.is_some();
     let v = json!({
         "name": service::host_name(),
         "computerId": id.computer_id(),

@@ -75,7 +75,9 @@ ferramentas locais (`pair`, `status`, `info`, `update` e o app neste computador)
 com `127.0.0.1`: um `--bind` só no endereço da VPN deixa essas ferramentas sem acesso.
 Se a escuta direta for mesmo necessária, use `--bind 0.0.0.0` e limite a porta à
 interface da VPN no firewall, mantendo o loopback liberado para as ferramentas locais.
-A API local continua aceitando só chamadas do loopback.
+A API local continua aceitando só chamadas do loopback, e o `/health` sem credencial
+devolve só `ok`, `version`, `environment` e `busy`; a identidade do Hub e do binário exige
+o token local (`Authorization: Bearer`) vindo deste computador.
 
 **Migração:** uma unidade antiga sem `--bind` passa a escutar só em loopback quando o
 Hub novo reinicia. Um celular que falava direto com o Hub pela rede local ou VPN perde
@@ -133,7 +135,7 @@ The phone connects over the encrypted device channel. The pairing link lists onl
 - **Cloudflare cloud:** start the host with `CODYNC_CLOUD_URL=https://…` if you run your own Codync cloud. The production cloud isn't live yet.
 - **Desktop app over SSH:** the desktop app (macOS or Linux) can attach an SSH computer and tunnel to its loopback API ([Accounts and SSH](accounts-and-ssh.md)). From any terminal: `ssh -L 19222:localhost:19222 vm`, then `codync-host tui` locally.
 
-The host listens on all interfaces, port 19222. The local API (`/api/*`, `/events`, terminals; bearer token) answers **loopback callers only**, so a public address never exposes it. From outside, only `/health` (host id, computer id, version) and the end-to-end encrypted device channel answer, and the channel only serves devices holding this host's pairing keys. Keep 19222 closed in the cloud firewall anyway unless you deliberately pair over a VPN or private network.
+The host listens on all interfaces, port 19222. The local API (`/api/*`, `/events`, terminals; bearer token) answers **loopback callers only**, so a public address never exposes it. From outside, only `/health` (`ok`, version, environment, `busy`) and the end-to-end encrypted device channel answer, and the channel only serves devices holding this host's pairing keys. Keep 19222 closed in the cloud firewall anyway unless you deliberately pair over a VPN or private network.
 
 ## Limitations on a headless server
 

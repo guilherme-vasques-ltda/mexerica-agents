@@ -91,6 +91,9 @@ pub(crate) const LEITURAS_DO_NOME: &[(&str, usize)] = &[
 pub(crate) enum Guarda {
     /// Sem credencial: responde a quem alcança a porta; o handler não confere token.
     Publica,
+    /// Pública só no mínimo: sem `Authorization` responde a quem alcança a porta; com ele, o que passa do
+    /// mínimo exige a chamada nomeada, e credencial recusada não cai na resposta pública.
+    PublicaMinima(&'static str),
     /// Token deste computador (ou sessão Web), conferido no handler.
     Bearer,
     /// Autentica e passa pelo `dispatch`, e por ele por esta tabela.
@@ -102,7 +105,7 @@ pub(crate) enum Guarda {
 /// Rotas HTTP de produção e o que as guarda. Só `/api/*` chega ao `dispatch`.
 #[cfg(test)]
 pub(crate) const ROTAS_HTTP: &[(&str, &str, Guarda)] = &[
-    ("api/http.rs", "/health", Guarda::Publica),
+    ("api/http.rs", "/health", Guarda::PublicaMinima("authorized(&hub, &headers, peer)")),
     ("api/http.rs", "/events", Guarda::Bearer),
     ("api/http.rs", "/api/donnaGuardRuntime", Guarda::Dispatch),
     ("api/http.rs", "/api/{method}", Guarda::Dispatch),

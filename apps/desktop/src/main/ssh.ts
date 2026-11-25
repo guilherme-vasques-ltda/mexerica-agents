@@ -12,6 +12,7 @@ import { join } from 'node:path'
 import { app, dialog, ipcMain, type BrowserWindow } from 'electron'
 import { SSH_STORAGE_STATUS, type SSHAttachment, type SSHMotivo, type SSHProfile, type SSHState, type SSHStatus } from '../shared/ssh'
 import { dataDir } from './host-controller'
+import { localHealth } from './fork-local-health'
 import { hubSSHAlias } from './fork-ssh-semente/hub-alias'
 import { seedProfiles, sshAliasExists } from './fork-ssh-semente/semente'
 import { infoArguments, knownHostsFiles, orphanTunnelPattern, resolveArguments, tunnelArguments } from './ssh-command'
@@ -187,15 +188,6 @@ async function sshListens(pid: number, port: number): Promise<boolean> {
     }
   } catch {}
   return false
-}
-
-async function healthOf(baseURL: string): Promise<{ computerId?: string } | null> {
-  try {
-    const res = await fetch(`${baseURL}/health`, { signal: AbortSignal.timeout(1000) })
-    return res.ok ? ((await res.json()) as { computerId?: string }) : null
-  } catch {
-    return null
-  }
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -617,27 +609,25 @@ class SSHComputers {
       const { child, tail } = tunnel
       const alive = () => child.exitCode === null && child.signalCode === null
       const baseURL = `http://127.0.0.1:${port}`
-      let health: { computerId?: string } | null = null
+      // Anônimo: só a prova de que a porta responde, sem identidade e sem token.
+      let answers = false
       for (let i = 0; i < 60 && alive() && !token.cancelled; i++) {
-        health = await healthOf(baseURL)
-        if (health) break
+        answers = (await localHealth(baseURL, 1000)) !== null
+        if (answers) break
         await sleep(250)
       }
       if (token.cancelled) {
         child.kill()
         return idle
       }
-      if (!health) {
+      if (!answers) {
         if (alive()) child.kill()
         else lastProblem = await tail.lastLine()
         continue
       }
-      if (health.computerId !== info.computerId) {
-        child.kill()
-        return stop({ kind: 'failed', ...falha('ajustes.ssh.erro.tunelOutro', { host: profile.host }) })
-      }
-      // /health is public, so the answer alone doesn't prove it came through ssh: another
-      // local user could have taken the port. Only a listener ssh owns gets the token.
+      // A resposta anônima não prova que ela veio pelo ssh: outro usuário local pode ter tomado a
+      // porta. Por isso o token, que destrava a identidade do /health, só sai depois de o ssh provar
+      // que é o dono do listener.
       const listens = child.pid !== undefined && (await sshListens(child.pid, port))
       // Disconnected, removed or edited meanwhile: this attempt must not register its tunnel.
       if (token.cancelled) {
@@ -649,6 +639,19 @@ class SSHComputers {
         child.kill()
         // O detalhe entra no motivo `abrirTunel`; como a saída do ssh, vai no inglês do catálogo.
         lastProblem = motivoSSH('ajustes.ssh.erro.portaOcupada').texto
+        continue
+      }
+      const identity = await localHealth(baseURL, 1000, info.token)
+      if (token.cancelled) {
+        child.kill()
+        return idle
+      }
+      if (identity?.computerId !== info.computerId) {
+        if (alive()) {
+          child.kill()
+          return stop({ kind: 'failed', ...falha('ajustes.ssh.erro.tunelOutro', { host: profile.host }) })
+        }
+        lastProblem = await tail.lastLine()
         continue
       }
       this.watch(child, id, tail)

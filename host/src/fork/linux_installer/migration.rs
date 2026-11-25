@@ -2,7 +2,7 @@
 use super::identity::as_user;
 use super::root::{
     BASE, BIN, CONFIG, MOTOR, User, WORK, as_hub, checked, directory, inside, install, open_sources, owner_mode, place,
-    safe, service, system, unit, user, user_command, write_atomic,
+    safe, service, serving_pid, system, unit, user, user_command, write_atomic,
 };
 use crate::fork::motor_exec::fd::Directory;
 use anyhow::{Context, Result, bail, ensure};
@@ -395,18 +395,6 @@ pub(super) async fn apply(hub: &User, host: &Path, helper: &Path, data: &Path, b
         Ok(())
     })?;
     let _ = f3_inventory(hub, host, data)?; // pré-validação sem parar serviço
-    // /health só usa loopback, sem segredo, e precisa confirmar o Hub e a inatividade.
-    let health: serde_json::Value = reqwest::Client::new()
-        .get(format!("http://127.0.0.1:{port}/health"))
-        .timeout(Duration::from_secs(5))
-        .send()
-        .await?
-        .json()
-        .await?;
-    ensure!(
-        health["ok"] == true && health["busy"] == false && health["environment"] == "main",
-        "Hub deve responder e estar busy:false antes da migração"
-    );
     let link = hub.home.join(".local/bin/donnabot-host");
     let (old_binary, link_target) = as_hub(hub, &[], || {
         let old_binary = link.canonicalize().context("binário antigo no caminho conhecido pelo app ausente")?;
@@ -415,10 +403,18 @@ pub(super) async fn apply(hub: &User, host: &Path, helper: &Path, data: &Path, b
         Ok((old_binary, fs::read_link(&link).ok()))
     })?;
     inside(&hub.home, &old_binary)?;
+    // /health anônimo, sem credencial: `/proc` prova, antes e depois da resposta, que quem tem a
+    // porta é o processo da unidade rodando o binário do link do app.
+    let unit_serves = || serving_pid(hub, port, &old_binary, std::time::Instant::now() + Duration::from_secs(5));
+    ensure!(unit_serves()?, "Hub ativo e link do app apontam para binários distintos");
+    let health = crate::health_local(port, Duration::from_secs(5))
+        .await
+        .context("Hub não respondeu ao /health com 2xx e JSON válido; migração recusada")?;
     ensure!(
-        health["binaryPath"].as_str() == old_binary.to_str(),
-        "Hub ativo e link do app apontam para binários distintos"
+        health["busy"] == false && health["environment"] == "main",
+        "Hub deve responder e estar busy:false antes da migração"
     );
+    ensure!(unit_serves()?, "Hub ativo e link do app apontam para binários distintos");
     let result = (|| {
         service(hub, &["stop", "donnabot-host.service"])?;
         // O guard é solto ao sair da tentativa, antes de qualquer recuperação do serviço.

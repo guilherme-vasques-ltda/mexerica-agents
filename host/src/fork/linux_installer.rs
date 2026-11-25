@@ -11,6 +11,8 @@ mod migration;
 mod rollback_data;
 #[cfg(target_os = "linux")]
 mod root;
+#[cfg(target_os = "linux")]
+pub(crate) use root::process_serves;
 
 #[cfg(all(target_os = "linux", test))]
 mod assisted;

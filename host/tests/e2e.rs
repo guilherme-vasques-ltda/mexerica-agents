@@ -137,7 +137,24 @@ impl Host {
 #[tokio::test]
 async fn health_names_this_binary() {
     let host = start_host().await;
-    let health: Value = reqwest::get(format!("{}/health", host.base)).await.unwrap().json().await.unwrap();
+    let anonymous: Value = reqwest::get(format!("{}/health", host.base)).await.unwrap().json().await.unwrap();
+    assert_eq!(anonymous["ok"], true);
+    assert_eq!(anonymous["busy"], false);
+    for field in ["hostId", "computerId", "binaryPath", "binaryHash"] {
+        assert!(anonymous.get(field).is_none(), "{field}: {anonymous}");
+    }
+    let client = reqwest::Client::new();
+    let wrong = client.get(format!("{}/health", host.base)).bearer_auth("token-ficticio").send().await.unwrap();
+    assert_eq!(wrong.status(), 401);
+    let health: Value = client
+        .get(format!("{}/health", host.base))
+        .bearer_auth(&host.token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     assert!(health["binaryHash"].as_str().is_some_and(|hash| hash.len() == 64));
     // The apps compare it with the path they resolve, which on Windows has no `\\?\` prefix.
     let exe = std::fs::canonicalize(env!("CARGO_BIN_EXE_donnabot-host")).unwrap();

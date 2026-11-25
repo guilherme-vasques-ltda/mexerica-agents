@@ -446,3 +446,21 @@ async fn pr_b_listener_respeita_bind_escolhido_sem_ocupar_outra_interface() -> R
     assert!(other_available, "bind {requested_bind} ocupou {other_bind}:{port}: {diagnostic:?}");
     Ok(())
 }
+
+#[tokio::test]
+async fn perfil_isolado_avisa_so_quando_o_listener_sai_do_loopback() -> Result<()> {
+    use crate::service::mac_local::EXTERNAL_LISTEN_WARNING;
+    let local = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await?;
+    let mut saida = Vec::new();
+    channel::avisar_escuta_externa(local.local_addr()?, &mut saida);
+    assert!(saida.is_empty(), "{}", String::from_utf8_lossy(&saida));
+    // Endereço efetivo externo (sintético: o teste não abre porta fora do loopback).
+    for externo in ["0.0.0.0:19422", "[::]:19422", "192.0.2.10:19422"] {
+        let mut saida = Vec::new();
+        channel::avisar_escuta_externa(externo.parse()?, &mut saida);
+        let texto = String::from_utf8(saida)?;
+        assert_eq!(texto.trim(), format!("warning: {EXTERNAL_LISTEN_WARNING}"), "{externo}");
+        assert!(!texto.contains(externo.rsplit_once(':').map_or(externo, |(ip, _)| ip)), "{texto}");
+    }
+    Ok(())
+}

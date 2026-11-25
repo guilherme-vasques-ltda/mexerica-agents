@@ -27,6 +27,10 @@ pub fn method(executable: &Path) -> Method {
     }
 }
 
+/// O atualizador só lê `version` e `busy`, do `/health` anônimo: nenhuma credencial sai para quem
+/// estiver na porta.
+const HEALTH_TIMEOUT: Duration = Duration::from_secs(2);
+
 pub fn require_standalone(executable: &Path) -> Result<()> {
     match method(executable) {
         Method::Standalone => Ok(()),
@@ -38,33 +42,34 @@ pub fn require_standalone(executable: &Path) -> Result<()> {
     }
 }
 
-pub async fn health(port: u16) -> Option<serde_json::Value> {
-    crate::http()
-        .get(format!("http://127.0.0.1:{port}/health"))
-        .timeout(Duration::from_secs(2))
-        .send()
-        .await
-        .ok()?
-        .error_for_status()
-        .ok()?
-        .json()
-        .await
-        .ok()
-}
-
-async fn verify_running(port: u16, version: &str, hash: &str, identity: Option<&str>) -> Result<()> {
+/// A unidade já executa `target` (`require_executable`) e o processo anterior saiu
+/// (`service::stop`); o /health anônimo confirma a versão que voltou a responder, e depois da
+/// resposta `unit_serves` confere quem é o processo, antes de o atualizador descartar a cópia
+/// de volta.
+async fn verify_running(port: u16, version: &str, target: &Path) -> Result<()> {
+    let target = target.canonicalize().context("resolving the host executable")?;
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     loop {
-        if let Some(health) = health(port).await
-            && health["version"] == version
-            && health["binaryHash"] == hash
-            && identity.is_none_or(|id| health["computerId"] == id)
+        if crate::health_local(port, HEALTH_TIMEOUT).await.is_some_and(|health| health["version"] == version)
+            && unit_serves(port, &target, deadline).await
         {
             return Ok(());
         }
         ensure!(tokio::time::Instant::now() < deadline, "the updated host did not become healthy within 30 seconds");
         tokio::time::sleep(Duration::from_millis(250)).await;
     }
+}
+
+/// Linux: pelo `/proc`, o processo principal da unidade executa `target` e é dono da porta.
+#[cfg(target_os = "linux")]
+async fn unit_serves(port: u16, target: &Path, deadline: tokio::time::Instant) -> bool {
+    service::serves(port, target, deadline).await
+}
+
+/// Sem `/proc` (macOS, Windows), a confirmação fica só na versão.
+#[cfg(not(target_os = "linux"))]
+async fn unit_serves(_port: u16, _target: &Path, _deadline: tokio::time::Instant) -> bool {
+    true
 }
 
 /// The backup lives beside the executable, so replacement and rollback use
@@ -115,7 +120,7 @@ pub async fn apply(release: &release::Release, target: &Path, port: u16, force: 
     if managed {
         service::require_executable(target)?;
     }
-    let old_health = health(port).await;
+    let old_health = crate::health_local(port, HEALTH_TIMEOUT).await;
     if !force {
         ensure!(
             old_health.as_ref().is_none_or(|h| h["busy"] == false),
@@ -143,12 +148,10 @@ pub async fn apply(release: &release::Release, target: &Path, port: u16, force: 
                 && String::from_utf8_lossy(&output.stdout).trim() == format!("codync-host {}", release.version),
             "downloaded executable reported the wrong version"
         );
-        let old_hash = release::sha256(&std::fs::read(target)?);
-        let new_hash = release::sha256(&std::fs::read(&stage)?);
-        let identity = old_health.as_ref().and_then(|h| h["computerId"].as_str());
         // Recheck immediately before stopping; downloads can take minutes.
         if !force && managed {
-            let current = health(port).await.context("cannot confirm the running host is idle")?;
+            let current =
+                crate::health_local(port, HEALTH_TIMEOUT).await.context("cannot confirm the running host is idle")?;
             ensure!(current["busy"] == false, "host became busy while downloading; retry after its work finishes");
         }
         replace(
@@ -170,7 +173,7 @@ pub async fn apply(release: &release::Release, target: &Path, port: u16, force: 
             || async {
                 if managed {
                     tokio::task::spawn_blocking(service::start).await??;
-                    verify_running(port, &release.version, &new_hash, identity).await?;
+                    verify_running(port, &release.version, target).await?;
                 }
                 Ok(())
             },
@@ -181,7 +184,7 @@ pub async fn apply(release: &release::Release, target: &Path, port: u16, force: 
                 if managed {
                     tokio::task::spawn_blocking(service::stop).await??;
                     tokio::task::spawn_blocking(service::start).await??;
-                    verify_running(port, env!("CARGO_PKG_VERSION"), &old_hash, identity).await?;
+                    verify_running(port, env!("CARGO_PKG_VERSION"), target).await?;
                 }
                 Ok(())
             },
@@ -207,6 +210,7 @@ struct Helper {
     stage: std::path::PathBuf,
     backup: std::path::PathBuf,
     swapped: std::sync::atomic::AtomicBool,
+    kept: std::sync::atomic::AtomicBool,
 }
 
 impl Helper {
@@ -218,6 +222,7 @@ impl Helper {
             stage: target.with_file_name(format!(".{name}-update-{id}")),
             backup: target.with_file_name(format!(".{name}-backup-{id}")),
             swapped: std::sync::atomic::AtomicBool::new(false),
+            kept: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -230,13 +235,22 @@ impl Helper {
         Ok(())
     }
 
-    /// Puts the previous helper back (or removes a new one that had none before).
+    /// Puts the previous helper back (or removes a new one that had none before). A copy that
+    /// could not be put back is kept for `finish`, with its path in the log.
     fn restore(&self) {
         if !self.swapped.load(std::sync::atomic::Ordering::Relaxed) {
             return;
         }
         if self.backup.exists() {
-            let _ = std::fs::rename(&self.backup, &self.path);
+            if let Err(error) = std::fs::rename(&self.backup, &self.path) {
+                self.kept.store(true, std::sync::atomic::Ordering::Relaxed);
+                tracing::warn!(
+                    helper = self.name,
+                    backup = %self.backup.display(),
+                    error = format!("{error:#}"),
+                    "helper not restored; previous copy kept"
+                );
+            }
         } else {
             let _ = std::fs::remove_file(&self.path);
         }
@@ -244,6 +258,36 @@ impl Helper {
 
     fn finish(&self) {
         let _ = std::fs::remove_file(&self.stage);
-        let _ = std::fs::remove_file(&self.backup);
+        if !self.kept.load(std::sync::atomic::Ordering::Relaxed) {
+            let _ = std::fs::remove_file(&self.backup);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn helper_keeps_its_backup_when_restore_fails() {
+        let dir = std::env::temp_dir().join(format!("codync-helper-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let helper = Helper::new(&dir.join("host"), "helper");
+        std::fs::write(&helper.backup, b"previous").unwrap();
+        std::fs::create_dir_all(helper.path.join("busy")).unwrap();
+        helper.swapped.store(true, std::sync::atomic::Ordering::Relaxed);
+        helper.restore();
+        helper.finish();
+        assert_eq!(std::fs::read(&helper.backup).unwrap(), b"previous");
+
+        std::fs::remove_dir_all(&helper.path).unwrap();
+        let restored = Helper::new(&dir.join("host"), "helper");
+        std::fs::write(&restored.backup, b"previous").unwrap();
+        restored.swapped.store(true, std::sync::atomic::Ordering::Relaxed);
+        restored.restore();
+        restored.finish();
+        assert_eq!(std::fs::read(&restored.path).unwrap(), b"previous");
+        assert!(!restored.backup.exists());
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

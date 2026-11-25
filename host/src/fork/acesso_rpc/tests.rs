@@ -419,6 +419,7 @@ fn toda_rota_http_e_declarada() {
             let corpo = corpo_do_handler(&fontes, arquivo, handler).unwrap_or_else(|| panic!("{caminho}: {handler}"));
             let ok = match guarda {
                 Guarda::Publica => !com_token(&corpo),
+                Guarda::PublicaMinima(chamada) => corpo.contains(chamada),
                 Guarda::Bearer => com_token(&corpo),
                 Guarda::Dispatch => (com_token(&corpo) && corpo.contains("dispatch(")) || corpo.contains("command("),
                 Guarda::Propria(chamada) => {

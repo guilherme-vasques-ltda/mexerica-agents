@@ -41,6 +41,25 @@ async fn health(client: &reqwest::Client, child: &mut Child) -> Value {
     .unwrap()
 }
 
+/// Identidade do Hub, que o /health só mostra com o bearer local.
+async fn identity(client: &reqwest::Client, credential: &str) -> Value {
+    let health: Value = client
+        .get("http://localhost/health")
+        .bearer_auth(credential)
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    for field in ["hostId", "computerId"] {
+        assert!(health[field].as_str().is_some_and(|value| !value.is_empty()), "{field}: {health}");
+    }
+    health
+}
+
 async fn close_stdin(child: &mut Child) {
     drop(child.stdin.take());
     assert!(tokio::time::timeout(Duration::from_secs(10), child.wait()).await.unwrap().unwrap().success());
@@ -124,6 +143,7 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
     let session_client = client(&socket);
     let first = health(&session_client, &mut child).await;
     assert_eq!(first["environment"], "open");
+    assert!(first.get("hostId").is_none() && first.get("computerId").is_none(), "{first}");
     assert_eq!(fs::metadata(&socket).unwrap().permissions().mode() & 0o777, 0o600);
     let tcp = reqwest::Client::builder().no_proxy().timeout(Duration::from_secs(2)).build().unwrap();
     assert_eq!(tcp.get("http://127.0.0.1:19524/health").send().await.unwrap().status(), reqwest::StatusCode::NOT_FOUND);
@@ -138,6 +158,7 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
     let token_path = data.join("token");
     assert_eq!(fs::metadata(&token_path).unwrap().permissions().mode() & 0o777, 0o600);
     let credential = fs::read_to_string(&token_path).unwrap();
+    let first = identity(&session_client, &credential).await;
     assert!(session_client.post(endpoint).bearer_auth(&credential).send().await.unwrap().status().is_success());
     assert_eq!(
         tcp.post("http://127.0.0.1:19524/api/hello").bearer_auth(&credential).send().await.unwrap().status(),
@@ -381,11 +402,12 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
     let second_socket = second_session.join("s");
     let second_client = client(&second_socket);
     let mut child = host(&second_socket).args(serve).spawn().unwrap();
-    let second = health(&second_client, &mut child).await;
-    assert_eq!(first["hostId"], second["hostId"]);
-    assert_eq!(first["computerId"], second["computerId"]);
+    health(&second_client, &mut child).await;
     let new_credential = fs::read_to_string(&token_path).unwrap();
     assert!(new_credential != credential, "restart must rotate the bearer");
+    let second = identity(&second_client, &new_credential).await;
+    assert_eq!(first["hostId"], second["hostId"]);
+    assert_eq!(first["computerId"], second["computerId"]);
     assert_eq!(
         second_client.post(endpoint).bearer_auth(&credential).send().await.unwrap().status(),
         reqwest::StatusCode::UNAUTHORIZED
