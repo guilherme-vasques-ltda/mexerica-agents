@@ -105,7 +105,7 @@ pub(crate) enum Guarda {
 /// Rotas HTTP de produção e o que as guarda. Só `/api/*` chega ao `dispatch`.
 #[cfg(test)]
 pub(crate) const ROTAS_HTTP: &[(&str, &str, Guarda)] = &[
-    ("api/http.rs", "/health", Guarda::PublicaMinima("prova_health::autorizada(&hub, nonce, proof, peer)")),
+    ("api/http.rs", "/health", Guarda::PublicaMinima("prova_health::aceitar(&hub, nonce, proof, peer)")),
     ("api/http.rs", "/events", Guarda::Bearer),
     ("api/http.rs", "/api/donnaGuardRuntime", Guarda::Dispatch),
     ("api/http.rs", "/api/{method}", Guarda::Dispatch),

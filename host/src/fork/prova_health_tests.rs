@@ -29,24 +29,70 @@ impl Drop for Fixture {
 
 const TOKEN: &str = "token-local-ficticio";
 const NONCE: [u8; 32] = [7; 32];
+const NOVO_NONCE: [u8; 32] = [11; 32];
+const OUTRO_NONCE: [u8; 32] = [13; 32];
 
 fn nonce() -> String {
     crate::remote::crypto::b64(&NONCE)
+}
+fn novo_nonce() -> String {
+    crate::remote::crypto::b64(&NOVO_NONCE)
+}
+fn outro_nonce() -> String {
+    crate::remote::crypto::b64(&OUTRO_NONCE)
 }
 
 #[test]
 fn a_prova_do_token_local_abre_e_outro_token_nao() {
     let f = Fixture::new(TOKEN);
+    let loopback = || "127.0.0.1:5000".parse().unwrap();
     assert!(confere(TOKEN, &nonce(), &prova(TOKEN, &NONCE)));
     assert!(!confere(TOKEN, &nonce(), &prova("outro-token-ficticio", &NONCE)));
     assert!(!confere(TOKEN, &nonce(), &prova(TOKEN, &[9; 32])), "a prova é do nonce que veio");
     assert!(!confere(TOKEN, &nonce(), ""), "sem prova não há identidade");
     assert!(!confere(TOKEN, "", &prova(TOKEN, &NONCE)), "sem nonce não há identidade");
-    assert!(autorizada(&f.hub, &nonce(), &prova(TOKEN, &NONCE), "127.0.0.1:5000".parse().unwrap()));
-    let mapeado = "[::ffff:127.0.0.1]:5000".parse().unwrap();
-    assert!(autorizada(&f.hub, &nonce(), &prova(TOKEN, &NONCE), mapeado), "loopback visto por `--bind ::`");
-    let de_fora = "192.0.2.10:5000".parse().unwrap();
-    assert!(!autorizada(&f.hub, &nonce(), &prova(TOKEN, &NONCE), de_fora), "a prova não vale de fora do loopback");
+    assert_eq!(aceitar(&f.hub, &nonce(), &prova(TOKEN, &NONCE), loopback()), Some(NONCE));
+    let mapeado: SocketAddr = "[::ffff:127.0.0.1]:5000".parse().unwrap();
+    assert_eq!(
+        aceitar(&f.hub, &novo_nonce(), &prova(TOKEN, &NOVO_NONCE), mapeado),
+        Some(NOVO_NONCE),
+        "loopback visto por `--bind ::`"
+    );
+    let de_fora: SocketAddr = "192.0.2.10:5000".parse().unwrap();
+    assert_eq!(
+        aceitar(&f.hub, &outro_nonce(), &prova(TOKEN, &OUTRO_NONCE), de_fora),
+        None,
+        "a prova não vale de fora do loopback"
+    );
+    assert_eq!(
+        aceitar(&f.hub, &outro_nonce(), &prova(TOKEN, &OUTRO_NONCE), loopback()),
+        Some(OUTRO_NONCE),
+        "um nonce recusado pela origem continua livre"
+    );
+}
+
+#[test]
+fn cada_nonce_abre_uma_vez_so() {
+    // Cada teste usa o próprio nonce: a marca de consumo é do processo, como no Hub de verdade.
+    const UMA_VEZ: [u8; 32] = [21; 32];
+    let f = Fixture::new(TOKEN);
+    let loopback: SocketAddr = "127.0.0.1:5000".parse().unwrap();
+    let nonce = crate::remote::crypto::b64(&UMA_VEZ);
+    let prova = prova(TOKEN, &UMA_VEZ);
+    assert_eq!(aceitar(&f.hub, &nonce, &prova, loopback), Some(UMA_VEZ));
+    assert_eq!(aceitar(&f.hub, &nonce, &prova, loopback), None, "uma prova capturada não volta a abrir");
+}
+
+#[test]
+fn o_recibo_prova_a_resposta_e_fica_preso_ao_nonce_e_a_identidade() {
+    let texto = identidade("host-ficticio", "computador-ficticio", Some(("/bin/host-ficticio", "hash-ficticio")));
+    let certo = recibo(TOKEN, &NONCE, &texto);
+    assert_eq!(certo, recibo(TOKEN, &NONCE, &texto), "o mesmo pedido dá o mesmo recibo");
+    assert_ne!(certo, recibo("outro-token-ficticio", &NONCE, &texto), "outro token não produz o recibo");
+    assert_ne!(certo, recibo(TOKEN, &[9; 32], &texto), "o recibo é do nonce que foi provado");
+    let trocado = identidade("host-ficticio", "outro-computador", Some(("/bin/host-ficticio", "hash-ficticio")));
+    assert_ne!(certo, recibo(TOKEN, &NONCE, &trocado), "uma identidade trocada muda o recibo");
+    assert_eq!(certo.len(), 64);
 }
 
 #[test]

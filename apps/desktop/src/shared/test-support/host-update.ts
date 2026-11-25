@@ -104,6 +104,7 @@ export function hostUpdateFixture(options: { environment?: 'main' | 'dev'; rc?: 
   }, {
     __dirname: '/app/out/main',
     console: { warn: (message: string) => warnings.push(message), log: () => {}, error: () => {} },
+    Buffer,
     process: { env: { ...(options.devPort ? { [options.devPortVar ?? 'DONNABOT_PORT']: options.devPort } : {}), ...options.env }, resourcesPath: '/bundle', getuid: () => 501 },
     setTimeout: (callback: () => void, ms: number) => { const id = ++timerId; timers.set(id, { callback, ms }); return id },
     clearTimeout: (id: number) => timers.delete(id),
@@ -116,7 +117,9 @@ export function hostUpdateFixture(options: { environment?: 'main' | 'dev'; rc?: 
       const proved = behavior.token !== null &&
         query.get('proof') === crypto.createHmac('sha256', behavior.token).update('mexerica/health-proof/v1').update(Buffer.from(nonce, 'base64url')).digest('hex')
       const anonymous = { ok: true, environment: behavior.runningEnvironment, busy: behavior.busy }
-      return { ok: true, json: async () => proved ? { ...anonymous, computerId: 'fixture-computer', binaryPath: binary, binaryHash: behavior.wrongBinary ? 'stale' : crypto.createHash('sha256').update(binaryBytes).digest('hex') } : anonymous }
+      const identity = { computerId: 'fixture-computer', binaryPath: binary, binaryHash: behavior.wrongBinary ? 'stale' : crypto.createHash('sha256').update(binaryBytes).digest('hex') }
+      const receipt = crypto.createHmac('sha256', behavior.token ?? '').update('mexerica/health-receipt/v1').update(Buffer.from(nonce, 'base64url')).update(['', identity.computerId, identity.binaryPath, identity.binaryHash].join('\n')).digest('hex')
+      return { ok: true, json: async () => proved ? { ...anonymous, ...identity, receipt } : anonymous }
     },
   })
   const host = new module.HostController(() => options.canUseHost ?? true)

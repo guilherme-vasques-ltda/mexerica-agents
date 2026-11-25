@@ -42,10 +42,10 @@ async fn health(client: &reqwest::Client, child: &mut Child) -> Value {
 }
 
 /// `/health` provado: um nonce novo e o HMAC-SHA256 do token local sobre ele, sem o token na URL.
-fn proved(token: &str) -> String {
+/// Devolve o endereço e o nonce, que o recibo da resposta precisa conferir.
+fn proved(token: &str, nonce: [u8; 32]) -> (String, String) {
     use base64::Engine as _;
     use hmac::{Hmac, KeyInit as _, Mac as _};
-    let nonce = [3u8; 32];
     let mut mac = Hmac::<sha2::Sha256>::new_from_slice(token.as_bytes()).unwrap();
     mac.update(b"mexerica/health-proof/v1");
     mac.update(&nonce);
@@ -55,16 +55,36 @@ fn proved(token: &str) -> String {
         let _ = write!(proof, "{byte:02x}");
     }
     let nonce = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(nonce);
-    format!("http://localhost/health?nonce={nonce}&proof={proof}")
+    (format!("http://localhost/health?nonce={nonce}&proof={proof}"), nonce)
 }
 
-/// Identidade do Hub, que o /health só mostra com a prova do token local.
-async fn identity(client: &reqwest::Client, credential: &str) -> Value {
-    let health: Value =
-        client.get(proved(credential)).send().await.unwrap().error_for_status().unwrap().json().await.unwrap();
+/// O recibo que o Hub devolve: HMAC do token sobre o nonce e a identidade que saiu.
+fn recibo(token: &str, nonce: &str, health: &Value) -> String {
+    use base64::Engine as _;
+    use hmac::{Hmac, KeyInit as _, Mac as _};
+    let texto = |field: &str| health[field].as_str().unwrap_or_default().to_owned();
+    let identidade =
+        format!("{}\n{}\n{}\n{}", texto("hostId"), texto("computerId"), texto("binaryPath"), texto("binaryHash"));
+    let mut mac = Hmac::<sha2::Sha256>::new_from_slice(token.as_bytes()).unwrap();
+    mac.update(b"mexerica/health-receipt/v1");
+    mac.update(&base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(nonce).unwrap());
+    mac.update(identidade.as_bytes());
+    let mut out = String::with_capacity(64);
+    for byte in mac.finalize().into_bytes() {
+        use std::fmt::Write as _;
+        let _ = write!(out, "{byte:02x}");
+    }
+    out
+}
+
+/// Identidade do Hub, que o /health só mostra com a prova do token local e o recibo na resposta.
+async fn identity(client: &reqwest::Client, credential: &str, nonce: [u8; 32]) -> Value {
+    let (url, nonce) = proved(credential, nonce);
+    let health: Value = client.get(url).send().await.unwrap().error_for_status().unwrap().json().await.unwrap();
     for field in ["hostId", "computerId"] {
         assert!(health[field].as_str().is_some_and(|value| !value.is_empty()), "{field}: {health}");
     }
+    assert_eq!(health["receipt"], recibo(credential, &nonce, &health), "o recibo prova a resposta");
     health
 }
 
@@ -166,7 +186,7 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
     let token_path = data.join("token");
     assert_eq!(fs::metadata(&token_path).unwrap().permissions().mode() & 0o777, 0o600);
     let credential = fs::read_to_string(&token_path).unwrap();
-    let first = identity(&session_client, &credential).await;
+    let first = identity(&session_client, &credential, [3u8; 32]).await;
     assert!(session_client.post(endpoint).bearer_auth(&credential).send().await.unwrap().status().is_success());
     assert_eq!(
         tcp.post("http://127.0.0.1:19524/api/hello").bearer_auth(&credential).send().await.unwrap().status(),
@@ -413,7 +433,7 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
     health(&second_client, &mut child).await;
     let new_credential = fs::read_to_string(&token_path).unwrap();
     assert!(new_credential != credential, "restart must rotate the bearer");
-    let second = identity(&second_client, &new_credential).await;
+    let second = identity(&second_client, &new_credential, [5u8; 32]).await;
     assert_eq!(first["hostId"], second["hostId"]);
     assert_eq!(first["computerId"], second["computerId"]);
     assert_eq!(

@@ -4,12 +4,19 @@
 use crate::hub::Hub;
 use hmac::{Hmac, KeyInit, Mac as _};
 use sha2::Sha256;
+use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 /// Domínio desta prova: um HMAC do token aqui nunca vale como credencial de outro uso.
 const ROTULO: &[u8] = b"mexerica/health-proof/v1";
+/// Domínio do recibo que prova a resposta ao cliente.
+const RECIBO: &[u8] = b"mexerica/health-receipt/v1";
 /// O nonce é sempre deste tamanho; sem isso a mensagem assinada ficaria ambígua.
 const NONCE: usize = 32;
+/// Enquanto um nonce aceito continua recusado: cobre o tempo em que a prova ainda poderia ser repetida.
+const JANELA: Duration = Duration::from_secs(300);
 
 fn hmac(token: &str, nonce: &[u8]) -> [u8; 32] {
     let mut mac =
@@ -27,7 +34,6 @@ pub(crate) fn prova(token: &str, nonce: &[u8]) -> String {
 }
 
 /// 32 bytes em hexadecimal minúsculo, do mesmo jeito que o cliente manda.
-#[cfg(test)]
 fn hexadecimal(bytes: &[u8; 32]) -> String {
     use std::fmt::Write as _;
     let mut out = String::with_capacity(64);
@@ -63,10 +69,40 @@ fn deste_computador(peer: SocketAddr) -> bool {
         || (crate::environment::Environment::is_open() && peer == crate::open_hub::SOCKET_PEER)
 }
 
-/// `true` quando o par prova o token local de um chamador deste computador. Sem prova, ou com a
-/// prova de outro computador, a identidade do `/health` não sai.
-pub(crate) fn autorizada(hub: &Hub, nonce: &str, proof: &str, peer: SocketAddr) -> bool {
-    deste_computador(peer) && confere(&hub.token, nonce, proof)
+/// Nonces já aceitos e quando. Um par nonce/prova vale uma vez só, então uma prova capturada não
+/// volta a abrir a identidade do Hub.
+fn consumidos() -> &'static Mutex<HashMap<[u8; 32], Instant>> {
+    static CONSUMIDOS: OnceLock<Mutex<HashMap<[u8; 32], Instant>>> = OnceLock::new();
+    CONSUMIDOS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Aceita o par uma única vez: confere origem e prova e registra o nonce na mesma operação, sem
+/// consumir o nonce de uma tentativa recusada. Devolve o nonce, que o handler usa no recibo.
+pub(crate) fn aceitar(hub: &Hub, nonce: &str, proof: &str, peer: SocketAddr) -> Option<[u8; 32]> {
+    if !deste_computador(peer) || !confere(&hub.token, nonce, proof) {
+        return None;
+    }
+    let nonce = crate::remote::crypto::unb64_n::<NONCE>(nonce).ok()?;
+    let mut vistos = consumidos().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    vistos.retain(|_, quando| quando.elapsed() < JANELA);
+    vistos.insert(nonce, Instant::now()).is_none().then_some(nonce)
+}
+
+/// A identidade que sai, em ordem fixa: o recibo cobre exatamente o que o cliente lê.
+pub(crate) fn identidade(host_id: &str, computer_id: &str, binary: Option<(&str, &str)>) -> String {
+    let (path, hash) = binary.unwrap_or(("", ""));
+    format!("{host_id}\n{computer_id}\n{path}\n{hash}")
+}
+
+/// Recibo da resposta: prova ao cliente que quem respondeu tem o mesmo token, preso ao nonce que
+/// ele escolheu e à identidade que saiu.
+pub(crate) fn recibo(token: &str, nonce: &[u8], identidade: &str) -> String {
+    let mut mac =
+        Hmac::<Sha256>::new_from_slice(token.as_bytes()).expect("o HMAC-SHA256 aceita chave de qualquer tamanho");
+    mac.update(RECIBO);
+    mac.update(nonce);
+    mac.update(identidade.as_bytes());
+    hexadecimal(&mac.finalize().into_bytes().into())
 }
 
 #[cfg(test)]

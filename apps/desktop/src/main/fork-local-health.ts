@@ -1,38 +1,65 @@
-import { createHmac, randomBytes } from 'node:crypto'
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 
 /** O que o `/health` do Hub local responde. A identidade (`computerId`, `binaryPath`, `binaryHash`
- * e `hostId`) só vem junto com a prova do token deste computador; sem ela a resposta é anônima. */
+ * e `hostId`) só vem junto com a prova do token deste computador, e o `receipt` é o que prova que
+ * quem respondeu tem esse token. */
 export interface LocalHealth {
   environment?: string
   ok?: boolean
+  hostId?: string
   computerId?: string
   binaryPath?: string
   binaryHash?: string
   busy?: boolean
+  receipt?: string
 }
 
-/** Domínio da prova, igual ao do Hub (`host/src/fork/prova_health.rs`). */
-const ROTULO = 'mexerica/health-proof/v1'
+/** Domínios da prova e do recibo, iguais aos do Hub (`host/src/fork/prova_health.rs`). */
+const PROVA = 'mexerica/health-proof/v1'
+const RECIBO = 'mexerica/health-receipt/v1'
+
+function mac(token: string, rotulo: string, nonce: Buffer, extra?: string): string {
+  const hmac = createHmac('sha256', token).update(rotulo).update(nonce)
+  return (extra === undefined ? hmac : hmac.update(extra)).digest('hex')
+}
+
+/** A identidade que o Hub devolve, na ordem fixa que o recibo cobre. */
+const identidade = (health: LocalHealth) =>
+  [health.hostId ?? '', health.computerId ?? '', health.binaryPath ?? '', health.binaryHash ?? ''].join('\n')
 
 /**
  * A prova do token local: um nonce novo e o HMAC-SHA256 do token sobre ele. O token em si nunca
  * viaja para a porta, então um processo que ocupe o lugar do Hub não recebe credencial nenhuma e
- * não tem como responder à prova; o Hub confere e só então devolve a identidade.
+ * não tem como responder à prova.
  */
-export function provedQuery(token: string): string {
+export function consultaProvada(token: string): { nonce: string; query: string } {
   const nonce = randomBytes(32)
-  const proof = createHmac('sha256', token).update(ROTULO).update(nonce).digest('hex')
   // base64url e hexadecimal já são seguros na URL: nada de escapar de novo.
-  return `?nonce=${nonce.toString('base64url')}&proof=${proof}`
+  return {
+    nonce: nonce.toString('base64url'),
+    query: `?nonce=${nonce.toString('base64url')}&proof=${mac(token, PROVA, nonce)}`,
+  }
+}
+
+/** O recibo confere: quem respondeu tem o mesmo token, para aquele nonce e aquela identidade. Um
+ * listener substituto que copie os campos públicos não consegue produzi-lo. */
+export function reciboConfere(token: string, nonce: string, health: LocalHealth): boolean {
+  if (typeof health.receipt !== 'string' || !health.receipt) return false
+  const esperado = Buffer.from(mac(token, RECIBO, Buffer.from(nonce, 'base64url'), identidade(health)), 'hex')
+  const recebido = Buffer.from(health.receipt, 'hex')
+  return recebido.length === esperado.length && timingSafeEqual(recebido, esperado)
 }
 
 /** Lê o `/health`: sem token, a resposta anônima (vida, ambiente e `busy`); com o token local, a
- * identidade do Hub. Um token que o Hub recusa não deixa nada para ler, e a rede fica em `null`. */
+ * identidade do Hub, aceita só com o recibo certo. Sem prova válida, nada de identidade. */
 export async function localHealth(url: string, timeoutMs: number, token?: string): Promise<LocalHealth | null> {
   try {
-    const res = await fetch(`${url}/health${token ? provedQuery(token) : ''}`, { signal: AbortSignal.timeout(timeoutMs) })
+    const prova = token ? consultaProvada(token) : null
+    const res = await fetch(`${url}/health${prova?.query ?? ''}`, { signal: AbortSignal.timeout(timeoutMs) })
     if (!res.ok) return null
-    return (await res.json()) as LocalHealth
+    const health = (await res.json()) as LocalHealth
+    if (!prova) return health
+    return token && reciboConfere(token, prova.nonce, health) ? health : null
   } catch {
     return null
   }

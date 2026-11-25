@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { createHash, createHmac, randomBytes } from 'node:crypto'
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { readFileSync, promises as realFs } from 'node:fs'
 import { createServer, type Server } from 'node:http'
@@ -22,7 +22,7 @@ const prova = (token: string, nonce: string) => createHmac('sha256', token).upda
 
 /** Um Hub de mentira atrás do túnel: a identidade só sai com a prova do token que ele conhece, e
  * nada de credencial pode chegar até ele sem essa prova. */
-function hubOf(token: string) {
+function hubOf(token: string, impostor = false) {
   const seen: { url: string; authorization: string | undefined }[] = []
   const servers = new Set<Server>()
   return {
@@ -32,9 +32,17 @@ function hubOf(token: string) {
       const server = createServer((request, response) => {
         seen.push({ url: request.url ?? '', authorization: request.headers.authorization })
         const query = new URL(request.url ?? '/', 'http://127.0.0.1').searchParams
-        const proved = query.get('proof') === prova(token, query.get('nonce') ?? '')
+        const nonce = query.get('nonce') ?? ''
+        const proved = query.get('proof') === prova(token, nonce)
+        const identidade = ['', COMPUTER, '', ''].join('\n')
+        const receipt = createHmac('sha256', token).update('mexerica/health-receipt/v1').update(Buffer.from(nonce, 'base64url')).update(identidade).digest('hex')
         response.writeHead(query.has('proof') && !proved ? 401 : 200, { 'content-type': 'application/json' })
-        response.end(JSON.stringify(proved ? { ok: true, environment: 'main', busy: false, computerId: COMPUTER } : { ok: true, environment: 'main', busy: false }))
+        // O impostor conhece os campos públicos e os devolve, mas não tem o token para a prova nem o recibo.
+        if (impostor) {
+          response.end(JSON.stringify({ ok: true, environment: 'main', busy: false, computerId: COMPUTER }))
+          return
+        }
+        response.end(JSON.stringify(proved ? { ok: true, environment: 'main', busy: false, computerId: COMPUTER, receipt } : { ok: true, environment: 'main', busy: false }))
       })
       servers.add(server)
       server.listen(port, '127.0.0.1', () => resolve(server))
@@ -43,8 +51,8 @@ function hubOf(token: string) {
   }
 }
 
-function rig(options: { infoToken?: string; tunnelPid?: number } = {}) {
-  const hub = hubOf(TOKEN)
+function rig(options: { infoToken?: string; tunnelPid?: number; impostor?: boolean } = {}) {
+  const hub = hubOf(TOKEN, options.impostor ?? false)
   const handlers = new Map<string, (...args: unknown[]) => unknown>()
   const profiles = [{ id: 'fixture', host: 'ssh.example.invalid', user: null, port: null, remotePort: 19422, identityFile: null, name: '', computerId: COMPUTER }]
   const info = { name: 'computador-ficticio', computerId: COMPUTER, signKey: SIGN_KEY, boxKey: null, token: options.infoToken ?? TOKEN, running: true }
@@ -91,7 +99,7 @@ function rig(options: { infoToken?: string; tunnelPid?: number } = {}) {
       tunnelArguments: (_profile: unknown, port: number) => ['tunnel', String(port)],
     },
     'node:child_process': { spawn },
-    'node:crypto': { createHash, createHmac, randomBytes },
+    'node:crypto': { createHash, createHmac, randomBytes, timingSafeEqual },
     'node:net': { createServer: createTcpServer },
     'node:path': path,
     'node:fs': {
@@ -148,6 +156,14 @@ test('a port taken by something else never receives the host token', async () =>
   assert.deepEqual(r.seen.filter((call) => call.authorization !== undefined), [], 'no credential is ever sent')
   assert.ok(r.seen.every((call) => !new URL(call.url, 'http://127.0.0.1').searchParams.has('proof')), 'and no proof either: the port is not the ssh tunnel')
   assert.notEqual(r.status()?.kind, 'connected')
+  r.controller.disconnectAll()
+})
+
+test('a listener that answers the public identity without the token is not accepted', async () => {
+  const r = rig({ impostor: true })
+  r.connect()
+  await r.wait()
+  assert.notEqual(r.status()?.kind, 'connected', 'a forged identity does not attach')
   r.controller.disconnectAll()
 })
 
