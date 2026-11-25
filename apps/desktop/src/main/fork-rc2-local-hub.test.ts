@@ -14,7 +14,7 @@ import { assinarArm64 } from '../shared/test-support/rc2-assinatura.ts'
 import { rcPaths } from '../shared/fork-rc-profile.ts'
 import * as profileModule from '../shared/fork-rc2-profile.ts'
 import { compileRc2Profile, rc2ManifestPath, rc2Paths, rc2PathsIsolated, rc2Components, validateRc2Bootstrap } from '../shared/fork-rc2-profile.ts'
-import { Rc2HubLifecycle, nativeRc2Transport, type Rc2ChildHandle, type Rc2Connection, type Rc2Schedule } from './fork-rc2-local-hub.ts'
+import { Rc2HubLifecycle, type Rc2ChildHandle, type Rc2Connection, type Rc2Schedule } from './fork-rc2-local-hub.ts'
 
 const mode = 'official-rc2'
 const version = '0.0.1-rc.2'
@@ -167,10 +167,13 @@ test('entrada empacotada verifica manifesto e binários do artefato antes de qua
   writeFileSync(join(project, 'package.json'), JSON.stringify(metadata))
   writeFileSync(join(project, 'resources', rc2ManifestPath), compiled.bytes)
   const hubPath = join(project, 'resources', 'donnabot-host')
-  const run = (arch: string, pin: string | undefined) => {
+  const run = (arch: string, pin: string | undefined, transporte: unknown = null) => {
     const accesses: string[] = []
     const reads: string[] = []
     const exits: number[] = []
+    const quitHandlers: Array<() => void> = []
+    let paradas = 0
+    let ciclo: { sessao: () => unknown; transporte: unknown } | null = null
     let transportLookups = 0
     const recordingFs = new Proxy(fsModule, { get: (target, key: string) => {
       accesses.push(key)
@@ -192,13 +195,24 @@ test('entrada empacotada verifica manifesto e binários do artefato antes de qua
       'node:fs': recordingFs, 'node:path': pathModule,
       'electron': { app: { isPackaged: true, getName: () => profile.name, getVersion: () => version,
         getAppPath: () => project, getPath: (name: string) => name === 'home' ? '/fixture/home' : '/fixture/appdata',
+        on: (name: string, handler: () => void) => { if (name === 'will-quit') quitHandlers.push(handler) },
         exit: (code: number) => exits.push(code) } },
       '../shared/fork-rc2-profile.ts': profileModule,
       './fork-rc2-artifact.ts': artifact,
-      './fork-rc2-local-hub.ts': { nativeRc2Transport: () => { transportLookups++; return null } },
+      './fork-rc2-local-hub.ts': { Rc2HubLifecycle: class {
+        sessao: () => unknown
+        transporte: unknown
+        constructor(sessao: () => unknown, transporte: unknown) {
+          this.sessao = sessao
+          this.transporte = transporte
+          ciclo = this
+        }
+        stop() { paradas++; return Promise.resolve(true) }
+      } },
+      './fork-rc2-transport.ts': { rc2NativeTransport: () => { transportLookups++; return transporte } },
     }, { process: { platform: 'darwin', arch, resourcesPath: join(project, 'resources') },
       __MEXERICA_RC2_PROFILE__: profile.profile, __MEXERICA_RC2_MANIFEST_HASH__: pin })
-    return { accesses, reads, exits, transportLookups }
+    return { accesses, reads, exits, transportLookups, quitHandlers, paradas: () => paradas, ciclo: () => ciclo }
   }
   for (const tamper of [
     { label: 'binário ausente', apply: () => {} },
@@ -237,6 +251,18 @@ test('entrada empacotada verifica manifesto e binários do artefato antes de qua
     `readFileSync:${fd}`,
   ])
   assert.ok(!good.accesses.includes('writeFileSync') && !good.accesses.includes('mkdirSync'))
+  // Com transporte nativo disponível, a entrada registra o encerramento no will-quit e nada
+  // roda enquanto o app vive: o runtime segue desligado até a prova nativa da ativação.
+  const transporteFixo = { marcador: 'transporte-do-teste' }
+  const ligado = run('arm64', compiled.pin, transporteFixo)
+  assert.deepEqual(ligado.exits, [1])
+  assert.equal(ligado.transportLookups, 1)
+  assert.equal(ligado.quitHandlers.length, 1)
+  assert.ok(ligado.ciclo() !== null)
+  assert.equal(ligado.paradas(), 0)
+  ligado.quitHandlers[0]()
+  assert.equal(ligado.paradas(), 1, 'encerrar o Electron encerra o Hub pelo will-quit')
+  assert.equal(ligado.ciclo()!.transporte, transporteFixo)
   const overlappingExits: number[] = []
   source('./fork-rc2-entry.ts', {
     'node:fs': fsModule, 'node:path': pathModule,
@@ -249,7 +275,8 @@ test('entrada empacotada verifica manifesto e binários do artefato antes de qua
       '../shared/fork-rc2-profile.ts': profileModule, '../shared/fork-rc-profile.ts': rcProfileModule,
       './fork-rc2-cdhash.ts': source('./fork-rc2-cdhash.ts', { 'node:crypto': cryptoModule }, { Buffer }),
     }),
-    './fork-rc2-local-hub.ts': { nativeRc2Transport },
+    './fork-rc2-local-hub.ts': { Rc2HubLifecycle },
+    './fork-rc2-transport.ts': { rc2NativeTransport: () => null },
   }, { process: { platform: 'darwin', arch: 'arm64', resourcesPath: join(project, 'resources') },
     __MEXERICA_RC2_PROFILE__: profile.profile, __MEXERICA_RC2_MANIFEST_HASH__: compiled.pin })
   assert.deepEqual(overlappingExits, [1])
@@ -292,8 +319,7 @@ function fixture() {
   }
 }
 
-test('nenhum adaptador nativo é oferecido; só sessão corrente e transporte injetado liberam hello e eventos', async () => {
-  assert.equal(nativeRc2Transport(), null)
+test('só sessão corrente e transporte injetado liberam hello e eventos', async () => {
   const f = fixture()
   f.transport()
   assert.equal(await f.lifecycle.start(), false)

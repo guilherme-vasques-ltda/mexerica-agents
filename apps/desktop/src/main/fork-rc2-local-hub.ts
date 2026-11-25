@@ -1,4 +1,4 @@
-interface Rc2Hello {
+export interface Rc2Hello {
   computerId: string
   hostId: string
 }
@@ -20,11 +20,7 @@ export interface Rc2Connection {
   child?: Rc2ChildHandle
 }
 
-type Rc2Transport = (signal: AbortSignal) => Promise<Rc2Connection>
-
-export function nativeRc2Transport(): Rc2Transport | null {
-  return null
-}
+export type Rc2Transport = (signal: AbortSignal) => Promise<Rc2Connection>
 
 export interface Rc2Deadlines {
   open: number
