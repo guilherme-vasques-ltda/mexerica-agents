@@ -252,6 +252,30 @@ impl Actor {
         result
     }
 
+    /// `Conversa` só quando o turno é a palavra do próprio dono pelo ingresso que o Hub carimbou do chamador
+    /// autenticado: rotina, canal, pedido de outro bot, acordar de tarefa, aviso de comentário, delegação, turno
+    /// oculto e entrada sem ingresso são `Automatico`. Fecha por padrão.
+    pub(super) fn uso_do_plano(&self) -> crate::fork::planos_codigo::Uso {
+        use crate::fork::planos_codigo::Uso;
+        // A compactação pedida pelo dono (ou no fim do turno dele) continua a conversa já aberta; a compactação com
+        // o dono ausente é automática. Sem compactação, vale a palavra do dono com o ingresso que o Hub carimbou.
+        let automatico = match self.compacting {
+            Some(true) => true,
+            Some(false) => false,
+            None => {
+                self.active_routine.is_some()
+                    || self.active_group.is_some()
+                    || self.active_request.is_some()
+                    || self.turn_entries.is_empty()
+                    || self
+                        .turn_entries
+                        .iter()
+                        .any(|id| !crate::fork::planos_codigo::palavra_do_dono(&self.hub.store, id))
+            }
+        };
+        if automatico { Uso::Automatico } else { Uso::Conversa }
+    }
+
     async fn ensure_session_inner(&mut self, slot: Option<&str>) -> Result<()> {
         let antigravity = crate::agent::backends::is_antigravity(&self.cfg.backend);
         if antigravity {
@@ -262,6 +286,25 @@ impl Actor {
                 .context(crate::fork::antigravity::INTERACTIVE)?
                 .check(&self.hub, &self.lane, entries)?;
         }
+        // Modelo de um plano de código (chave colada): perfil e chave próprios do plano, em vez do ambiente do dono. É o
+        // primeiro passo do turno: um plano só de conversa é recusado aqui, antes de qualquer outro trabalho.
+        let plano = if self.cfg.fork_editor.engine_account_id.is_none() && !antigravity {
+            match crate::fork::planos_codigo::ambiente_do_bot(&self.hub, &self.cfg, self.uso_do_plano()).await {
+                Ok(plano) => plano,
+                Err(erro) => {
+                    // Plano removido, desligado ou sem chave: o processo que sobrou só tem um código morto, e não fica vivo.
+                    // Um turno automático recusado num plano só de conversa não toca no processo da conversa do dono.
+                    if !erro.to_string().starts_with("plano_so_conversa")
+                        && let Some(conn) = self.conn.take()
+                    {
+                        conn.kill().await;
+                    }
+                    return Err(erro);
+                }
+            }
+        } else {
+            None
+        };
         if self.cfg.context.is_some() || self.cfg.space_id != crate::fork::spaces::PERSONAL {
             anyhow::ensure!(self.cfg.fork_editor.engine_account_id.is_some(), "space_account_selection_required");
         }
@@ -272,21 +315,6 @@ impl Actor {
         memory::engine::check_workspace(&self.cfg)?;
         let selected = crate::fork::engine_accounts::managed::resolve_for_bot(&self.hub.store, &self.cfg)?;
         let revision = selected.as_ref().map(|launch| launch.revision);
-        // Modelo de um plano de código (chave colada): perfil e chave próprios do plano, em vez do ambiente do dono.
-        let plano = if selected.is_none() && !antigravity {
-            match crate::fork::planos_codigo::ambiente_do_bot(&self.hub, &self.cfg).await {
-                Ok(plano) => plano,
-                Err(erro) => {
-                    // Plano removido, desligado ou sem chave: o processo que sobrou só tem um código morto, e não fica vivo.
-                    if let Some(conn) = self.conn.take() {
-                        conn.kill().await;
-                    }
-                    return Err(erro);
-                }
-            }
-        } else {
-            None
-        };
         let login_profile = match &plano {
             Some(plano) => plano.carimbo.clone(),
             None if selected.is_none() => {

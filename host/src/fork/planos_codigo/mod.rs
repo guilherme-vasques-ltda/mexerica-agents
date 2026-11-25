@@ -17,7 +17,7 @@ mod repasse_tests;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use perfil::{ambiente_do_bot, aplicar_ambiente};
+pub(crate) use perfil::{Uso, ambiente_do_bot, aplicar_ambiente};
 pub(crate) use repasse::{Concessao, Repasse};
 
 use crate::{LockExt, api::devices::Caller, hub::Hub, store::Store};
@@ -38,33 +38,74 @@ pub(crate) struct Plano {
     pub(crate) provedor: &'static str,
     /// Variável por onde o OpenCode recebe a chave deste plano.
     pub(crate) variavel: &'static str,
-    /// Endereço fixo (nunca vem do app) da lista de modelos que a chave enxerga.
-    pub(crate) lista: &'static str,
+    /// Endereço fixo (nunca vem do app) da lista de modelos que a chave enxerga. Sem ele (o fornecedor não documenta
+    /// uma lista), o teste não faz chamada: devolve `modelos` e o estado `acesso_nao_confirmado`.
+    pub(crate) lista: Option<&'static str>,
+    /// Lista curta da documentação do fornecedor: `(modelo, nome)`. Só vale quando não há `lista`.
+    pub(crate) modelos: &'static [(&'static str, &'static str)],
     /// Os únicos caminhos que o repasse encaminha, com o endereço fixo do fornecedor para cada um: `(caminho local,
     /// endereço)`. Um `*` casa um segmento (o modelo) e vale também no endereço.
     pub(crate) rotas: &'static [(&'static str, &'static str)],
     /// Avisos que a tela mostra junto do plano.
     pub(crate) avisos: &'static [&'static str],
+    /// O fornecedor só permite o plano em conversa da própria pessoa: rotinas, tarefas agendadas, pedidos de outros bots e
+    /// canais nunca recebem a chave (`Uso::Automatico`).
+    pub(crate) so_conversa: bool,
 }
 
-pub(crate) const PLANOS: &[Plano] = &[Plano {
-    id: "opencode-go",
-    nome: "OpenCode Go",
-    provedor: "opencode-go",
-    variavel: "OPENCODE_API_KEY",
-    lista: "https://opencode.ai/inference/go/v1/models",
-    rotas: &[
-        ("chat/completions", "https://opencode.ai/inference/go/openai/v1/chat/completions"),
-        ("responses", "https://opencode.ai/inference/go/openai/v1/responses"),
-        ("messages", "https://opencode.ai/inference/go/anthropic/v1/messages"),
-        ("models/*:generateContent", "https://opencode.ai/inference/go/google/v1beta/models/*:generateContent"),
-        (
-            "models/*:streamGenerateContent",
-            "https://opencode.ai/inference/go/google/v1beta/models/*:streamGenerateContent",
-        ),
-    ],
-    avisos: &["saldo_extra"],
-}];
+pub(crate) const PLANOS: &[Plano] = &[
+    Plano {
+        id: "opencode-go",
+        nome: "OpenCode Go",
+        provedor: "opencode-go",
+        variavel: "OPENCODE_API_KEY",
+        lista: Some("https://opencode.ai/inference/go/v1/models"),
+        modelos: &[],
+        rotas: &[
+            ("chat/completions", "https://opencode.ai/inference/go/openai/v1/chat/completions"),
+            ("responses", "https://opencode.ai/inference/go/openai/v1/responses"),
+            ("messages", "https://opencode.ai/inference/go/anthropic/v1/messages"),
+            ("models/*:generateContent", "https://opencode.ai/inference/go/google/v1beta/models/*:generateContent"),
+            (
+                "models/*:streamGenerateContent",
+                "https://opencode.ai/inference/go/google/v1beta/models/*:streamGenerateContent",
+            ),
+        ],
+        avisos: &["saldo_extra"],
+        so_conversa: false,
+    },
+    Plano {
+        id: "kimi-code",
+        nome: "Kimi Code",
+        provedor: "kimi-code-plan-global",
+        variavel: "KIMI_API_KEY",
+        lista: None,
+        modelos: &[
+            ("k3.1-pro", "Kimi K3.1 Pro"),
+            ("k3.1-pro-highspeed", "Kimi K3.1 Pro Highspeed"),
+            ("k3", "Kimi K3"),
+            ("k3-256k", "Kimi K3 256K"),
+            ("kimi-for-coding", "Kimi For Coding"),
+            ("kimi-for-coding-highspeed", "Kimi For Coding HighSpeed"),
+        ],
+        rotas: &[("chat/completions", "https://api.kimi.ai/coding/v1/chat/completions")],
+        avisos: &["so_conversa"],
+        so_conversa: true,
+    },
+];
+
+/// A entrada é conversa da própria pessoa: escrita por humano, pelo ingresso que o próprio Hub carimbou do chamador
+/// autenticado (o computador do Hub ou um aparelho pareado com controle — a mesma fronteira que o sistema de memória
+/// usa para a pessoa), e sem a marca Hub-side de turno automático (`contentOrigin.hubOrigin`, que nenhum corpo de
+/// pedido define). Acordar de tarefa, aviso de comentário e delegação saem marcadas pelo Hub; o relatório que o app
+/// declara (`appReported`) nunca é usado como prova.
+pub(crate) fn palavra_do_dono(store: &Store, entry_id: &str) -> bool {
+    store.entry(entry_id).is_some_and(|entry| {
+        entry.is_user_authored()
+            && entry.data["contentOrigin"]["hubOrigin"] != "automatico"
+            && matches!(entry.data["contentOrigin"]["ingress"]["caller"].as_str(), Some("local" | "device"))
+    })
+}
 
 /// O plano a que um modelo do OpenCode (`provedor/modelo`) pertence.
 pub(crate) fn plano_do_modelo(modelo: &str) -> Option<&'static Plano> {
@@ -128,14 +169,14 @@ pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Va
     match method {
         "planoCodigoTestar" => {
             if let Some(texto) = pedido.chave.as_deref() {
-                return Ok(resultado(acesso::listar_modelos(plano.provedor, plano.lista, &chave(Some(texto))?).await));
+                return Ok(consultar(plano, plano.lista, &chave(Some(texto))?).await);
             }
             let _operacao = OPERACAO.lock().await;
             crate::market::vault::unlock(hub.clone()).await?;
             let Some(guardada) = crate::market::vault::read(&hub.store, &slot_chave(plano))?.map(Zeroizing::new) else {
                 return Ok(json!({"ok": false, "erro": "sem_chave", "estado": "nao_verificado"}));
             };
-            let acesso = resultado(acesso::listar_modelos(plano.provedor, plano.lista, &guardada).await);
+            let acesso = consultar(plano, plano.lista, &guardada).await;
             guardar_modelos(&hub.store, plano, &acesso)?;
             Ok(acesso)
         }
@@ -156,10 +197,30 @@ fn resultado(lista: Result<Vec<acesso::Modelo>, acesso::Falha>) -> Value {
     }
 }
 
-/// Grava a chave só se o fornecedor a aceitou; assim o cofre nunca guarda uma chave recusada. Com chave já salva no
-/// plano, colar outra é recusado sem tocar em nada do que está salvo (nem testar a chave nova na rede): trocar ou
-/// remover ainda não está disponível nesta versão.
-async fn salvar(hub: &Arc<Hub>, plano: &'static Plano, lista: &str, candidata: Zeroizing<String>) -> Result<Value> {
+/// O teste de um plano: com endereço de lista, lê a lista que a chave enxerga; sem ele devolve a lista curta da
+/// documentação com o estado `acesso_nao_confirmado`, sem nenhuma chamada: a chave só se confirma na primeira conversa.
+async fn consultar(plano: &Plano, lista: Option<&str>, chave: &str) -> Value {
+    if let Some(url) = lista {
+        return resultado(acesso::listar_modelos(plano.provedor, url, chave).await);
+    }
+    let modelos: Vec<_> = plano
+        .modelos
+        .iter()
+        .map(|(id, nome)| json!({"id": format!("{}/{id}", plano.provedor), "name": nome}))
+        .collect();
+    json!({"ok": true, "estado": "acesso_nao_confirmado", "modelos": modelos})
+}
+
+/// Grava a chave só se o fornecedor a aceitou; assim o cofre nunca guarda uma chave recusada. Sem lista para testar
+/// (`lista` vazia), a chave é gravada pelo formato e o estado diz que o acesso ainda não foi confirmado. Com chave já
+/// salva no plano, colar outra é recusado sem tocar em nada do que está salvo (nem testar a chave nova na rede): trocar
+/// ou remover ainda não está disponível nesta versão.
+async fn salvar(
+    hub: &Arc<Hub>,
+    plano: &'static Plano,
+    lista: Option<&str>,
+    candidata: Zeroizing<String>,
+) -> Result<Value> {
     ensure!(!cfg!(windows), "plano_indisponivel: os planos de código só funcionam em Linux e macOS nesta versão.");
     let _operacao = OPERACAO.lock().await;
     // Falha rápido, antes de qualquer teste na rede: com chave salva, colar outra não muda nada.
@@ -167,7 +228,7 @@ async fn salvar(hub: &Arc<Hub>, plano: &'static Plano, lista: &str, candidata: Z
         hub.store.kv_read(&slot_chave(plano))?.is_none(),
         "plano_chave_ja_salva: Trocar ou remover a chave do plano ainda não está disponível nesta versão."
     );
-    let acesso = resultado(acesso::listar_modelos(plano.provedor, lista, &candidata).await);
+    let acesso = consultar(plano, lista, &candidata).await;
     if acesso["ok"] != true {
         return Ok(acesso);
     }
@@ -234,6 +295,7 @@ pub(crate) fn listar(store: &Store) -> Result<Value> {
             "nome": plano.nome,
             "grupo": "planos",
             "avisos": plano.avisos,
+            "soConversa": plano.so_conversa,
             "configurada": configurada,
             "programaInstalado": crate::agent::backends::which("opencode").is_some(),
             "modelos": guardado.as_ref().map(|g| g["modelos"].clone()),

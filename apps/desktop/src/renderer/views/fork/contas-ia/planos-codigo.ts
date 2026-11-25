@@ -12,8 +12,10 @@ export interface PlanoDeCodigo {
   id: string
   nome: string
   grupo: 'planos'
-  /** Códigos dos avisos que a tela mostra junto do plano (ex.: `saldo_extra`). */
+  /** Códigos dos avisos que a tela mostra junto do plano (ex.: `saldo_extra`, `so_conversa`). */
   avisos: string[]
+  /** O fornecedor só permite o plano em conversa da própria pessoa: rotinas e tarefas agendadas não o usam. */
+  soConversa: boolean
   configurada: boolean
   /** O programa do OpenCode está instalado neste computador. */
   programaInstalado: boolean
@@ -23,10 +25,12 @@ export interface PlanoDeCodigo {
 
 /**
  * `modelos_no_catalogo`: o fornecedor respondeu à chave com a lista, o que não prova saldo nem permissão de conversar.
+ * `acesso_nao_confirmado`: o fornecedor não tem lista para testar; a chave foi guardada pelo formato e os modelos são os da
+ * documentação, e só a primeira conversa confirma o acesso.
  * `recusada`: o fornecedor recusou a chave. `nao_verificado`: falha que não diz nada sobre a chave.
  */
 export type AcessoDoPlano =
-  | { ok: true; estado: 'modelos_no_catalogo'; modelos: ModeloDoPlano[] }
+  | { ok: true; estado: 'modelos_no_catalogo' | 'acesso_nao_confirmado'; modelos: ModeloDoPlano[] }
   | { ok: false; erro: string; estado: 'recusada' | 'nao_verificado' }
 
 const PRAZO_MS = 60_000

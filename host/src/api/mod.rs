@@ -104,6 +104,18 @@ fn str_arg<'a>(b: &'a Value, k: &str) -> Result<&'a str> {
     b[k].as_str().ok_or_else(|| anyhow!("`{k}` is required"))
 }
 
+tokio::task_local! {
+    /// Marca Hub-side de turno automático: só o código do próprio Hub entra por aqui (acordar de tarefa agendada,
+    /// aviso de comentário). O corpo do pedido não define nem apaga esta marca — ela nunca sai do Hub.
+    pub(crate) static AUTOMATICO: ();
+}
+
+/// Turno automático do próprio Hub (acordar de tarefa, aviso de comentário): entra como chamador local, e o `send`
+/// carimba a entrada com a origem automática do Hub (`contentOrigin.hubOrigin`), que nenhum corpo define sozinho.
+pub(crate) async fn dispatch_do_hub(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Value> {
+    AUTOMATICO.scope((), dispatch(hub, &Caller::Local, method, b)).await
+}
+
 /// Runs one API method for `caller` (permissions per spec §6.6).
 pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -> Result<Value> {
     // PL1 (PR3): a origem pessoal durável recusa a rota genérica ANTES da captura D368 e de olhar o nome.

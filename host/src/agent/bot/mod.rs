@@ -887,6 +887,8 @@ mod fork_genui_tests;
 #[cfg(test)]
 mod fork_fila_tests;
 #[cfg(test)]
+mod fork_plano_tests;
+#[cfg(test)]
 mod fork_reinicio_tests;
 #[cfg(test)]
 mod fork_sessoes_tests;
