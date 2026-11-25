@@ -55,7 +55,7 @@ static INSTALL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 pub(crate) fn worker() -> bool {
     *WORKER.get_or_init(|| {
-        #[cfg(unix)]
+        #[cfg(target_os = "linux")]
         {
             use std::{
                 io::Read,
@@ -88,7 +88,7 @@ pub(crate) fn worker() -> bool {
                 && std::fs::symlink_metadata(super::motor_roots::MOTOR)
                     .is_ok_and(|m| m.is_dir() && m.uid() == uid && m.mode() & 0o777 == 0o700)
         }
-        #[cfg(not(unix))]
+        #[cfg(not(target_os = "linux"))]
         false
     })
 }

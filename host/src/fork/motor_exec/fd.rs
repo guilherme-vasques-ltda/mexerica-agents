@@ -98,19 +98,25 @@ impl Directory {
         ensure!(file.metadata()?.is_file(), "arquivo especial recusado");
         Ok(file)
     }
-    #[cfg(not(target_os = "macos"))]
     pub(crate) fn names(&self) -> Result<Vec<std::ffi::OsString>> {
+        self.names_limit(usize::MAX)
+    }
+    #[cfg(not(target_os = "macos"))]
+    pub(crate) fn names_limit(&self, limit: usize) -> Result<Vec<std::ffi::OsString>> {
         #[cfg(target_os = "linux")]
         let base = "/proc/self/fd";
         #[cfg(not(target_os = "linux"))]
         let base = "/dev/fd";
-        std::fs::read_dir(Path::new(base).join(self.0.as_raw_fd().to_string()))?
-            .map(|entry| Ok(entry?.file_name()))
-            .collect()
+        let mut names = Vec::new();
+        for entry in std::fs::read_dir(Path::new(base).join(self.0.as_raw_fd().to_string()))? {
+            ensure!(names.len() < limit, "limite de entradas do diretório excedido");
+            names.push(entry?.file_name());
+        }
+        Ok(names)
     }
 
     #[cfg(target_os = "macos")]
-    pub(crate) fn names(&self) -> Result<Vec<std::ffi::OsString>> {
+    pub(crate) fn names_limit(&self, limit: usize) -> Result<Vec<std::ffi::OsString>> {
         use std::ffi::{CStr, OsString};
         use std::os::unix::ffi::OsStringExt;
         struct Entries(*mut libc::DIR);
@@ -149,6 +155,7 @@ impl Directory {
             // SAFETY: readdir retornou uma entrada com nome terminado em NUL; copia antes de iterar.
             let nome = unsafe { CStr::from_ptr((*entry).d_name.as_ptr()) }.to_bytes();
             if nome != b"." && nome != b".." {
+                ensure!(nomes.len() < limit, "limite de entradas do diretório excedido");
                 nomes.push(OsString::from_vec(nome.to_vec()));
             }
         }

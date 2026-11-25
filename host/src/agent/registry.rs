@@ -305,7 +305,7 @@ pub async fn command(agent: &Value, progress: impl Fn(&str, Option<ActivityKind>
         // quem instala não pode contar como uso contra ele mesmo.
         let protecao = protegidas_da_versao(&id).await;
         let uso = reservar_versao(&id, &version).await?;
-        instalacao = Instalacao { protecao, reserva: Some(reserva), ignorar: Some(uso.marcador().to_path_buf()) };
+        instalacao = Instalacao { protecao, reserva: Some(reserva), ignorar: Some(uso.clone()) };
         Some(uso)
     } else {
         None
@@ -340,7 +340,7 @@ struct Instalacao {
     protecao: Option<Protecao>,
     reserva: Option<OwnedMutexGuard<()>>,
     /// Reserva de quem instala, que não conta como uso da própria versão.
-    ignorar: Option<PathBuf>,
+    ignorar: Option<versoes::Uso>,
 }
 
 /// Instalação feita pelo instalador separado: sem preservação de versões, como no legado.
@@ -701,7 +701,7 @@ async fn install_binary(
             manter_apenas_a_instalada(&dir2);
             Ok(())
         } else {
-            versoes::com_protecao_atual(&motor_install::root(), &id, instalacao.ignorar.as_deref(), publicar)
+            versoes::com_protecao_atual(&motor_install::root(), &id, instalacao.ignorar.as_ref(), publicar)
         }
     })
     .await??;
@@ -1146,6 +1146,7 @@ mod tests {
         let id = format!("registry-{}", uuid::Uuid::new_v4());
         let pasta = raiz.join("agents").join(&id).join("1");
         std::fs::create_dir_all(&pasta).unwrap();
+        let raiz = raiz.canonicalize().unwrap();
         let uso = versoes::Uso::registrar(&raiz, &id, "1").unwrap();
         let agente = json!({
             "id": id, "version": "1",
@@ -1184,7 +1185,7 @@ mod tests {
     #[test]
     fn reservas_concorrentes_da_mesma_versao_nao_apagam_a_protecao_da_outra() {
         let id = format!("registry-{}", uuid::Uuid::new_v4());
-        let raiz = tempfile::tempdir().unwrap();
+        let raiz = tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
         // Duas sessões do mesmo Hub reservam a mesma versão: os marcadores são únicos.
         let primeira = versoes::Uso::registrar(raiz.path(), &id, "7").unwrap();
         let segunda = versoes::Uso::registrar(raiz.path(), &id, "7").unwrap();

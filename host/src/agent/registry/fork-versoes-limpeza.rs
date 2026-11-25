@@ -290,7 +290,7 @@ impl Directory {
         Ok(dir)
     }
 
-    fn unlink(&self, entry: &OsStr, directory: bool) -> Result<()> {
+    pub(super) fn unlink(&self, entry: &OsStr, directory: bool) -> Result<()> {
         let entry = name(entry)?;
         let flags = if directory { libc::AT_REMOVEDIR } else { 0 };
         // SAFETY: unlinkat não segue links e opera no descritor aberto e em um único componente.

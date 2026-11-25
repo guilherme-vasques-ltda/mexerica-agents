@@ -7,6 +7,9 @@ use std::sync::Arc;
 
 #[path = "fork-versoes-identidade.rs"]
 mod identidade;
+#[cfg(unix)]
+#[path = "fork-versoes-marcadores.rs"]
+mod marcadores;
 
 /// Pasta dos marcadores, ao lado da raiz física da instalação de cada agente.
 const MARCADORES: &str = "registry-in-use";
@@ -17,27 +20,33 @@ const MARCADORES: &str = "registry-in-use";
 /// deste processo: seleção, reserva, publicação e limpeza do mesmo agente se serializam.
 pub(super) struct Trava {
     /// Mantém a trava viva: fechar o descritor a libera.
+    #[cfg(unix)]
+    arquivo: File,
+    #[cfg(not(unix))]
     _arquivo: File,
+    #[cfg(unix)]
+    marcadores: marcadores::Marcadores,
 }
 
 impl Trava {
     pub(super) fn abrir(raiz: &Path, id: &str) -> Result<Self> {
         // A trava mora dentro da pasta do agente: um agente chamado `demo.lock` não pode
         // colidir com o arquivo de trava do agente `demo`.
-        let pasta = criar_raiz(raiz)
-            .map_err(|e| {
-                erro_marcador(
-                    "criar_raiz_trava",
-                    id,
-                    "-",
-                    e.downcast_ref::<std::io::Error>().map_or(ErrorKind::Other, std::io::Error::kind),
-                )
-            })?
-            .join(componente(id)?);
-        criar_diretorio(&pasta).map_err(|e| erro_marcador("criar_pasta_trava", id, "-", e.kind()))?;
-        let arquivo = abrir_lock(&pasta.join("trava")).map_err(|e| erro_marcador("abrir_trava", id, "-", e.kind()))?;
+        componente(id)?;
+        #[cfg(unix)]
+        let (marcadores, arquivo) = marcadores::Marcadores::abrir(raiz, id)?;
+        #[cfg(not(unix))]
+        let arquivo = {
+            let pasta = raiz.join(MARCADORES).join(id);
+            criar_diretorio(&pasta).map_err(|e| erro_marcador("criar_pasta_trava", id, "-", e.kind()))?;
+            abrir_lock(&pasta.join("trava")).map_err(|e| erro_marcador("abrir_trava", id, "-", e.kind()))?
+        };
         arquivo.lock_exclusive().map_err(|e| erro_marcador("travar_agente", id, "-", e.kind()))?;
-        Ok(Self { _arquivo: arquivo })
+        #[cfg(unix)]
+        let trava = Self { arquivo, marcadores };
+        #[cfg(not(unix))]
+        let trava = Self { _arquivo: arquivo };
+        Ok(trava)
     }
 }
 
@@ -46,16 +55,7 @@ fn componente(id: &str) -> Result<&str> {
     Ok(id)
 }
 
-fn criar_raiz(raiz: &Path) -> Result<PathBuf> {
-    let pasta = raiz.join(MARCADORES);
-    let mut construtor = fs::DirBuilder::new();
-    construtor.recursive(true);
-    #[cfg(unix)]
-    std::os::unix::fs::DirBuilderExt::mode(&mut construtor, 0o700);
-    construtor.create(&pasta)?;
-    Ok(pasta)
-}
-
+#[cfg(any(not(unix), test))]
 fn abrir_lock(caminho: &Path) -> std::io::Result<File> {
     let mut opcoes = fs::OpenOptions::new();
     opcoes.read(true).write(true).create(true);
@@ -105,6 +105,8 @@ enum Estado {
 #[derive(Debug)]
 struct Referencia {
     marcador: PathBuf,
+    #[cfg(unix)]
+    arquivo: File,
     pasta: PathBuf,
     id: String,
     versao: String,
@@ -126,7 +128,7 @@ impl Uso {
         // `trava` é o arquivo de trava dentro da pasta do agente: uma versão com esse
         // nome tentaria criar o diretório de marcadores sobre o arquivo da trava.
         ensure!(versao != "trava", "{}", erro_marcador("criar_pasta", id, versao, ErrorKind::InvalidInput));
-        let pasta = criar_raiz(raiz)?.join(id).join(versao);
+        let pasta = raiz.join(MARCADORES).join(id).join(versao);
         let _trava = Trava::abrir(raiz, id)?;
         criar_diretorio(&pasta).map_err(|e| erro_marcador("criar_pasta", id, versao, e.kind()))?;
         let pid = std::process::id();
@@ -134,18 +136,20 @@ impl Uso {
             identidade::Processo::Vivo(inicio) => inicio.to_string(),
             _ => "-".into(),
         };
-        let marcador = criar_marcador(&pasta, &format!("reserva.{pid}.{inicio}"))
+        let (arquivo, marcador) = criar_marcador(&pasta, &format!("reserva.{pid}.{inicio}"))
             .map_err(|e| erro_marcador("criar_reserva", id, versao, e.kind()))?
-            .into_temp_path()
-            .keep()
-            .map_err(|e| erro_marcador("manter_reserva", id, versao, e.error.kind()))?;
-        Ok(Self(Arc::new(Estado::Local(Referencia { marcador, pasta, id: id.into(), versao: versao.into() }))))
-    }
-
-    /// Reserva local que deve ser ignorada ao decidir sobre a própria versão.
-    pub(crate) fn marcador(&self) -> &Path {
-        let Estado::Local(referencia) = &*self.0;
-        &referencia.marcador
+            .into_parts();
+        let marcador = marcador.keep().map_err(|e| erro_marcador("manter_reserva", id, versao, e.error.kind()))?;
+        #[cfg(not(unix))]
+        drop(arquivo);
+        Ok(Self(Arc::new(Estado::Local(Referencia {
+            marcador,
+            #[cfg(unix)]
+            arquivo,
+            pasta,
+            id: id.into(),
+            versao: versao.into(),
+        }))))
     }
 
     /// Grava a marca de lançamento antes de o comando ser entregue.
@@ -192,23 +196,17 @@ fn criar_marcador_boot(caminho: &Path) -> std::io::Result<bool> {
     }
 }
 
-fn marcador_ativo(entrada: &fs::DirEntry, boot: Option<uuid::Uuid>) -> bool {
-    if !entrada.file_type().is_ok_and(|t| t.is_file()) {
-        return true;
-    }
-    let nome = entrada.file_name();
-    let Some(nome) = nome.to_str() else { return true };
+fn marcador_obsoleto(nome: &str, boot: Option<uuid::Uuid>) -> bool {
     let partes: Vec<_> = nome.split('.').collect();
-    let caminho = entrada.path();
-    let obsoleto = match partes.as_slice() {
+    match partes.as_slice() {
         ["boot", anterior] | ["boot", anterior, _] => {
             matches!((uuid::Uuid::parse_str(anterior), boot), (Ok(anterior), Some(atual)) if anterior != atual)
         }
         ["reserva", pid, inicio, _] => {
-            let Ok(pid) = pid.parse::<u32>() else { return true };
+            let Ok(pid) = pid.parse::<u32>() else { return false };
             // Formato desconhecido preserva: sem prova, a marca continua valendo.
             if *inicio != "-" && inicio.parse::<u64>().is_err() {
-                return true;
+                return false;
             }
             match identidade::processo(pid) {
                 identidade::Processo::Ausente => true,
@@ -217,10 +215,17 @@ fn marcador_ativo(entrada: &fs::DirEntry, boot: Option<uuid::Uuid>) -> bool {
             }
         }
         _ => false,
-    };
-    !obsoleto || !remover_marcador(&caminho)
+    }
 }
 
+#[cfg(not(unix))]
+fn marcador_ativo(entrada: &fs::DirEntry, boot: Option<uuid::Uuid>) -> bool {
+    !entrada.file_type().is_ok_and(|t| t.is_file())
+        || !entrada.file_name().to_str().is_some_and(|nome| marcador_obsoleto(nome, boot))
+        || !remover_marcador(&entrada.path())
+}
+
+#[cfg(not(unix))]
 fn remover_marcador(caminho: &Path) -> bool {
     match fs::remove_file(caminho) {
         Ok(()) => true,
@@ -237,8 +242,8 @@ pub(super) fn protegidas(raiz: &Path, id: &str) -> Option<Protecao> {
 }
 
 fn protegidas_no_boot(raiz: &Path, id: &str, boot: Option<uuid::Uuid>) -> Option<Protecao> {
-    let _trava = Trava::abrir(raiz, id).ok()?;
-    listar_protegidas(raiz, id, boot, None)
+    let trava = Trava::abrir(raiz, id).ok()?;
+    listar_protegidas(raiz, id, boot, None, &trava)
 }
 
 /// Relê a proteção sob a trava do agente e publica dentro dela.
@@ -248,27 +253,32 @@ fn protegidas_no_boot(raiz: &Path, id: &str, boot: Option<uuid::Uuid>) -> Option
 pub(super) fn com_protecao_atual<T>(
     raiz: &Path,
     id: &str,
-    ignorar: Option<&Path>,
+    ignorar: Option<&Uso>,
     f: impl FnOnce(&Trava, Option<&Protecao>) -> Result<T>,
 ) -> Result<T> {
     // A trava aberta aqui é entregue ao fechamento: readquiri-la por outro descritor
     // travaria a publicação de vez.
     let trava = Trava::abrir(raiz, id)?;
-    let propria = match ignorar {
-        Some(caminho) if !fs::symlink_metadata(caminho).is_ok_and(|meta| meta.is_file()) => None,
-        caminho => caminho,
-    };
-    if ignorar.is_some() && propria.is_none() {
-        // A reserva de quem instala desapareceu: sem prova, não publica.
-        return f(&trava, None);
-    }
-    let protecao = listar_protegidas(raiz, id, identidade::boot(), propria);
+    let propria = ignorar.map(|uso| {
+        let Estado::Local(referencia) = &*uso.0;
+        referencia
+    });
+    let protecao = listar_protegidas(raiz, id, identidade::boot(), propria, &trava);
     f(&trava, protecao.as_ref())
 }
 
-fn listar_protegidas(raiz: &Path, id: &str, boot: Option<uuid::Uuid>, ignorar: Option<&Path>) -> Option<Protecao> {
-    // Versões candidatas são a união das instaladas com as que têm marcadores.
-    let mut instaladas = std::collections::HashSet::new();
+fn listar_protegidas(
+    raiz: &Path,
+    id: &str,
+    boot: Option<uuid::Uuid>,
+    ignorar: Option<&Referencia>,
+    trava: &Trava,
+) -> Option<Protecao> {
+    if ignorar.is_some_and(|r| r.id != id || r.pasta != raiz.join(MARCADORES).join(id).join(&r.versao)) {
+        return None;
+    }
+    let mut tem_instaladas = false;
+    let mut registradas = Vec::new();
     match fs::read_dir(raiz.join("agents").join(id)) {
         Ok(entradas) => {
             for entrada in entradas {
@@ -276,13 +286,39 @@ fn listar_protegidas(raiz: &Path, id: &str, boot: Option<uuid::Uuid>, ignorar: O
                 if !entrada.file_type().ok()?.is_dir() {
                     return None;
                 }
-                instaladas.insert(entrada.file_name());
+                tem_instaladas = true;
+                let nome = entrada.file_name();
+                let nome = nome.to_str()?;
+                if super::arquivo::publicada_por_este_protocolo(&entrada.path()) {
+                    registradas.push(nome.to_owned());
+                }
             }
         }
         Err(e) if e.kind() == ErrorKind::NotFound => {}
         Err(_) => return None,
     }
-    let mut marcadores = std::collections::HashSet::new();
+    #[cfg(unix)]
+    let (tem_marcadores, em_uso) = trava.marcadores.em_uso(id, &trava.arquivo, boot, ignorar)?;
+    #[cfg(not(unix))]
+    let (tem_marcadores, em_uso) = {
+        let _ = trava;
+        em_uso_por_caminho(raiz, id, boot, ignorar.map(|r| r.marcador.as_path()))?
+    };
+    (tem_instaladas || tem_marcadores).then_some(Protecao { em_uso, registradas })
+}
+
+#[cfg(not(unix))]
+fn em_uso_por_caminho(
+    raiz: &Path,
+    id: &str,
+    boot: Option<uuid::Uuid>,
+    ignorar: Option<&Path>,
+) -> Option<(bool, Vec<String>)> {
+    if ignorar.is_some_and(|caminho| !fs::symlink_metadata(caminho).is_ok_and(|meta| meta.is_file())) {
+        return None;
+    }
+    let mut encontradas = false;
+    let mut em_uso = Vec::new();
     match fs::read_dir(raiz.join(MARCADORES).join(id)) {
         Ok(entradas) => {
             for entrada in entradas {
@@ -295,46 +331,26 @@ fn listar_protegidas(raiz: &Path, id: &str, boot: Option<uuid::Uuid>, ignorar: O
                     }
                     return None;
                 }
-                marcadores.insert(entrada.file_name());
+                encontradas = true;
+                let nome = entrada.file_name();
+                let versao = nome.to_str()?;
+                let mut ativa = false;
+                for marcador in fs::read_dir(entrada.path()).ok()? {
+                    let marcador = marcador.ok()?;
+                    ativa |= ignorar != Some(marcador.path().as_path()) && marcador_ativo(&marcador, boot);
+                }
+                if ativa {
+                    em_uso.push(versao.to_owned());
+                    if em_uso.len() > 128 {
+                        return None;
+                    }
+                }
             }
         }
         Err(e) if e.kind() == ErrorKind::NotFound => {}
         Err(_) => return None,
     }
-    if instaladas.is_empty() && marcadores.is_empty() {
-        return None;
-    }
-    let mut protecao = Protecao::default();
-    for nome in instaladas.union(&marcadores) {
-        let nome_texto = nome.to_str()?;
-        if instaladas.contains(nome) {
-            // O recibo mora dentro da árvore publicada (gravado antes do rename atômico):
-            // transacional com a instalação e morto junto com ela. Só vale a prova nova,
-            // com versão e vínculo ao marcador; um arquivo `.publicada` legado não prova
-            // publicação por este protocolo e a versão fica fora da substituição e da
-            // limpeza.
-            let pasta = raiz.join("agents").join(id).join(nome);
-            if super::arquivo::publicada_por_este_protocolo(&pasta) {
-                protecao.registradas.push(nome_texto.to_owned());
-            }
-        }
-        if !marcadores.contains(nome) {
-            continue;
-        }
-        let pasta = raiz.join(MARCADORES).join(id).join(nome);
-        let mut ativa = false;
-        for marcador in fs::read_dir(&pasta).ok()? {
-            let marcador = marcador.ok()?;
-            ativa |= ignorar != Some(marcador.path().as_path()) && marcador_ativo(&marcador, boot);
-        }
-        if ativa {
-            protecao.em_uso.push(nome_texto.to_owned());
-            if protecao.em_uso.len() > 128 {
-                return None;
-            }
-        }
-    }
-    Some(protecao)
+    Some((encontradas, em_uso))
 }
 
 #[cfg(unix)]
@@ -372,7 +388,12 @@ impl std::ops::Deref for Comando {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
+    use std::os::unix::fs::{PermissionsExt, symlink};
+
+    fn pasta_temporaria() -> tempfile::TempDir {
+        let dir = std::env::temp_dir().canonicalize().expect("diretório temporário da fixture");
+        tempfile::tempdir_in(dir).expect("raiz da fixture")
+    }
 
     fn local(uso: &Uso) -> &Referencia {
         let Estado::Local(referencia) = &*uso.0;
@@ -381,7 +402,7 @@ mod tests {
 
     #[test]
     fn cria_diretorios_de_marcadores_privados() {
-        let raiz = tempfile::tempdir().unwrap();
+        let raiz = pasta_temporaria();
         let _uso = Uso::registrar(raiz.path(), "agente", "1").unwrap();
         let mut pasta = raiz.path().to_path_buf();
         for componente in ["registry-in-use", "agente", "1"] {
@@ -396,7 +417,7 @@ mod tests {
         use std::process::Stdio;
         use std::time::Duration;
 
-        let raiz = tempfile::tempdir().unwrap();
+        let raiz = pasta_temporaria();
         let uso = Uso::registrar(raiz.path(), "agente", "1").unwrap();
         let pai = raiz.path().join("agents").join("agente");
         let velha = pai.join("1");
@@ -449,7 +470,7 @@ subprocess.Popen(
 
     #[test]
     fn marcador_pty_so_expira_com_boot_diferente_comprovado() {
-        let raiz = tempfile::tempdir().unwrap();
+        let raiz = pasta_temporaria();
         let uso = Uso::registrar(raiz.path(), "agente", "1").unwrap();
         let boot = uuid::Uuid::new_v4();
         let pty = portable_pty::native_pty_system().openpty(portable_pty::PtySize::default()).unwrap();
@@ -471,7 +492,7 @@ subprocess.Popen(
 
     #[test]
     fn marcador_de_lancamento_unico_por_boot_sobrevive_a_falha_posterior() {
-        let raiz = tempfile::tempdir().unwrap();
+        let raiz = pasta_temporaria();
         let boot = Some(uuid::Uuid::new_v4());
         for (versao, boot) in [("1", boot), ("2", None)] {
             let uso = Uso::registrar(raiz.path(), "agente", versao).unwrap();
@@ -495,7 +516,7 @@ subprocess.Popen(
 
     #[test]
     fn erro_ao_criar_marcador_expoe_apenas_identificadores() {
-        let raiz = tempfile::tempdir().unwrap();
+        let raiz = pasta_temporaria();
         let uso = Uso::registrar(raiz.path(), "agente", "1").unwrap();
         fs::remove_dir_all(&local(&uso).pasta).unwrap();
         let error = uso.marcar_lancamento(None).unwrap_err();
@@ -508,7 +529,7 @@ subprocess.Popen(
     #[tokio::test]
     async fn cancelar_espera_pelo_lancamento_nao_libera_reserva_antes_da_saida_da_tarefa() {
         use std::time::Duration;
-        let raiz = tempfile::tempdir().unwrap();
+        let raiz = pasta_temporaria();
         let uso = Uso::registrar(raiz.path(), "agente", "1").unwrap();
         let marcador = local(&uso).marcador.clone();
         let (entrou, espera_entrada) = tokio::sync::oneshot::channel();
@@ -539,15 +560,15 @@ subprocess.Popen(
 
     #[test]
     fn revalidacao_ignora_apenas_a_reserva_da_propria_instalacao() {
-        let raiz = tempfile::tempdir().unwrap();
+        let raiz = pasta_temporaria();
         let uso = Uso::registrar(raiz.path(), "agente", "1").unwrap();
-        com_protecao_atual(raiz.path(), "agente", Some(&local(&uso).marcador), |_, protegidas| {
+        com_protecao_atual(raiz.path(), "agente", Some(&uso), |_, protegidas| {
             assert!(!protegidas.unwrap().em_uso("1"));
             Ok(())
         })
         .unwrap();
         let _outro = Uso::registrar(raiz.path(), "agente", "1").unwrap();
-        com_protecao_atual(raiz.path(), "agente", Some(&local(&uso).marcador), |_, protegidas| {
+        com_protecao_atual(raiz.path(), "agente", Some(&uso), |_, protegidas| {
             assert!(protegidas.unwrap().em_uso("1"));
             Ok(())
         })
@@ -555,8 +576,65 @@ subprocess.Popen(
     }
 
     #[test]
+    fn revalidacao_recusa_outro_arquivo_no_nome_da_reserva_propria() {
+        let raiz = pasta_temporaria();
+        let uso = Uso::registrar(raiz.path(), "agente", "1").unwrap();
+        let marcador = &local(&uso).marcador;
+        fs::rename(marcador, raiz.path().join("reserva-original")).unwrap();
+        fs::write(marcador, "").unwrap();
+
+        com_protecao_atual(raiz.path(), "agente", Some(&uso), |_, protegidas| {
+            assert!(protegidas.is_none());
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn diretorio_de_marcadores_trocado_por_link_nao_libera_versao() {
+        let raiz = pasta_temporaria();
+        let uso = Uso::registrar(raiz.path(), "agente", "1").unwrap();
+        let velha = raiz.path().join("agents/agente/1");
+        let bytes = b"fixture";
+        let hash = super::super::sha256_hex(bytes);
+        super::super::arquivo::publicar(&velha, "adapter", bytes, &hash, Path::new("adapter"), 1024).unwrap();
+        let atual = velha.with_file_name("2");
+        fs::create_dir(&atual).unwrap();
+        let trava = Trava::abrir(raiz.path(), "agente").unwrap();
+
+        let referencia = local(&uso);
+        let retida = raiz.path().join("marcadores-retidos");
+        let vazia = raiz.path().join("vazia");
+        fs::rename(&referencia.pasta, &retida).unwrap();
+        fs::create_dir(&vazia).unwrap();
+        symlink(&vazia, &referencia.pasta).unwrap();
+
+        let protecao = listar_protegidas(raiz.path(), "agente", None, None, &trava);
+        assert!(protecao.is_none());
+        limpar_versoes(&atual, protecao.as_ref());
+        assert!(velha.join("adapter").is_file());
+        assert!(retida.join(referencia.marcador.file_name().unwrap()).is_file());
+    }
+
+    #[test]
+    fn marcador_obsoleto_por_link_nao_e_removido_nem_libera_versao() {
+        let raiz = pasta_temporaria();
+        let uso = Uso::registrar(raiz.path(), "agente", "1").unwrap();
+        let antigo = local(&uso).pasta.join(format!("boot.{}", uuid::Uuid::new_v4()));
+        let fora = raiz.path().join("sentinela");
+        fs::write(&fora, b"sentinela").unwrap();
+        symlink(&fora, &antigo).unwrap();
+        drop(uso);
+
+        let protegidas = protegidas_no_boot(raiz.path(), "agente", Some(uuid::Uuid::new_v4())).unwrap();
+        assert!(protegidas.em_uso("1"));
+        assert!(fs::symlink_metadata(antigo).unwrap().is_symlink());
+        assert_eq!(fs::read(fora).unwrap(), b"sentinela");
+    }
+
+    #[test]
     fn descarta_reserva_mesmo_com_runtime_encerrado() {
-        let raiz = tempfile::tempdir().unwrap();
+        let raiz = pasta_temporaria();
         let uso = Uso::registrar(raiz.path(), "agente", "1").unwrap();
         let marcador = local(&uso).marcador.clone();
         let runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
@@ -569,7 +647,7 @@ subprocess.Popen(
 
     #[test]
     fn recupera_reserva_do_hub_morto_sem_remover_reserva_viva() {
-        let raiz = tempfile::tempdir().unwrap();
+        let raiz = pasta_temporaria();
         let uso = Uso::registrar(raiz.path(), "agente", "1").unwrap();
         let viva = local(&uso).marcador.clone();
         let mut processo = std::process::Command::new("/bin/cat").stdin(std::process::Stdio::piped()).spawn().unwrap();
@@ -591,7 +669,7 @@ subprocess.Popen(
 
     #[test]
     fn preserva_marcadores_legados_sem_prova_de_reinicio() {
-        let raiz = tempfile::tempdir().unwrap();
+        let raiz = pasta_temporaria();
         let uso = Uso::registrar(raiz.path(), "agente", "1").unwrap();
         let lease = criar_marcador(&local(&uso).pasta, "lease").unwrap().into_temp_path().keep().unwrap();
         let incerto = local(&uso).pasta.join("lease.diretorio");
@@ -604,7 +682,7 @@ subprocess.Popen(
 
     #[test]
     fn preserva_instalacao_anterior_ao_protocolo_e_limpa_apenas_as_registradas() {
-        let raiz = tempfile::tempdir().unwrap();
+        let raiz = pasta_temporaria();
         let agente = raiz.path().join("agents").join("agente");
         let antiga = agente.join("1.0.0");
         let primeira = agente.join("1.1.0");
@@ -632,7 +710,7 @@ subprocess.Popen(
 
     #[test]
     fn recibo_legado_na_arvore_nao_vale_como_prova_nova() {
-        let raiz = tempfile::tempdir().unwrap();
+        let raiz = pasta_temporaria();
         let agente = raiz.path().join("agents").join("agente");
         let legada = agente.join("1.0.0");
         let atual = agente.join("2.0.0");
@@ -659,7 +737,7 @@ subprocess.Popen(
 
     #[test]
     fn entrada_inesperada_nos_marcadores_preserva_a_versao() {
-        let raiz = tempfile::tempdir().unwrap();
+        let raiz = pasta_temporaria();
         let agente = raiz.path().join("agents").join("agente");
         let velha = agente.join("1");
         let atual = agente.join("2");
@@ -682,7 +760,7 @@ subprocess.Popen(
 
     #[test]
     fn erro_ao_ler_marcadores_preserva_versoes() {
-        let raiz = tempfile::tempdir().unwrap();
+        let raiz = pasta_temporaria();
         let agente = raiz.path().join("agents").join("agente");
         let velha = agente.join("1");
         let atual = agente.join("2");
@@ -690,23 +768,23 @@ subprocess.Popen(
             fs::create_dir_all(pasta).unwrap();
         }
         drop(Uso::registrar(raiz.path(), "agente", "1").unwrap());
+        let trava = Trava::abrir(raiz.path(), "agente").unwrap();
         // Erro de leitura determinístico, sem depender de permissão nem de UID: um arquivo
         // onde o coletor espera o diretório de marcadores do agente.
         let marcadores = raiz.path().join(MARCADORES).join("agente");
         fs::remove_dir_all(&marcadores).unwrap();
         fs::write(&marcadores, "não é diretório").unwrap();
+        assert!(listar_protegidas(raiz.path(), "agente", None, None, &trava).is_none());
+        drop(trava);
         let protegidas = protegidas(raiz.path(), "agente");
         assert!(protegidas.is_none(), "erro de I/O não pode virar lista vazia");
-        // Direto no coletor: é o ramo de erro de leitura dele que está sob prova,
-        // não só a recusa anterior da trava.
-        assert!(listar_protegidas(raiz.path(), "agente", None, None).is_none());
         limpar_versoes(&atual, protegidas.as_ref());
         assert!(velha.is_dir() && atual.is_dir());
     }
 
     #[test]
     fn versao_chamada_trava_nao_colide_com_o_arquivo_da_trava() {
-        let raiz = tempfile::tempdir().unwrap();
+        let raiz = pasta_temporaria();
         // A trava do agente abre (e fecha) e a reserva de uma versão comum nasce ao
         // lado do arquivo dela.
         drop(Trava::abrir(raiz.path(), "agente").unwrap());
@@ -721,7 +799,7 @@ subprocess.Popen(
     fn trava_do_so_serializa_usos_da_mesma_raiz() {
         use fs2::FileExt as _;
         use std::sync::mpsc;
-        let raiz = tempfile::tempdir().unwrap();
+        let raiz = pasta_temporaria();
         let (segurou, aviso) = mpsc::channel();
         let (liberar, espera) = mpsc::channel();
         let caminho = raiz.path().to_path_buf();
@@ -746,7 +824,7 @@ subprocess.Popen(
     async fn trava_exclui_outro_processo_na_mesma_raiz() {
         use std::time::{Duration, Instant};
         if std::env::var_os(FIXTURE).is_none() {
-            let raiz = tempfile::tempdir().unwrap();
+            let raiz = pasta_temporaria();
             let aviso = raiz.path().join("segurou");
             let mut filho = std::process::Command::new(std::env::current_exe().unwrap())
                 .args(["--exact", "agent::registry::versoes::tests::trava_exclui_outro_processo_na_mesma_raiz"])
