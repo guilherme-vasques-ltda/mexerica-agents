@@ -120,13 +120,14 @@ impl IntoResponse for ApiError {
     }
 }
 
-/// Sem credencial, só o mínimo de vida e a atividade. A identidade do Hub e do binário exige o
-/// bearer local (`Caller::Local`: loopback ou socket do Open); qualquer outro `Authorization` é
-/// recusado em vez de cair na resposta anônima.
+/// Sem prova, só o mínimo de vida e a atividade. A identidade do Hub e do binário exige a prova do
+/// token local (`?nonce=` e `?proof=`: um nonce novo e o HMAC do token sobre ele), então o token
+/// nunca viaja para a porta. Prova de outro token ou vinda de fora do loopback é recusada em vez de
+/// cair na resposta anônima.
 async fn health(
     State(hub): State<Arc<Hub>>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
-    headers: HeaderMap,
+    Query(q): Query<HealthQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let mut body = json!({
         "ok": true,
@@ -134,10 +135,13 @@ async fn health(
         "environment": crate::environment::Environment::current().name(),
         "busy": hub.busy(),
     });
-    if !headers.contains_key("authorization") {
-        return Ok(Json(body));
-    }
-    if !authorized(&hub, &headers, peer) {
+    let (Some(nonce), Some(proof)) = (q.nonce.as_deref(), q.proof.as_deref()) else {
+        if q.nonce.is_none() && q.proof.is_none() {
+            return Ok(Json(body));
+        }
+        return Err(unauthorized());
+    };
+    if !crate::fork::prova_health::autorizada(&hub, nonce, proof, peer) {
         return Err(unauthorized());
     }
     let binary = crate::service::binary_identity();
@@ -244,6 +248,12 @@ async fn oauth_callback(
         escape(&detail)
     ))
     .into_response()
+}
+
+#[derive(Deserialize)]
+struct HealthQuery {
+    nonce: Option<String>,
+    proof: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -482,7 +492,7 @@ mod tests {
     const IDENTITY: [&str; 4] = ["hostId", "computerId", "binaryPath", "binaryHash"];
 
     #[tokio::test]
-    async fn health_shows_identity_only_to_the_local_bearer() {
+    async fn health_shows_identity_only_with_the_token_proof() {
         let dir = std::env::temp_dir().join(format!("codync-health-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("temp dir");
         let token = "token-local-ficticio";
@@ -494,12 +504,19 @@ mod tests {
             19222,
         );
         let loopback: SocketAddr = "127.0.0.1:50000".parse().expect("addr");
-        let call = |peer: SocketAddr, authorization: Option<&str>| {
-            let mut headers = HeaderMap::new();
-            if let Some(value) = authorization {
-                headers.insert("authorization", value.parse().expect("header"));
-            }
-            health(State(hub.clone()), ConnectInfo(peer), headers)
+        let nonce = crate::remote::crypto::b64(&crate::remote::crypto::random::<32>());
+        let raw_nonce = crate::remote::crypto::unb64(&nonce).expect("nonce");
+        let proved = crate::fork::prova_health::prova(token, &raw_nonce);
+        let call = |peer: SocketAddr, pair: Option<(String, String)>| {
+            let (nonce, proof) = pair.unwrap_or_default();
+            health(
+                State(hub.clone()),
+                ConnectInfo(peer),
+                Query(HealthQuery {
+                    nonce: Some(nonce).filter(|n| !n.is_empty()),
+                    proof: Some(proof).filter(|p| !p.is_empty()),
+                }),
+            )
         };
 
         let Ok(Json(anonymous)) = call(loopback, None).await else { panic!("anonymous health must answer") };
@@ -512,37 +529,49 @@ mod tests {
             assert!(anonymous.get(field).is_none(), "{field} leaked: {anonymous}");
         }
 
-        let bearer = format!("Bearer {token}");
-        let Ok(Json(local)) = call(loopback, Some(&bearer)).await else { panic!("local bearer must answer") };
-        assert_eq!(local["hostId"], "host-ficticio");
-        assert_eq!(local["computerId"], hub.identity.computer_id());
-        assert_eq!(local.as_object().map(serde_json::Map::len), Some(8), "{local}");
+        let local = |nonce: &str, proof: &str| Some((nonce.to_owned(), proof.to_owned()));
+        let Ok(Json(identified)) = call(loopback, local(&nonce, &proved)).await else {
+            panic!("the proof of the local token must answer")
+        };
+        assert_eq!(identified["hostId"], "host-ficticio");
+        assert_eq!(identified["computerId"], hub.identity.computer_id());
+        assert_eq!(identified.as_object().map(serde_json::Map::len), Some(8), "{identified}");
         for field in IDENTITY {
-            assert!(local.get(field).is_some(), "{field} missing: {local}");
+            assert!(identified.get(field).is_some(), "{field} missing: {identified}");
         }
-        assert_eq!(local["ok"], true);
+        assert_eq!(identified["ok"], true);
 
         let mapped: SocketAddr = "[::ffff:127.0.0.1]:50000".parse().expect("addr");
-        assert!(call(mapped, Some(&bearer)).await.is_ok(), "IPv4 loopback seen through `--bind ::`");
+        assert!(call(mapped, local(&nonce, &proved)).await.is_ok(), "IPv4 loopback seen through `--bind ::`");
 
+        let other = crate::remote::crypto::b64(&crate::remote::crypto::random::<32>());
+        let raw_other = crate::remote::crypto::unb64(&other).expect("nonce");
         let outside: SocketAddr = "192.0.2.10:50000".parse().expect("addr");
         let refused = [
-            (loopback, "Bearer outro-token-ficticio"),
-            (loopback, "Bearer "),
-            (loopback, "Basic dXNlcjpwYXNz"),
-            (loopback, token),
-            (outside, bearer.as_str()),
+            (
+                "prova de outro token",
+                local(&nonce, &crate::fork::prova_health::prova("outro-token-ficticio", &raw_nonce)),
+            ),
+            ("prova de outro nonce", local(&nonce, &crate::fork::prova_health::prova(token, &raw_other))),
+            ("prova ilegível", local(&nonce, "nao-e-hexadecimal")),
+            ("nonce ilegível", local("nao-e-base64url!!", &proved)),
         ];
-        for (peer, authorization) in refused {
-            let Err(error) = call(peer, Some(authorization)).await else {
-                panic!("{authorization} from {peer} must be refused")
-            };
+        for (motivo, pair) in refused {
+            let Err(error) = call(loopback, pair).await else { panic!("{motivo} must be refused") };
             let response = error.into_response();
-            assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{authorization} from {peer}");
+            assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{motivo}");
             let body = axum::body::to_bytes(response.into_body(), 4096).await.expect("body");
             let body = String::from_utf8_lossy(&body);
-            assert!(!body.contains(token) && !body.contains("outro-token"), "{body}");
+            assert!(!body.contains(token) && !body.contains(&proved), "{body}");
         }
+        let Err(error) = call(loopback, Some((nonce.clone(), String::new()))).await else {
+            panic!("proof without nonce must be refused")
+        };
+        assert_eq!(error.into_response().status(), StatusCode::UNAUTHORIZED, "half a pair");
+        let Err(error) = call(outside, local(&nonce, &proved)).await else {
+            panic!("a correct proof from outside the loopback must be refused")
+        };
+        assert_eq!(error.into_response().status(), StatusCode::UNAUTHORIZED, "fora do loopback");
         let _ = std::fs::remove_dir_all(dir);
     }
 

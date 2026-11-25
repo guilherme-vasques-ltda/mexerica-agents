@@ -31,7 +31,7 @@ export function requestOpenHub(socketPath: string, path: string, token: string, 
       socketPath, path, signal, agent: false,
       method: body === null ? 'GET' : 'POST',
       headers: {
-        Authorization: `Bearer ${token}`,
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...(body === null ? { Accept: 'text/event-stream' } : {
           'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body),
         }),

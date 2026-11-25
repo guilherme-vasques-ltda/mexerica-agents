@@ -41,19 +41,27 @@ async fn health(client: &reqwest::Client, child: &mut Child) -> Value {
     .unwrap()
 }
 
-/// Identidade do Hub, que o /health só mostra com o bearer local.
+/// `/health` provado: um nonce novo e o HMAC-SHA256 do token local sobre ele, sem o token na URL.
+fn proved(token: &str) -> String {
+    use base64::Engine as _;
+    use hmac::{Hmac, KeyInit as _, Mac as _};
+    let nonce = [3u8; 32];
+    let mut mac = Hmac::<sha2::Sha256>::new_from_slice(token.as_bytes()).unwrap();
+    mac.update(b"mexerica/health-proof/v1");
+    mac.update(&nonce);
+    let mut proof = String::with_capacity(64);
+    for byte in mac.finalize().into_bytes() {
+        use std::fmt::Write as _;
+        let _ = write!(proof, "{byte:02x}");
+    }
+    let nonce = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(nonce);
+    format!("http://localhost/health?nonce={nonce}&proof={proof}")
+}
+
+/// Identidade do Hub, que o /health só mostra com a prova do token local.
 async fn identity(client: &reqwest::Client, credential: &str) -> Value {
-    let health: Value = client
-        .get("http://localhost/health")
-        .bearer_auth(credential)
-        .send()
-        .await
-        .unwrap()
-        .error_for_status()
-        .unwrap()
-        .json()
-        .await
-        .unwrap();
+    let health: Value =
+        client.get(proved(credential)).send().await.unwrap().error_for_status().unwrap().json().await.unwrap();
     for field in ["hostId", "computerId"] {
         assert!(health[field].as_str().is_some_and(|value| !value.is_empty()), "{field}: {health}");
     }

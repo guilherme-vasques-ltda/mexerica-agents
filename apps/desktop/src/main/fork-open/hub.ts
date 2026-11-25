@@ -9,6 +9,7 @@ import { privateDirectory, validatePrivateFile } from '../../shared/fork-private
 import { hostCallError } from '../../shared/host-call-error'
 import type { CallError, HostSnapshot } from '../../shared/ipc'
 import { open } from './isolation'
+import { provedQuery } from '../fork-local-health'
 import { isLoginPageURL, openApiPath, loginPageDeadline, openStreamPath, readOpenEventData, readOpenResponse, requestOpenHub } from './hub-transport'
 
 const origin = `http://127.0.0.1:${open.port}`
@@ -94,9 +95,9 @@ export function registerOpenHub(profile: string, temp: string, chatURL: string, 
         try {
           const stat = lstatSync(socket)
           if (!stat.isSocket() || stat.uid !== process.getuid?.() || (stat.mode & 0o077) !== 0) throw new Error()
-          // A identidade do `/health` exige o bearer local; sem ele o Hub responde só o anônimo.
+          // A identidade do `/health` exige a prova do token local; o token não vai na chamada.
           const token = readToken(home)
-          const response = await requestOpenHub(socket, '/health', token, null, startup)
+          const response = await requestOpenHub(socket, `/health${provedQuery(token)}`, '', null, startup)
           const health: unknown = JSON.parse(await readOpenResponse(response))
           if (response.statusCode !== 200 || !health || typeof health !== 'object' ||
             !('environment' in health) || health.environment !== open.environment ||

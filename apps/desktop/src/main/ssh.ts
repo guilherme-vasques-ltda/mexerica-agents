@@ -625,9 +625,9 @@ class SSHComputers {
         else lastProblem = await tail.lastLine()
         continue
       }
-      // A resposta anônima não prova que ela veio pelo ssh: outro usuário local pode ter tomado a
-      // porta. Por isso o token, que destrava a identidade do /health, só sai depois de o ssh provar
-      // que é o dono do listener.
+      // O /health anônimo não prova que a resposta veio pelo ssh: outro usuário local pode ter
+      // tomado a porta. A identidade vem da prova do token do Hub remoto, que um impostor não tem;
+      // o dono do listener continua conferido antes, como sinal de que o túnel está de pé.
       const listens = child.pid !== undefined && (await sshListens(child.pid, port))
       // Disconnected, removed or edited meanwhile: this attempt must not register its tunnel.
       if (token.cancelled) {

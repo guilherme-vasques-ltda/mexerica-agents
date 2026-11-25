@@ -417,7 +417,8 @@ export class HostController extends EventEmitter {
   /** Attaches the local host once it answers, and again when its token or identity changed; else says why not. */
   private async attachLocal(): Promise<SetupError | null> {
     // 4 s, not 2: a host that is merely slow still answers inside one try instead of never.
-    // A identidade do `/health` só vem com o token local; sem ele, o anônimo ainda diz se está de pé.
+    // A identidade do `/health` só vem com a prova do token local; sem o token, o anônimo ainda diz
+    // se o Hub está de pé.
     const noAnswer = new SetupError('not_responding', "The host isn't responding. See the log for details.")
     const token = await readToken()
     if (!token) {

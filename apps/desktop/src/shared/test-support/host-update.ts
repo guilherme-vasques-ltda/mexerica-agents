@@ -107,13 +107,16 @@ export function hostUpdateFixture(options: { environment?: 'main' | 'dev'; rc?: 
     process: { env: { ...(options.devPort ? { [options.devPortVar ?? 'DONNABOT_PORT']: options.devPort } : {}), ...options.env }, resourcesPath: '/bundle', getuid: () => 501 },
     setTimeout: (callback: () => void, ms: number) => { const id = ++timerId; timers.set(id, { callback, ms }); return id },
     clearTimeout: (id: number) => timers.delete(id),
-    fetch: async (_url: string, init?: { headers?: Record<string, string> }) => {
+    fetch: async (url: string) => {
       reads.push('health')
       if (!behavior.reachable) throw new Error('Host offline')
-      // Como o Hub: a identidade só vem com o bearer local; sem ele, só o anônimo.
-      const identified = behavior.token !== null && init?.headers?.authorization === `Bearer ${behavior.token}`
+      // Como o Hub: a identidade só vem com a prova do token local; sem ela, só o anônimo.
+      const query = new URL(url, 'http://127.0.0.1').searchParams
+      const nonce = query.get('nonce') ?? ''
+      const proved = behavior.token !== null &&
+        query.get('proof') === crypto.createHmac('sha256', behavior.token).update('mexerica/health-proof/v1').update(Buffer.from(nonce, 'base64url')).digest('hex')
       const anonymous = { ok: true, environment: behavior.runningEnvironment, busy: behavior.busy }
-      return { ok: true, json: async () => identified ? { ...anonymous, computerId: 'fixture-computer', binaryPath: binary, binaryHash: behavior.wrongBinary ? 'stale' : crypto.createHash('sha256').update(binaryBytes).digest('hex') } : anonymous }
+      return { ok: true, json: async () => proved ? { ...anonymous, computerId: 'fixture-computer', binaryPath: binary, binaryHash: behavior.wrongBinary ? 'stale' : crypto.createHash('sha256').update(binaryBytes).digest('hex') } : anonymous }
     },
   })
   const host = new module.HostController(() => options.canUseHost ?? true)

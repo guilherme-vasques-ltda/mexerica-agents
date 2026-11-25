@@ -75,9 +75,10 @@ ferramentas locais (`pair`, `status`, `info`, `update` e o app neste computador)
 com `127.0.0.1`: um `--bind` só no endereço da VPN deixa essas ferramentas sem acesso.
 Se a escuta direta for mesmo necessária, use `--bind 0.0.0.0` e limite a porta à
 interface da VPN no firewall, mantendo o loopback liberado para as ferramentas locais.
-A API local continua aceitando só chamadas do loopback, e o `/health` sem credencial
+A API local continua aceitando só chamadas do loopback, e o `/health` sem prova
 devolve só `ok`, `version`, `environment` e `busy`; a identidade do Hub e do binário exige
-o token local (`Authorization: Bearer`) vindo deste computador.
+a prova do token local (`?nonce=` e `?proof=`: o HMAC do token sobre um nonce novo) vinda
+deste computador, e o token em si nunca trafega.
 
 **Migração:** uma unidade antiga sem `--bind` passa a escutar só em loopback quando o
 Hub novo reinicia. Um celular que falava direto com o Hub pela rede local ou VPN perde

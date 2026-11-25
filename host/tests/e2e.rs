@@ -134,6 +134,23 @@ impl Host {
     }
 }
 
+/// `/health` provado: um nonce novo e o HMAC-SHA256 do token local sobre ele, sem o token na URL.
+fn proved(base: &str, token: &str) -> String {
+    use base64::Engine as _;
+    use hmac::{Hmac, KeyInit as _, Mac as _};
+    let nonce = [3u8; 32];
+    let mut mac = Hmac::<sha2::Sha256>::new_from_slice(token.as_bytes()).unwrap();
+    mac.update(b"mexerica/health-proof/v1");
+    mac.update(&nonce);
+    let mut proof = String::with_capacity(64);
+    for byte in mac.finalize().into_bytes() {
+        use std::fmt::Write as _;
+        let _ = write!(proof, "{byte:02x}");
+    }
+    let nonce = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(nonce);
+    format!("{base}/health?nonce={nonce}&proof={proof}")
+}
+
 #[tokio::test]
 async fn health_names_this_binary() {
     let host = start_host().await;
@@ -144,17 +161,9 @@ async fn health_names_this_binary() {
         assert!(anonymous.get(field).is_none(), "{field}: {anonymous}");
     }
     let client = reqwest::Client::new();
-    let wrong = client.get(format!("{}/health", host.base)).bearer_auth("token-ficticio").send().await.unwrap();
+    let wrong = client.get(proved(&host.base, "token-ficticio")).send().await.unwrap();
     assert_eq!(wrong.status(), 401);
-    let health: Value = client
-        .get(format!("{}/health", host.base))
-        .bearer_auth(&host.token)
-        .send()
-        .await
-        .unwrap()
-        .json()
-        .await
-        .unwrap();
+    let health: Value = client.get(proved(&host.base, &host.token)).send().await.unwrap().json().await.unwrap();
     assert!(health["binaryHash"].as_str().is_some_and(|hash| hash.len() == 64));
     // The apps compare it with the path they resolve, which on Windows has no `\\?\` prefix.
     let exe = std::fs::canonicalize(env!("CARGO_BIN_EXE_donnabot-host")).unwrap();

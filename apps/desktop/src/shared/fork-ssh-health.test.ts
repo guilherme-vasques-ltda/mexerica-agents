@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { createHash } from 'node:crypto'
+import { createHash, createHmac, randomBytes } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { readFileSync, promises as realFs } from 'node:fs'
 import { createServer, type Server } from 'node:http'
@@ -14,22 +14,27 @@ import { loadMainModule, settle } from './test-support/main-module.ts'
  * exige o token do Hub remoto, e ele só sai depois de o ssh provar que é o dono do listener.
  */
 const TOKEN = 'token-local-ficticio'
+const ROTULO = 'mexerica/health-proof/v1'
 const SIGN_KEY = Buffer.alloc(32, 7).toString('base64url')
 const COMPUTER = createHash('sha256').update(Buffer.alloc(32, 7)).digest().subarray(0, 16).toString('base64url')
 
-/** Um Hub de mentira atrás do túnel: a identidade só sai com o bearer que ele conhece. */
+const prova = (token: string, nonce: string) => createHmac('sha256', token).update(ROTULO).update(Buffer.from(nonce, 'base64url')).digest('hex')
+
+/** Um Hub de mentira atrás do túnel: a identidade só sai com a prova do token que ele conhece, e
+ * nada de credencial pode chegar até ele sem essa prova. */
 function hubOf(token: string) {
-  const seen: (string | undefined)[] = []
+  const seen: { url: string; authorization: string | undefined }[] = []
   const servers = new Set<Server>()
   return {
     seen,
     /** Sobe o Hub na porta que o túnel encaminha e devolve o servidor. */
     listen: (port: number) => new Promise<Server>((resolve) => {
       const server = createServer((request, response) => {
-        seen.push(request.headers.authorization)
-        const identified = request.headers.authorization === `Bearer ${token}`
-        response.writeHead(identified ? 200 : request.headers.authorization ? 401 : 200, { 'content-type': 'application/json' })
-        response.end(JSON.stringify(identified ? { ok: true, environment: 'main', busy: false, computerId: COMPUTER } : { ok: true, environment: 'main', busy: false }))
+        seen.push({ url: request.url ?? '', authorization: request.headers.authorization })
+        const query = new URL(request.url ?? '/', 'http://127.0.0.1').searchParams
+        const proved = query.get('proof') === prova(token, query.get('nonce') ?? '')
+        response.writeHead(query.has('proof') && !proved ? 401 : 200, { 'content-type': 'application/json' })
+        response.end(JSON.stringify(proved ? { ok: true, environment: 'main', busy: false, computerId: COMPUTER } : { ok: true, environment: 'main', busy: false }))
       })
       servers.add(server)
       server.listen(port, '127.0.0.1', () => resolve(server))
@@ -86,7 +91,7 @@ function rig(options: { infoToken?: string; tunnelPid?: number } = {}) {
       tunnelArguments: (_profile: unknown, port: number) => ['tunnel', String(port)],
     },
     'node:child_process': { spawn },
-    'node:crypto': { createHash },
+    'node:crypto': { createHash, createHmac, randomBytes },
     'node:net': { createServer: createTcpServer },
     'node:path': path,
     'node:fs': {
@@ -128,8 +133,10 @@ test('the tunnel identity is read with the host token, after ssh proves it owns 
   await r.wait()
   const status = r.status()
   assert.equal(status?.kind, 'connected', JSON.stringify(status))
-  assert.equal(r.seen[0], undefined, 'the readiness probe carries no token')
-  assert.deepEqual(r.seen.slice(1), [`Bearer ${TOKEN}`], 'the identity probe carries the host token')
+  assert.deepEqual(r.seen.map((call) => call.authorization), [undefined, undefined], 'no credential travels')
+  assert.ok(r.seen.every((call) => !call.url.includes(TOKEN)), 'nor appears in the query')
+  assert.equal(r.seen[0]!.url, '/health', 'the readiness probe is anonymous')
+  assert.ok(new URL(r.seen[1]!.url, 'http://127.0.0.1').searchParams.has('proof'), 'the identity probe carries the proof')
   r.controller.disconnectAll()
 })
 
@@ -138,7 +145,8 @@ test('a port taken by something else never receives the host token', async () =>
   const r = rig({ tunnelPid: 999_999 })
   r.connect()
   await r.wait()
-  assert.deepEqual(r.seen.filter((authorization) => authorization !== undefined), [], 'no bearer leaves before the ssh ownership check')
+  assert.deepEqual(r.seen.filter((call) => call.authorization !== undefined), [], 'no credential is ever sent')
+  assert.ok(r.seen.every((call) => !new URL(call.url, 'http://127.0.0.1').searchParams.has('proof')), 'and no proof either: the port is not the ssh tunnel')
   assert.notEqual(r.status()?.kind, 'connected')
   r.controller.disconnectAll()
 })
