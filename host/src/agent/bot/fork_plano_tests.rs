@@ -133,6 +133,47 @@ Mensagem"
 }
 
 #[tokio::test]
+async fn rotina_em_outra_conta_nao_herda_a_origem_da_conversa_do_dono() {
+    let (hub, cfg) = com_plano();
+    let mut actor = new_actor(hub.clone(), cfg);
+    let antes = hub.store.vault_unlock_attempts.load(std::sync::atomic::Ordering::SeqCst);
+
+    // 1. Conversa do dono no plano: o `ensure_session` real registra a origem dela.
+    let dono = enviar(&hub, "me ajuda com esse código", false).await;
+    actor.turn_entries = vec![dono.id.clone()];
+    let _ = actor.ensure_session(None).await;
+    assert!(actor.ultimo_turno_do_dono, "a conversa do dono foi registrada");
+
+    // 2. A rotina roda em outra conta/motor (sem plano): o turno dela limpa o registro em qualquer ramo.
+    actor.cfg.backend = "echo".into();
+    actor.cfg.model = "echo".into();
+    actor.turn_entries = vec![];
+    actor.active_routine = Some("rotina".into());
+    let _ = actor.ensure_session(None).await;
+    assert!(!actor.ultimo_turno_do_dono, "a rotina não herda a origem da conversa");
+    actor.active_routine = None;
+
+    // 3. A compactação enfileirada pelo turno da rotina (sem pedido do dono) é automática pela fila real.
+    actor.queue.push_back(Queued::Compact { idle: false, manual: None, dono: actor.ultimo_turno_do_dono });
+    let Some(Queued::Compact { idle, manual, dono }) = actor.queue.pop_front() else { panic!("enfileirada") };
+    assert!(!idle && manual.is_none() && !dono);
+
+    // 4. O bot volta ao plano antes da compactação rodar: ela é recusada, sem processo nem leitura do cofre.
+    actor.cfg.backend = "opencode".into();
+    actor.cfg.model = "kimi-code-plan-global/k3".into();
+    actor.compactacao_do_dono = manual.is_some() || dono;
+    actor.compacting = Some(false);
+    let erro = actor.ensure_session(None).await.expect_err("compactação motivada por rotina").to_string();
+    assert!(erro.contains("plano_so_conversa"), "{erro}");
+    assert!(actor.conn.is_none(), "nenhum processo do OpenCode foi aberto");
+    assert_eq!(
+        hub.store.vault_unlock_attempts.load(std::sync::atomic::Ordering::SeqCst),
+        antes,
+        "o cofre nem foi lido"
+    );
+}
+
+#[tokio::test]
 async fn compactacao_enfileirada_ao_fim_da_conversa_conserva_a_origem_na_fila() {
     let (hub, cfg) = com_plano();
     let mut actor = new_actor(hub.clone(), cfg);

@@ -233,6 +233,12 @@ impl Actor {
     /// Makes sure the agent runs and `slot`'s session (main, or a routine run's) is live;
     /// sets `turn_session`.
     pub(super) async fn ensure_session(&mut self, slot: Option<&str>) -> Result<()> {
+        // Toda virada de turno que não é compactação atualiza a origem registrada: o turno no plano não é o único
+        // ramo, e uma rotina em outra conta não pode herdar o estado da conversa do dono. Compactação não conta
+        // (olha-se como se não fosse), e erro na classificação falha fechado como automático.
+        if self.compacting.is_none() {
+            self.ultimo_turno_do_dono = self.uso_do_plano_com(None) == crate::fork::planos_codigo::Uso::Conversa;
+        }
         let result = self.ensure_session_inner(slot).await.and_then(|()| {
             let conn = self.conn.as_ref().ok_or_else(|| anyhow!("agent not running"))?;
             let sid = self.turn_session.as_deref().ok_or_else(|| anyhow!("no session"))?;
@@ -256,11 +262,17 @@ impl Actor {
     /// autenticado: rotina, canal, pedido de outro bot, acordar de tarefa, aviso de comentário, delegação, turno
     /// oculto e entrada sem ingresso são `Automatico`. Fecha por padrão.
     pub(super) fn uso_do_plano(&self) -> crate::fork::planos_codigo::Uso {
+        self.uso_do_plano_com(self.compacting)
+    }
+
+    /// Como `uso_do_plano`, com a compactação tratada da forma pedida: registrar a origem de um turno olha o turno
+    /// como se não fosse compactação (`compacting` de fora), para não se retroalimentar.
+    pub(super) fn uso_do_plano_com(&self, compacting: Option<bool>) -> crate::fork::planos_codigo::Uso {
         use crate::fork::planos_codigo::Uso;
         // A compactação pedida pelo dono pela API (`context_compaction`) ou enfileirada ao fim de um turno que era a
         // palavra dele continua a conversa já aberta; com o dono ausente, ou depois de um turno automático, é
         // automática. Sem compactação, vale a palavra do dono com o ingresso que o Hub carimbou.
-        let automatico = match self.compacting {
+        let automatico = match compacting {
             Some(true) => true,
             Some(false) => self.context_compaction.is_none() && !self.compactacao_do_dono,
             None => {
@@ -290,11 +302,7 @@ impl Actor {
         // Modelo de um plano de código (chave colada): perfil e chave próprios do plano, em vez do ambiente do dono. É o
         // primeiro passo do turno: um plano só de conversa é recusado aqui, antes de qualquer outro trabalho.
         let plano = if self.cfg.fork_editor.engine_account_id.is_none() && !antigravity {
-            let uso = self.uso_do_plano();
-            if self.compacting.is_none() {
-                self.ultimo_turno_do_dono = uso == crate::fork::planos_codigo::Uso::Conversa;
-            }
-            match crate::fork::planos_codigo::ambiente_do_bot(&self.hub, &self.cfg, uso).await {
+            match crate::fork::planos_codigo::ambiente_do_bot(&self.hub, &self.cfg, self.uso_do_plano()).await {
                 Ok(plano) => plano,
                 Err(erro) => {
                     // Plano removido, desligado ou sem chave: o processo que sobrou só tem um código morto, e não fica vivo.
