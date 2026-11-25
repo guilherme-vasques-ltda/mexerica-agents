@@ -242,7 +242,7 @@ impl Acp {
         cwd: &str,
         env: &[(String, String)],
     ) -> Result<(Arc<Self>, mpsc::UnboundedReceiver<Incoming>)> {
-        Self::spawn_mode(command, cwd, env, false, false)
+        Self::spawn_mode(command, cwd, env, false, false, None)
     }
 
     /// Descoberta de setup: saída nativa não vai a logs nem à cauda de erro.
@@ -251,7 +251,7 @@ impl Acp {
         cwd: &str,
         env: &[(String, String)],
     ) -> Result<(Arc<Self>, mpsc::UnboundedReceiver<Incoming>)> {
-        Self::spawn_mode(command, cwd, env, true, false)
+        Self::spawn_mode(command, cwd, env, true, false, None)
     }
 
     pub(crate) fn spawn_background(
@@ -259,7 +259,28 @@ impl Acp {
         cwd: &str,
         env: &[(String, String)],
     ) -> Result<(Arc<Self>, mpsc::UnboundedReceiver<Incoming>)> {
-        Self::spawn_mode(command, cwd, env, false, true)
+        Self::spawn_mode(command, cwd, env, false, true, None)
+    }
+
+    pub(crate) async fn spawn_registered(
+        command: &super::registry::Comando,
+        cwd: &str,
+        env: &[(String, String)],
+        protected: bool,
+        background: bool,
+    ) -> Result<(Arc<Self>, mpsc::UnboundedReceiver<Incoming>)> {
+        if command.uso.is_none() {
+            return match (protected, background) {
+                (true, _) => Self::spawn_protected(command, cwd, env),
+                (false, true) => Self::spawn_background(command, cwd, env),
+                (false, false) => Self::spawn(command, cwd, env),
+            };
+        }
+        let (command, cwd, env) = (command.clone(), cwd.to_owned(), env.to_vec());
+        crate::fork::motor_exec::criador::criar(move || {
+            Self::spawn_mode(&command, &cwd, &env, protected, background, Some(&command))
+        })
+        .await?
     }
 
     fn spawn_mode(
@@ -268,6 +289,7 @@ impl Acp {
         env: &[(String, String)],
         protected: bool,
         background: bool,
+        registry: Option<&super::registry::Comando>,
     ) -> Result<(Arc<Self>, mpsc::UnboundedReceiver<Incoming>)> {
         let shell = crate::shell::exec(command);
         let mut process = if crate::fork::motor_exec::configured() {
@@ -282,7 +304,7 @@ impl Acp {
             .envs(super::environment::inherited(std::env::vars_os()))
             .envs(shell.env)
             .envs(env.iter().map(|(k, v)| (k, v)));
-        Self::spawn_process(process, command, cwd, protected, background, false)
+        Self::spawn_process(process, cwd, protected, background, false, registry)
     }
 
     pub(crate) fn spawn_antigravity(
@@ -308,16 +330,16 @@ impl Acp {
                 .any(|key| name.eq_ignore_ascii_case(key))
             })
         }));
-        Self::spawn_process(process, "agy acp", cwd, true, false, true)
+        Self::spawn_process(process, cwd, true, false, true, None)
     }
 
     fn spawn_process(
         mut process: Command,
-        command: &str,
         cwd: &str,
         protected: bool,
         background: bool,
         antigravity: bool,
+        registry: Option<&super::registry::Comando>,
     ) -> Result<(Arc<Self>, mpsc::UnboundedReceiver<Incoming>)> {
         process
             .current_dir(crate::fork::motor_exec::hub_cwd(std::path::Path::new(cwd)))
@@ -328,8 +350,14 @@ impl Acp {
         // Its own group, so `kill` can stop everything it started.
         #[cfg(unix)]
         process.process_group(0);
-        let mut child =
-            crate::fork::motor_exec::spawn(&mut process).with_context(|| format!("starting `{command}`"))?;
+        let mut spawn = || {
+            crate::fork::motor_exec::spawn(&mut process)
+                .map_err(|e| anyhow::anyhow!("Inicialização do agente falhou: categoria={:?}", e.kind()))
+        };
+        let mut child = match registry.and_then(|cmd| cmd.uso.as_ref()) {
+            Some(uso) => uso.lancar(spawn),
+            None => spawn(),
+        }?;
         let stdin = Writer::Child(child.stdin.take().expect("stdin is piped"));
         let stdout = child.stdout.take().expect("stdout is piped");
         let stderr = child.stderr.take().expect("stderr is piped");
@@ -676,7 +704,7 @@ pub async fn stopped() {
 async fn reap(mut child: Child) {
     let Some(pid) = child.id() else { return };
     let deadline = Instant::now() + EXIT_GRACE;
-    let exited = tokio::time::timeout_at(deadline, child.wait()).await.is_ok();
+    let exited = matches!(tokio::time::timeout_at(deadline, child.wait()).await, Ok(Ok(_)));
     if !exited || outlived(pid, deadline).await {
         let mut tree = if cfg!(windows) {
             let mut c = Command::new("taskkill");
@@ -698,7 +726,8 @@ async fn reap(mut child: Child) {
         let _ = tree.stdout(Stdio::null()).stderr(Stdio::null()).status().await;
     }
     // Already exited is fine; anything else is worth a log line.
-    if let Err(error) = child.kill().await
+    let finalizado = child.kill().await;
+    if let Err(error) = &finalizado
         && error.kind() != std::io::ErrorKind::InvalidInput
     {
         tracing::debug!(%error, "couldn't kill agent process");
@@ -768,7 +797,7 @@ mod tests {
             let script = r#"if IFS= read -r line; then printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"stopReason":"end_turn"}}'; fi"#;
             let mut process = Command::new("/bin/sh");
             process.args(["-c", script]);
-            let (acp, _updates) = Acp::spawn_process(process, "fixture", "/tmp", true, false, false).unwrap();
+            let (acp, _updates) = Acp::spawn_process(process, "/tmp", true, false, false, None).unwrap();
             let calls = Cell::new(0);
             let result = acp
                 .send_guarded_prompt(json!({"sessionId":"fixture","prompt":[]}), |effect| {
@@ -806,7 +835,7 @@ mod tests {
         let script = r#"printf '%s\n' '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"fixture","update":{"sessionUpdate":"current_mode_update","currentModeId":"auto"}}}'; cat"#;
         let mut process = Command::new("/bin/sh");
         process.args(["-c", script]);
-        let (acp, mut updates) = Acp::spawn_process(process, "fixture", "/tmp", true, false, true).unwrap();
+        let (acp, mut updates) = Acp::spawn_process(process, "/tmp", true, false, true, None).unwrap();
         let notification = tokio::time::timeout(Duration::from_secs(5), updates.recv()).await.unwrap();
         assert!(matches!(notification, Some(Incoming::Notification { .. })));
         let result = acp

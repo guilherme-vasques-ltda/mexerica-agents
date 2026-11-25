@@ -18,7 +18,10 @@ pub(crate) struct Fixture {
 impl Fixture {
     pub(crate) async fn new(hub: Arc<Hub>, cfg: BotConfig, command: &str) -> Result<Self> {
         let mut actor = new_actor(hub, cfg);
-        actor.conn = Some(launch::start_agent_protected(command, &actor.cfg.cwd, &[], Duration::from_secs(5)).await?);
+        actor.conn = Some(
+            launch::start_agent_protected(&command.to_owned().into(), &actor.cfg.cwd, &[], Duration::from_secs(5))
+                .await?,
+        );
         let backend = match actor.conn.as_ref().unwrap().adapter {
             Adapter::Codex => "codex",
             Adapter::Claude => "claude",

@@ -156,9 +156,9 @@ for line in sys.stdin:
     let env = vec![("CODEX_HOME".into(), profile.to_string_lossy().into_owned()), ("CODEX_CONFIG".into(), "{}".into())];
     let budget = std::time::Duration::from_secs(10);
     let conn = if background {
-        crate::agent::bot::start_background_agent(&command, cwd.to_str().expect("cwd UTF-8"), &env, budget).await
+        crate::agent::bot::start_background_agent(&command.into(), cwd.to_str().expect("cwd UTF-8"), &env, budget).await
     } else {
-        crate::agent::bot::start_agent_protected(&command, cwd.to_str().expect("cwd UTF-8"), &env, budget).await
+        crate::agent::bot::start_agent_protected(&command.into(), cwd.to_str().expect("cwd UTF-8"), &env, budget).await
     }
     .expect("initialize e auditoria motor");
     assert!(conn.config_warnings.iter().any(|w| w.message().contains("notify")));

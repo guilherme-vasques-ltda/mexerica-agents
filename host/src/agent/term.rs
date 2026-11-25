@@ -7,6 +7,7 @@
 mod login_pty;
 
 use crate::agent::backends;
+use crate::agent::registry::Comando;
 use crate::fork::autoridade::Autoridade;
 use crate::hub::Hub;
 use crate::{LockExt, api::devices::Caller};
@@ -63,7 +64,7 @@ impl Input {
 /// A linha que o PTY executa (`comando`) e o que o cabeçalho do terminal mostra (`cabecalho`):
 /// iguais, exceto no script de fornecedor, que só roda embrulhado na confirmação (GUI-145).
 struct Linha {
-    comando: String,
+    comando: Comando,
     cabecalho: String,
 }
 
@@ -220,7 +221,7 @@ impl Terms {
             Step::Node => {
                 let command =
                     format!("{} node", crate::shell::quote(&crate::service::current_exe()?.to_string_lossy()));
-                Linha { comando: command.clone(), cabecalho: command }
+                Linha { comando: command.clone().into(), cabecalho: command }
             }
             Step::Install => {
                 let h = h.ok_or_else(|| anyhow!("Mexerica downloads {name} by itself"))?;
@@ -230,7 +231,7 @@ impl Terms {
                 } else {
                     command.clone()
                 };
-                Linha { comando: linha, cabecalho: command }
+                Linha { comando: linha.into(), cabecalho: command }
             }
             // Some CLIs (codex) delete the current credentials the moment a new sign-in starts.
             Step::Login if backends::signed_in(backend) == Some(true) => bail!("{name} is already signed in"),
@@ -241,10 +242,11 @@ impl Terms {
                 } else {
                     backends::login_command(backend).await?
                 };
-                Linha { comando: command.clone(), cabecalho: command }
+                Linha { cabecalho: command.linha.clone(), comando: command }
             }
         };
-        self.spawn((backend.to_owned(), step), owner, &linha, cols, rows)
+        let (terms, key) = (self.clone(), (backend.to_owned(), step));
+        crate::fork::motor_exec::criador::criar(move || terms.spawn(key, owner, &linha, cols, rows)).await?
     }
 
     fn spawn(
@@ -257,6 +259,15 @@ impl Terms {
     ) -> Result<String> {
         self.spawn_with(key, owner, linha, cols, rows, None)
     }
+    fn existente(
+        &self,
+        key: &(String, Step),
+        owner: Option<&str>,
+        login: Option<&crate::fork::terminal_login::Login>,
+    ) -> Option<String> {
+        let map = self.0.locked();
+        map.iter().find(|(_, term)| mesmo_terminal(term, key, owner, login)).map(|(id, _)| id.clone())
+    }
     fn spawn_with(
         self: &Arc<Self>,
         key: (String, Step),
@@ -266,19 +277,11 @@ impl Terms {
         rows: u16,
         login: Option<Arc<crate::fork::terminal_login::Login>>,
     ) -> Result<String> {
-        let mut map = self.0.locked();
-        if let Some((id, _)) = map.iter().find(|(_, t)| {
-            t.key == key
-                && t.owner == owner
-                && t.output.locked().exit.is_none()
-                && match (&t.login, &login) {
-                    (Some(a), Some(b)) => a.authority == b.authority && a.space == b.space,
-                    (None, None) => true,
-                    _ => false,
-                }
-        }) {
-            return Ok(id.clone());
+        if let Some(id) = self.existente(&key, owner.as_deref(), login.as_deref()) {
+            return Ok(id);
         }
+        // Criar o processo e publicar a versão levam tempo: o mapa de terminais só é
+        // travado para decidir e registrar, nunca durante a inicialização.
         let PtyPair { master, slave } = native_pty_system().openpty(size(cols, rows))?;
         let builder = if let Some(login) = &login {
             let hub = login.hub.upgrade().ok_or_else(|| anyhow!("Login encerrado."))?;
@@ -312,8 +315,15 @@ impl Terms {
             builder.cwd(crate::fork::motor_exec::hub_cwd(&cwd));
             builder
         };
-        let child = if let Some(login) = &login {
+        let mut child = if let Some(login) = &login {
             login.deliver(|| slave.spawn_command(builder))??
+        } else if let Some(uso) = &linha.comando.uso {
+            uso.lancar(|| {
+                slave.spawn_command(builder).map_err(|e| {
+                    let categoria = e.downcast_ref::<std::io::Error>().map(std::io::Error::kind);
+                    anyhow!("Inicialização do terminal do agente falhou: categoria={categoria:?}")
+                })
+            })?
         } else {
             slave.spawn_command(builder)?
         };
@@ -332,7 +342,18 @@ impl Terms {
             term.push(format!("\x1b[2m$ {}\x1b[0m\r\n", linha.cabecalho).as_bytes());
         }
         let id = uuid::Uuid::new_v4().to_string();
-        map.insert(id.clone(), term.clone());
+        {
+            let mut map = self.0.locked();
+            if let Some((existente, _)) =
+                map.iter().find(|(_, t)| mesmo_terminal(t, &term.key, term.owner.as_deref(), term.login.as_deref()))
+            {
+                let existente = existente.clone();
+                drop(map);
+                let _ = child.kill();
+                return Ok(existente);
+            }
+            map.insert(id.clone(), term.clone());
+        }
         tracing::info!(backend = term.key.0, step = ?term.key.1, term = %id, "setup terminal started");
         if term.login.is_some() {
             tokio::spawn(login_pty::run(self.clone(), id.clone(), term, master, child, rx));
@@ -416,6 +437,22 @@ fn without_cursor_query(chunk: &[u8]) -> Option<Vec<u8>> {
     Some([&chunk[..at], &chunk[at + CURSOR_QUERY.len()..]].concat())
 }
 
+fn mesmo_terminal(
+    term: &Term,
+    key: &(String, Step),
+    owner: Option<&str>,
+    login: Option<&crate::fork::terminal_login::Login>,
+) -> bool {
+    term.key == *key
+        && term.owner.as_deref() == owner
+        && term.output.locked().exit.is_none()
+        && match (&term.login, login) {
+            (Some(a), Some(b)) => a.authority == b.authority && a.space == b.space,
+            (None, None) => true,
+            _ => false,
+        }
+}
+
 fn size(cols: u16, rows: u16) -> PtySize {
     PtySize { rows: rows.max(4), cols: cols.max(20), pixel_width: 0, pixel_height: 0 }
 }
@@ -429,7 +466,8 @@ async fn run(
     mut rx: mpsc::UnboundedReceiver<Input>,
 ) {
     let mut killer = child.clone_killer();
-    let group = crate::fork::motor_exec::Group::pty(child.process_id());
+    let pid = child.process_id();
+    let group = crate::fork::motor_exec::Group::pty(pid);
     let streams = master.try_clone_reader().and_then(|reader| Ok((reader, master.take_writer()?)));
     let (mut reader, mut writer) = match streams {
         Ok(streams) => streams,
@@ -534,7 +572,7 @@ mod tests {
                     ("confirm".into(), Step::Login),
                     None,
                     &Linha {
-                        comando: crate::fork::instalacao_script::linha_com_confirmacao(comando),
+                        comando: crate::fork::instalacao_script::linha_com_confirmacao(comando).into(),
                         cabecalho: comando.to_owned(),
                     },
                     80,
@@ -576,7 +614,7 @@ mod tests {
         } else {
             ("[ -t 0 ] && echo tty; read x; echo got-$x", "\n")
         };
-        let linha = Linha { comando: command.into(), cabecalho: command.into() };
+        let linha = Linha { comando: command.to_owned().into(), cabecalho: command.into() };
         let id = terms.spawn(("test".into(), Step::Login), None, &linha, 80, 24).unwrap();
         let term = terms.get(&id).unwrap();
         let (_, mut rx) = term.attach();
@@ -818,7 +856,7 @@ mod cancellation_tests {
             .spawn(
                 ("terminal-auth".into(), Step::Login),
                 None,
-                &Linha { comando: citado.clone(), cabecalho: citado.clone() },
+                &Linha { comando: citado.clone().into(), cabecalho: citado.clone() },
                 80,
                 24,
             )
@@ -858,7 +896,7 @@ mod linger_tests {
             .spawn(
                 ("linger".into(), Step::Login),
                 None,
-                &Linha { comando: citado.clone(), cabecalho: citado.clone() },
+                &Linha { comando: citado.clone().into(), cabecalho: citado.clone() },
                 80,
                 24,
             )

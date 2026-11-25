@@ -10,7 +10,7 @@ mod transport;
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 pub(crate) enum Request {
-    Registry { agent: Value },
+    Registry { agent: Value, protecao: Option<crate::agent::registry::Protecao> },
     Locate { name: String },
     Published { path: PathBuf },
     Node,
@@ -21,6 +21,9 @@ pub(crate) enum Request {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "result", rename_all = "snake_case", deny_unknown_fields)]
 pub(crate) enum Reply {
+    Revalidar,
+    /// Recusa tipada do instalador separado: operação e categoria, nunca texto bruto.
+    Recusa { operacao: String, categoria: String },
     Command { program: String, args: String },
     Path { path: Option<PathBuf> },
     Status { code: i32 },
@@ -39,6 +42,7 @@ use std::{
     sync::OnceLock,
 };
 static WORKER: OnceLock<bool> = OnceLock::new();
+static INSTALL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 pub(crate) fn worker() -> bool {
     *WORKER.get_or_init(|| {
@@ -116,22 +120,48 @@ fn command() -> Result<tokio::process::Command> {
     Ok(command)
 }
 pub(crate) async fn invoke(request: Request) -> Result<Reply> {
-    static INSTALL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-    if let Request::Registry { agent } = &request
-        && let Some(chave) = crate::agent::registry::chave_instalacao_binaria(agent)?
-    {
-        let reserva = crate::agent::registry::reservar_instalacao_binaria(chave).await;
-        return tokio::spawn(async move {
-            let _reserva = reserva;
-            trocar_pedido(&request).await
-        })
-        .await?;
-    }
     let _install = match &request {
         Request::Engine { action: EngineAction::Existing, .. } => None,
         _ => Some(INSTALL.lock().await),
     };
     trocar_pedido(&request).await
+}
+
+pub(crate) async fn invoke_registry(
+    request: Request,
+    reserva: Option<tokio::sync::OwnedMutexGuard<()>>,
+    marcador: Option<(String, PathBuf)>,
+) -> Result<Reply> {
+    tokio::spawn(async move {
+        let _install = if reserva.is_none() { Some(INSTALL.lock().await) } else { None };
+        let _reserva = reserva;
+        let revalidar = async {
+            let (id, marcador) = marcador.context("reserva de instalação indisponível")?;
+            crate::agent::registry::protecao_motor(&crate::service::data_dir(), id, marcador).await
+        };
+        transport::exchange_registry(command()?, &request, revalidar).await
+    })
+    .await?
+}
+
+pub(crate) struct ProtecaoRegistro {
+    pub(crate) protecao: Option<crate::agent::registry::Protecao>,
+    pub(crate) _liberar: tokio::sync::oneshot::Sender<()>,
+}
+
+pub(crate) struct ConfirmacaoRegistro {
+    entrada: std::io::BufReader<std::fs::File>,
+    saida: std::fs::File,
+}
+
+impl ConfirmacaoRegistro {
+    pub(crate) fn revalidar(mut self) -> Result<Option<crate::agent::registry::Protecao>> {
+        use std::io::Write;
+        serde_json::to_writer(&mut self.saida, &Reply::Revalidar)?;
+        self.saida.write_all(b"\n")?;
+        self.saida.flush()?;
+        transport::request(&mut self.entrada)
+    }
 }
 
 async fn trocar_pedido(request: &Request) -> Result<Reply> {
@@ -273,7 +303,8 @@ pub(crate) async fn run() -> Result<()> {
         }
         ensure!(worker(), "UID do Hub recusado no instalador");
         let mut response = transport::response_pipe()?;
-        let request: Request = transport::request()?;
+        let mut entrada = transport::request_pipe()?;
+        let request: Request = transport::request(&mut entrada)?;
         if let Request::Locate { name } = &request {
             let reply = Reply::Path { path: local_executable(Path::new(name)) };
             serde_json::to_writer(&mut response, &reply)?;
@@ -288,8 +319,21 @@ pub(crate) async fn run() -> Result<()> {
         let reply = match request {
             Request::Locate { name } => Reply::Path { path: local_executable(Path::new(&name)) },
             Request::Published { path } => Reply::Path { path: published_path(&path).ok() },
-            Request::Registry { agent } => {
-                let cmd = Box::pin(crate::agent::registry::command(&agent, |_, _| {})).await?;
+            Request::Registry { agent, protecao } => {
+                let confirmacao = ConfirmacaoRegistro { entrada, saida: response.try_clone()? };
+                let cmd = match crate::agent::registry::comando_motor(&agent, protecao, confirmacao).await {
+                    Ok(cmd) => cmd,
+                    Err(erro) => {
+                        // A recusa detalhada nasce aqui; o Hub precisa da categoria, não do texto.
+                        let recusa = erro.downcast_ref::<crate::agent::registry::Recusa>();
+                        let (operacao, categoria) = recusa.map_or(("instalar_adaptador", "falha"), |r| {
+                            (r.operacao, r.categoria)
+                        });
+                        let reply = Reply::Recusa { operacao: operacao.into(), categoria: categoria.into() };
+                        serde_json::to_writer(&mut response, &reply)?;
+                        return Err(erro);
+                    }
+                };
                 Reply::Command { program: cmd.program, args: cmd.args }
             }
             Request::Node => {

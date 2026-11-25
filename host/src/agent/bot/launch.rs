@@ -4,6 +4,7 @@
 
 use super::{Actor, Adapter, CompactionUsage, Conn, SessionCaps};
 use crate::agent::acp::{self, Acp};
+use crate::agent::registry::Comando;
 use crate::fork::activity_code::ActivityKind;
 use crate::store::BotConfig;
 use anyhow::{Context, Result, anyhow, ensure};
@@ -145,7 +146,7 @@ pub(crate) async fn launch_commands(
     store: &crate::store::Store,
     cfg: &BotConfig,
     progress: impl Fn(&str, Option<ActivityKind>),
-) -> Result<Vec<String>> {
+) -> Result<Vec<Comando>> {
     crate::agent::backends::require_supported_execution(&cfg.backend).map_err(|e| EngineNotReady::wrap(&e))?;
     if crate::fork::motores_retirados::retirado(&cfg.backend) {
         return Err(EngineNotReady(crate::fork::motores_retirados::msg_lancar(&cfg.backend)).into());
@@ -157,12 +158,15 @@ pub(crate) async fn launch_commands(
     if cfg.fork_editor.engine_account_id.is_some() {
         // Conta Grok: só o executável gravado na conta, nunca um candidato do PATH ou do catálogo.
         if cfg.backend == "grok" {
-            return crate::fork::engine_accounts::managed::recorded_command(store, cfg);
+            return Ok(crate::fork::engine_accounts::managed::recorded_command(store, cfg)?
+                .into_iter()
+                .map(Comando::from)
+                .collect());
         }
         return crate::fork::engine_accounts::managed::adapter_commands(&cfg.backend).await;
     }
     Ok(match cfg.command.as_deref().map(str::trim) {
-        Some(c) if !c.is_empty() => vec![c.to_owned()],
+        Some(c) if !c.is_empty() => vec![c.to_owned().into()],
         _ => crate::agent::backends::launch_candidates(&cfg.backend, progress)
             .await
             .map_err(|e| EngineNotReady::wrap(&e))?
@@ -297,12 +301,17 @@ pub(crate) async fn start_mexerica(
 }
 
 /// Spawns an ACP agent and completes the `initialize` handshake.
-pub(crate) async fn start_agent(command: &str, cwd: &str, env: &[(String, String)], budget: Duration) -> Result<Conn> {
+pub(crate) async fn start_agent(
+    command: &Comando,
+    cwd: &str,
+    env: &[(String, String)],
+    budget: Duration,
+) -> Result<Conn> {
     start_agent_mode(command, cwd, env, budget, false, false).await
 }
 
 pub(crate) async fn start_agent_protected(
-    command: &str,
+    command: &Comando,
     cwd: &str,
     env: &[(String, String)],
     budget: Duration,
@@ -311,7 +320,7 @@ pub(crate) async fn start_agent_protected(
 }
 
 pub(crate) async fn start_background_agent(
-    command: &str,
+    command: &Comando,
     cwd: &str,
     env: &[(String, String)],
     budget: Duration,
@@ -328,20 +337,14 @@ async fn stop_failed(acp: &Acp, wait: bool) {
 }
 
 async fn start_agent_mode(
-    command: &str,
+    command: &Comando,
     cwd: &str,
     env: &[(String, String)],
     budget: Duration,
     protected: bool,
     wait_on_failure: bool,
 ) -> Result<Conn> {
-    let (acp, rx) = if protected {
-        Acp::spawn_protected(command, cwd, env)?
-    } else if wait_on_failure {
-        Acp::spawn_background(command, cwd, env)?
-    } else {
-        Acp::spawn(command, cwd, env)?
-    };
+    let (acp, rx) = Acp::spawn_registered(command, cwd, env, protected, wait_on_failure).await?;
     finish_launch(acp, rx, env, budget, wait_on_failure).await
 }
 

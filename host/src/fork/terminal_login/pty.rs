@@ -31,7 +31,7 @@ impl Terms {
         self.spawn_with(
             (login.backend.clone(), Step::Login),
             owner,
-            &Linha { comando: String::new(), cabecalho: String::new() },
+            &Linha { comando: String::new().into(), cabecalho: String::new() },
             cols,
             rows,
             Some(login),
@@ -49,7 +49,7 @@ impl Terms {
         self.spawn_with(
             (backend.into(), Step::Login),
             Some(caller.device_key().into()),
-            &Linha { comando: String::new(), cabecalho: String::new() },
+            &Linha { comando: String::new().into(), cabecalho: String::new() },
             80,
             24,
             Some(login),
@@ -79,7 +79,7 @@ impl Terms {
         self.spawn_with(
             (backend.into(), Step::Login),
             Some(caller.device_key().into()),
-            &Linha { comando: String::new(), cabecalho: String::new() },
+            &Linha { comando: String::new().into(), cabecalho: String::new() },
             80,
             24,
             Some(login),

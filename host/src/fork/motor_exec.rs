@@ -3,6 +3,7 @@ use std::path::Path;
 use tokio::process::Command;
 
 mod child;
+pub(crate) mod criador;
 #[cfg(all(test, unix))]
 pub(crate) use child::fixture;
 #[cfg(unix)]
