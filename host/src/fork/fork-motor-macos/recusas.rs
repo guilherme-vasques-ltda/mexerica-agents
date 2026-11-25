@@ -46,20 +46,23 @@ pub(super) fn preparar(db: &Connection) -> Result<()> {
 }
 
 /// Grava a recusa uma única vez, sem repetição: o erro propaga e o chamador
-/// nega sem efeito. Só aceita o pedido tipado e o motivo fechado.
+/// nega sem efeito. Só aceita o pedido opaco e o motivo fechado; o registro é
+/// append-only, sem deduplicação (a unicidade de série entre portas ainda não
+/// está provada).
 pub(super) fn registrar(db: &Connection, pedido: Pedido, motivo: Motivo, instante_ms: u64) -> Result<()> {
     exigir_durabilidade(db)?;
+    let escopo = pedido.escopo();
     db.execute(
         "INSERT INTO recusas_motor_macos
              (titular, dispositivo, bot, sessao, geracao, serie, motivo, instante_ms)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
-            i64_sql(pedido.escopo.titular.get(), "titular")?,
-            i64_sql(pedido.escopo.dispositivo.get(), "dispositivo")?,
-            i64_sql(pedido.escopo.bot.get(), "bot")?,
-            i64_sql(pedido.escopo.sessao.get(), "sessão")?,
-            i64_sql(pedido.escopo.geracao.get(), "geração")?,
-            i64_sql(pedido.serie, "série")?,
+            i64_sql(escopo.titular.get(), "titular")?,
+            i64_sql(escopo.dispositivo.get(), "dispositivo")?,
+            i64_sql(escopo.bot.get(), "bot")?,
+            i64_sql(escopo.sessao.get(), "sessão")?,
+            i64_sql(escopo.geracao.get(), "geração")?,
+            i64_sql(pedido.serie(), "série")?,
             motivo.codigo(),
             i64_sql(instante_ms, "instante")?,
         ],

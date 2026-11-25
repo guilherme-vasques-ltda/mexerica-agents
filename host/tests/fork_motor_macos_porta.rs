@@ -26,6 +26,9 @@ fn aviso_nao_concede_e_so_aceite_do_escopo_abre_pedido() {
     porta.aceitar_aviso(escopo()).unwrap();
     assert_eq!(porta.pedir(Acao::Apagar(Alvo::Proibido), 0), Err(Recusa::AlvoProibido));
     let pedido = porta.pedir(acao(), 0).unwrap();
+    // A interface do pedido é somente leitura: escopo e série saem da porta, nunca entram.
+    assert_eq!(pedido.escopo(), escopo());
+    assert_eq!(pedido.serie(), 1);
     assert_eq!(porta.resolver(pedido, outro, Decisao::UmaVez, 1), Err(Recusa::Escopo));
     assert_eq!(porta.efetuar(pedido, acao(), || 1, |_, _, _| true, |_| panic!()), Err(Recusa::SemDecisao));
 }

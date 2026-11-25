@@ -134,11 +134,14 @@ fn falha_ao_gravar_expiracao_fecha_a_porta_sem_efeito() {
 }
 
 #[test]
-fn recusa_explicita_grava_uma_vez_e_o_pedido_morre() {
+fn recusa_explicita_grava_e_o_pedido_morre() {
     let (_dir, db) = db_sintetico();
     let mut porta = Porta::nova(escopo());
     porta.aceitar_aviso(escopo()).unwrap();
     let pedido = porta.pedir(acao(), 0).unwrap();
+    // Interface somente leitura do pedido: a série só sai da porta, nunca entra.
+    assert_eq!(pedido.escopo(), escopo());
+    assert_eq!(pedido.serie(), 1);
     porta.resolver(pedido, escopo(), Decisao::Negar, 2).unwrap();
     recusas::registrar(&db, pedido, Motivo::Negada, 2).expect("persistir recusa explícita");
     // Segundo clique na mesma decisão não grava duas vezes nem revive o pedido.
@@ -148,6 +151,29 @@ fn recusa_explicita_grava_uma_vez_e_o_pedido_morre() {
         Err(Recusa::PedidoInvalido)
     );
     assert_eq!(linhas(&db), vec![(1, "negada".to_owned(), 2)]);
+}
+
+#[test]
+fn registro_sem_deduplicacao_enquanto_serie_recomeca_por_porta() {
+    let (_dir, db) = db_sintetico();
+    let mut primeira = Porta::nova(escopo());
+    primeira.aceitar_aviso(escopo()).unwrap();
+    let mut segunda = Porta::nova(escopo());
+    segunda.aceitar_aviso(escopo()).unwrap();
+    let pedido_negado = primeira.pedir(acao(), 0).unwrap();
+    let pedido_fechado = segunda.pedir(acao(), 0).unwrap();
+    primeira.resolver(pedido_negado, escopo(), Decisao::Negar, 1).unwrap();
+    segunda.parar(2);
+    recusas::registrar(&db, pedido_negado, Motivo::Negada, 1).expect("persistir recusa explícita");
+    recusas::registrar(&db, pedido_fechado, Motivo::Fechada, 2).expect("persistir recusa do fechamento");
+    // Duas portas do mesmo escopo recomeçam a série: unicidade aqui corromperia o registro.
+    assert_eq!(pedido_negado.serie(), pedido_fechado.serie());
+    // Repetir a mesma gravação acumula: o registro é append-only, sem deduplicação.
+    recusas::registrar(&db, pedido_negado, Motivo::Negada, 3).expect("persistir repetição da recusa");
+    assert_eq!(
+        linhas(&db),
+        vec![(1, "negada".to_owned(), 1), (1, "fechada".to_owned(), 2), (1, "negada".to_owned(), 3)]
+    );
 }
 
 #[test]
