@@ -8,6 +8,9 @@ export interface Rc2ChildHandle {
   terminate(): void
   kill(): void
   exited: Promise<void>
+  // Sonda obrigatória de descendentes vivos no grupo: sem prova de grupo morto não há
+  // encerramento confirmado; erro na sonda conta como sobrevivente.
+  survivors(): number | Promise<number>
 }
 
 export interface Rc2Connection {
@@ -25,17 +28,21 @@ export function nativeRc2Transport(): Rc2Transport | null {
 
 export interface Rc2Deadlines {
   open: number
+  hello: number
   close: number
   eof: number
   sigterm: number
   sigkill: number
+  // Intervalo da re-consulta da sonda de sobreviventes; a coerência com os prazos das etapas
+  // de escalonamento é exigida na construção: a sonda tem de poder disparar dentro de cada prazo.
+  probe: number
 }
 
 export type Rc2Schedule = (ms: number, fire: () => void) => () => void
 
-const defaultDeadlines: Rc2Deadlines = { open: 15000, close: 5000, eof: 2000, sigterm: 5000, sigkill: 5000 }
+const defaultDeadlines: Rc2Deadlines = { open: 15000, hello: 10000, close: 5000, eof: 2000, sigterm: 5000, sigkill: 5000, probe: 50 }
 
-const deadlineKeys = ['open', 'close', 'eof', 'sigterm', 'sigkill'] as const
+const deadlineKeys = ['open', 'hello', 'close', 'eof', 'sigterm', 'sigkill', 'probe'] as const
 
 const maxDeadline = 2 ** 31 - 1
 
@@ -76,6 +83,8 @@ export class Rc2HubLifecycle {
           entries.some(([, value]) => typeof value !== 'number' || !Number.isFinite(value) || value <= 0 || value > maxDeadline)) {
         throw new Error('invalid_rc2_deadlines')
       }
+      const { eof, sigterm, sigkill, probe } = options.deadlines
+      if (probe > eof || probe > sigterm || probe > sigkill) throw new Error('invalid_rc2_deadlines')
     }
     this.#schedule = options.schedule ?? defaultSchedule
   }
@@ -100,14 +109,47 @@ export class Rc2HubLifecycle {
 
   // Uma exceção em uma etapa do escalonamento não interrompe as seguintes: cada
   // sinal é tentado isoladamente e o resultado só é confirmado pelo close observado.
+  // O encerramento alcança o filho e seus descendentes: confirmar exige o processo
+  // morto e a sonda de sobreviventes zerando, re-consultada até o prazo da etapa.
+  #groupDead(child: Rc2ChildHandle, ms: number): Promise<boolean> {
+    return new Promise(resolve => {
+      let done = false
+      let cancelDeadline = () => { }
+      let cancelTick = () => { }
+      const finish = (value: boolean) => {
+        if (done) return
+        done = true
+        cancelDeadline()
+        cancelTick()
+        resolve(value)
+      }
+      cancelDeadline = this.#schedule(ms, () => finish(false))
+      void (async () => {
+        try {
+          await child.exited
+          for (;;) {
+            if (done) return
+            // Erro da sonda conta como sobrevivente e segue re-consultado até o prazo da etapa;
+            // só a rejeição de exited encerra a etapa sem confirmação.
+            let survivors = 1
+            try { survivors = await Promise.resolve(child.survivors()) } catch { /* sobrevivente */ }
+            if (survivors === 0) return finish(true)
+            if (done) return
+            await new Promise<void>(resume => { cancelTick = this.#schedule(this.#deadlines.probe, () => resume()) })
+          }
+        } catch { finish(false) }
+      })()
+    })
+  }
+
   async #reap(child: Rc2ChildHandle | undefined): Promise<boolean> {
     if (!child) return true
     try { child.end() } catch { /* segue para o SIGTERM */ }
-    if (await this.#settled(child.exited, this.#deadlines.eof)) return true
+    if (await this.#groupDead(child, this.#deadlines.eof)) return true
     try { child.terminate() } catch { /* segue para o SIGKILL */ }
-    if (await this.#settled(child.exited, this.#deadlines.sigterm)) return true
+    if (await this.#groupDead(child, this.#deadlines.sigterm)) return true
     try { child.kill() } catch { /* a ausência de close decide o estado */ }
-    return this.#settled(child.exited, this.#deadlines.sigkill)
+    return this.#groupDead(child, this.#deadlines.sigkill)
   }
 
   async #discard(connection: Rc2Connection): Promise<void> {
@@ -147,11 +189,14 @@ export class Rc2HubLifecycle {
   async start(): Promise<boolean> {
     const transport = this.#transport
     if (!transport || this.#unsafeToRestart) return false
+    // A drenagem em curso já decidiu: nova partida espera o close confirmar e é recusada sem fila,
+    // inclusive a disparada por listener de abort, handler de exited ou descarte da geração morta.
+    if (this.#draining) return false
     const session = this.#session()
-    const draining = this.#generation && this.#generation.session !== session ? this.stop() : this.#draining
-    if (draining) {
-      const stopped = this.#stops
-      if (!(await draining) || stopped !== this.#stops) return false
+    if (this.#generation && this.#generation.session !== session) {
+      const draining = this.stop()
+      const stops = this.#stops
+      if (!(await draining) || stops !== this.#stops) return false
     }
     if (!session || this.#session() !== session) return false
     if (!this.#generation) {
@@ -202,10 +247,28 @@ export class Rc2HubLifecycle {
     const opened = await this.#raceOpened(generation.opened)
     const connection = opened.timedOut ? null : opened.value
     if (!connection || !this.#current(generation)) return null
-    try {
-      const { computerId, hostId } = await connection.hello()
-      return this.#current(generation) ? { computerId, hostId } : null
-    } catch { return null }
+    let cancelAbort = () => { }
+    const aborted = new Promise<null>(resolve => {
+      const done = () => resolve(null)
+      if (generation.abort.signal.aborted) done()
+      else generation.abort.signal.addEventListener('abort', done, { once: true })
+      cancelAbort = () => generation.abort.signal.removeEventListener('abort', done)
+    })
+    // Nenhum hello sem prazo: expirado, o filho e a conexão são encerrados pela invalidação.
+    // A chamada é adiada para que exceção síncrona do transporte caia no mesmo tratamento.
+    const reply = await new Promise<Rc2Hello | null | false>(resolve => {
+      const cancelTimer = this.#schedule(this.#deadlines.hello, () => resolve(false))
+      Promise.race([Promise.resolve().then(() => connection.hello()), aborted]).then(
+        value => { cancelTimer(); resolve(value) },
+        () => { cancelTimer(); resolve(null) })
+    })
+    cancelAbort()
+    if (reply === false) {
+      if (this.#generation === generation) await this.#invalidate(generation)
+      else if (this.#draining) await this.#draining
+      return null
+    }
+    return reply && this.#current(generation) ? reply : null
   }
 
   async *events(): AsyncGenerator<string> {

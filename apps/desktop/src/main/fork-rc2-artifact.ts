@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto'
-import { lstatSync, readFileSync, realpathSync } from 'node:fs'
+import { closeSync, fstatSync, lstatSync, openSync, readFileSync, realpathSync } from 'node:fs'
 import { isAbsolute, join, normalize, parse, sep } from 'node:path'
 import type { Stats } from 'node:fs'
 import { rcPaths } from '../shared/fork-rc-profile.ts'
-import { rc2Paths, type Rc2Component } from '../shared/fork-rc2-profile.ts'
+import { rc2Paths, type Rc2Component, type Rc2ComponentRole } from '../shared/fork-rc2-profile.ts'
+import { verifyRc2AdHocSignature } from './fork-rc2-cdhash.ts'
 
 const invalid = () => new Error('invalid_rc2_artifact')
 
@@ -13,32 +14,67 @@ function machoArm64(bytes: Buffer): boolean {
 
 const sha256 = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex')
 
-// Cada componente do caminho é conferido por `lstat`: nenhum pode ser link, os
-// intermediários têm de ser diretórios e o último, arquivo regular. O caminho
-// resolvido ainda tem de continuar dentro da raiz resolvida.
-export function verifyRc2Artifact(root: string, components: Rc2Component[]): string[] {
-  if (!Array.isArray(components) || !components.some(component => component.role === 'hub')) throw invalid()
-  const verified: string[] = []
-  for (const component of components) {
-    const segments = component.path.split('/')
-    let resolvedRoot: string
-    let path = root
-    try {
-      resolvedRoot = realpathSync(root)
-      for (const [index, segment] of segments.entries()) {
-        path = join(path, segment)
-        const stat: Stats = lstatSync(path)
-        if (stat.isSymbolicLink()) throw invalid()
-        if (index < segments.length - 1 && !stat.isDirectory()) throw invalid()
-        if (index === segments.length - 1 && !stat.isFile()) throw invalid()
+export interface Rc2VerifiedComponent {
+  role: Rc2ComponentRole
+  path: string
+  // Descritor fixado na verificação: checagem e lançamento futuro usam este objeto, nunca o caminho.
+  fd: number
+}
+
+export interface Rc2VerifiedArtifact {
+  components: Rc2VerifiedComponent[]
+  close(): void
+}
+
+function verifyComponent(root: string, component: Rc2Component): number {
+  const segments = component.path.split('/')
+  let resolvedRoot: string
+  let path = root
+  let inspected: Stats | undefined
+  try {
+    resolvedRoot = realpathSync(root)
+    for (const [index, segment] of segments.entries()) {
+      path = join(path, segment)
+      const stat: Stats = lstatSync(path)
+      if (stat.isSymbolicLink()) throw invalid()
+      if (index < segments.length - 1 && !stat.isDirectory()) throw invalid()
+      if (index === segments.length - 1) {
+        if (!stat.isFile()) throw invalid()
+        inspected = stat
       }
-      if (realpathSync(path) !== join(resolvedRoot, ...segments)) throw invalid()
-      const bytes = readFileSync(path)
+    }
+    if (!inspected || realpathSync(path) !== join(resolvedRoot, ...segments)) throw invalid()
+    // Fixa o objeto: o descritor aberto tem de ser o mesmo inode inspecionado no caminho.
+    const fd = openSync(path, 'r')
+    try {
+      const pinned = fstatSync(fd)
+      if (!pinned.isFile() || pinned.dev !== inspected.dev || pinned.ino !== inspected.ino ||
+          pinned.size !== inspected.size) throw invalid()
+      const bytes = readFileSync(fd)
       if (!machoArm64(bytes) || sha256(bytes) !== component.sha256) throw invalid()
-    } catch { throw invalid() }
-    verified.push(component.path)
+      verifyRc2AdHocSignature(bytes, component.cdhash)
+    } catch (error) {
+      // Nenhuma recusa deixa descritor aberto: o objeto fixado morre com a verificação que falhou.
+      try { closeSync(fd) } catch { /* já fechado */ }
+      throw error
+    }
+    return fd
+  } catch { throw invalid() }
+}
+
+export function verifyRc2Artifact(root: string, components: Rc2Component[]): Rc2VerifiedArtifact {
+  if (!Array.isArray(components) || !components.some(component => component.role === 'hub')) throw invalid()
+  const verified: Rc2VerifiedComponent[] = []
+  const close = () => { for (const component of verified) { try { closeSync(component.fd) } catch { /* já fechado */ } } }
+  try {
+    for (const component of components) {
+      verified.push({ role: component.role, path: component.path, fd: verifyComponent(root, component) })
+    }
+  } catch (error) {
+    close()
+    throw error
   }
-  return verified
+  return { components: verified, close }
 }
 
 export const rc2PathOverlaps = (path: string, root: string): boolean => {

@@ -10,6 +10,7 @@ import * as fsModule from 'node:fs'
 import * as pathModule from 'node:path'
 import * as cryptoModule from 'node:crypto'
 import * as rcProfileModule from '../shared/fork-rc-profile.ts'
+import { assinarArm64 } from '../shared/test-support/rc2-assinatura.ts'
 import { rcPaths } from '../shared/fork-rc-profile.ts'
 import * as profileModule from '../shared/fork-rc2-profile.ts'
 import { compileRc2Profile, rc2ManifestPath, rc2Paths, rc2PathsIsolated, rc2Components, validateRc2Bootstrap } from '../shared/fork-rc2-profile.ts'
@@ -22,9 +23,10 @@ const profile = {
   profile: 'rc2-local', version, appId: 'app.mexerica.mac.rc2',
   name: 'Mexerica RC 2', scheme: 'mexerica-rc2', packageName: 'mexerica-rc2',
 }
-const hubBytes = Buffer.concat([Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 0x0c, 0x00, 0x00, 0x01]), Buffer.alloc(24)])
-const hubSha256 = createHash('sha256').update(hubBytes).digest('hex')
-const components = [{ role: 'hub', path: 'donnabot-host', arch: 'arm64', sha256: hubSha256, cdhash: 'ab'.repeat(20) }]
+const hubAssinado = assinarArm64('fixture do hub rc.2 da entrada empacotada')
+const hubBytes = hubAssinado.bytes
+const hubSha256 = hubAssinado.sha256
+const components = [{ role: 'hub', path: 'donnabot-host', arch: 'arm64', sha256: hubSha256, cdhash: hubAssinado.cdhash }]
 
 test('só o modo explícito compila o perfil local para a candidata exata em ARM64', () => {
   for (const other of ['official-rc', 'official', 'open', 'development']) {
@@ -172,10 +174,10 @@ test('entrada empacotada verifica manifesto e binários do artefato antes de qua
     let transportLookups = 0
     const recordingFs = new Proxy(fsModule, { get: (target, key: string) => {
       accesses.push(key)
-      if (key === 'readFileSync' || key === 'lstatSync') {
-        return (path: string, ...rest: unknown[]) => {
+      if (key === 'readFileSync' || key === 'lstatSync' || key === 'openSync' || key === 'fstatSync') {
+        return (path: string | number, ...rest: unknown[]) => {
           reads.push(`${key}:${path}`)
-          const read = (target as unknown as Record<string, (path: string, ...rest: unknown[]) => unknown>)[key]
+          const read = (target as unknown as Record<string, (path: string | number, ...rest: unknown[]) => unknown>)[key]
           return read(path, ...rest)
         }
       }
@@ -184,6 +186,7 @@ test('entrada empacotada verifica manifesto e binários do artefato antes de qua
     const artifact = source('./fork-rc2-artifact.ts', {
       'node:crypto': cryptoModule, 'node:fs': recordingFs, 'node:path': pathModule,
       '../shared/fork-rc2-profile.ts': profileModule, '../shared/fork-rc-profile.ts': rcProfileModule,
+      './fork-rc2-cdhash.ts': source('./fork-rc2-cdhash.ts', { 'node:crypto': cryptoModule }, { Buffer }),
     })
     source('./fork-rc2-entry.ts', {
       'node:fs': recordingFs, 'node:path': pathModule,
@@ -208,7 +211,9 @@ test('entrada empacotada verifica manifesto e binários do artefato antes de qua
     const { accesses, reads, exits, transportLookups } = run('arm64', compiled.pin)
     assert.deepEqual(exits, [1], tamper.label)
     assert.equal(transportLookups, 0, tamper.label)
-    assert.ok(reads[reads.length - 1].startsWith(`lstatSync:${hubPath}`) || reads[reads.length - 1].startsWith(`readFileSync:${hubPath}`), tamper.label)
+    // a recusa acontece na etapa mais cedo possível: inspeção do caminho ou leitura pelo descritor fixado
+    const porCaminho = tamper.label === 'binário ausente' || tamper.label === 'link simbólico'
+    assert.ok(porCaminho ? reads[reads.length - 1] === `lstatSync:${hubPath}` : /^readFileSync:\d+$/.test(reads[reads.length - 1]), tamper.label)
     assert.ok(!accesses.includes('writeFileSync') && !accesses.includes('mkdirSync') && !accesses.includes('appendFileSync'), tamper.label)
     rmSync(hubPath, { force: true })
   }
@@ -216,14 +221,20 @@ test('entrada empacotada verifica manifesto e binários do artefato antes de qua
   const good = run('arm64', compiled.pin)
   assert.deepEqual(good.exits, [1])
   assert.equal(good.transportLookups, 1)
-  const firstArtifactRead = good.reads.indexOf(`lstatSync:${hubPath}`)
-  assert.ok(firstArtifactRead > 2)
+  const hubLstat = good.reads.indexOf(`lstatSync:${hubPath}`)
+  assert.ok(hubLstat > 2)
+  const hubOpen = good.reads.indexOf(`openSync:${hubPath}`)
+  assert.ok(hubOpen === hubLstat + 1, 'o descritor é aberto logo após a inspeção do caminho')
+  const fd = good.reads[hubOpen + 1].split(':')[1]
+  assert.equal(good.reads[hubOpen + 1], `fstatSync:${fd}`)
   assert.deepEqual(good.reads, [
     `readFileSync:${join(project, 'package.json')}`,
     `readFileSync:${join(project, 'resources', rc2ManifestPath)}`,
-    ...good.reads.slice(2, firstArtifactRead).filter(read => read.startsWith('lstatSync:')),
+    ...good.reads.slice(2, hubLstat).filter(read => read.startsWith('lstatSync:')),
     `lstatSync:${hubPath}`,
-    `readFileSync:${hubPath}`,
+    `openSync:${hubPath}`,
+    `fstatSync:${fd}`,
+    `readFileSync:${fd}`,
   ])
   assert.ok(!good.accesses.includes('writeFileSync') && !good.accesses.includes('mkdirSync'))
   const overlappingExits: number[] = []
@@ -236,6 +247,7 @@ test('entrada empacotada verifica manifesto e binários do artefato antes de qua
     './fork-rc2-artifact.ts': source('./fork-rc2-artifact.ts', {
       'node:crypto': cryptoModule, 'node:fs': fsModule, 'node:path': pathModule,
       '../shared/fork-rc2-profile.ts': profileModule, '../shared/fork-rc-profile.ts': rcProfileModule,
+      './fork-rc2-cdhash.ts': source('./fork-rc2-cdhash.ts', { 'node:crypto': cryptoModule }, { Buffer }),
     }),
     './fork-rc2-local-hub.ts': { nativeRc2Transport },
   }, { process: { platform: 'darwin', arch: 'arm64', resourcesPath: join(project, 'resources') },
@@ -452,7 +464,7 @@ function manualClock() {
   return { schedule, fire: () => { for (const fire of pending.splice(0)) fire() } }
 }
 
-const shortDeadlines = { open: 1, close: 1, eof: 1, sigterm: 1, sigkill: 1 }
+const shortDeadlines = { open: 1, hello: 1, close: 1, eof: 1, sigterm: 1, sigkill: 1, probe: 1 }
 
 function fakeChild(diesOn: { end?: boolean; terminate?: boolean; kill?: boolean } = {}) {
   const calls: string[] = []
@@ -465,6 +477,7 @@ function fakeChild(diesOn: { end?: boolean; terminate?: boolean; kill?: boolean 
     terminate: () => { calls.push('terminate'); if (diesOn.terminate) die() },
     kill: () => { calls.push('kill'); if (diesOn.kill !== false) die() },
     exited,
+    survivors: () => 0,
   }
   return { child, calls, die, fail }
 }
@@ -710,13 +723,17 @@ test('prazos ausentes, nulos, negativos ou de tipo errado são recusados na cons
   const session = () => sessionValue
   const transport = async () => connectionFixture(undefined, async () => {})
   for (const deadlines of [
-    {}, { open: 0, close: 1, eof: 1, sigterm: 1, sigkill: 1 },
-    { open: -1, close: 1, eof: 1, sigterm: 1, sigkill: 1 },
-    { open: 1, close: 1, eof: 1, sigterm: 1 },
-    { open: 1, close: 1, eof: 1, sigterm: 1, sigkill: 1, extra: 1 },
-    { open: Number.NaN, close: 1, eof: 1, sigterm: 1, sigkill: 1 },
-    { open: '1', close: 1, eof: 1, sigterm: 1, sigkill: 1 },
-    { open: 2 ** 31, close: 1, eof: 1, sigterm: 1, sigkill: 1 },
+    {}, { open: 0, hello: 1, close: 1, eof: 1, sigterm: 1, sigkill: 1, probe: 1 },
+    { open: -1, hello: 1, close: 1, eof: 1, sigterm: 1, sigkill: 1, probe: 1 },
+    { open: 1, hello: 1, close: 1, eof: 1, sigterm: 1, probe: 1 },
+    { open: 1, hello: 0, close: 1, eof: 1, sigterm: 1, sigkill: 1, probe: 1 },
+    { open: 1, hello: 1, close: 1, eof: 1, sigterm: 1, sigkill: 1 },
+    { open: 1, hello: 1, close: 1, eof: 1, sigterm: 1, sigkill: 2, probe: 3 },
+    { open: 1, hello: 1, close: 1, eof: 2, sigterm: 1, sigkill: 1, probe: 2 },
+    { open: 1, hello: 1, close: 1, eof: 1, sigterm: 1, sigkill: 1, extra: 1 },
+    { open: 1, hello: Number.NaN, close: 1, eof: 1, sigterm: 1, sigkill: 1, probe: 1 },
+    { open: '1', hello: 1, close: 1, eof: 1, sigterm: 1, sigkill: 1, probe: 1 },
+    { open: 2 ** 31, hello: 1, close: 1, eof: 1, sigterm: 1, sigkill: 1, probe: 1 },
   ]) assert.throws(() => new Rc2HubLifecycle(session, transport, { deadlines: deadlines as never, schedule: manualClock().schedule }), /invalid_rc2_deadlines/)
   assert.ok(new Rc2HubLifecycle(session, transport, { deadlines: shortDeadlines, schedule: manualClock().schedule }))
 })
@@ -765,7 +782,7 @@ test('abertura pendurada não prende hello nem eventos além do prazo', async ()
   assert.deepEqual(closed, ['late'])
 })
 
-test('start disparado por listener de abort espera a drenagem anterior concluir', async () => {
+test('start disparado por listener de abort é recusado enquanto o close não confirma', async () => {
   const clock = manualClock()
   const { child: firstChild } = fakeChild({ end: true })
   const { child: secondChild } = fakeChild({ end: true })
@@ -783,11 +800,224 @@ test('start disparado por listener de abort espera a drenagem anterior concluir'
   assert.equal(await lifecycle.start(), true)
   const stopped = lifecycle.stop()
   assert.ok(sneaky)
-  await flush()
+  assert.equal(await sneaky, false)
   assert.equal(opens, 1)
   closePending.resolve()
-  assert.equal(await sneaky, true)
-  assert.equal(opens, 2)
   assert.equal(await stopped, true)
+  assert.equal(opens, 1, 'nenhuma abertura entre a parada e a confirmação do close')
   await lifecycle.stop()
+})
+
+test('start que chega durante drenagem alheia é recusado sem fila', async () => {
+  const clock = manualClock()
+  const { child } = fakeChild({ end: true })
+  const closePending = deferred<void>()
+  let session: object | null = {}
+  const lifecycle = new Rc2HubLifecycle(() => session, async () => connectionFixture(child, () => closePending.promise),
+    { deadlines: shortDeadlines, schedule: clock.schedule })
+  assert.equal(await lifecycle.start(), true)
+  const stopped = lifecycle.stop()
+  const late = lifecycle.start()
+  assert.equal(await late, false)
+  closePending.resolve()
+  assert.equal(await stopped, true)
+  assert.equal(await lifecycle.start(), true, 'depois do close confirmado a partida é decisão nova do chamador')
+  await lifecycle.stop()
+})
+
+test('hello sem resposta dentro do prazo encerra filho e conexão e invalida a geração', async () => {
+  const clock = manualClock()
+  const { child, calls } = fakeChild({ end: true })
+  const closed: string[] = []
+  let helloCalls = 0
+  let session: object | null = {}
+  const reply = deferred<{ computerId: string, hostId: string }>()
+  const lifecycle = new Rc2HubLifecycle(() => session, async () => ({
+    hello: () => { helloCalls++; return reply.promise },
+    async *events() { yield '{"type":"hello"}' },
+    close: async () => { closed.push('connection') },
+    child,
+  }), { deadlines: shortDeadlines, schedule: clock.schedule })
+  assert.equal(await lifecycle.start(), true)
+  const pendingHello = lifecycle.hello()
+  await flush()
+  assert.equal(helloCalls, 1)
+  clock.fire()
+  assert.equal(await pendingHello, null)
+  assert.deepEqual(calls, ['end'])
+  assert.deepEqual(closed, ['connection'])
+  assert.equal(await lifecycle.hello(), null)
+  assert.equal(await lifecycle.start(), true, 'reabertura permitida porque o encerramento confirmou no prazo')
+  reply.resolve({ computerId: 'tardia', hostId: 'tardia' })
+  await lifecycle.stop()
+})
+
+test('hello pendente é cancelado pela parada sem esperar resposta nem prazo', async () => {
+  const clock = manualClock()
+  const { child } = fakeChild({ end: true })
+  const reply = deferred<{ computerId: string, hostId: string }>()
+  let session: object | null = {}
+  const lifecycle = new Rc2HubLifecycle(() => session, async () => ({
+    hello: () => reply.promise,
+    async *events() {},
+    close: async () => {},
+    child,
+  }), { deadlines: shortDeadlines, schedule: clock.schedule })
+  assert.equal(await lifecycle.start(), true)
+  const pendingHello = lifecycle.hello()
+  await flush()
+  const stopped = lifecycle.stop()
+  assert.equal(await pendingHello, null)
+  reply.resolve({ computerId: 'tardia', hostId: 'tardia' })
+  assert.equal(await stopped, true)
+  assert.equal(await lifecycle.hello(), null)
+})
+
+test('hello rejeitado pelo transporte devolve null sem invalidar a geração', async () => {
+  let attempts = 0
+  let session: object | null = {}
+  const lifecycle = new Rc2HubLifecycle(() => session, async () => ({
+    hello: () => { if (++attempts === 1) return Promise.reject(new Error('fixture_hello_failure')); return Promise.resolve({ ...helloFixture }) },
+    async *events() {},
+    close: async () => {},
+  }), { deadlines: shortDeadlines, schedule: manualClock().schedule })
+  assert.equal(await lifecycle.start(), true)
+  assert.equal(await lifecycle.hello(), null)
+  assert.deepEqual(await lifecycle.hello(), { ...helloFixture }, 'a geração segue viva')
+  await lifecycle.stop()
+})
+
+test('filho morto com descendente vivo só confirma depois que o sinal de grupo alcança o sobrevivente', async () => {
+  const clock = manualClock()
+  const { child, calls, die } = fakeChild()
+  const grupoMorto = deferred<void>()
+  const comDescendente: Rc2ChildHandle = {
+    ...child,
+    kill: () => { calls.push('kill'); grupoMorto.resolve(); die() },
+    survivors: async () => { await grupoMorto.promise; return 0 },
+  }
+  let session: object | null = {}
+  const lifecycle = new Rc2HubLifecycle(() => session, async () => connectionFixture(comDescendente, async () => {}),
+    { deadlines: shortDeadlines, schedule: clock.schedule })
+  assert.equal(await lifecycle.start(), true)
+  const stopped = lifecycle.stop()
+  await flush()
+  assert.deepEqual(calls, ['end'], 'filho morto, sonda do grupo pendurada: não confirma')
+  clock.fire()
+  await flush()
+  assert.deepEqual(calls, ['end', 'terminate'])
+  clock.fire()
+  await flush()
+  assert.deepEqual(calls, ['end', 'terminate', 'kill'], 'SIGKILL de grupo alcança o sobrevivente')
+  assert.equal(await stopped, true)
+})
+
+test('sobrevivente que persiste após o SIGKILL nunca vira sucesso e bloqueia reabertura', async () => {
+  const clock = manualClock()
+  const { child } = fakeChild({ end: true })
+  const imortal: Rc2ChildHandle = { ...child, survivors: () => 1 }
+  let session: object | null = {}
+  const lifecycle = new Rc2HubLifecycle(() => session, async () => connectionFixture(imortal, async () => {}),
+    { deadlines: shortDeadlines, schedule: clock.schedule })
+  assert.equal(await lifecycle.start(), true)
+  const stopped = lifecycle.stop()
+  for (const _ of [1, 2, 3]) { await flush(); clock.fire() }
+  assert.equal(await stopped, false)
+  assert.equal(await lifecycle.start(), false)
+})
+
+test('sonda de sobreviventes que falha conta como sobrevivente', async () => {
+  const clock = manualClock()
+  const { child } = fakeChild({ end: true })
+  const sondaFalha: Rc2ChildHandle = { ...child, survivors: () => { throw new Error('fixture_probe_failure') } }
+  let session: object | null = {}
+  const lifecycle = new Rc2HubLifecycle(() => session, async () => connectionFixture(sondaFalha, async () => {}),
+    { deadlines: shortDeadlines, schedule: clock.schedule })
+  assert.equal(await lifecycle.start(), true)
+  const stopped = lifecycle.stop()
+  for (const _ of [1, 2, 3]) { await flush(); clock.fire() }
+  assert.equal(await stopped, false)
+  assert.equal(await lifecycle.start(), false)
+})
+
+test('sonda que zera dentro do prazo do SIGKILL confirma antes do vencimento do prazo', async () => {
+  let agora = 0
+  const pendentes: Array<{ vencimento: number, fire: () => void }> = []
+  const schedule: Rc2Schedule = (ms, fire) => { pendentes.push({ vencimento: agora + ms, fire }); return () => { } }
+  const avancar = (ms: number) => {
+    const alvo = agora + ms
+    agora = alvo
+    const vencidos = pendentes.filter(timer => timer.vencimento <= alvo)
+    for (const timer of vencidos) pendentes.splice(pendentes.indexOf(timer), 1)
+    vencidos.sort((primeiro, segundo) => primeiro.vencimento - segundo.vencimento)
+    for (const timer of vencidos) timer.fire()
+  }
+  const { child, calls, die } = fakeChild()
+  let sondas = 0
+  const comSonda: Rc2ChildHandle = {
+    ...child,
+    kill: () => { calls.push('kill'); die() },
+    survivors: () => (sondas++ >= 1 ? 0 : 1),
+  }
+  let session: object | null = {}
+  const lifecycle = new Rc2HubLifecycle(() => session, async () => connectionFixture(comSonda, async () => { }),
+    { deadlines: { open: 1, hello: 1, close: 1, eof: 2, sigterm: 3, sigkill: 10, probe: 1 }, schedule })
+  assert.equal(await lifecycle.start(), true)
+  const stopped = lifecycle.stop()
+  await flush()
+  avancar(2)
+  await flush()
+  avancar(3)
+  await flush()
+  assert.equal(sondas, 1, 'a primeira sonda pós-SIGKILL ainda via sobrevivente')
+  avancar(1)
+  assert.equal(await stopped, true, 'a re-consulta confirmou antes do vencimento do prazo do SIGKILL')
+  assert.deepEqual(calls, ['end', 'terminate', 'kill'])
+  assert.ok(pendentes.every(timer => timer.vencimento > agora), 'o prazo do SIGKILL segue pendente: não venceu')
+})
+
+test('hello que lança de forma síncrona devolve null sem invalidar a geração', async () => {
+  let attempts = 0
+  let session: object | null = {}
+  const lifecycle = new Rc2HubLifecycle(() => session, async () => ({
+    hello: () => { if (attempts++ === 0) throw new Error('fixture_hello_sync_throw'); return Promise.resolve({ ...helloFixture }) },
+    async *events() { },
+    close: async () => { },
+    child: undefined,
+  }), { deadlines: shortDeadlines, schedule: manualClock().schedule })
+  assert.equal(await lifecycle.start(), true)
+  assert.equal(await lifecycle.hello(), null)
+  assert.deepEqual(await lifecycle.hello(), { ...helloFixture }, 'a geração segue viva')
+  await lifecycle.stop()
+})
+
+test('sonda que falha de forma transitória é re-consultada e confirma dentro do prazo', async () => {
+  let agora = 0
+  const pendentes: Array<{ vencimento: number, fire: () => void }> = []
+  const schedule: Rc2Schedule = (ms, fire) => { pendentes.push({ vencimento: agora + ms, fire }); return () => { } }
+  const avancar = (ms: number) => {
+    const alvo = agora + ms
+    agora = alvo
+    const vencidos = pendentes.filter(timer => timer.vencimento <= alvo)
+    for (const timer of vencidos) pendentes.splice(pendentes.indexOf(timer), 1)
+    vencidos.sort((primeiro, segundo) => primeiro.vencimento - segundo.vencimento)
+    for (const timer of vencidos) timer.fire()
+  }
+  const { child, calls } = fakeChild({ end: true })
+  let consultas = 0
+  const intermitente: Rc2ChildHandle = {
+    ...child,
+    survivors: () => { if (++consultas === 1) throw new Error('fixture_probe_transient'); return 0 },
+  }
+  let session: object | null = {}
+  const lifecycle = new Rc2HubLifecycle(() => session, async () => connectionFixture(intermitente, async () => { }),
+    { deadlines: { open: 1, hello: 1, close: 1, eof: 10, sigterm: 10, sigkill: 10, probe: 1 }, schedule })
+  assert.equal(await lifecycle.start(), true)
+  const stopped = lifecycle.stop()
+  await flush()
+  // primeira consulta lança: conta como sobrevivente e agenda re-consulta, não aborta a etapa
+  assert.equal(consultas, 1)
+  avancar(1)
+  assert.equal(await stopped, true, 'a re-consulta confirmou zero dentro do prazo do EOF')
+  assert.deepEqual(calls, ['end'])
 })
