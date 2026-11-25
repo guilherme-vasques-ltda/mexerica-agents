@@ -37,9 +37,13 @@ before(() => {
   }
 })
 
-function pronto(t: { skip: (motivo: string) => unknown }) {
-  if (process.platform !== 'linux') return void t.skip('vetor de processo real só existe no Linux: sem base de descritor o transporte é inerte') as never
-  if (compiladorAusente) return void t.skip('sem compilador C neste ambiente: o vetor de processo real não roda') as never
+// t.skip() não interrompe o callback do teste: por isso pronto devolve booleano e cada
+// teste retorna de verdade quando os pré-requisitos faltam — sem skip, nenhum cenário roda
+// com binário inexistente e nenhuma limpeza toca /proc fora do Linux.
+function pronto(t: { skip: (motivo: string) => unknown }): boolean {
+  if (process.platform !== 'linux') { t.skip('vetor de processo real só existe no Linux: sem base de descritor o transporte é inerte'); return false }
+  if (compiladorAusente) { t.skip('sem compilador C neste ambiente: o vetor de processo real não roda'); return false }
+  return true
 }
 
 // Copia o binário para uma pasta exclusiva da prova: os marcadores caem ao lado dele
@@ -48,6 +52,7 @@ function estagiar(t: { after: (cleanup: () => unknown) => unknown }, nome: strin
   const pasta = mkdtempSync(join(realpathSync(tmpdir()), 'rc2-prova-'))
   t.after(() => {
     // Limpeza de melhor esforço: nenhum processo da cópia sobrevive à suíte, nem mutante.
+    if (process.platform !== 'linux') { rmSync(pasta, { recursive: true, force: true }); return }
     for (const pid of readdirSync('/proc').filter(entrada => /^\d+$/.test(entrada))) {
       try {
         if (realpathSync(`/proc/${pid}/exe`) === join(pasta, 'filho')) {
@@ -80,13 +85,15 @@ async function vivo(caminho: string): Promise<boolean> {
 
 function cicloDe(fd: number) {
   const sessao = {}
-  const transporte = rc2NativeTransport({ components: [{ role: 'hub', path: 'filho', fd }], close: () => { try { /* o dono do fd é o teste */ } catch { /* encerrado */ } } })
-  assert.ok(transporte !== null, 'linux tem base de execução por descritor')
-  return new Rc2HubLifecycle(() => sessao, transporte, { deadlines, schedule: fakeSchedule })
+  let partidas = 0
+  const interno = rc2NativeTransport({ components: [{ role: 'hub', path: 'filho', fd }], close: () => { try { /* o dono do fd é o teste */ } catch { /* encerrado */ } } })
+  assert.ok(interno !== null, 'linux tem base de execução por descritor')
+  const ciclo = new Rc2HubLifecycle(() => sessao, signal => { partidas++; return interno(signal) }, { deadlines, schedule: fakeSchedule })
+  return { ciclo, partidas: () => partidas }
 }
 
 test('morte do pai por SIGKILL, sem stop e sem will-quit, encerra o filho graciosamente pelo EOF dos descritores', async t => {
-  pronto(t)
+  if (!pronto(t)) return
   const { pasta, caminho } = estagiar(t, 'padrao')
   const pai = spawn(process.execPath, ['--experimental-strip-types', paiTs, caminho], { detached: true, stdio: ['ignore', 'pipe', 'pipe'] })
   t.after(() => { try { process.kill(-pai.pid!, 'SIGKILL') } catch { /* o grupo do pai já morreu */ } })
@@ -106,7 +113,7 @@ test('morte do pai por SIGKILL, sem stop e sem will-quit, encerra o filho gracio
 })
 
 test('controle: filho que não sai no EOF não grava marcador nenhum quando o pai morre — o focal positivo detecta', async t => {
-  pronto(t)
+  if (!pronto(t)) return
   const { pasta, caminho } = estagiar(t, 'ignora-sigterm')
   const pai = spawn(process.execPath, ['--experimental-strip-types', paiTs, caminho], { detached: true, stdio: ['ignore', 'pipe', 'ignore'] })
   t.after(() => { try { process.kill(-pai.pid!, 'SIGKILL') } catch { /* já morto */ } })
@@ -126,9 +133,9 @@ test('controle: filho que não sai no EOF não grava marcador nenhum quando o pa
 })
 
 test('filho que nunca escreve a linha de bootstrap morre pelo SIGTERM do escalonamento, com evidência do sinal', async t => {
-  pronto(t)
+  if (!pronto(t)) return
   const { pasta, caminho } = estagiar(t, 'sem-linha')
-  const ciclo = cicloDe(openSync(caminho, 'r'))
+  const { ciclo, partidas } = cicloDe(openSync(caminho, 'r'))
   t.after(async () => { try { await ciclo.stop() } catch { /* melhor esforço */ } })
   assert.equal(await ciclo.start(), false, 'sem linha de bootstrap a abertura expira no prazo próprio')
   assert.equal(await ciclo.stop(), false, 'partida pendente: recomeço inseguro é recusado')
@@ -136,5 +143,8 @@ test('filho que nunca escreve a linha de bootstrap morre pelo SIGTERM do escalon
   while (!existsSync(join(pasta, 'sigterm.marcador')) && Date.now() < prazo) await new Promise(retoma => setTimeout(retoma, 20))
   assert.ok(existsSync(join(pasta, 'sigterm.marcador')), 'o SIGTERM chegou e foi suficiente — o EOF era inútil, o SIGKILL não foi preciso')
   assert.ok(await morreu(caminho, 3000), 'processo morto confirmado pela sonda externa')
+  const aberturas = partidas()
+  assert.equal(await ciclo.start(), false, 'a partida expirada deixa o ciclo inseguro: recomeço recusado')
+  assert.equal(partidas(), aberturas, 'o recomeço recusado não executa processo novo nenhum — não é só o retorno falso')
 })
 
