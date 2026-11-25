@@ -2,6 +2,11 @@
 //! outro bot, canal e compactação com o dono ausente não abrem o processo do OpenCode com a chave do plano. A prova
 //! passa pelo `send` real da API (por onde tarefa e aviso entram, com a marca Hub-side) e pelo `ensure_session` real
 //! do ator, o mesmo ponto por onde todo turno começa.
+//!
+//! Limites conhecidos: o teste da compactação monta o estado do ator direto (rotina terminada, `compacting`), sem
+//! passar pela fila real (`Queued::Compact`); a decisão testada é a mesma que a fila usa, mas o caminho completo da
+//! fila não é coberto aqui. Os processos de teste (`cat`) seguem o padrão dos demais testes do crate e não são
+//! portáveis ao Windows, onde o crate de testes não é alvo do CI.
 #![allow(clippy::unwrap_used)]
 use super::*;
 use crate::LockExt;

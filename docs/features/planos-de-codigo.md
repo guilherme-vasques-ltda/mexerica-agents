@@ -20,17 +20,22 @@ primeira conversa confirma o acesso. O repasse encaminha ao Kimi só `chat/compl
 provedor. O endereço da China (`kimi-code-plan-cn`) não faz parte deste plano.
 
 **Só em conversa.** O Kimi Code vale apenas para uso interativo da própria pessoa: rotinas, acordar de tarefa agendada,
-avisos de comentário, pedidos de outros bots, canais, a compactação feita com o dono ausente ou depois de um turno
-automático e qualquer entrada que o Hub não tenha recebido de um chamador local ou de um dispositivo pareado não recebem
-essa chave. O Hub recusa o turno antes de ler o cofre ou abrir o OpenCode (`plano_so_conversa`), no ponto por onde todo
-turno de bot começa (`ensure_session`), com teste; a recusa não encerra a sessão viva do dono. A regra fecha por
-padrão. O item traz `soConversa: true` e o aviso `so_conversa` para a tela.
+avisos de comentário, pedidos de outros bots, canais e qualquer entrada que o Hub não tenha recebido de um chamador
+local ou de um dispositivo pareado não recebem essa chave. O Hub recusa o turno antes de ler o cofre ou abrir o OpenCode
+(`plano_so_conversa`), no ponto por onde todo turno de bot começa (`ensure_session`), com teste; a recusa não encerra
+a sessão viva do dono. A regra fecha por padrão. O item traz `soConversa: true` e o aviso `so_conversa` para a tela.
+
+**Compactação.** A compactação pedida pelo dono pela API de contexto, ou a que o Hub enfileira ao fim de um turno que
+era a palavra dele, continua a conversa. A compactação feita com o dono ausente, ou enfileirada ao fim de um turno
+automático (rotina, pedido, canal), é automática e não recebe a chave: o ator registra a origem do último turno que não
+era compactação para decidir.
 
 **Limite real.** O Hub distingue os turnos que ele mesmo cria (tarefa, aviso, rotina, delegação, canal, compactação
 automática) dos que chegam pelo método `send`, e só estes podem ser conversa. Mas um chamador local ou um dispositivo
 pareado com o token é aceito como o dono: o relatório de origem que o app envia é declarado pelo cliente e não vale como
-prova. Quem tem esse acesso pode enviar uma mensagem que conta como conversa. A regra impede o uso automático do Hub
-com a chave; não impede quem já controla o Hub do dono.
+prova. Um processo com o token local, ou um dispositivo pareado com escopo Controle, pode enviar uma mensagem que
+conta como conversa e aciona o plano; não há prova da presença do dono. A regra impede o uso automático do Hub com a
+chave; não impede quem já controla o Hub do dono.
 
 ## Métodos (só deste computador)
 
