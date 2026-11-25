@@ -116,6 +116,7 @@ fn stream(modelo: &str, texto: &str, entrada: u64, saida: u64) -> String {
         evento(&serde_json::json!({"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}})),
         evento(&serde_json::json!({"type":"content_block_delta","index":0,
             "delta":{"type":"text_delta","text":texto}})),
+        evento(&serde_json::json!({"type":"content_block_stop","index":0})),
         evento(&serde_json::json!({"type":"message_delta","delta":{"stop_reason":"end_turn"},
             "usage":{"output_tokens":saida}})),
         evento(&serde_json::json!({"type":"message_stop"})),
@@ -347,6 +348,7 @@ async fn parada_anormal_recusada() {
         evento(&serde_json::json!({"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}})),
         evento(&serde_json::json!({"type":"content_block_delta","index":0,
             "delta":{"type":"text_delta","text":"cortado"}})),
+        evento(&serde_json::json!({"type":"content_block_stop","index":0})),
         evento(&serde_json::json!({"type":"message_delta","delta":{"stop_reason":"max_tokens"},
             "usage":{"output_tokens":9}})),
         evento(&serde_json::json!({"type":"message_stop"})),
@@ -366,6 +368,7 @@ async fn uso_ausente_nao_vira_zero() {
         evento(&serde_json::json!({"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}})),
         evento(&serde_json::json!({"type":"content_block_delta","index":0,
             "delta":{"type":"text_delta","text":"texto"}})),
+        evento(&serde_json::json!({"type":"content_block_stop","index":0})),
         evento(&serde_json::json!({"type":"message_delta","delta":{"stop_reason":"end_turn"}})),
         evento(&serde_json::json!({"type":"message_stop"})),
     ]
@@ -429,6 +432,72 @@ async fn parser_recusa_delta_sem_bloco() {
         .concat(),
     );
     assert_eq!(rodar(&store, &fake, &CofreBom).await.unwrap_err(), Falha::RespostaInvalida);
+}
+
+#[tokio::test]
+async fn parser_recusa_indice_ausente() {
+    let store = loja();
+    com_teto(&store, estimativa());
+    let fake = Fake::com(
+        [
+            evento(&serde_json::json!({"type":"message_start","message":{"model":MODELO,
+            "usage":{"input_tokens":2,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}})),
+            evento(
+                &serde_json::json!({"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}),
+            ),
+            evento(
+                &serde_json::json!({"type":"content_block_delta","delta":{"type":"text_delta","text":"sem índice"}}),
+            ),
+        ]
+        .concat(),
+    );
+    assert_eq!(rodar(&store, &fake, &CofreBom).await.unwrap_err(), Falha::RespostaInvalida);
+}
+
+#[tokio::test]
+async fn parser_recusa_fase_final_com_bloco_aberto() {
+    let store = loja();
+    com_teto(&store, estimativa());
+    let fake = Fake::com(
+        [
+            evento(&serde_json::json!({"type":"message_start","message":{"model":MODELO,
+            "usage":{"input_tokens":2,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}})),
+            evento(
+                &serde_json::json!({"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}),
+            ),
+            evento(&serde_json::json!({"type":"message_delta","delta":{"stop_reason":"end_turn"},
+            "usage":{"output_tokens":3}})),
+            evento(&serde_json::json!({"type":"message_stop"})),
+        ]
+        .concat(),
+    );
+    assert_eq!(rodar(&store, &fake, &CofreBom).await.unwrap_err(), Falha::RespostaInvalida);
+}
+
+#[tokio::test]
+async fn parser_usa_totais_cumulativos_do_message_delta() {
+    let store = loja();
+    com_teto(&store, estimativa());
+    let fake = Fake::com(
+        [
+            evento(&serde_json::json!({"type":"message_start","message":{"model":MODELO,
+            "usage":{"input_tokens":10,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}})),
+            evento(
+                &serde_json::json!({"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}),
+            ),
+            evento(&serde_json::json!({"type":"content_block_delta","index":0,
+            "delta":{"type":"text_delta","text":"texto"}})),
+            evento(&serde_json::json!({"type":"content_block_stop","index":0})),
+            evento(&serde_json::json!({"type":"message_delta","delta":{"stop_reason":"end_turn"},
+            "usage":{"input_tokens":40,"cache_read_input_tokens":7,"output_tokens":5}})),
+            evento(&serde_json::json!({"type":"message_stop"})),
+        ]
+        .concat(),
+    );
+    let resposta = rodar(&store, &fake, &CofreBom).await.unwrap();
+    assert_eq!(resposta.uso, Uso { entrada: 40, saida: 5, cache_lido: 7, cache_escrito: 0 });
+    let real = uso_micros(MODELO, resposta.uso).unwrap();
+    assert_eq!(limite::disponivel(&store, "bot:bot-fixture", AGORA).unwrap(), estimativa() - real);
 }
 
 #[tokio::test]

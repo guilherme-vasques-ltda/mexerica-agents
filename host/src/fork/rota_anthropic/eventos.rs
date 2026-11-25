@@ -96,10 +96,13 @@ fn aplicar(estado: &mut Acumulado, valor: &Value, nome: Option<&str>) -> Result<
             estado.cache_escrito = Some(contagem(uso, "cache_creation_input_tokens")?);
         }
         "content_block_start" => {
+            if estado.parada.is_some() {
+                return Err(Falha::RespostaInvalida);
+            }
             if valor["content_block"]["type"].as_str() != Some("text") {
                 return Err(Falha::ConteudoNaoTexto);
             }
-            let indice = valor["index"].as_u64().ok_or(Falha::RespostaInvalida)?;
+            let indice = indice(valor)?;
             if estado.bloco.is_some() {
                 return Err(Falha::RespostaInvalida);
             }
@@ -110,7 +113,7 @@ fn aplicar(estado: &mut Acumulado, valor: &Value, nome: Option<&str>) -> Result<
             if delta["type"] != "text_delta" {
                 return Err(Falha::ConteudoNaoTexto);
             }
-            if estado.bloco != valor["index"].as_u64() {
+            if estado.parada.is_some() || estado.bloco != Some(indice(valor)?) {
                 return Err(Falha::RespostaInvalida);
             }
             let pedaco = delta["text"].as_str().ok_or(Falha::RespostaInvalida)?;
@@ -120,24 +123,41 @@ fn aplicar(estado: &mut Acumulado, valor: &Value, nome: Option<&str>) -> Result<
             }
         }
         "content_block_stop" => {
-            if estado.bloco != valor["index"].as_u64() {
+            if estado.bloco != Some(indice(valor)?) {
                 return Err(Falha::RespostaInvalida);
             }
             estado.bloco = None;
         }
         "ping" => {}
         "message_delta" => {
-            if estado.parada.is_some() {
+            // A fase final exige todos os blocos fechados e vem uma vez só.
+            if estado.parada.is_some() || estado.bloco.is_some() {
                 return Err(Falha::RespostaInvalida);
             }
+            let uso = &valor["usage"];
+            estado.saida = Some(contagem(uso, "output_tokens")?);
+            // `message_delta` pode repetir os totais cumulativos de entrada e de
+            // cache; presente manda, ausente preserva o `message_start`.
+            for (campo, alvo) in [
+                ("input_tokens", &mut estado.entrada),
+                ("cache_read_input_tokens", &mut estado.cache_lido),
+                ("cache_creation_input_tokens", &mut estado.cache_escrito),
+            ] {
+                if uso.get(campo).is_some() {
+                    *alvo = Some(contagem(uso, campo)?);
+                }
+            }
             estado.parada = valor["delta"]["stop_reason"].as_str().map(str::to_owned);
-            estado.saida = Some(contagem(&valor["usage"], "output_tokens")?);
         }
         "message_stop" => estado.terminou = true,
         "error" => return Err(Falha::Provedor { status: None }),
         _ => return Err(Falha::RespostaInvalida),
     }
     Ok(())
+}
+
+fn indice(valor: &Value) -> Result<u64, Falha> {
+    valor["index"].as_u64().ok_or(Falha::RespostaInvalida)
 }
 
 fn contagem(uso: &Value, campo: &str) -> Result<u64, Falha> {
@@ -150,6 +170,9 @@ fn concluir(estado: Acumulado, chave: &Segredo) -> Result<Resposta, Falha> {
     }
     if estado.parada.as_deref() != Some("end_turn") {
         return Err(Falha::ParadaAnormal);
+    }
+    if estado.bloco.is_some() {
+        return Err(Falha::RespostaInvalida);
     }
     let (Some(modelo), Some(entrada), Some(cache_lido), Some(cache_escrito), Some(saida)) =
         (estado.modelo, estado.entrada, estado.cache_lido, estado.cache_escrito, estado.saida)
