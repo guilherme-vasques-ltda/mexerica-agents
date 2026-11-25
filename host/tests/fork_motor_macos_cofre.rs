@@ -12,9 +12,9 @@ mod recusas;
 
 use std::num::NonZeroU64;
 
-use cofre::Item;
+use cofre::{Autorizacao, Item, Pedido, Recusa, RecusaComposicao, Vinculo};
 use partida::Capacidade;
-use porta::{Acao, Alvo, Decisao, Evidencia, Instancia, Parada, Porta, Recusa};
+use porta::{Acao, Alvo, Decisao, Escopo, Evidencia, Instancia, Parada, Porta, Recusa as RecusaPorta};
 use rusqlite::Connection;
 
 const GRUPO_DO_APP: &str = "invalid.example.mexerica";
@@ -24,28 +24,121 @@ const ITEM_PROPRIO: Item<'_> = Item { grupo: GRUPO_DO_APP, identificador: "inval
 const ITEM_OUTRO_APP: Item<'_> =
     Item { grupo: "invalid.example.outro", identificador: "invalid.example.segredo-alheio" };
 
-fn instancia() -> NonZeroU64 {
-    NonZeroU64::new(9).expect("ID da fixture deve ser diferente de zero")
-}
-
 fn id(valor: u64) -> NonZeroU64 {
     NonZeroU64::new(valor).expect("ID da fixture deve ser diferente de zero")
 }
 
-fn escopo() -> porta::Escopo {
-    porta::Escopo { titular: id(1), dispositivo: id(2), bot: id(3), sessao: id(4), geracao: id(5) }
+fn escopo() -> Escopo {
+    Escopo { titular: id(1), dispositivo: id(2), bot: id(3), sessao: id(4), geracao: id(5) }
 }
 
 fn acao() -> Acao {
     Acao::Apagar(Alvo::Autorizavel(id(6)))
 }
 
+fn vinculo() -> Vinculo<'static> {
+    Vinculo::compor(GRUPO_DO_APP, escopo(), id(7), "invalid.example.inferencia").expect("compor vínculo da fixture")
+}
+
 fn inferencia(item: Item<'_>) -> cofre::Inferencia<'_> {
     cofre::Inferencia { escopo: escopo(), provedor: id(7), item }
 }
 
-fn vinculo() -> cofre::Vinculo {
-    cofre::Vinculo { escopo: escopo(), provedor: id(7) }
+#[test]
+fn chamada_generica_de_leitura_ou_exportacao_nao_existe() {
+    let mut cofre = cofre::Cofre::abrir(vinculo());
+    // A chamada genérica nega antes de tudo — inclusive com o cofre fechado.
+    cofre.parar();
+    for item in [ITEM_PROPRIO, ITEM_OUTRO_APP] {
+        assert_eq!(cofre.autorizar(Pedido::Leitura(item)), Err(Recusa::OperacaoGenerica));
+        assert_eq!(cofre.autorizar(Pedido::Exportacao(item)), Err(Recusa::OperacaoGenerica));
+    }
+}
+
+#[test]
+fn vinculo_divergente_recusa_antes_do_item() {
+    let cofre = cofre::Cofre::abrir(vinculo());
+    let escopo_de_outro_par = Escopo { geracao: id(50), ..escopo() };
+    let mut pedidos = vec![];
+    for item in [ITEM_PROPRIO, ITEM_OUTRO_APP] {
+        pedidos.push(cofre::Inferencia { escopo: escopo_de_outro_par, provedor: id(7), item });
+        pedidos.push(cofre::Inferencia { escopo: escopo(), provedor: id(70), item });
+    }
+    for inferencia in pedidos {
+        // Escopo errado, provedor errado ou os dois: a inferência não atravessa,
+        // antes de olhar o item, próprio ou alheio.
+        assert_eq!(cofre.autorizar(Pedido::Inferencia(inferencia)), Err(Recusa::Vinculo));
+    }
+}
+
+#[test]
+fn autorizacao_nao_atravessa_geracoes() {
+    let cofre = cofre::Cofre::abrir(vinculo());
+    // Pedido idêntico em tudo, menos na geração: recusa antes do item.
+    let outra_geracao =
+        cofre::Inferencia { escopo: Escopo { geracao: id(51), ..escopo() }, provedor: id(7), item: ITEM_PROPRIO };
+    assert_eq!(cofre.autorizar(Pedido::Inferencia(outra_geracao)), Err(Recusa::Vinculo));
+    // A autorização que sai é ligada à geração do vínculo, não à do pedido alheio.
+    let autorizacao = cofre.autorizar(Pedido::Inferencia(inferencia(ITEM_PROPRIO))).expect("autorizar");
+    assert_eq!(autorizacao.consumir(), id(5));
+}
+
+#[test]
+fn item_de_outro_app_nunca_e_atendido() {
+    let cofre = cofre::Cofre::abrir(vinculo());
+    assert_eq!(cofre.autorizar(Pedido::Inferencia(inferencia(ITEM_OUTRO_APP))), Err(Recusa::OutroApp));
+}
+
+#[test]
+fn item_do_proprio_app_com_identidade_divergente_recusa() {
+    let cofre = cofre::Cofre::abrir(vinculo());
+    // Mesmo grupo, identificador diferente: a identidade do item é exata.
+    let item_divergente = Item { grupo: GRUPO_DO_APP, identificador: "invalid.example.outro-item" };
+    assert_eq!(cofre.autorizar(Pedido::Inferencia(inferencia(item_divergente))), Err(Recusa::ItemDivergente));
+}
+
+#[test]
+fn parar_fecha_o_cofre_da_geracao_sem_reabrir() {
+    let mut cofre = cofre::Cofre::abrir(vinculo());
+    assert!(cofre.autorizar(Pedido::Inferencia(inferencia(ITEM_PROPRIO))).is_ok());
+    // "Parar tudo" aplicado ao cofre: fecha o acesso da geração.
+    cofre.parar();
+    assert_eq!(cofre.autorizar(Pedido::Inferencia(inferencia(ITEM_PROPRIO))), Err(Recusa::Fechada));
+    // Idempotente: parar de novo não reabre nem muda o estado.
+    cofre.parar();
+    assert_eq!(cofre.autorizar(Pedido::Inferencia(inferencia(ITEM_PROPRIO))), Err(Recusa::Fechada));
+}
+
+#[test]
+fn composicao_do_vinculo_recusa_grupo_ou_identificador_vazios() {
+    assert_eq!(Vinculo::compor("", escopo(), id(7), "invalid.example.inferencia"), Err(RecusaComposicao::GrupoVazio));
+    assert_eq!(Vinculo::compor(GRUPO_DO_APP, escopo(), id(7), ""), Err(RecusaComposicao::IdentificadorVazio));
+}
+
+/// Ponto do efeito: consome a autorização por valor; reuso não compila
+/// (sem `Clone`/`Copy`).
+fn ponto_do_efeito(autorizacao: Autorizacao) -> NonZeroU64 {
+    autorizacao.consumir()
+}
+
+#[test]
+fn autorizacao_move_only_e_consumida_por_valor() {
+    let cofre = cofre::Cofre::abrir(vinculo());
+    let autorizacao = cofre.autorizar(Pedido::Inferencia(inferencia(ITEM_PROPRIO))).expect("autorizar");
+    assert_eq!(ponto_do_efeito(autorizacao), id(5));
+}
+
+#[test]
+fn sempre_permitir_nunca_existira_para_shell() {
+    // Shell é proibição categórica; as outras capacidades nem têm regra de escopo hoje.
+    assert_eq!(cofre::regra_permanente(Capacidade::Shell), Err(cofre::RecusaRegra::SempreShell));
+    for capacidade in [Capacidade::Mediada, Capacidade::Sudo, Capacidade::Tela] {
+        assert_eq!(cofre::regra_permanente(capacidade), Err(cofre::RecusaRegra::SempreIndisponivel));
+    }
+}
+
+fn instancia() -> NonZeroU64 {
+    NonZeroU64::new(9).expect("ID da fixture deve ser diferente de zero")
 }
 
 fn db_sintetico() -> (tempfile::TempDir, Connection) {
@@ -68,63 +161,6 @@ fn linhas(db: &Connection) -> Vec<(i64, String, i64)> {
 }
 
 #[test]
-fn chamada_generica_de_leitura_ou_exportacao_nao_existe() {
-    // A chamada genérica nega antes mesmo de olhar vínculo ou item.
-    for item in [ITEM_PROPRIO, ITEM_OUTRO_APP] {
-        assert_eq!(
-            cofre::autorizar(GRUPO_DO_APP, vinculo(), cofre::Pedido::Leitura(item)),
-            Err(cofre::Recusa::OperacaoGenerica)
-        );
-        assert_eq!(
-            cofre::autorizar(GRUPO_DO_APP, vinculo(), cofre::Pedido::Exportacao(item)),
-            Err(cofre::Recusa::OperacaoGenerica)
-        );
-    }
-}
-
-#[test]
-fn vinculo_divergente_recusa_antes_do_item() {
-    let escopo_de_outro_par = porta::Escopo { geracao: id(50), ..escopo() };
-    let outro_vinculo = cofre::Vinculo { escopo: escopo_de_outro_par, provedor: id(7) };
-    let outro_provedor = cofre::Vinculo { escopo: escopo(), provedor: id(70) };
-    let ambos_divergentes = cofre::Vinculo { escopo: escopo_de_outro_par, provedor: id(70) };
-    // Escopo errado, provedor errado ou os dois: a inferência não atravessa.
-    for vinculo in [outro_vinculo, outro_provedor, ambos_divergentes] {
-        assert_eq!(
-            cofre::autorizar(GRUPO_DO_APP, vinculo, cofre::Pedido::Inferencia(inferencia(ITEM_PROPRIO))),
-            Err(cofre::Recusa::Vinculo)
-        );
-    }
-    // Autorização não é reaproveitável em outro par: nem com item do próprio app.
-    assert_eq!(
-        cofre::autorizar(GRUPO_DO_APP, outro_vinculo, cofre::Pedido::Inferencia(inferencia(ITEM_PROPRIO))),
-        Err(cofre::Recusa::Vinculo)
-    );
-    // O vínculo nega antes de olhar o item, próprio ou alheio.
-    assert_eq!(
-        cofre::autorizar(GRUPO_DO_APP, ambos_divergentes, cofre::Pedido::Inferencia(inferencia(ITEM_OUTRO_APP))),
-        Err(cofre::Recusa::Vinculo)
-    );
-}
-
-#[test]
-fn item_de_outro_app_nunca_e_atendido() {
-    assert_eq!(
-        cofre::autorizar(GRUPO_DO_APP, vinculo(), cofre::Pedido::Inferencia(inferencia(ITEM_OUTRO_APP))),
-        Err(cofre::Recusa::OutroApp)
-    );
-}
-
-#[test]
-fn sempre_permitir_nunca_existira_para_shell() {
-    // Shell é proibição categórica; as outras capacidades nem têm regra de escopo hoje.
-    assert_eq!(cofre::regra_permanente(Capacidade::Shell), Err(cofre::RecusaRegra::SempreShell));
-    for capacidade in [Capacidade::Mediada, Capacidade::Sudo, Capacidade::Tela] {
-        assert_eq!(cofre::regra_permanente(capacidade), Err(cofre::RecusaRegra::SempreIndisponivel));
-    }
-}
-
-#[test]
 fn parada_cancela_pendente_grava_fechada_e_mostra_sobrevivente() {
     let (dir, db) = db_sintetico();
     let mut porta = Porta::nova(escopo());
@@ -138,8 +174,8 @@ fn parada_cancela_pendente_grava_fechada_e_mostra_sobrevivente() {
     porta.parar(10);
     recusas::registrar(&db, pedido, recusas::Caminho::Parar, recusas::Motivo::Fechada, instancia(), 10)
         .expect("persistir recusa do fechamento");
-    assert_eq!(porta.resolver(pedido, escopo(), Decisao::UmaVez, 11), Err(Recusa::Fechada));
-    assert_eq!(porta.pedir(acao(), 12), Err(Recusa::Fechada));
+    assert_eq!(porta.resolver(pedido, escopo(), Decisao::UmaVez, 11), Err(RecusaPorta::Fechada));
+    assert_eq!(porta.pedir(acao(), 12), Err(RecusaPorta::Fechada));
     assert!(!porta.registrar(Instancia { pid: id(43), inicio: id(52) }));
     // Sobrevivente visível com identidade; sem evidência, nunca sucesso falso.
     assert!(porta.confirmar_saida(lider));
@@ -155,9 +191,4 @@ fn parada_cancela_pendente_grava_fechada_e_mostra_sobrevivente() {
     drop(db);
     let db = Connection::open(dir.path().join("recusas.sqlite3")).expect("reabrir banco da fixture");
     assert_eq!(linhas(&db), vec![(1, "fechada".to_owned(), 10)]);
-}
-
-#[test]
-fn inferencia_vinculada_do_proprio_app_autoriza_sem_devolver_nada() {
-    assert_eq!(cofre::autorizar(GRUPO_DO_APP, vinculo(), cofre::Pedido::Inferencia(inferencia(ITEM_PROPRIO))), Ok(()));
 }

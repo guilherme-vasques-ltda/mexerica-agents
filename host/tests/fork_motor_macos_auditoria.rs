@@ -115,20 +115,20 @@ fn pedir_com_pendencia_nao_vencida_recusa_ocupada_sem_gravar() {
 }
 
 #[test]
-fn resolver_negando_com_gravacao_falha_deixa_a_negacao_valendo_e_falha_visivel() {
+fn resolver_negando_com_gravacao_falha_deixa_a_negacao_valendo_e_fecha_a_porta() {
     let (dir, registro) = registro();
     let mut porta = porta(&registro, 9);
     porta.aceitar_aviso(escopo()).expect("aceitar aviso da fixture");
     let pedido = porta.pedir(acao(), 0).expect("abrir pedido da fixture");
     leitor(&dir).execute("DROP TABLE recusas_motor_macos", []).expect("derrubar tabela da fixture");
     assert_eq!(porta.resolver(pedido, escopo(), Decisao::Negar, 1), Err(Falha::Auditoria));
-    // A negação não é devolvida: o pedido morreu e nada é refeito.
+    // A negação não é devolvida: o pedido morreu, nada é refeito e a porta fecha.
     assert_eq!(
         porta.efetuar(pedido, acao(), || 2, |_| panic!("efeito de pedido negado")),
-        Err(Falha::Recusa(Recusa::PedidoInvalido))
+        Err(Falha::Recusa(Recusa::Fechada))
     );
-    let novo = porta.pedir(acao(), 3).expect("porta segue útil para pedido novo");
-    assert_ne!(novo, pedido);
+    assert_eq!(porta.pedir(acao(), 3), Err(Falha::Recusa(Recusa::Fechada)));
+    assert_eq!(porta.aceitar_aviso(escopo()), Err(Falha::Recusa(Recusa::Fechada)));
 }
 
 #[test]
@@ -177,12 +177,19 @@ fn efetuar_com_prazo_vencido_grava_expirada_com_instante_medido_pela_porta() {
         porta.efetuar(pedido, acao(), relogio, |_| panic!("efeito executado fora do prazo"),),
         Err(Falha::Recusa(Recusa::Expirada))
     );
-    // O instante gravado é o medido pela porta no evento, não uma segunda leitura.
-    assert_eq!(linhas(&leitor(&dir)), vec![(1, "expirada".to_owned(), "efetuar".to_owned(), 9, 300_010)]);
+    // A intenção aprovada é gravada antes; a expiração depois, com o instante
+    // medido pela porta no evento — não uma segunda leitura de relógio.
+    assert_eq!(
+        linhas(&leitor(&dir)),
+        vec![
+            (1, "intencao".to_owned(), "efetuar".to_owned(), 9, 299_999),
+            (1, "expirada".to_owned(), "efetuar".to_owned(), 9, 300_010),
+        ]
+    );
 }
 
 #[test]
-fn efetuar_com_prazo_vencido_e_gravacao_falha_nega_fecha_e_sem_retry() {
+fn efetuar_com_gravacao_da_intencao_falha_nega_fecha_e_sem_retry() {
     let (dir, registro) = registro();
     let mut porta = porta(&registro, 9);
     porta.aceitar_aviso(escopo()).expect("aceitar aviso da fixture");
@@ -208,19 +215,19 @@ fn efetuar_com_prazo_vencido_e_gravacao_falha_nega_fecha_e_sem_retry() {
 }
 
 #[test]
-fn resolver_com_pendencia_vencida_e_gravacao_falha_deixa_a_expiracao_valendo() {
+fn resolver_com_pendencia_vencida_e_gravacao_falha_deixa_a_expiracao_valendo_e_fecha() {
     let (dir, registro) = registro();
     let mut porta = porta(&registro, 9);
     porta.aceitar_aviso(escopo()).expect("aceitar aviso da fixture");
     let pedido = porta.pedir(acao(), 0).expect("abrir pedido da fixture");
     leitor(&dir).execute("DROP TABLE recusas_motor_macos", []).expect("derrubar tabela da fixture");
     assert_eq!(porta.resolver(pedido, escopo(), Decisao::UmaVez, 300_000), Err(Falha::Auditoria));
-    // A expiração não é devolvida: o pedido morreu e nada é refeito.
+    // A expiração não é devolvida: o pedido morreu, nada é refeito e a porta fecha.
     assert_eq!(
         porta.efetuar(pedido, acao(), || 300_001, |_| panic!("efeito de pedido expirado")),
-        Err(Falha::Recusa(Recusa::PedidoInvalido))
+        Err(Falha::Recusa(Recusa::Fechada))
     );
-    let _novo = porta.pedir(acao(), 300_002).expect("porta segue útil para pedido novo");
+    assert_eq!(porta.pedir(acao(), 300_002), Err(Falha::Recusa(Recusa::Fechada)));
 }
 
 #[test]
@@ -256,12 +263,12 @@ fn efetuar_com_pendencia_vencida_na_entrada_e_gravacao_falha_nega_sem_efeito() {
         porta.efetuar(pedido, acao(), || 300_000, |_| panic!("efeito com gravação falha")),
         Err(Falha::Auditoria)
     );
-    // A expiração segue valendo: o pedido morreu, sem efeito e sem retry.
+    // A expiração segue valendo: o pedido morreu, sem efeito, sem retry e a porta fecha.
     assert_eq!(
         porta.efetuar(pedido, acao(), || 300_001, |_| panic!("efeito com gravação falha")),
-        Err(Falha::Recusa(Recusa::PedidoInvalido))
+        Err(Falha::Recusa(Recusa::Fechada))
     );
-    let _novo = porta.pedir(acao(), 300_002).expect("porta segue útil para pedido novo");
+    assert_eq!(porta.pedir(acao(), 300_002), Err(Falha::Recusa(Recusa::Fechada)));
 }
 
 #[test]
@@ -320,7 +327,7 @@ fn instancia_distingue_series_iguais_e_nada_e_deduplicado() {
 }
 
 #[test]
-fn aprovacao_no_prazo_executa_uma_vez_sem_recusa_registrada() {
+fn aprovacao_no_prazo_grava_intencao_antes_do_efeito_unico() {
     let (dir, registro) = registro();
     let mut porta = porta(&registro, 9);
     porta.aceitar_aviso(escopo()).expect("aceitar aviso da fixture");
@@ -343,7 +350,37 @@ fn aprovacao_no_prazo_executa_uma_vez_sem_recusa_registrada() {
         porta.efetuar(pedido, acao(), || 3, |_| panic!("efeito repetido")),
         Err(Falha::Recusa(Recusa::PedidoInvalido))
     );
-    assert_eq!(linhas(&leitor(&dir)), vec![]);
+    // A intenção aprovada fica registrada antes do efeito, na mesma sequência.
+    assert_eq!(linhas(&leitor(&dir)), vec![(1, "intencao".to_owned(), "efetuar".to_owned(), 9, 2)]);
+}
+
+#[test]
+fn intencao_gravada_fica_ordenada_antes_da_revogacao() {
+    let (dir, registro) = registro();
+    let mut porta = porta(&registro, 9);
+    porta.aceitar_aviso(escopo()).expect("aceitar aviso da fixture");
+    let primeiro = porta.pedir(acao(), 0).expect("abrir pedido da fixture");
+    porta.resolver(primeiro, escopo(), Decisao::UmaVez, 1).expect("aprovar pedido da fixture");
+    porta.efetuar(primeiro, acao(), || 2, |_| {}).expect("efetuar o primeiro");
+    // Um pedido novo é negado pelo fechamento: a revogação fica depois da intenção.
+    let _segundo = porta.pedir(acao(), 3).expect("abrir segundo pedido da fixture");
+    porta.parar(4).expect("parar com pendência");
+    let ordem: Vec<i64> = leitor(&dir)
+        .prepare("SELECT id FROM recusas_motor_macos ORDER BY id")
+        .expect("preparar consulta de ids")
+        .query_map([], |row| row.get(0))
+        .expect("consultar ids")
+        .collect::<rusqlite::Result<_>>()
+        .expect("juntar ids");
+    assert_eq!(ordem.len(), 2);
+    assert!(ordem[0] < ordem[1], "a intenção precisa ficar antes da revogação: {ordem:?}");
+    assert_eq!(
+        linhas(&leitor(&dir)),
+        vec![
+            (1, "intencao".to_owned(), "efetuar".to_owned(), 9, 2),
+            (2, "fechada".to_owned(), "parar".to_owned(), 9, 4),
+        ]
+    );
 }
 
 #[test]
