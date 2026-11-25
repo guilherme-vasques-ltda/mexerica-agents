@@ -34,6 +34,8 @@ interface Opcoes {
   lcCmdsizeOverride?: number
   hashOffsetOverride?: number
   cputypeOverride?: number
+  // Anuncia um segundo comando de load que o arquivo não contém.
+  ncmdsExtra?: boolean
 }
 
 // Constrói um Mach-O ARM64 com assinatura ad hoc embutida estruturalmente válida
@@ -49,7 +51,7 @@ export function assinarArm64(payload: Buffer | string, options: Opcoes = {}): Rc
     Buffer.alloc(options.duplicateCodeSignature ? 32 : 16), Buffer.from(payload),
   ])
   if (options.cputypeOverride) body.writeUInt32LE(options.cputypeOverride, 4)
-  body.writeUInt32LE(options.duplicateCodeSignature ? 2 : 1, 16)
+  body.writeUInt32LE(options.duplicateCodeSignature || options.ncmdsExtra ? 2 : 1, 16)
   body.writeUInt32LE(options.sizeofcmdsOverride ?? (options.duplicateCodeSignature ? 32 : options.lcCmdsizeOverride ?? 16), 20)
   body.writeUInt32LE(0x1d, 32)
   body.writeUInt32LE(options.lcCmdsizeOverride ?? 16, 36)

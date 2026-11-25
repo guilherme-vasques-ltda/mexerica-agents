@@ -40,6 +40,9 @@ function verifySignature(bytes: Buffer, cdhash: string): void {
   let signature: { dataoff: number, datasize: number } | null = null
   let cursor = 32
   for (let remaining = bytes.readUInt32LE(16); remaining > 0; remaining--) {
+    // O cabeçalho pode anunciar mais comandos do que o arquivo contém: o cursor é limitado
+    // antes de qualquer leitura, sem depender do tamanho declarado do comando seguinte.
+    if (cursor + 8 > 32 + sizeofcmds) throw invalid()
     const cmd = bytes.readUInt32LE(cursor)
     const cmdsize = bytes.readUInt32LE(cursor + 4)
     if (cmdsize < 8 || cmdsize % 8 !== 0 || cursor + cmdsize > 32 + sizeofcmds) throw invalid()

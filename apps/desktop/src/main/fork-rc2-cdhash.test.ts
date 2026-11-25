@@ -82,6 +82,13 @@ test('tabela de recusas da caminhada e do layout: um focal por linha com pin coe
   recusa(assinarArm64(corpo, { lcCmdsizeOverride: 9, sizeofcmdsOverride: 9 }), 'cmdsize desalinhado')
   recusa(assinarArm64(corpo, { lcCmdsizeOverride: 24, sizeofcmdsOverride: 24 }), 'cmdsize do comando de assinatura != 16')
   recusa(assinarArm64(corpo, { sizeofcmdsOverride: 0x7fffffff }), 'sizeofcmds além do arquivo')
+  {
+    // o cabeçalho anuncia dois comandos e o arquivo termina dentro do segundo: a guarda limita o
+    // cursor antes da leitura, em vez de depender do catch para converter RangeError.
+    const anunciado = assinarArm64(corpo, { ncmdsExtra: true })
+    const truncado = anunciado.bytes.subarray(0, 50)
+    assert.throws(() => verifyRc2AdHocSignature(truncado, anunciado.cdhash), /invalid_rc2_artifact/, 'comando anunciado além do arquivo')
+  }
   recusa(assinarArm64(corpo, { hashOffsetOverride: 0x40 }), 'hashOffset abaixo do cabeçalho do CodeDirectory')
   {
     // corpo com duas páginas reais: nCodeSlots == esperado; encolher o CodeDirectory e
@@ -215,6 +222,7 @@ test('toda forma de truncamento recusa com o erro estável do contrato, sem exce
     assinarArm64(corpo, { formatoReal: true }),
     assinarArm64(Buffer.alloc(8200, 7)),
     assinarArm64(corpo, { duplicateCodeSignature: true }),
+    assinarArm64(corpo, { ncmdsExtra: true }),
   ]
   for (const fixture of formatos) {
     for (let length = 0; length < fixture.bytes.length; length++) {
