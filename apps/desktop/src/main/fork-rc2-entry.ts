@@ -18,9 +18,13 @@ function boot(): never {
   })
   if (!rc2PathsIsolated(app.getPath('home'), app.getPath('appData'))) throw new Error('invalid_rc2_profile')
   verifyRc2StorageRoots(app.getPath('home'), app.getPath('appData'))
-  verifyRc2Artifact(process.resourcesPath, artifact.components)
-  if (!nativeRc2Transport()) throw new Error('rc2_native_transport_unavailable')
-  throw new Error('rc2_runtime_disabled')
+  const verified = verifyRc2Artifact(process.resourcesPath, artifact.components)
+  try {
+    if (!nativeRc2Transport()) throw new Error('rc2_native_transport_unavailable')
+    throw new Error('rc2_runtime_disabled')
+  } finally {
+    verified.close()
+  }
 }
 
 try { boot() } catch { app.exit(1) }
