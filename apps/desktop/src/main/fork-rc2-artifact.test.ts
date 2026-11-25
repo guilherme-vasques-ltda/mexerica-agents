@@ -10,7 +10,7 @@ import { test } from 'node:test'
 import { loadMainModule } from '../shared/test-support/main-module.ts'
 import { assinarArm64 } from '../shared/test-support/rc2-assinatura.ts'
 import type { Rc2Component } from '../shared/fork-rc2-profile.ts'
-import { rc2PathOverlaps, verifyRc2Artifact, verifyRc2StorageRoots } from './fork-rc2-artifact.ts'
+import { rc2PathOverlaps, verifyRc2Artifact as verifyRc2ExplicitArtifact, verifyRc2DevelopmentArtifact as verifyRc2Artifact, verifyRc2StorageRoots } from './fork-rc2-artifact.ts'
 
 const hubAssinado = assinarArm64('fixture do hub rc.2 para o gate de artefato')
 const helperAssinado = assinarArm64('fixture do helper de voz rc.2', { ident: 'fixture.speech.invalid.example' })
@@ -35,6 +35,11 @@ function fixture(t: object, hubPayload: (path: string) => void = () => {}) {
   hubPayload(join(root, hub.path))
   return { ...staged, hub, helper }
 }
+
+test('verificação geral recusa quando nenhuma política explícita foi fornecida', t => {
+  const { root, components } = fixture(t)
+  assert.throws(() => Reflect.apply(verifyRc2ExplicitArtifact, undefined, [root, components]), /invalid_rc2_artifact/)
+})
 
 test('verifica Hub e helper declarados no manifesto e devolve descritores fixados de cada papel', t => {
   const { root, components } = fixture(t)
@@ -69,12 +74,12 @@ test('recusa fecha o descritor do componente que falhou e recusas repetidas não
   const alterado: Rc2Component = { ...helper, sha256: assinarArm64('outro corpo').sha256 }
   const closed: number[] = []
   const opened: number[] = []
-  const verify = loadMainModule<{ verifyRc2Artifact: typeof verifyRc2Artifact }>('fork-rc2-artifact', {
+  const verify = loadMainModule<{ verifyRc2DevelopmentArtifact: typeof verifyRc2Artifact }>('fork-rc2-artifact', {
     'node:fs': { ...fs, openSync: (path: string, flags?: string | number | null) => { const fd = fs.openSync(path, flags ?? 'r'); opened.push(fd); return fd },
       closeSync: (fd: number) => { closed.push(fd); fs.closeSync(fd) } },
     'node:path': path,
     'node:crypto': crypto,
-  }, { Buffer }).verifyRc2Artifact
+  }, { Buffer }).verifyRc2DevelopmentArtifact
   for (const _ of [1, 2, 3]) {
     assert.throws(() => verify(root, [hub, alterado]), /invalid_rc2_artifact/)
   }
@@ -114,9 +119,9 @@ test('verificação abre cada componente exatamente uma vez e não relê caminho
       return (target as Record<string, unknown>)[key]
     },
   })
-  const verify = loadMainModule<{ verifyRc2Artifact: typeof verifyRc2Artifact }>('fork-rc2-artifact', {
+  const verify = loadMainModule<{ verifyRc2DevelopmentArtifact: typeof verifyRc2Artifact }>('fork-rc2-artifact', {
     'node:fs': countingFs, 'node:path': path, 'node:crypto': { createHash },
-  }, { Buffer }).verifyRc2Artifact
+  }, { Buffer }).verifyRc2DevelopmentArtifact
   const verified = verify(root, components)
   const hubPath = join(root, components[0].path)
   const helperPath = join(root, components[1].path)
@@ -137,9 +142,9 @@ test('troca na janela entre inspeção e abertura é detectada pela divergência
     return stat.ino === real.ino ? comPrototipo(stat, mudanca(stat)) : comPrototipo(stat, {})
   }
   const carregar = (fstat: typeof fs.fstatSync) =>
-    loadMainModule<{ verifyRc2Artifact: typeof verifyRc2Artifact }>('fork-rc2-artifact', {
+    loadMainModule<{ verifyRc2DevelopmentArtifact: typeof verifyRc2Artifact }>('fork-rc2-artifact', {
       'node:fs': { ...fs, fstatSync: fstat }, 'node:path': path, 'node:crypto': crypto,
-    }, { Buffer }).verifyRc2Artifact
+    }, { Buffer }).verifyRc2DevelopmentArtifact
   assert.throws(() => carregar(fstatCom(() => ({ ino: real.ino + 1 })))(root, components), /invalid_rc2_artifact/)
   carregar(fstatCom(() => ({})))(root, components).close()
 })
@@ -149,14 +154,14 @@ test('divergência isolada de dev no fstat é recusada com ino e size iguais', t
   const hubPath = join(root, components[0].path)
   const real = fs.lstatSync(hubPath)
   const fstat = (fd: number) => Object.assign(Object.create(Object.getPrototypeOf(real)), fs.fstatSync(fd))
-  const verify = loadMainModule<{ verifyRc2Artifact: typeof verifyRc2Artifact }>('fork-rc2-artifact', {
+  const verify = loadMainModule<{ verifyRc2DevelopmentArtifact: typeof verifyRc2Artifact }>('fork-rc2-artifact', {
     'node:fs': { ...fs, fstatSync: (fd: number) => Object.assign(fstat(fd), { dev: real.dev + 1 }) },
     'node:path': path, 'node:crypto': crypto,
-  }, { Buffer }).verifyRc2Artifact
+  }, { Buffer }).verifyRc2DevelopmentArtifact
   assert.throws(() => verify(root, components), /invalid_rc2_artifact/)
-  const verifyIgual = loadMainModule<{ verifyRc2Artifact: typeof verifyRc2Artifact }>('fork-rc2-artifact', {
+  const verifyIgual = loadMainModule<{ verifyRc2DevelopmentArtifact: typeof verifyRc2Artifact }>('fork-rc2-artifact', {
     'node:fs': { ...fs, fstatSync: fstat }, 'node:path': path, 'node:crypto': crypto,
-  }, { Buffer }).verifyRc2Artifact
+  }, { Buffer }).verifyRc2DevelopmentArtifact
   verifyIgual(root, components).close()
 })
 
@@ -170,9 +175,9 @@ test('tamanho divergente entre inspeção e descritor é recusado mesmo com inod
     return stat.ino === real.ino ? Object.assign(base, mudar(base)) : base
   }
   const carregar = (fstat: typeof fs.fstatSync) =>
-    loadMainModule<{ verifyRc2Artifact: typeof verifyRc2Artifact }>('fork-rc2-artifact', {
+    loadMainModule<{ verifyRc2DevelopmentArtifact: typeof verifyRc2Artifact }>('fork-rc2-artifact', {
       'node:fs': { ...fs, fstatSync: fstat }, 'node:path': path, 'node:crypto': crypto,
-    }, { Buffer }).verifyRc2Artifact
+    }, { Buffer }).verifyRc2DevelopmentArtifact
   assert.throws(() => carregar(fstatCom(() => ({ size: real.size + 1 })))(root, components), /invalid_rc2_artifact/)
   carregar(fstatCom(() => ({})))(root, components).close()
 })
@@ -189,9 +194,9 @@ test('cdhash errado com sha256 correto recusa depois de ler o descritor, não an
     }
     return (target as Record<string, unknown>)[key]
   } })
-  const verify = loadMainModule<{ verifyRc2Artifact: typeof verifyRc2Artifact }>('fork-rc2-artifact', {
+  const verify = loadMainModule<{ verifyRc2DevelopmentArtifact: typeof verifyRc2Artifact }>('fork-rc2-artifact', {
     'node:fs': countingFs, 'node:path': path, 'node:crypto': crypto,
-  }, { Buffer }).verifyRc2Artifact
+  }, { Buffer }).verifyRc2DevelopmentArtifact
   const pinErrado: Rc2Component = { ...hub, sha256: outro.sha256, cdhash: hubAssinado.cdhash }
   assert.throws(() => verify(root, [pinErrado]), /invalid_rc2_artifact/)
   assert.ok(/^\d+$/.test(reads[reads.length - 1]), 'o sha256 coerente foi lido pelo descritor antes da recusa de cdhash')
@@ -339,9 +344,9 @@ test('caminho resolvido fora da raiz é recusado mesmo com caminhada limpa', t =
   const hubPath = join(root, components[0].path)
   const fora = join(root, 'fora-da-raiz')
   const carregar = (realpath: (entry: string) => string) =>
-    loadMainModule<{ verifyRc2Artifact: typeof verifyRc2Artifact }>('fork-rc2-artifact', {
+    loadMainModule<{ verifyRc2DevelopmentArtifact: typeof verifyRc2Artifact }>('fork-rc2-artifact', {
       'node:fs': { ...fs, realpathSync: realpath }, 'node:path': path, 'node:crypto': crypto,
-    }, { Buffer }).verifyRc2Artifact
+    }, { Buffer }).verifyRc2DevelopmentArtifact
   assert.throws(() => carregar(entry => entry === hubPath ? fora : fs.realpathSync(entry))(root, components), /invalid_rc2_artifact/)
   // controle: o mesmo canal de simulação com realpath intacto aceita
   carregar(entry => fs.realpathSync(entry))(root, components).close()
