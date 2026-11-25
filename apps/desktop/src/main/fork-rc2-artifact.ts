@@ -65,7 +65,8 @@ function verifyComponent(root: string, component: Rc2Component, verifySignature:
 }
 
 export function verifyRc2Artifact(root: string, components: Rc2Component[],
-  verifySignature: VerifySignature = (bytes, { cdhash }) => verifyRc2AdHocSignature(bytes, cdhash)): Rc2VerifiedArtifact {
+  verifySignature: VerifySignature): Rc2VerifiedArtifact {
+  if (typeof verifySignature !== 'function') throw invalid()
   if (!Array.isArray(components) || !components.some(component => component.role === 'hub')) throw invalid()
   const verified: Rc2VerifiedComponent[] = []
   const close = () => { for (const component of verified) { try { closeSync(component.fd) } catch { /* já fechado */ } } }
@@ -78,6 +79,10 @@ export function verifyRc2Artifact(root: string, components: Rc2Component[],
     throw error
   }
   return { components: verified, close }
+}
+
+export function verifyRc2DevelopmentArtifact(root: string, components: Rc2Component[]): Rc2VerifiedArtifact {
+  return verifyRc2Artifact(root, components, (bytes, { cdhash }) => verifyRc2AdHocSignature(bytes, cdhash))
 }
 
 export const rc2PathOverlaps = (path: string, root: string): boolean => {
