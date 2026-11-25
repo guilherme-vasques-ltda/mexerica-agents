@@ -6,7 +6,7 @@ import { runInNewContext } from 'node:vm'
 import ts from 'typescript'
 import * as profileModule from '../shared/fork-rc2-profile.ts'
 import { compileRc2Profile, rc2Paths, validateRc2Bootstrap } from '../shared/fork-rc2-profile.ts'
-import { Rc2HubLifecycle, nativeRc2Transport, type Rc2Connection } from './fork-rc2-local-hub.ts'
+import { Rc2HubLifecycle, nativeRc2Transport, type Rc2ChildHandle, type Rc2Connection, type Rc2Schedule } from './fork-rc2-local-hub.ts'
 
 const mode = 'official-rc2'
 const version = '0.0.1-rc.2'
@@ -321,4 +321,354 @@ test('falha transportada não vaza erro nem tenta fallback; fechamento incerto n
   f.transport()
   assert.equal(await f.lifecycle.start(), false)
   assert.equal(f.opened.length, 2)
+})
+
+async function flush(ticks = 12) {
+  for (let i = 0; i < ticks; i++) await Promise.resolve()
+}
+
+function manualClock() {
+  const pending: Array<() => void> = []
+  const schedule: Rc2Schedule = (_ms, fire) => { pending.push(fire); return () => {} }
+  return { schedule, fire: () => { for (const fire of pending.splice(0)) fire() } }
+}
+
+const shortDeadlines = { open: 1, close: 1, eof: 1, sigterm: 1, sigkill: 1 }
+
+function fakeChild(diesOn: { end?: boolean; terminate?: boolean; kill?: boolean } = {}) {
+  const calls: string[] = []
+  let settle!: () => void
+  let fail!: () => void
+  const exited = new Promise<void>((resolve, reject) => { settle = resolve; fail = reject })
+  const die = () => settle()
+  const child: Rc2ChildHandle = {
+    end: () => { calls.push('end'); if (diesOn.end) die() },
+    terminate: () => { calls.push('terminate'); if (diesOn.terminate) die() },
+    kill: () => { calls.push('kill'); if (diesOn.kill !== false) die() },
+    exited,
+  }
+  return { child, calls, die, fail }
+}
+
+const helloFixture = { computerId: 'fixture-computer', hostId: 'fixture-hub' }
+
+function connectionFixture(child: Rc2ChildHandle | undefined, close: () => Promise<void>): Rc2Connection {
+  return {
+    hello: async () => ({ ...helloFixture }),
+    async *events() { yield '{"type":"hello"}' },
+    close,
+    child,
+  }
+}
+
+test('parada do filho que ignora EOF e SIGTERM termina no SIGKILL e só conclui após o close', async () => {
+  const clock = manualClock()
+  const { child, calls } = fakeChild()
+  const closed: string[] = []
+  let session: object | null = {}
+  const lifecycle = new Rc2HubLifecycle(() => session, async () => connectionFixture(child, async () => { closed.push('connection') }),
+    { deadlines: shortDeadlines, schedule: clock.schedule })
+  assert.equal(await lifecycle.start(), true)
+  let settled = false
+  const stopped = lifecycle.stop().then(result => { settled = true; return result })
+  await flush()
+  assert.equal(settled, false)
+  assert.deepEqual(calls, ['end'])
+  clock.fire()
+  await flush()
+  assert.equal(settled, false)
+  assert.deepEqual(calls, ['end', 'terminate'])
+  clock.fire()
+  await flush()
+  assert.deepEqual(calls, ['end', 'terminate', 'kill'])
+  assert.equal(await stopped, true)
+  assert.deepEqual(closed, ['connection'])
+})
+
+test('filho que fecha no EOF não recebe SIGTERM nem SIGKILL', async () => {
+  const { child, calls } = fakeChild({ end: true })
+  let session: object | null = {}
+  const lifecycle = new Rc2HubLifecycle(() => session, async () => connectionFixture(child, async () => {}),
+    { deadlines: shortDeadlines, schedule: manualClock().schedule })
+  assert.equal(await lifecycle.start(), true)
+  assert.equal(await lifecycle.stop(), true)
+  assert.deepEqual(calls, ['end'])
+})
+
+test('filho que fecha no SIGTERM não recebe SIGKILL', async () => {
+  const clock = manualClock()
+  const { child, calls } = fakeChild({ terminate: true })
+  let session: object | null = {}
+  const lifecycle = new Rc2HubLifecycle(() => session, async () => connectionFixture(child, async () => {}),
+    { deadlines: shortDeadlines, schedule: clock.schedule })
+  assert.equal(await lifecycle.start(), true)
+  const stopped = lifecycle.stop()
+  await flush()
+  clock.fire()
+  assert.equal(await stopped, true)
+  assert.deepEqual(calls, ['end', 'terminate'])
+})
+
+test('SIGKILL sem close no prazo deixa encerramento incerto e recusa nova geração', async () => {
+  const clock = manualClock()
+  const { child } = fakeChild({ kill: false })
+  let session: object | null = {}
+  const lifecycle = new Rc2HubLifecycle(() => session, async () => connectionFixture(child, async () => {}),
+    { deadlines: shortDeadlines, schedule: clock.schedule })
+  assert.equal(await lifecycle.start(), true)
+  const stopped = lifecycle.stop()
+  for (const _ of [1, 2, 3]) { await flush(); clock.fire() }
+  assert.equal(await stopped, false)
+  assert.equal(await lifecycle.start(), false)
+})
+
+test('troca de sessão encerra o filho antigo antes de abrir o novo e não sinaliza o novo', async () => {
+  const clock = manualClock()
+  const { child: oldChild, calls: oldCalls } = fakeChild({ terminate: true })
+  const { child: newChild, calls: newCalls } = fakeChild({ end: true })
+  let session: object | null = { name: 'a' }
+  let opens = 0
+  const transport = async () => connectionFixture(++opens === 1 ? oldChild : newChild, async () => {})
+  const lifecycle = new Rc2HubLifecycle(() => session, transport, { deadlines: shortDeadlines, schedule: clock.schedule })
+  assert.equal(await lifecycle.start(), true)
+  session = { name: 'b' }
+  const switched = lifecycle.start()
+  await flush()
+  assert.equal(opens, 1)
+  assert.deepEqual(oldCalls, ['end'])
+  clock.fire()
+  assert.equal(await switched, true)
+  assert.equal(opens, 2)
+  assert.deepEqual(oldCalls, ['end', 'terminate'])
+  assert.deepEqual(newCalls, [])
+  assert.deepEqual(await lifecycle.hello(), { ...helloFixture })
+  await lifecycle.stop()
+})
+
+test('timeout de abertura marca encerramento incerto, aborta o transporte e drena a conexão tardia', async () => {
+  const clock = manualClock()
+  const attempt = deferred<Rc2Connection>()
+  const { child: lateChild, calls: lateCalls } = fakeChild({ end: true })
+  const closed: string[] = []
+  let signals = 0
+  let session: object | null = {}
+  const transport = async (signal: AbortSignal) => {
+    void signal.addEventListener('abort', () => { signals++ })
+    return attempt.promise
+  }
+  const lifecycle = new Rc2HubLifecycle(() => session, transport, { deadlines: shortDeadlines, schedule: clock.schedule })
+  const first = lifecycle.start()
+  await flush()
+  clock.fire()
+  assert.equal(await first, false)
+  assert.equal(signals, 1)
+  assert.equal(await lifecycle.hello(), null)
+  assert.equal(await lifecycle.start(), false)
+  const stopped = lifecycle.stop()
+  assert.equal(await stopped, false)
+  attempt.resolve(connectionFixture(lateChild, async () => { closed.push('late') }))
+  await flush()
+  assert.deepEqual(closed, ['late'])
+  assert.deepEqual(lateCalls, ['end'])
+  assert.equal(await lifecycle.start(), false)
+})
+
+test('morte espontânea do filho invalida a geração sem deixar encerramento incerto', async () => {
+  const clock = manualClock()
+  const { child, die } = fakeChild()
+  const { child: nextChild } = fakeChild({ end: true })
+  let opens = 0
+  let session: object | null = {}
+  const transport = async () => connectionFixture(++opens === 1 ? child : nextChild, async () => {})
+  const lifecycle = new Rc2HubLifecycle(() => session, transport, { deadlines: shortDeadlines, schedule: clock.schedule })
+  assert.equal(await lifecycle.start(), true)
+  die()
+  await flush()
+  assert.equal(await lifecycle.hello(), null)
+  assert.deepEqual(await collect(lifecycle.events()), [])
+  assert.equal(await lifecycle.start(), true)
+  assert.equal(opens, 2)
+  assert.equal(await lifecycle.stop(), true)
+})
+
+test('sem reanexação: o transporte recebe apenas o sinal de aborto, nunca processo, porta ou caminho', async () => {
+  let observed: unknown
+  let session: object | null = {}
+  const lifecycle = new Rc2HubLifecycle(() => session, async signal => {
+    observed = signal
+    return connectionFixture(undefined, async () => {})
+  }, { deadlines: shortDeadlines, schedule: manualClock().schedule })
+  assert.equal(await lifecycle.start(), true)
+  assert.ok(observed instanceof AbortSignal)
+  await lifecycle.stop()
+})
+
+test('close da conexão sem retorno no prazo não bloqueia o encerramento do filho e deixa o estado inseguro', async () => {
+  const clock = manualClock()
+  const { child, calls } = fakeChild({ end: true })
+  const closePending = deferred<void>()
+  let session: object | null = {}
+  const lifecycle = new Rc2HubLifecycle(() => session, async () => connectionFixture(child, () => closePending.promise),
+    { deadlines: shortDeadlines, schedule: clock.schedule })
+  assert.equal(await lifecycle.start(), true)
+  const stopped = lifecycle.stop()
+  await flush()
+  clock.fire()
+  await flush()
+  assert.deepEqual(calls, ['end'])
+  assert.equal(await stopped, false)
+  assert.equal(await lifecycle.start(), false)
+  closePending.resolve()
+})
+
+test('exceção em uma etapa do escalonamento não impede as seguintes', async () => {
+  const clock = manualClock()
+  const throws = { end: new Error('fixture_end_failure'), terminate: new Error('fixture_terminate_failure'), kill: new Error('fixture_kill_failure') }
+  const sessionValue: object = {}
+  const session = () => sessionValue
+  const close = async () => {}
+  {
+    const { child, calls } = fakeChild({ terminate: true })
+    child.end = () => { calls.push('end-throw'); throw throws.end }
+    const lifecycle = new Rc2HubLifecycle(session, async () => connectionFixture(child, close),
+      { deadlines: shortDeadlines, schedule: clock.schedule })
+    assert.equal(await lifecycle.start(), true)
+    const stopped = lifecycle.stop()
+    await flush()
+    clock.fire()
+    assert.equal(await stopped, true)
+    assert.deepEqual(calls, ['end-throw', 'terminate'])
+  }
+  {
+    const { child, calls } = fakeChild()
+    child.end = () => { calls.push('end-throw'); throw throws.end }
+    child.terminate = () => { calls.push('terminate-throw'); throw throws.terminate }
+    const lifecycle = new Rc2HubLifecycle(session, async () => connectionFixture(child, close),
+      { deadlines: shortDeadlines, schedule: clock.schedule })
+    assert.equal(await lifecycle.start(), true)
+    const stopped = lifecycle.stop()
+    await flush()
+    clock.fire()
+    await flush()
+    clock.fire()
+    assert.equal(await stopped, true)
+    assert.deepEqual(calls, ['end-throw', 'terminate-throw', 'kill'])
+  }
+  {
+    const { child } = fakeChild({ kill: false })
+    child.end = () => { throw throws.end }
+    child.terminate = () => { throw throws.terminate }
+    child.kill = () => { throw throws.kill }
+    const lifecycle = new Rc2HubLifecycle(session, async () => connectionFixture(child, close),
+      { deadlines: shortDeadlines, schedule: clock.schedule })
+    assert.equal(await lifecycle.start(), true)
+    const stopped = lifecycle.stop()
+    for (const _ of [1, 2, 3]) { await flush(); clock.fire() }
+    assert.equal(await stopped, false)
+    assert.equal(await lifecycle.start(), false)
+  }
+})
+
+test('rejeição de exited do filho em execução invalida a geração e recusa reabertura', async () => {
+  const clock = manualClock()
+  const { child, fail } = fakeChild()
+  const closed: string[] = []
+  let session: object | null = {}
+  const lifecycle = new Rc2HubLifecycle(() => session, async () => connectionFixture(child, async () => { closed.push('connection') }),
+    { deadlines: shortDeadlines, schedule: clock.schedule })
+  assert.equal(await lifecycle.start(), true)
+  fail()
+  await flush()
+  assert.equal(await lifecycle.hello(), null)
+  assert.deepEqual(await collect(lifecycle.events()), [])
+  assert.equal(await lifecycle.start(), false)
+  assert.deepEqual(closed, ['connection'])
+  await lifecycle.stop()
+})
+
+test('prazos ausentes, nulos, negativos ou de tipo errado são recusados na construção', () => {
+  const sessionValue: object = {}
+  const session = () => sessionValue
+  const transport = async () => connectionFixture(undefined, async () => {})
+  for (const deadlines of [
+    {}, { open: 0, close: 1, eof: 1, sigterm: 1, sigkill: 1 },
+    { open: -1, close: 1, eof: 1, sigterm: 1, sigkill: 1 },
+    { open: 1, close: 1, eof: 1, sigterm: 1 },
+    { open: 1, close: 1, eof: 1, sigterm: 1, sigkill: 1, extra: 1 },
+    { open: Number.NaN, close: 1, eof: 1, sigterm: 1, sigkill: 1 },
+    { open: '1', close: 1, eof: 1, sigterm: 1, sigkill: 1 },
+    { open: 2 ** 31, close: 1, eof: 1, sigterm: 1, sigkill: 1 },
+  ]) assert.throws(() => new Rc2HubLifecycle(session, transport, { deadlines: deadlines as never, schedule: manualClock().schedule }), /invalid_rc2_deadlines/)
+  assert.ok(new Rc2HubLifecycle(session, transport, { deadlines: shortDeadlines, schedule: manualClock().schedule }))
+})
+
+test('descarte de conexão tardia limita o close pendurado e ainda encerra o filho tardio', async () => {
+  const clock = manualClock()
+  const attempt = deferred<Rc2Connection>()
+  const { child: lateChild, calls: lateCalls } = fakeChild({ terminate: true })
+  const closePending = deferred<void>()
+  let session: object | null = {}
+  const transport = async () => attempt.promise
+  const lifecycle = new Rc2HubLifecycle(() => session, transport, { deadlines: shortDeadlines, schedule: clock.schedule })
+  const first = lifecycle.start()
+  await flush()
+  clock.fire()
+  assert.equal(await first, false)
+  attempt.resolve(connectionFixture(lateChild, () => closePending.promise))
+  await flush()
+  clock.fire()
+  await flush()
+  clock.fire()
+  await lateChild.exited
+  assert.deepEqual(lateCalls, ['end', 'terminate'])
+  closePending.resolve()
+})
+
+test('abertura pendurada não prende hello nem eventos além do prazo', async () => {
+  const clock = manualClock()
+  const attempt = deferred<Rc2Connection>()
+  const { child: lateChild } = fakeChild({ end: true })
+  const closed: string[] = []
+  let session: object | null = {}
+  const transport = async () => attempt.promise
+  const lifecycle = new Rc2HubLifecycle(() => session, transport, { deadlines: shortDeadlines, schedule: clock.schedule })
+  const first = lifecycle.start()
+  const pendingHello = lifecycle.hello()
+  const pendingEvent = lifecycle.events().next()
+  await flush()
+  clock.fire()
+  assert.equal(await first, false)
+  assert.equal(await pendingHello, null)
+  assert.equal((await pendingEvent).done, true)
+  assert.equal(await lifecycle.start(), false)
+  attempt.resolve(connectionFixture(lateChild, async () => { closed.push('late') }))
+  await flush()
+  assert.deepEqual(closed, ['late'])
+})
+
+test('start disparado por listener de abort espera a drenagem anterior concluir', async () => {
+  const clock = manualClock()
+  const { child: firstChild } = fakeChild({ end: true })
+  const { child: secondChild } = fakeChild({ end: true })
+  const closePending = deferred<void>()
+  let session: object | null = { name: 'a' }
+  let opens = 0
+  let sneaky: Promise<boolean> | null = null
+  let lifecycle: Rc2HubLifecycle
+  const transport = async (signal: AbortSignal) => {
+    const visit = ++opens
+    if (visit === 1) void signal.addEventListener('abort', () => { sneaky = lifecycle.start() })
+    return connectionFixture(visit === 1 ? firstChild : secondChild, () => closePending.promise)
+  }
+  lifecycle = new Rc2HubLifecycle(() => session, transport, { deadlines: shortDeadlines, schedule: clock.schedule })
+  assert.equal(await lifecycle.start(), true)
+  const stopped = lifecycle.stop()
+  assert.ok(sneaky)
+  await flush()
+  assert.equal(opens, 1)
+  closePending.resolve()
+  assert.equal(await sneaky, true)
+  assert.equal(opens, 2)
+  assert.equal(await stopped, true)
+  await lifecycle.stop()
 })
