@@ -236,3 +236,13 @@ test('RC does not touch local Hub state even with old local settings and a valid
     assert.deepEqual([calls, probes, removed, reads], [[], [], [], []])
   }
 })
+
+test('RC identity and paths stay untouched by the rc.2 profile', () => {
+  const home = '/fixture/home'
+  const appData = '/fixture/appdata'
+  assert.equal(rcIdentity.userDataFolder, 'Mexerica RC')
+  assert.equal(rcIdentity.dataFolder, '.mexerica-rc')
+  assert.equal(rcIdentity.port, 19525)
+  for (const value of Object.values(rcDistribution)) assert.ok(!`${value}`.includes('rc2'))
+  for (const path of Object.values(rcPaths(home, appData))) assert.ok(!`${path}`.includes('rc2'))
+})

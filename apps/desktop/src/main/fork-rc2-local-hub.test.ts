@@ -1,11 +1,18 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { runInNewContext } from 'node:vm'
 import ts from 'typescript'
+import * as fsModule from 'node:fs'
+import * as pathModule from 'node:path'
+import * as cryptoModule from 'node:crypto'
+import * as rcProfileModule from '../shared/fork-rc-profile.ts'
+import { rcPaths } from '../shared/fork-rc-profile.ts'
 import * as profileModule from '../shared/fork-rc2-profile.ts'
-import { compileRc2Profile, rc2Paths, validateRc2Bootstrap } from '../shared/fork-rc2-profile.ts'
+import { compileRc2Profile, rc2ManifestPath, rc2Paths, rc2PathsIsolated, rc2Components, validateRc2Bootstrap } from '../shared/fork-rc2-profile.ts'
 import { Rc2HubLifecycle, nativeRc2Transport, type Rc2ChildHandle, type Rc2Connection, type Rc2Schedule } from './fork-rc2-local-hub.ts'
 
 const mode = 'official-rc2'
@@ -15,22 +22,47 @@ const profile = {
   profile: 'rc2-local', version, appId: 'app.mexerica.mac.rc2',
   name: 'Mexerica RC 2', scheme: 'mexerica-rc2', packageName: 'mexerica-rc2',
 }
+const hubBytes = Buffer.concat([Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 0x0c, 0x00, 0x00, 0x01]), Buffer.alloc(24)])
+const hubSha256 = createHash('sha256').update(hubBytes).digest('hex')
+const components = [{ role: 'hub', path: 'donnabot-host', arch: 'arm64', sha256: hubSha256, cdhash: 'ab'.repeat(20) }]
 
 test('só o modo explícito compila o perfil local para a candidata exata em ARM64', () => {
   for (const other of ['official-rc', 'official', 'open', 'development']) {
-    assert.equal(compileRc2Profile(other, version, target), null)
+    assert.equal(compileRc2Profile(other, version, target, components), null)
   }
-  assert.deepEqual(compileRc2Profile(mode, version, target)?.distribution, profile)
+  assert.deepEqual(compileRc2Profile(mode, version, target, components)?.distribution, profile)
   for (const other of [
     { ...target, arch: 'x64' }, { ...target, platform: 'linux' }, { ...target, platform: 'win32' },
-  ]) assert.throws(() => compileRc2Profile(mode, version, other), /invalid_rc2_profile/)
+  ]) assert.throws(() => compileRc2Profile(mode, version, other, components), /invalid_rc2_profile/)
   for (const other of ['0.0.1', '0.0.1-rc.1', '0.0.1-rc.3', '0.1.0-rc.2', `${version}\n`]) {
-    assert.throws(() => compileRc2Profile(mode, other, target), /invalid_rc2_profile/)
+    assert.throws(() => compileRc2Profile(mode, other, target, components), /invalid_rc2_profile/)
   }
 })
 
-test('bootstrap exige pin compilado, metadados coerentes e bytes exatos antes de admitir o perfil', () => {
-  const compiled = compileRc2Profile(mode, version, target)!
+test('inventário fechado: exige Hub único, caminhos relativos e hashes hexadecimais exatos', () => {
+  const bad = [
+    [], [{}], { role: 'hub' }, 'hub',
+    { ...components[0], role: 'helper' },
+    { ...components[0], sha256: hubSha256.toUpperCase() },
+    { ...components[0], cdhash: 'cd'.repeat(19) },
+    { ...components[0], arch: 'x64' },
+    { ...components[0], path: 'donnabot-host ' },
+    { ...components[0], path: '/donnabot-host' },
+    { ...components[0], path: '../donnabot-host' },
+    { ...components[0], path: 'donnabot-host/../../host' },
+    { ...components[0], sha256: '0'.repeat(63) },
+    [...components, { ...components[0], role: 'helper' }],
+    [...components, { ...components[0], path: 'outro-hub', role: 'executor' }],
+    [...components, { role: 'helper', path: 'codync-speech', arch: 'arm64', sha256: hubSha256, cdhash: 'cd'.repeat(20) },
+      { role: 'helper', path: 'outro-helper', arch: 'arm64', sha256: hubSha256, cdhash: 'cd'.repeat(20) }],
+  ]
+  for (const inventory of bad) assert.throws(() => rc2Components(inventory), /invalid_rc2_profile/)
+  const helper = [{ role: 'helper', path: 'codync-speech', arch: 'arm64', sha256: hubSha256, cdhash: 'cd'.repeat(20) }]
+  assert.deepEqual(rc2Components([...components, ...helper]).map(component => component.role), ['hub', 'helper'])
+})
+
+test('bootstrap exige pin compilado, metadados coerentes, inventário válido e bytes exatos antes de admitir o perfil', () => {
+  const compiled = compileRc2Profile(mode, version, target, components)!
   const metadata = { mexericaProfile: profile.profile, mexericaAppId: profile.appId, name: profile.packageName,
     productName: profile.name, version }
   let reads = 0
@@ -47,9 +79,15 @@ test('bootstrap exige pin compilado, metadados coerentes e bytes exatos antes de
   assert.equal(reads, 0)
   assert.throws(() => validateRc2Bootstrap({ ...bootstrap, readManifest: () => Buffer.concat([compiled.bytes, Buffer.from('\n')]) }), /invalid_rc2_profile/)
   assert.throws(() => validateRc2Bootstrap({ ...bootstrap, compiledPin: '0'.repeat(64) }), /invalid_rc2_profile/)
-  assert.deepEqual(validateRc2Bootstrap(bootstrap), profile)
-  const home = '/fixture/profile'
-  const appData = '/appdata'
+  const legacy = Buffer.from(`${JSON.stringify(profile)}\n`)
+  assert.throws(() => validateRc2Bootstrap({ ...bootstrap, compiledPin: createHash('sha256').update(legacy).digest('hex'),
+    readManifest: () => legacy }), /invalid_rc2_profile/)
+  assert.deepEqual(validateRc2Bootstrap(bootstrap), { ...profile, platform: 'darwin', arch: 'arm64', components })
+})
+
+test('caminhos da rc.2 ficam separados dos da rc.1 em qualquer papel de usuário', () => {
+  const home = '/fixture/home'
+  const appData = '/fixture/appdata'
   const userData = join(appData, profile.name)
   assert.deepEqual(rc2Paths(home, appData), {
     userData,
@@ -57,6 +95,15 @@ test('bootstrap exige pin compilado, metadados coerentes e bytes exatos antes de
     crashDumps: join(userData, 'crashDumps'), temp: join(userData, 'tmp'),
     hubRoot: join(home, '.mexerica-rc2'),
   })
+  assert.equal(rc2PathsIsolated(home, appData), true)
+  assert.equal(rc2PathsIsolated(home, join(home, '.mexerica-rc')), false)
+  assert.equal(rc2PathsIsolated(join(appData, 'Mexerica RC'), appData), false)
+  for (const path of Object.values(rcPaths(home, appData))) {
+    assert.ok(!path.includes('rc2'))
+  }
+  for (const path of Object.values(rc2Paths(home, appData))) {
+    assert.ok(!path.includes('.mexerica-rc') || path.includes('.mexerica-rc2'))
+  }
 })
 
 function source(url: string, imports: Record<string, unknown>, globals: Record<string, unknown> = {}) {
@@ -70,61 +117,132 @@ function source(url: string, imports: Record<string, unknown>, globals: Record<s
   return exports
 }
 
-test('configuração de compilação segregada produz só entrada inerte e o manifesto fixado', () => {
+test('configuração de compilação segregada produz só entrada inerte e o manifesto fixado com o inventário', () => {
   type Artifact = { type: string; fileName: string; source: Buffer }
   type Section = { define: Record<string, string>; build: { outDir: string; rollupOptions: { input: Record<string, string> } };
     plugins: { generateBundle(this: { emitFile(artifact: Artifact): void }): void }[] }
-  const attempt = (platform: string, arch: string, mode: string, candidate: string) => source('../../electron.vite.rc2.config.ts', {
-    'electron-vite': { defineConfig: (config: (input: { mode: string }) => unknown) => config({ mode }) },
-    'node:fs': { readFileSync: (path: string) => { assert.equal(path, 'package.json'); return JSON.stringify({ version: candidate }) } },
-    'node:path': { resolve: (path: string) => path },
-    './src/shared/fork-rc2-profile.ts': profileModule,
-  }, { process: { platform, arch } }).default as Record<string, Section>
+  const attempt = (platform: string, arch: string, mode: string, candidate: string, inventory: unknown = components) =>
+    source('../../electron.vite.rc2.config.ts', {
+      'electron-vite': { defineConfig: (config: (input: { mode: string }) => unknown) => config({ mode }) },
+      'node:fs': { readFileSync: (path: string) => {
+        if (path === 'package.json') return JSON.stringify({ version: candidate })
+        if (path === 'build/official-rc2/components.json') return JSON.stringify(inventory)
+        return assert.fail(`unexpected read: ${path}`)
+      } },
+      'node:path': { resolve: (path: string) => path },
+      './src/shared/fork-rc2-profile.ts': profileModule,
+    }, { process: { platform, arch } }).default as Record<string, Section>
   assert.throws(() => attempt('darwin', 'arm64', 'official-rc', version), /invalid_rc2_profile/)
   assert.throws(() => attempt('darwin', 'x64', mode, version), /invalid_rc2_profile/)
   assert.throws(() => attempt('darwin', 'arm64', mode, '0.0.1-rc.1'), /invalid_rc2_profile/)
   for (const platform of ['linux', 'win32']) assert.throws(() => attempt(platform, 'arm64', mode, version), /invalid_rc2_profile/)
+  assert.throws(() => attempt('darwin', 'arm64', mode, version, []), /invalid_rc2_profile/)
+  assert.throws(() => attempt('darwin', 'arm64', mode, version, [{ ...components[0], sha256: '0'.repeat(63) }]), /invalid_rc2_profile/)
   const config = attempt('darwin', 'arm64', mode, version)
   assert.deepEqual(Object.keys(config), ['main'])
   assert.deepEqual(Object.entries(config.main.build.rollupOptions.input), [['rc2', 'src/main/fork-rc2-entry.ts']])
   assert.equal(config.main.build.outDir, 'build/official-rc2/out/main')
   const emitted: Artifact[] = []
   config.main.plugins[0].generateBundle.call({ emitFile: artifact => emitted.push(artifact) })
-  const compiled = compileRc2Profile(mode, version, target)!
+  const compiled = compileRc2Profile(mode, version, target, components)!
   assert.equal(config.main.define.__MEXERICA_RC2_PROFILE__, JSON.stringify(profile.profile))
   assert.equal(config.main.define.__MEXERICA_RC2_MANIFEST_HASH__, JSON.stringify(compiled.pin))
   assert.equal(emitted.length, 1)
   assert.equal(emitted[0].type, 'asset')
-  assert.equal(emitted[0].fileName, 'rc2-manifest.json')
+  assert.equal(emitted[0].fileName, rc2ManifestPath)
   assert.ok(emitted[0].source.equals(compiled.bytes))
+  assert.deepEqual(JSON.parse(emitted[0].source.toString('utf8')), { ...profile, platform: 'darwin', arch: 'arm64', components })
 })
 
-test('entrada empacotada sem adaptador fecha antes de abrir sessão, armazenamento ou IPC', () => {
-  const compiled = compileRc2Profile(mode, version, target)!
+test('entrada empacotada verifica manifesto e binários do artefato antes de qualquer outra leitura ou escrita', async t => {
+  const compiled = compileRc2Profile(mode, version, target, components)!
   const metadata = { mexericaProfile: profile.profile, mexericaAppId: profile.appId, name: profile.packageName,
     productName: profile.name, version }
-  for (const [arch, pin, reads] of [
-    ['arm64', compiled.pin, ['/fixture/app.asar/package.json', '/fixture/rc2-manifest.json']], ['x64', compiled.pin, []], ['arm64', undefined, []],
-  ] as const) {
-    const observed: string[] = []
+  const project = mkdtempSync(join(tmpdir(), 'rc2-entry-'))
+  t.after(() => rmSync(project, { recursive: true, force: true }))
+  mkdirSync(join(project, 'resources'))
+  writeFileSync(join(project, 'package.json'), JSON.stringify(metadata))
+  writeFileSync(join(project, 'resources', rc2ManifestPath), compiled.bytes)
+  const hubPath = join(project, 'resources', 'donnabot-host')
+  const run = (arch: string, pin: string | undefined) => {
+    const accesses: string[] = []
+    const reads: string[] = []
     const exits: number[] = []
+    const recordingFs = new Proxy(fsModule, { get: (target, key: string) => {
+      accesses.push(key)
+      if (key === 'readFileSync' || key === 'lstatSync') {
+        return (path: string, ...rest: unknown[]) => {
+          reads.push(`${key}:${path}`)
+          const read = (target as unknown as Record<string, (path: string, ...rest: unknown[]) => unknown>)[key]
+          return read(path, ...rest)
+        }
+      }
+      return (target as Record<string, unknown>)[key]
+    } })
+    const artifact = source('./fork-rc2-artifact.ts', {
+      'node:crypto': cryptoModule, 'node:fs': recordingFs, 'node:path': pathModule,
+      '../shared/fork-rc2-profile.ts': profileModule, '../shared/fork-rc-profile.ts': rcProfileModule,
+    })
     source('./fork-rc2-entry.ts', {
-      'node:fs': { readFileSync: (path: string) => {
-        observed.push(path)
-        if (path === '/fixture/app.asar/package.json') return JSON.stringify(metadata)
-        if (path === '/fixture/rc2-manifest.json') return compiled.bytes
-        return assert.fail(`unexpected read: ${path}`)
-      } },
-      'node:path': { join: (...parts: string[]) => parts.join('/') },
+      'node:fs': recordingFs, 'node:path': pathModule,
       'electron': { app: { isPackaged: true, getName: () => profile.name, getVersion: () => version,
-        getAppPath: () => '/fixture/app.asar', exit: (code: number) => exits.push(code) } },
+        getAppPath: () => project, getPath: (name: string) => name === 'home' ? '/fixture/home' : '/fixture/appdata',
+        exit: (code: number) => exits.push(code) } },
       '../shared/fork-rc2-profile.ts': profileModule,
+      './fork-rc2-artifact.ts': artifact,
       './fork-rc2-local-hub.ts': { nativeRc2Transport },
-    }, { process: { ...target, arch, resourcesPath: '/fixture' },
+    }, { process: { platform: 'darwin', arch, resourcesPath: join(project, 'resources') },
       __MEXERICA_RC2_PROFILE__: profile.profile, __MEXERICA_RC2_MANIFEST_HASH__: pin })
-    assert.deepEqual(observed, reads)
-    assert.deepEqual(exits, [1])
+    return { accesses, reads, exits }
   }
+  for (const tamper of [
+    { label: 'binário ausente', apply: () => {} },
+    { label: 'binário trocado', apply: () => writeFileSync(hubPath, Buffer.concat([hubBytes, Buffer.from('trocado')])) },
+    { label: 'slice x64', apply: () => writeFileSync(hubPath, Buffer.concat([Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 0x07, 0x00, 0x00, 0x01]), Buffer.alloc(24)])) },
+    { label: 'link simbólico', apply: () => { rmSync(hubPath); symlinkSync('alvo-invalido', hubPath) } },
+  ]) {
+    if (tamper.label === 'binário ausente') rmSync(hubPath, { force: true })
+    else { writeFileSync(hubPath, hubBytes); tamper.apply() }
+    const { accesses, reads, exits } = run('arm64', compiled.pin)
+    assert.deepEqual(exits, [1], tamper.label)
+    assert.ok(reads[reads.length - 1].startsWith(`lstatSync:${hubPath}`) || reads[reads.length - 1].startsWith(`readFileSync:${hubPath}`), tamper.label)
+    assert.ok(!accesses.includes('writeFileSync') && !accesses.includes('mkdirSync') && !accesses.includes('appendFileSync'), tamper.label)
+    rmSync(hubPath, { force: true })
+  }
+  writeFileSync(hubPath, hubBytes)
+  const good = run('arm64', compiled.pin)
+  assert.deepEqual(good.exits, [1])
+  const walkStops = [...Object.values(rcPaths('/fixture/home', '/fixture/appdata')), ...Object.values(rc2Paths('/fixture/home', '/fixture/appdata'))].map(path => {
+    const target = `${path}`
+    const anchor = target.startsWith('/fixture/appdata/') ? '/fixture/appdata' : '/fixture/home'
+    return `lstatSync:${join(anchor, target.slice(anchor.length + 1).split('/')[0])}`
+  })
+  assert.deepEqual(good.reads, [
+    `readFileSync:${join(project, 'package.json')}`,
+    `readFileSync:${join(project, 'resources', rc2ManifestPath)}`,
+    ...walkStops,
+    `lstatSync:${hubPath}`,
+    `readFileSync:${hubPath}`,
+  ])
+  assert.ok(!good.accesses.includes('writeFileSync') && !good.accesses.includes('mkdirSync'))
+  const overlappingExits: number[] = []
+  source('./fork-rc2-entry.ts', {
+    'node:fs': fsModule, 'node:path': pathModule,
+    'electron': { app: { isPackaged: true, getName: () => profile.name, getVersion: () => version,
+      getAppPath: () => project, getPath: (name: string) => name === 'home' ? '/fixture/raiz' : '/fixture/raiz/.mexerica-rc',
+      exit: (code: number) => overlappingExits.push(code) } },
+    '../shared/fork-rc2-profile.ts': profileModule,
+    './fork-rc2-artifact.ts': source('./fork-rc2-artifact.ts', {
+      'node:crypto': cryptoModule, 'node:fs': fsModule, 'node:path': pathModule,
+      '../shared/fork-rc2-profile.ts': profileModule, '../shared/fork-rc-profile.ts': rcProfileModule,
+    }),
+    './fork-rc2-local-hub.ts': { nativeRc2Transport },
+  }, { process: { platform: 'darwin', arch: 'arm64', resourcesPath: join(project, 'resources') },
+    __MEXERICA_RC2_PROFILE__: profile.profile, __MEXERICA_RC2_MANIFEST_HASH__: compiled.pin })
+  assert.deepEqual(overlappingExits, [1])
+  const refused = run('x64', compiled.pin)
+  assert.deepEqual(refused.exits, [1])
+  assert.deepEqual(refused.reads, [])
 })
 
 function deferred<T>() {
