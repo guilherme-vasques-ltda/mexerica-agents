@@ -23,11 +23,13 @@
 //! não afirmação do próprio processo), confere o PID contra o admitido no
 //! censo da admissão e registra a instância no censo — a RETOMADA do
 //! Motor suspenso é o próprio efeito mediado de partida: nada corre antes
-//! do registro. A saída confirmada do motor é terminal, nenhum
-//! descendente nasce fora do censo e a completude dos descendentes
-//! exige censo real por grupo e sessão vazios. Essas provas são nativas
-//! no macOS e precedem a retirada da recusa #117; os dublês das
-//! fixtures só exercitam o contrato.
+//! do registro. A saída confirmada de qualquer instância é terminal —
+//! morto declarado não volta ao censo em nenhum papel — e a COMPLETUDE
+//! dos descendentes não é garantida por este contrato: ela exige censo
+//! real, provado pelo supervisor contra o grupo e a sessão do Motor e de
+//! cada descendente vazios. Essas provas são nativas no macOS e precedem
+//! a retirada da recusa #117; os dublês das fixtures só exercitam o
+//! contrato.
 
 use std::num::NonZeroU64;
 
@@ -105,6 +107,19 @@ fn recusa_de_partida(motivo: &'static str) -> anyhow::Error {
     anyhow::anyhow!("{}: {motivo}", partida::CODIGO)
 }
 
+/// Todo id gravável no registro de recusas: o registro persiste em i64, e
+/// um id fora do intervalo não pode falhar só no efeito aprovado — a
+/// admissão recusa antes de a unidade existir.
+fn ids_gravaveis(escopo: Escopo, instancia: NonZeroU64) -> bool {
+    let dentro = |valor: NonZeroU64| i64::try_from(valor.get()).is_ok();
+    dentro(escopo.titular)
+        && dentro(escopo.dispositivo)
+        && dentro(escopo.bot)
+        && dentro(escopo.sessao)
+        && dentro(escopo.geracao)
+        && dentro(instancia)
+}
+
 /// Abre a tentativa de partida rc.2. Falha-closed: identidade primeiro,
 /// partida depois, coerência de escopo por último — toda recusa vira o
 /// código estável antes de qualquer porta, cofre ou efeito existir.
@@ -144,6 +159,9 @@ pub(super) fn iniciar<'a>(
     if escopo.geracao != identidade_entrada.geracao || vinculo.escopo() != escopo {
         return Err(recusa_estavel_de_incoerencia());
     }
+    if !ids_gravaveis(escopo, instancia) {
+        return Err(recusa_de_partida("ids fora do intervalo do registro"));
+    }
     let porta = PortaAuditada::nova(escopo, instancia, registro);
     let cofre = cofre::Cofre::abrir(vinculo);
     Ok(UnidadeRc2 { motor_pid, partida: Some(partida_verificada), porta, cofre, parada: false })
@@ -152,11 +170,16 @@ pub(super) fn iniciar<'a>(
 impl<'a> UnidadeRc2<'a> {
     /// Fechamento unificado: quando a porta fecha por QUALQUER caminho —
     /// "Parar tudo" ou falha de auditoria — o cofre da geração fecha junto
-    /// e a partida é recusada dali em diante.
+    /// e a partida é recusada dali em diante; a concessão ainda não usada
+    /// é descartada com o fechamento: nada parte depois de parar, nem por
+    /// resto de estado da unidade.
     fn sincronizar_fechamento(&mut self) {
-        if !self.parada && self.porta.fechada() {
+        if self.parada {
+            self.partida = None;
+        } else if self.porta.fechada() {
             self.cofre.parar();
             self.parada = true;
+            self.partida = None;
         }
     }
 

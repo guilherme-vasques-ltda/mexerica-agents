@@ -239,15 +239,19 @@ fn identidade_divergente_recusa_com_codigo_estavel() {
 #[test]
 fn escopo_incoerente_com_a_admissao_recusa() {
     let (_dir, registro) = registro();
-    // Geração do escopo diverge da geração admitida.
+    // Geração do escopo diverge da geração admitida — e o vínculo acompanha
+    // o escopo, isolando a divergência da identidade: sem a comparação com
+    // a geração admitida, este caso passaria.
     let escopo_outro = Escopo { geracao: id(55), ..escopo() };
+    let vinculo_do_escopo_outro = cofre::Vinculo::compor("invalid.example.mexerica", escopo_outro, id(7), "x.invalid")
+        .expect("compor vínculo do escopo divergente da fixture");
     let erro = ligacao::iniciar(
         &identidade_valida(),
         partida_valida(vec![Capacidade::Mediada]),
         escopo_outro,
         id(9),
         &registro,
-        vinculo(),
+        vinculo_do_escopo_outro,
     )
     .expect_err("escopo incoerente");
     assert_eq!(erro.to_string(), "motor_macos_indisponivel: escopo incoerente com a admissão");
@@ -640,4 +644,55 @@ fn segunda_marca_divergente_nao_substitui_a_marca_do_censo() {
     assert!(!unidade.registrar_motor(Instancia { pid: id(43), inicio: id(52) }));
     // A marca original segue valendo: a partida abre com ela.
     assert!(unidade.partir_para_o_motor(|_| {}).is_ok());
+}
+
+#[test]
+fn ids_fora_do_intervalo_do_registro_recusam_na_admissao() {
+    let (_dir, registro) = registro();
+    // Instância 2^63 não cabe em i64: o registro de recusas não a grava, e
+    // a recusa acontece na admissão, antes de a unidade existir — nunca no
+    // efeito aprovado.
+    let instancia_grande = NonZeroU64::new(1u64 << 63).expect("instância não-zero da fixture");
+    let erro = ligacao::iniciar(
+        &identidade_valida(),
+        partida_valida(vec![Capacidade::Mediada]),
+        escopo(),
+        instancia_grande,
+        &registro,
+        vinculo(),
+    )
+    .expect_err("instância fora do intervalo");
+    assert_eq!(erro.to_string(), "motor_macos_indisponivel: ids fora do intervalo do registro");
+    // O mesmo vale para qualquer campo do escopo.
+    let escopo_grande = Escopo { titular: instancia_grande, ..escopo() };
+    let vinculo_grande = cofre::Vinculo::compor("invalid.example.mexerica", escopo_grande, id(7), "x.invalid")
+        .expect("compor vínculo da fixture");
+    let erro2 = ligacao::iniciar(
+        &identidade_valida(),
+        partida_valida(vec![Capacidade::Mediada]),
+        escopo_grande,
+        id(9),
+        &registro,
+        vinculo_grande,
+    )
+    .expect_err("escopo fora do intervalo");
+    assert_eq!(erro2.to_string(), "motor_macos_indisponivel: ids fora do intervalo do registro");
+    // No limite representável (i64::MAX), a admissão continua aceita.
+    let limite = NonZeroU64::new(i64::MAX as u64).expect("limite não-zero da fixture");
+    let escopo_limite = Escopo { titular: limite, dispositivo: limite, bot: limite, sessao: limite, geracao: limite };
+    let mut identidade_limite = identidade_valida();
+    identidade_limite.geracao = limite;
+    let par_limite = ParValidado { codigo: codigo(), geracao: limite };
+    identidade_limite.par = ObservacaoIdentidade::Arm64Validada(par_limite);
+    let vinculo_limite = cofre::Vinculo::compor("invalid.example.mexerica", escopo_limite, id(7), "x.invalid")
+        .expect("compor vínculo do limite da fixture");
+    ligacao::iniciar(
+        &identidade_limite,
+        partida_valida(vec![Capacidade::Mediada]),
+        escopo_limite,
+        limite,
+        &registro,
+        vinculo_limite,
+    )
+    .expect("ids no limite do i64 são representáveis e aceitos");
 }

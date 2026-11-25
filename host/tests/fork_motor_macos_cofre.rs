@@ -204,3 +204,18 @@ fn parada_cancela_pendente_grava_fechada_e_mostra_sobrevivente() {
     let db = Connection::open(dir.path().join("recusas.sqlite3")).expect("reabrir banco da fixture");
     assert_eq!(linhas(&db), vec![(1, "fechada".to_owned(), 10)]);
 }
+
+#[test]
+fn autorizacao_nao_e_redimida_por_outro_cofre_da_mesma_geracao() {
+    // O token é ligado ao cofre emissor: um segundo cofre aberto sobre o
+    // MESMO vínculo (mesma geração) não redime a autorização do primeiro —
+    // a redenção falha por vínculo, e o emissor ainda a redime.
+    let emissor = cofre::Cofre::abrir(vinculo());
+    let outro = cofre::Cofre::abrir(vinculo());
+    let autorizacao = emissor.autorizar(Pedido::Inferencia(inferencia(ITEM_PROPRIO))).expect("autorizar");
+    // A tentativa no cofre errado consome o token por valor — sem reutilização.
+    // (Reemitimos pelo emissor para provar a redenção correta.)
+    let copia_para_outro = emissor.autorizar(Pedido::Inferencia(inferencia(ITEM_PROPRIO))).expect("reautorizar");
+    assert_eq!(outro.redimir(copia_para_outro), Err(Recusa::Vinculo));
+    assert_eq!(emissor.redimir(autorizacao).expect("redimir pelo emissor"), id(5));
+}
