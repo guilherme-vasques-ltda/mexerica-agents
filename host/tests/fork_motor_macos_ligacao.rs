@@ -256,12 +256,57 @@ fn escopo_incoerente_com_a_admissao_recusa() {
 }
 
 #[test]
-fn admissao_completa_entrega_unidade_com_partida_verificada() {
+fn admissao_completa_entrega_partida_uma_unica_vez_e_segue_supervisora() {
     let (_dir, registro) = registro();
-    let unidade = unidade(&registro);
-    // A partida sai uma única vez, move-only, com o perfil admitido.
-    let partida = unidade.partir_para_o_motor();
+    let mut unidade = unidade(&registro);
+    // A partida sai UMA única vez, move-only, com o perfil admitido — e a
+    // unidade não deixa de existir: segue supervisora.
+    let partida = unidade.partir_para_o_motor().expect("entregar partida");
     assert_eq!(partida.perfil(), perfil());
+    // Segunda entrega não existe: nada parte duas vezes.
+    assert_eq!(unidade.partir_para_o_motor(), Err(auditoria::Falha::Recusa(porta::Recusa::Fechada)));
+    // A supervisão segue viva: a porta ainda aceita o caminho de pedir.
+    unidade.aceitar_aviso(escopo()).expect("aceitar aviso após a partida");
+    let _pedido = unidade.pedir(acao(), 0).expect("abrir pedido após a partida");
+}
+
+#[test]
+fn partida_recusada_apos_a_parada() {
+    let (_dir, registro) = registro();
+    let mut unidade = unidade(&registro);
+    unidade.parar_tudo(10).expect("parar tudo antes da partida");
+    // Nada parte depois de "Parar tudo": a recusa é a mesma da porta fechada.
+    assert_eq!(unidade.partir_para_o_motor(), Err(auditoria::Falha::Recusa(porta::Recusa::Fechada)));
+}
+
+#[test]
+fn parada_antes_da_partida_mantem_a_unidade_supervisora() {
+    let (_dir, registro) = registro();
+    let mut unidade = unidade(&registro);
+    let _partida = unidade.partir_para_o_motor().expect("entregar partida");
+    // Supervisão após a partida: "Parar tudo" fecha porta e cofre da mesma
+    // forma, e o estado da parada continua observável pela unidade.
+    unidade.aceitar_aviso(escopo()).expect("aceitar aviso da fixture");
+    let _pedido = unidade.pedir(acao(), 0).expect("abrir pedido da fixture");
+    unidade.parar_tudo(10).expect("parar tudo após a partida");
+    assert_eq!(unidade.autorizar_inferencia(inferencia_padrao()), Err(RecusaCofre::Fechada));
+    assert_eq!(unidade.estado_da_parada(2_010, Evidencia::UnidadeFechada(escopo())), Parada::ConfirmadaNoPrazo);
+    assert_eq!(unidade.partir_para_o_motor(), Err(auditoria::Falha::Recusa(porta::Recusa::Fechada)));
+}
+
+#[test]
+fn parar_tudo_fecha_o_cofre_antes_de_qualquer_gravacao() {
+    let (dir, registro) = registro();
+    let mut unidade = unidade(&registro);
+    unidade.aceitar_aviso(escopo()).expect("aceitar aviso da fixture");
+    let _pedido = unidade.pedir(acao(), 0).expect("abrir pedido da fixture");
+    leitor(&dir).execute("DROP TABLE recusas_motor_macos", []).expect("derrubar tabela da fixture");
+    // A gravação da pendência falha — e o fechamento não depende dela: o
+    // cofre da geração e a porta estão fechados, e a partida recusada.
+    assert_eq!(unidade.parar_tudo(10), Err(auditoria::Falha::Auditoria));
+    assert_eq!(unidade.autorizar_inferencia(inferencia_padrao()), Err(RecusaCofre::Fechada));
+    assert_eq!(unidade.pedir(acao(), 11), Err(auditoria::Falha::Recusa(porta::Recusa::Fechada)));
+    assert_eq!(unidade.partir_para_o_motor(), Err(auditoria::Falha::Recusa(porta::Recusa::Fechada)));
 }
 
 #[test]

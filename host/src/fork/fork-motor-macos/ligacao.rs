@@ -21,7 +21,7 @@ use super::auditoria::{Falha, PortaAuditada};
 use super::cofre;
 use super::identidade;
 use super::partida;
-use super::porta::{Decisao, Escopo, Pedido};
+use super::porta::{Decisao, Escopo, Pedido, Recusa};
 use super::recusas::Registro;
 
 /// Entrada de identidade de uma tentativa de partida rc.2: manifesto
@@ -44,11 +44,14 @@ pub(super) struct PartidaEntrada<'a> {
 
 /// Unidade rc.2 admitida: partida move-only, porta auditada e cofre da
 /// geração. Só existe com identidade e partida verificadas e coerentes com o
-/// escopo; o Motor e seus descendentes não iniciam sem ela.
+/// escopo; o Motor e seus descendentes não iniciam sem ela. A unidade segue
+/// viva como supervisora depois de entregar a partida: porta, cofre e censo
+/// continuam sob seu controle, e a partida é recusada após a parada.
 pub(super) struct UnidadeRc2<'a> {
-    partida: partida::Partida<'a>,
+    partida: Option<partida::Partida<'a>>,
     porta: PortaAuditada<'a>,
     cofre: cofre::Cofre<'a>,
+    parada: bool,
 }
 
 /// Regra permanente da ligação: "Sempre permitir" não existe para shell —
@@ -112,7 +115,7 @@ pub(super) fn iniciar<'a>(
     }
     let porta = PortaAuditada::nova(escopo, instancia, registro);
     let cofre = cofre::Cofre::abrir(vinculo);
-    Ok(UnidadeRc2 { partida: partida_verificada, porta, cofre })
+    Ok(UnidadeRc2 { partida: Some(partida_verificada), porta, cofre, parada: false })
 }
 
 impl<'a> UnidadeRc2<'a> {
@@ -123,10 +126,15 @@ impl<'a> UnidadeRc2<'a> {
     }
 
     /// Partida verificada da unidade: move-only, sai UMA única vez no ponto
-    /// do efeito — quem a recebe só lê o perfil admitido, e a unidade deixa
-    /// de existir junto.
-    pub(super) fn partir_para_o_motor(self) -> partida::Partida<'a> {
-        self.partida
+    /// do efeito. A unidade NÃO deixa de existir: segue supervisora com
+    /// porta, cofre e censo, e a partida é recusada após a parada ou se já
+    /// foi entregue — nada parte duas vezes, e nada parte depois de
+    /// "Parar tudo".
+    pub(super) fn partir_para_o_motor(&mut self) -> Result<partida::Partida<'a>, Falha> {
+        if self.parada {
+            return Err(Falha::Recusa(Recusa::Fechada));
+        }
+        self.partida.take().ok_or(Falha::Recusa(Recusa::Fechada))
     }
 
     /// Registra instância observada (motor ou descendente): o censo é o que
@@ -180,13 +188,16 @@ impl<'a> UnidadeRc2<'a> {
         self.cofre.redimir(autorizacao)
     }
 
-    /// "Parar tudo" da unidade: fecha a porta (gravando a pendência como
-    /// `fechada`, sem bloquear) e o cofre da geração JUNTOS — a parada do
-    /// cofre nunca é bloqueada pela auditoria da porta.
+    /// "Parar tudo" da unidade: o cofre da geração fecha PRIMEIRO,
+    /// incondicional — nenhuma gravação de auditoria, que pode bloquear ou
+    /// falhar, precede o fechamento do cofre, e o prazo de 2 s não depende
+    /// dela. Depois a porta fecha (gravando a pendência como `fechada`, sem
+    /// bloquear: a gravação falha deixa o fechamento valendo). A partida é
+    /// recusada dali em diante.
     pub(super) fn parar_tudo(&mut self, agora_ms: u64) -> Result<(), Falha> {
-        let resultado = self.porta.parar(agora_ms);
         self.cofre.parar();
-        resultado
+        self.parada = true;
+        self.porta.parar(agora_ms)
     }
 
     /// Estado da parada com evidência: confirmada no prazo de 2 s só com
