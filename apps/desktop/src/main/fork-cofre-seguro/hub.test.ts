@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { chamarHub, resolverHub, type CapturaHub, type FontesDeHub } from './hub.ts'
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
+import { hubProva, TOKEN_PROVA } from '../../shared/test-support/hub-prova.ts'
+import { loadMainModule } from '../../shared/test-support/main-module.ts'
+import type { CapturaHub, FontesDeHub } from './hub.ts'
+
+const { chamarHub, resolverHub } = loadMainModule<typeof import('./hub.ts')>('fork-cofre-seguro/hub', {
+  'node:crypto': { createHmac, randomBytes, timingSafeEqual },
+}, { URL, Buffer })
 
 const LOCAL = { computerId: 'pc-1', baseURL: 'http://127.0.0.1:1', token: 'tk' }
 const captura = (o: Partial<CapturaHub> & { baseURL?: string; token?: string } = {}): CapturaHub => ({
@@ -21,7 +28,7 @@ test('resolve só o Hub local e o túnel SSH em loopback; o resto falha fechado'
   assert.equal(resolverHub('pc-ssh', fontes(), viva)?.baseURL, 'http://127.0.0.1:2')
   assert.equal(resolverHub('nuvem', fontes(), viva), null)
   assert.equal(resolverHub('pc-1', fontes({ local: null }), viva), null)
-  assert.equal(resolverHub('pc-1', fontes({ local: { computerId: 'pc-1', baseURL: 'https://hub.exemplo.com', token: 'x' } }), viva), null)
+  assert.equal(resolverHub('pc-1', fontes({ local: { computerId: 'pc-1', baseURL: 'https://hub.example.invalid', token: 'x' } }), viva), null)
   assert.equal(resolverHub('pc-ssh', fontes({ ssh: () => null }), viva), null)
 })
 
@@ -35,62 +42,88 @@ test('a captura local morre com a janela, com a troca do host local ou com a sa�
   vivo = true
   local = { ...LOCAL, token: 'outro' }
   assert.equal(c.current(), false, 'host trocado invalida')
-  local = { ...LOCAL, baseURL: 'https://exemplo.com' }
+  local = { ...LOCAL, baseURL: 'https://example.invalid' }
   assert.equal(c.current(), false, 'fora do loopback invalida')
 })
 
-test('chamarHub: guarda de posse e validade imediatamente antes do POST; redirect:error', async () => {
-  const SENHA = 'senha-ficticia-do-teste'
-  const inits: RequestInit[] = []
-  const http = (async (_u: any, i: any) => { inits.push(i); return new Response('{}') }) as unknown as typeof fetch
-  // Sem captura viva ou sem posse do listener: nenhum envio.
-  for (const morta of [captura({ current: () => false }), captura({ listener: async () => false })]) {
-    await assert.rejects(chamarHub(morta, 'm', { value: SENHA }, http), (e) => JSON.stringify(e) === '{"status":0}')
+const SENHA = 'senha-ficticia-do-teste'
+const falha = (status: number) => (erro: unknown) => JSON.stringify(erro) === JSON.stringify({ status })
+
+test('chamarHub: bearer e valor só saem pelo socket que provou o token', async (t) => {
+  const recebidos: string[] = []
+  const hub = await hubProva((request, response) => {
+    assert.equal(request.method, 'POST')
+    let corpo = ''
+    request.setEncoding('utf8').on('data', (parte) => { corpo += parte })
+    request.on('end', () => {
+      recebidos.push(corpo)
+      response.end('{}')
+    })
+    return true
+  })
+  t.after(() => hub.close())
+  const viva = captura({ baseURL: hub.url(), token: TOKEN_PROVA })
+  for (const morta of [{ ...viva, current: () => false }, { ...viva, listener: async () => false }]) {
+    await assert.rejects(chamarHub(morta, 'm', { value: SENHA }), falha(0))
   }
-  assert.equal(inits.length, 0)
-  // Viva: um POST só, com redirect:'error' e o Bearer da captura.
-  const ok = await chamarHub(captura(), 'connectorRequestFinish', { value: SENHA }, http)
-  assert.deepEqual(ok, {})
-  assert.equal(inits.length, 1)
-  assert.equal(inits[0]!.redirect, 'error')
-  assert.equal((inits[0]!.headers as Record<string, string>).Authorization, 'Bearer tk')
+  assert.equal(hub.seen.length, 0)
+
+  await assert.rejects(chamarHub({ ...viva, token: 'token-sem-prova' }, 'm', { value: SENHA }), falha(0))
+  assert.equal(hub.seen.length, 1)
+  assert.match(hub.seen[0]!.url, /^\/health\?/)
+  assert.equal(hub.seen[0]!.authorization, undefined)
+  assert.deepEqual(recebidos, [])
+
+  assert.equal(JSON.stringify(await chamarHub(viva, 'connectorRequestFinish', { value: SENHA })), '{}')
+  assert.deepEqual(hub.seen.slice(1).map((pedido) => pedido.authorization), [undefined, `Bearer ${TOKEN_PROVA}`])
+  assert.deepEqual(recebidos, [JSON.stringify({ value: SENHA })])
+  assert.deepEqual(hub.violacoes, [])
 })
 
-test('chamarHub: captura invalidada DURANTE a espera do listener não envia nada', async () => {
-  const SENHA = 'senha-ficticia-do-teste'
+test('chamarHub: captura invalidada durante a espera do listener não envia nada', async (t) => {
+  const hub = await hubProva(() => false)
+  t.after(() => hub.close())
   let liberar!: (v: boolean) => void
   const espera = new Promise<boolean>((r) => { liberar = r })
   let vivo = true
-  let envios = 0
-  const http = (async () => { envios++; return new Response('{}') }) as unknown as typeof fetch
-  const c = captura({ current: () => vivo, listener: () => espera })
-  const p = chamarHub(c, 'connectorRequestFinish', { value: SENHA }, http)
-  // current() inicial é true e o listener fica pendente (lsof/proc); a janela fecha / o túnel cai aqui.
+  const c = captura({ baseURL: hub.url(), token: TOKEN_PROVA, current: () => vivo, listener: () => espera })
+  const p = chamarHub(c, 'connectorRequestFinish', { value: SENHA })
   vivo = false
-  liberar(true) // o listener responde true sobre o que observou — não vale mais
-  await assert.rejects(p, (e) => JSON.stringify(e) === '{"status":0}')
-  assert.equal(envios, 0, 'current() reconferido depois do await: zero envios')
+  liberar(true)
+  await assert.rejects(p, falha(0))
+  assert.deepEqual(hub.seen, [])
 })
 
-test('chamarHub: 307/308 não gera segundo envio; o corpo nunca segue adiante', async () => {
-  const SENHA = 'senha-ficticia-do-teste'
-  let chamadas = 0
-  // Nem origem externa nem outro listener local recebem o corpo: o transporte recusa redirect
-  // (redirect:'error' já provado acima; aqui a resposta de redirect é um erro, sem reenvio).
+test('chamarHub: 307/308 não gera segundo envio; o corpo nunca segue adiante', async (t) => {
+  const hub = await hubProva((request, response) => {
+    response.writeHead(Number(request.url?.split('/').at(-1)), { Location: '/nao-seguir' }).end()
+    return true
+  })
+  t.after(() => hub.close())
+  const viva = captura({ baseURL: hub.url(), token: TOKEN_PROVA })
   for (const status of [307, 308]) {
-    const http = (async () => { chamadas++; return new Response(null, { status }) }) as unknown as typeof fetch
-    await assert.rejects(chamarHub(captura(), 'm', { value: SENHA }, http), (e) => (e as { status: number }).status === status)
+    await assert.rejects(chamarHub(viva, String(status), { value: SENHA }), falha(status))
   }
-  assert.equal(chamadas, 2, 'uma tentativa por chamada; nunca um segundo POST')
+  assert.deepEqual(hub.seen.filter((r) => !r.url.startsWith('/health')).map((r) => r.url), ['/api/307', '/api/308'])
+  assert.deepEqual(hub.violacoes, [])
 })
 
-test('chamarHub: captura que morre durante o envio falha fechado; erros não levam corpo nem token', async () => {
-  const SENHA = 'senha-ficticia-do-teste'
+test('chamarHub: captura que morre durante o envio falha fechado; erros não levam corpo nem token', async (t) => {
   let vivo = true
-  const morrendo = captura({ current: () => vivo })
-  const http = (async () => { vivo = false; return new Response('{}') }) as unknown as typeof fetch
-  await assert.rejects(chamarHub(morrendo, 'm', { value: SENHA }, http), (e) => JSON.stringify(e) === '{"status":0}')
-  const destino = captura()
-  await assert.rejects(chamarHub(destino, 'm', { value: SENHA }, async () => new Response(`{"error":"${SENHA}"}`, { status: 500 })), (e) => JSON.stringify(e) === '{"status":500}')
-  await assert.rejects(chamarHub(destino, 'm', { value: SENHA }, async () => { throw new Error(`falha ${SENHA} tk`) }), (e) => JSON.stringify(e) === '{"status":0}')
+  const hub = await hubProva((request, response) => {
+    if (request.url === '/api/morre') {
+      vivo = false
+      response.end('{}')
+    } else if (request.url === '/api/rede') {
+      response.destroy()
+    } else {
+      response.writeHead(500).end(JSON.stringify({ error: SENHA }))
+    }
+    return true
+  })
+  t.after(() => hub.close())
+  const destino = captura({ baseURL: hub.url(), token: TOKEN_PROVA })
+  await assert.rejects(chamarHub({ ...destino, current: () => vivo }, 'morre', { value: SENHA }), falha(0))
+  await assert.rejects(chamarHub(destino, 'negado', { value: SENHA }), falha(500))
+  await assert.rejects(chamarHub(destino, 'rede', { value: SENHA }), falha(0))
 })

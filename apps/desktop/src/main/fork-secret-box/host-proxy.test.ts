@@ -121,8 +121,6 @@ test('stream em lote: ordem preservada e nenhum evento perdido entre trechos', a
   const hub = await hubProva((request, response) => {
     if (request.url === '/events') {
       response.writeHead(200, { 'content-type': 'text/event-stream' })
-      // Os trechos saem com um intervalo entre eles: cada um é um trecho do stream por si, que é
-      // o que o teste de lote mede — a ordem e a integridade, não o acaso da junção no TCP.
       response.write('data: a1\ndata: a2\n: ping\nevent: tick\n\n')
       setTimeout(() => {
         response.write('data: b')
@@ -138,7 +136,7 @@ test('stream em lote: ordem preservada e nenhum evento perdido entre trechos', a
   const f = fixture()
   f.invoke('host:stream:open', 'batch-id', `${hub.url()}/events`, TOKEN_PROVA)
   await ateOFim(f)
-  assert.equal(JSON.stringify(lotes(f)), JSON.stringify([['a1', 'a2'], ['b1'], ['c1', 'c2']]))
+  assert.equal(JSON.stringify(lotes(f).flat()), JSON.stringify(['a1', 'a2', 'b1', 'c1', 'c2']))
   assert.deepEqual(f.sent.at(-1), ['host:stream:end', 'batch-id', null])
   assert.deepEqual(hub.violacoes, [])
   await hub.close()

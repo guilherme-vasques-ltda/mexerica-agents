@@ -6,6 +6,7 @@
 // Conexão pela nuvem (relay) NÃO é aceita: o envio por lá é assinado e com resultado incerto (RelayOutcomeUnknown),
 // e o valor não pode ir para um canal que o main não controla de ponta a ponta. Falha fechada.
 import type { LocalHost } from '../../shared/ipc'
+import { postProvado } from '../fork-proved-loopback'
 
 /** O que o main precisa de um Hub para falar com ele com o segredo: endereço+token e as guardas de vida. */
 export interface CapturaHub {
@@ -60,12 +61,11 @@ export function resolverHub(computerId: string, fontes: FontesDeHub, consumidora
 }
 
 /**
- * POST /api/<método> na captura resolvida. O corpo pode carregar o valor: ele só existe aqui, na fila do fetch.
- * Mesmas guardas do `createLocalCloudCapture`: posse do listener e validade conferidas imediatamente antes
- * do envio e de novo depois; `redirect: 'error'` impede que um 307/308 reenvie o corpo a outra origem.
+ * POST /api/<método> na captura resolvida. Bearer e corpo só saem pela conexão que provou o token,
+ * sem seguir redirecionamento. A posse do listener e a validade são conferidas antes e depois do envio.
  * Não loga, e nenhum erro lançado leva corpo, URL com token ou resposta (só o status).
  */
-export async function chamarHub(captura: CapturaHub, metodo: string, corpo: object, http: typeof fetch = fetch, timeoutMs = 120_000): Promise<unknown> {
+export async function chamarHub(captura: CapturaHub, metodo: string, corpo: object, timeoutMs = 120_000): Promise<unknown> {
   const corrente = (): boolean => {
     try {
       return captura.current()
@@ -83,28 +83,33 @@ export async function chamarHub(captura: CapturaHub, metodo: string, corpo: obje
       return false
     }
   }
-  if (!(await guarda()) || !corrente()) throw { status: 0 } satisfies FalhaHub
-  let resposta: Response
+  if (!loopback(captura.baseURL) || !(await guarda()) || !corrente()) throw { status: 0 } satisfies FalhaHub
+  let resposta: Awaited<ReturnType<typeof postProvado>>
   try {
-    resposta = await http(`${captura.baseURL}/api/${metodo}`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${captura.token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(corpo),
-      redirect: 'error',
+    resposta = await postProvado(captura.baseURL, `/api/${metodo}`, captura.token, JSON.stringify(corpo), timeoutMs, {
       signal: AbortSignal.timeout(timeoutMs),
+      atual: corrente,
     })
   } catch {
     throw { status: 0 } satisfies FalhaHub
   }
-  // O envio pode ter acontecido: se a captura morreu no meio, o resultado é incerto — falha fechada.
-  if (!(await guarda())) throw { status: 0 } satisfies FalhaHub
-  if (!resposta.ok) throw { status: resposta.status } satisfies FalhaHub
-  let dados: unknown
   try {
-    dados = await resposta.json()
-  } catch {
-    throw { status: resposta.status } satisfies FalhaHub
+    // O envio pode ter acontecido: se a captura morreu no meio, o resultado é incerto — falha fechada.
+    if (!(await guarda())) throw { status: 0 } satisfies FalhaHub
+    const status = resposta.statusCode ?? 0
+    if (status < 200 || status >= 300) throw { status } satisfies FalhaHub
+    let dados: unknown
+    try {
+      let texto = ''
+      resposta.setEncoding('utf8')
+      for await (const parte of resposta) texto += parte as string
+      dados = JSON.parse(texto)
+    } catch {
+      throw { status } satisfies FalhaHub
+    }
+    if (!(await guarda())) throw { status: 0 } satisfies FalhaHub
+    return dados
+  } finally {
+    resposta.destroy()
   }
-  if (!(await guarda())) throw { status: 0 } satisfies FalhaHub
-  return dados
 }

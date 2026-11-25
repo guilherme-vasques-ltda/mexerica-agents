@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import * as path from 'node:path'
 import type { WebContents } from 'electron'
 import { deferred, loadMainModule, settle } from '../../shared/test-support/main-module.ts'
@@ -198,21 +197,23 @@ test('navegação, queda do renderer ou recriação: fecha a instância; a nova 
   assert.equal(second.destroyed, true)
 })
 
-test('host-proxy recusa host:call vindo da janela privada, sem fetch', async () => {
+test('host-proxy recusa chamadas e streams da janela privada antes do transporte', async () => {
   const f = electron()
   await f.module.openPrivateBox(f.hub)
   const handlers = new Map<string, Handler>()
-  let fetches = 0
+  let envios = 0
+  const enviar = async () => { envios++; throw new Error('envio inesperado') }
   const proxy = loadMainModule<typeof import('../host-proxy.ts')>('host-proxy', {
     electron: { ipcMain: { handle: (channel: string, h: Handler) => handlers.set(channel, h), on: (channel: string, h: Handler) => handlers.set(channel, h) } },
     './analytics': { noteAnalyticsSetting: () => {} },
     './fork-secret-box/contexts': contexts,
-    'node:crypto': { createHmac, randomBytes, timingSafeEqual },
+    './fork-proved-loopback': { postProvado: enviar, streamProvado: enviar },
   }, { URL, AbortController, setTimeout, clearTimeout, TextDecoder, Buffer })
   proxy.registerHostProxy()
   const result = await handlers.get('host:call')!({ sender: f.windows[0].webContents, senderFrame: null }, 'http://localhost:1', 'fixture', 'ping', {}, 1000)
   assert.equal(JSON.stringify(result), JSON.stringify({ ok: false, error: { status: 0, message: 'Contexto indisponível.' } }))
-  assert.equal(fetches, 0)
+  handlers.get('host:stream:open')!({ sender: f.windows[0].webContents, senderFrame: null }, 'fixture', 'http://localhost:1/events', 'fixture')
+  assert.equal(envios, 0)
 })
 
 test('preload geral não expõe o canal do gesto', async () => {

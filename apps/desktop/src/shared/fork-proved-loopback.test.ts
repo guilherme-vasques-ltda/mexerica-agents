@@ -22,7 +22,7 @@ const hmac = (key: string, rotulo: string, nonce: string, extra?: string) => {
 const campos = () => [IDENTIDADE.hostId, IDENTIDADE.computerId, IDENTIDADE.binaryPath, IDENTIDADE.binaryHash].join('\n')
 
 /** Hub de mentira que registra cada requisição com a conexão que a atendeu. */
-function hubOf(token: string, options: { mataAposProva?: boolean; recusaProva?: boolean } = {}) {
+function hubOf(token: string, options: { mataAposProva?: boolean; recusaProva?: boolean; corpoAtrasado?: Promise<void>; pausarProva?: () => void } = {}) {
   const seen: { url: string; authorization: string | undefined; socketId: number }[] = []
   const sockets = new Map<number, import('node:net').Socket>()
   let proximo = 1
@@ -35,7 +35,12 @@ function hubOf(token: string, options: { mataAposProva?: boolean; recusaProva?: 
       request.on('data', (parte) => (body += parte))
       request.on('end', () => {
         response.writeHead(200, { 'content-type': 'application/json' })
-        response.end(JSON.stringify({ ok: true }))
+        if (options.corpoAtrasado) {
+          response.write('{"ok":')
+          void options.corpoAtrasado.then(() => response.end('true}'))
+        } else {
+          response.end(JSON.stringify({ ok: true }))
+        }
       })
       return
     }
@@ -50,6 +55,10 @@ function hubOf(token: string, options: { mataAposProva?: boolean; recusaProva?: 
     const anonymous = { ok: true, version: '0.0.0-test', environment: 'main', busy: false }
     const body = proved ? { ...anonymous, ...IDENTIDADE, receipt: hmac(token, RECIBO, nonce, campos()) } : anonymous
     const recusa = query.has('proof') && (!proved || options.recusaProva)
+    if (options.pausarProva) {
+      options.pausarProva()
+      return
+    }
     response.writeHead(recusa ? 401 : 200, { 'content-type': 'application/json' })
     response.end(JSON.stringify(recusa ? { error: 'invalid token' } : body))
     // Mata a conexão depois da resposta da prova: o pedido com a credencial vai nascer numa
@@ -79,22 +88,42 @@ const load = () =>
     'node:crypto': { createHmac, randomBytes, timingSafeEqual },
   }, { Buffer, AbortSignal, URL })
 
-test('the proof and the credential travel on the same connection, and the answer comes back', async () => {
+test('the proof and credential share a connection and the full response survives delayed chunks', async (t) => {
   const { postProvado, fecharProvedLoopback } = load()
-  const hub = hubOf(TOKEN)
+  const corpo = Promise.withResolvers<void>()
+  const hub = hubOf(TOKEN, { corpoAtrasado: corpo.promise })
+  t.after(async () => { await fecharProvedLoopback(); await hub.close() })
   const url = await hub.listen()
   const res = await postProvado(url, '/api/snapshot', TOKEN, '{}', 5_000)
   assert.equal(res.statusCode, 200)
-  res.resume()
-  await new Promise((resolve) => res.on('end', resolve))
+  corpo.resolve()
+  let texto = ''
+  res.setEncoding('utf8')
+  for await (const parte of res) texto += parte
+  assert.deepEqual(JSON.parse(texto), { ok: true })
   const saude = hub.seen.find((call) => call.url.startsWith('/health'))
   const api = hub.seen.find((call) => call.url.startsWith('/api/'))
   assert.ok(saude && api, JSON.stringify(hub.seen))
   assert.equal(saude.authorization, undefined, 'a prova não carrega credencial')
   assert.equal(api.authorization, `Bearer ${TOKEN}`, 'a chamada carrega o bearer')
   assert.equal(api.socketId, saude.socketId, 'prova e credencial na MESMA conexão')
-  await fecharProvedLoopback()
-  await hub.close()
+})
+
+test('a stream cancelled before or during proof never sends the bearer', async (t) => {
+  const { streamProvado, fecharProvedLoopback } = load()
+  const prova = Promise.withResolvers<void>()
+  const hub = hubOf(TOKEN, { pausarProva: prova.resolve })
+  t.after(async () => { await fecharProvedLoopback(); await hub.close() })
+  const url = await hub.listen()
+  await assert.rejects(streamProvado(url, '/stream', TOKEN, AbortSignal.abort(), 5_000), { name: 'AbortError' })
+  assert.deepEqual(hub.seen, [])
+  const controller = new AbortController()
+  const stream = streamProvado(url, '/stream', TOKEN, controller.signal, 5_000)
+  await prova.promise
+  controller.abort()
+  await assert.rejects(stream, { name: 'AbortError' })
+  assert.equal(hub.seen.length, 1)
+  assert.equal(hub.seen[0]?.authorization, undefined)
 })
 
 test('when the proved connection dies, the credential never reaches the port', async () => {

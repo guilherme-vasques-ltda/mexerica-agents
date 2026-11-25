@@ -299,9 +299,11 @@ export class HostController extends EventEmitter {
     if (!local) throw new Error('The host isn’t running')
     // A prova do token e a credencial passam pela mesma conexão, uma atrás da outra: não há
     // janela para outro listener ocupar a porta entre uma e outra.
-    const res = await postProvado(local.baseURL, `/api/${method}`, local.token, JSON.stringify(params), timeoutMs)
+    const res = await postProvado(local.baseURL, `/api/${method}`, local.token, JSON.stringify(params), timeoutMs, {
+      atual: () => this.canUseHost() && this.local === local,
+    })
     if (res.statusCode !== 200) {
-      res.resume()
+      res.destroy()
       throw new Error(`${method}: HTTP ${res.statusCode}`)
     }
     let text = ''

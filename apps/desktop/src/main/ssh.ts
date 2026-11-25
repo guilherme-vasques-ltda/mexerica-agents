@@ -296,21 +296,25 @@ export function createLocalCloudCapture(deps: LocalCaptureDeps): CapturedSSHLoca
       if (!current() || !ownsListener) throw new LocalCloudCallError('notSent')
       const payload = JSON.stringify(route.body)
       if (!current()) throw new LocalCloudCallError('notSent')
+      let res: Awaited<ReturnType<typeof postProvado>> | undefined
       try {
-        const enviar = deps.send ?? ((url: string, init: { method: string; headers: Record<string, string>; body: string }, token: string) =>
-          postProvado(new URL(url).origin, new URL(url).pathname, token, init.body, 20_000).then((res) => ({
-            ok: res.statusCode === 200,
-            json: async () => {
-              res.setEncoding('utf8')
-              let text = ''
-              for await (const chunk of res) text += chunk as string
-              return JSON.parse(text)
-            },
-          })))
-        const response = await enviar(`${deps.baseURL}/api/${route.method}`, {
-          method: 'POST', headers: { Authorization: `Bearer ${deps.token}`, 'Content-Type': 'application/json' },
-          body: payload,
-        }, deps.token)
+        const response = deps.send
+          ? await deps.send(`${deps.baseURL}/api/${route.method}`, {
+            method: 'POST', headers: { Authorization: `Bearer ${deps.token}`, 'Content-Type': 'application/json' },
+            body: payload,
+          }, deps.token)
+          : await postProvado(deps.baseURL, `/api/${route.method}`, deps.token, payload, 20_000, { atual: current }).then((proved) => {
+            res = proved
+            return {
+              ok: proved.statusCode === 200,
+              json: async () => {
+                proved.setEncoding('utf8')
+                let text = ''
+                for await (const chunk of proved) text += chunk as string
+                return JSON.parse(text)
+              },
+            }
+          })
         if (!current() || !response.ok) throw new LocalCloudCallError('unknown')
         const stillListening = await deps.listener()
         if (!current() || !stillListening) throw new LocalCloudCallError('unknown')
@@ -319,7 +323,9 @@ export function createLocalCloudCapture(deps: LocalCaptureDeps): CapturedSSHLoca
         const listenerAtDelivery = await deps.listener()
         if (!current() || !listenerAtDelivery) throw new LocalCloudCallError('unknown')
         return value
-      } catch { throw new LocalCloudCallError('unknown') }
+      } catch { throw new LocalCloudCallError('unknown') } finally {
+        res?.destroy()
+      }
     },
   })
 }

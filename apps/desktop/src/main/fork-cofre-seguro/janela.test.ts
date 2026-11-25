@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import * as path from 'node:path'
+import { Readable } from 'node:stream'
 import { loadMainModule, settle } from '../../shared/test-support/main-module.ts'
 import * as contexts from '../fork-secret-box/contexts.ts'
 
@@ -19,7 +20,7 @@ const ENTRADA = {
 }
 
 function ambiente(opcoes: {
-  http?: typeof fetch
+  http?: (url: string) => Promise<Response>
   local?: boolean
   load?: () => Promise<void>
   /** Respostas do GET por chamada (na ordem); o padrão repete ENTRADA. */
@@ -30,7 +31,7 @@ function ambiente(opcoes: {
   const windows: any[] = []
   const passos: string[] = []
   const handlers = new Map<string, Handler>()
-  const chamadas: { url: string; init: any }[] = []
+  const chamadas: { url: string; token: string; body: string }[] = []
   class BrowserWindow {
     options: any
     destroyed = false
@@ -71,9 +72,7 @@ function ambiente(opcoes: {
   const avisos: unknown[][] = []
   const geral = { isDestroyed: () => false, webContents: { mainFrame: { frame: 'chat' }, isDestroyed: () => false, send: (...a: unknown[]) => avisos.push(a) } }
   const gets = [...(opcoes.gets ?? [])]
-  const http = opcoes.http ?? (async (url: any, init: any) => {
-    chamadas.push({ url: String(url), init })
-    const u = String(url)
+  const http = opcoes.http ?? (async (u: string) => {
     if (u.endsWith('/api/connectorRequestGet')) {
       const proxima = gets.length > 1 ? gets.shift() : gets[0]
       if (proxima && typeof proxima === 'object' && 'falha' in proxima) {
@@ -89,6 +88,15 @@ function ambiente(opcoes: {
     'node:path': path,
     '../fork-secret-box/contexts': contexts,
     '../../renderer/lib/fork-i18n/index.ts': { traduzir: () => 'Cartão seguro' },
+    '../fork-proved-loopback': {
+      postProvado: async (baseURL: string, rota: string, token: string, body: string, _timeout: number, options: { atual: () => boolean }) => {
+        if (!options.atual()) throw new Error('captura indisponível')
+        const url = baseURL + rota
+        chamadas.push({ url, token, body })
+        const response = await http(url)
+        return Object.assign(Readable.from([await response.text()]), { statusCode: response.status })
+      },
+    },
     '../fork-idioma': { idiomaDoApp: () => 'pt-BR' },
   }, { __dirname: '/app/out/main', URL, AbortSignal, JSON, setImmediate })
   const local = opcoes.local === false ? null : { computerId: 'pc-1', baseURL: 'http://127.0.0.1:4567', token: 'token-do-hub' }
@@ -101,7 +109,7 @@ function ambiente(opcoes: {
         ? { baseURL: 'http://127.0.0.1:5555', token: 't-ssh', current: () => current() && sshViva().current, listener: sshViva().listener }
         : null,
     },
-    url: 'file:///app/out/renderer/index.html?window=cofre-seguro', http,
+    url: 'file:///app/out/renderer/index.html?window=cofre-seguro',
   })
   const chamar = (canal: string, sender: any, ...args: unknown[]) => handlers.get(canal)!({ sender, senderFrame: sender?.mainFrame }, ...args)
   /** Chamada vinda de um quadro que não é o principal do remetente. */
@@ -141,7 +149,7 @@ test('abre: o main busca a entrada no Hub e deriva dela todos os textos da janel
   same(a.avisos, [['fork-cofre-seguro:estado', { entryId: 'e-1', estado: 'aberta' }]])
   // O GET pede só a referência; a resposta vem do Hub, não do renderer.
   assert.equal(a.getsChamadas().length, 1)
-  assert.deepEqual(JSON.parse(a.getsChamadas()[0].init.body), { entryId: 'e-1' })
+  assert.deepEqual(JSON.parse(a.getsChamadas()[0].body), { entryId: 'e-1' })
   const dados = await a.chamar('fork-cofre-seguro:dados', a.windows[0].webContents, 'nonce-0')
   same(dados.pedido, { tipo: 'login', titulo: 'github.com', botNome: 'Berga', site: 'github.com', campo: null, local: null })
 })
@@ -173,10 +181,10 @@ test('aberturas concorrentes do mesmo pedido coalescem; reabrir durante loadURL 
   let liberarLoad!: () => void
   const a = ambiente({
     load: () => new Promise<void>((r) => { liberarLoad = r }),
-    http: (async (url: any) => {
+    http: async (url: string) => {
       if (String(url).endsWith('/api/connectorRequestGet')) await portaGet
       return new Response(JSON.stringify(ENTRADA))
-    }) as unknown as typeof fetch,
+    },
   })
   const ref = { computerId: 'pc-1', entryId: 'e-1' }
   // Duas chamadas com o GET atrasado: a reserva por chave faz a segunda esperar a mesma abertura.
@@ -220,7 +228,7 @@ test('contexto errado (Hub nega o espaço/conversa do pedido): recusa fechada, s
   same(await a.abrir({ spaceId: 'sp-errada', conversationId: 'conv-errada' }), { ok: false, motivo: 'invalido' })
   assert.equal(a.windows.length, 0)
   // O corpo do GET leva a referência de contexto; o Hub decide se ela bate com a entrada.
-  const corpo = JSON.parse(a.getsChamadas()[0].init.body)
+  const corpo = JSON.parse(a.getsChamadas()[0].body)
   assert.deepEqual(corpo, { entryId: 'e-1', spaceId: 'sp-errada', conversationId: 'conv-errada' })
 })
 
@@ -295,8 +303,8 @@ test('salvar: reconfere a entrada e a captura, e o valor vai só ao Hub; nada vo
   assert.equal(a.finishes().length, 1)
   const f = a.finishes()[0]
   assert.equal(f.url, 'http://127.0.0.1:4567/api/connectorRequestFinish')
-  assert.equal(f.init.headers.Authorization, 'Bearer token-do-hub')
-  const corpo = JSON.parse(f.init.body)
+  assert.equal(f.token, 'token-do-hub')
+  const corpo = JSON.parse(f.body)
   assert.equal(corpo.value, SENHA)
   assert.equal(corpo.entryId, 'e-1')
   assert.equal(corpo.username, 'ana@exemplo.com')
@@ -330,7 +338,7 @@ test('salvar chave (secret): sem usuário nem rótulo no corpo', async () => {
   const a = ambiente({ gets: [{ ...ENTRADA, kind: 'secret', field: 'API_KEY', location: 'env', site: null }] })
   await a.abrir()
   await a.chamar('fork-cofre-seguro:salvar', a.windows[0].webContents, 'nonce-0', { valor: SENHA, usuario: 'x', rotulo: 'y' })
-  const corpo = JSON.parse(a.finishes()[0].init.body)
+  const corpo = JSON.parse(a.finishes()[0].body)
   assert.equal(corpo.username, null)
   assert.equal(corpo.label, null)
   assert.equal(corpo.value, SENHA)
@@ -365,14 +373,13 @@ test('salvar: valor vazio ou grande demais é recusado antes do Hub', async () =
 
 test('Hub recusa ou cai no finish: a resposta não leva o valor nem o texto do erro', async () => {
   // O GET sempre responde a entrada; só o POST finish varia.
-  const comGet = (finish: (url: any, init: any) => Promise<Response>) =>
-    (async (url: any, init: any) => String(url).endsWith('/api/connectorRequestGet')
-      ? new Response(JSON.stringify(ENTRADA)) : finish(url, init)) as unknown as typeof fetch
+  const comGet = (finish: () => Promise<Response>) =>
+    async (url: string) => url.endsWith('/api/connectorRequestGet') ? new Response(JSON.stringify(ENTRADA)) : finish()
   for (const [http, esperado] of [
     [comGet(async () => new Response(JSON.stringify({ error: `falhou com ${SENHA}` }), { status: 400 })), 'recusado'],
     [comGet(async () => Promise.reject(new Error(`rede caiu com ${SENHA}`))), 'conexao'],
   ] as const) {
-    const a = ambiente({ http: http as unknown as typeof fetch })
+    const a = ambiente({ http })
     await a.abrir()
     const w = a.windows[0]
     const r = await a.chamar('fork-cofre-seguro:salvar', w.webContents, 'nonce-0', { valor: SENHA, usuario: '', rotulo: '' })
@@ -451,7 +458,7 @@ test('login novo: nada do trecho escondido vai no IPC — qualquer campo além d
   assert.equal(JSON.stringify(a.chamadas).includes(SENHA), false)
 })
 
-test('login novo: salvar é feito PELO main com as guardas — só o status volta, o valor só chega ao Hub, redirect recusado', async () => {
+test('login novo: salvar é feito PELO main com as guardas — só o status volta, o valor só chega ao Hub', async () => {
   const a = ambiente()
   await a.abrirNovo()
   const w = a.windows[0]
@@ -461,18 +468,16 @@ test('login novo: salvar é feito PELO main com as guardas — só o status volt
   assert.equal(a.salvaLogin().length, 1)
   const f = a.salvaLogin()[0]
   assert.equal(f.url, 'http://127.0.0.1:4567/api/credentialSaveLogin')
-  assert.equal(f.init.method, 'POST')
-  assert.equal(f.init.headers.Authorization, 'Bearer token-do-hub')
-  assert.equal(f.init.redirect, 'error')
-  same(JSON.parse(f.init.body), { site: 'painel.exemplo.com', username: 'ana@exemplo.com', password: SENHA, label: 'Painel', createOnly: true })
-  assert.equal(JSON.parse(f.init.body).createOnly, true, 'criação exclusiva: o Hub nunca substitui um login existente')
+  assert.equal(f.token, 'token-do-hub')
+  same(JSON.parse(f.body), { site: 'painel.exemplo.com', username: 'ana@exemplo.com', password: SENHA, label: 'Painel', createOnly: true })
+  assert.equal(JSON.parse(f.body).createOnly, true, 'criação exclusiva: o Hub nunca substitui um login existente')
   assert.equal(a.finishes().length, 0, 'não passa pelo caminho do pedido do bot')
   await settle()
   assert.equal(w.destroyed, true, 'a janela se fecha')
   same(a.avisos.at(-1), ['fork-cofre-seguro:estado', { entryId: 'login-novo', estado: 'salva' }])
   assert.equal(JSON.stringify(a.avisos).includes(SENHA), false, 'o chat só sabe "salva", nunca o valor')
   // O valor só existe no corpo da chamada ao Hub.
-  assert.equal(a.chamadas.filter((c) => String(c.init?.body ?? '').includes(SENHA)).length, 1)
+  assert.equal(a.chamadas.filter((c) => c.body.includes(SENHA)).length, 1)
 })
 
 test('login novo: relay (nuvem) e computador desconhecido são recusados antes de abrir qualquer coisa', async () => {
@@ -530,7 +535,7 @@ test('login novo: sem site, valor vazio ou Hub recusando — nada é guardado, a
   same(await a.chamar('fork-cofre-seguro:salvar', w.webContents, 'nonce-0', { ...ENVIO_NOVO, site: '' }), { ok: false, erro: 'vazio' })
   same(await a.chamar('fork-cofre-seguro:salvar', w.webContents, 'nonce-0', { ...ENVIO_NOVO, valor: '' }), { ok: false, erro: 'vazio' })
   assert.equal(a.salvaLogin().length, 0)
-  const recusa = ambiente({ http: async (url: any) => {
+  const recusa = ambiente({ http: async (url: string) => {
     if (String(url).endsWith('/api/credentialSaveLogin')) return new Response(JSON.stringify({ error: SENHA }), { status: 400 })
     return new Response('{}', { status: 200 })
   } })
@@ -556,7 +561,7 @@ test('login novo: a conexão (túnel SSH) que morre antes de salvar não envia o
 })
 
 test('login novo: o Hub recusa com 409 (já existe login para o site e usuário) — a janela mostra "jaExiste", fica aberta e nada do valor volta', async () => {
-  const a = ambiente({ http: async (url: any) => {
+  const a = ambiente({ http: async (url: string) => {
     if (String(url).endsWith('/api/credentialSaveLogin')) return new Response(JSON.stringify({ error: `login_exists ${SENHA}` }), { status: 409 })
     return new Response('{}', { status: 200 })
   } })
@@ -574,7 +579,7 @@ test('login novo: o Hub recusa com 409 (já existe login para o site e usuário)
 
 test('login novo: outras recusas do Hub (cofre bloqueado, rótulo) viram "recusado" e erro de rede vira "conexao"', async () => {
   for (const [status, esperado] of [[400, 'recusado'], [403, 'recusado'], [500, 'recusado']] as const) {
-    const a = ambiente({ http: async (url: any) => (String(url).endsWith('/api/credentialSaveLogin') ? new Response('{}', { status }) : new Response('{}', { status: 200 })) })
+    const a = ambiente({ http: async (url: string) => (String(url).endsWith('/api/credentialSaveLogin') ? new Response('{}', { status }) : new Response('{}', { status: 200 })) })
     await a.abrirNovo()
     same(await a.chamar('fork-cofre-seguro:salvar', a.windows[0].webContents, 'nonce-0', ENVIO_NOVO), { ok: false, erro: esperado })
     assert.equal(a.windows[0].destroyed, false)
@@ -609,14 +614,13 @@ test('código de login: nada do código vai no IPC do chat (só ids) e o Hub só
   assert.equal(a.finishes().length, 1)
   const f = a.finishes()[0]
   assert.equal(f.url, 'http://127.0.0.1:4567/api/connectorRequestFinish')
-  assert.equal(f.init.headers.Authorization, 'Bearer token-do-hub')
-  assert.equal(f.init.redirect, 'error')
-  const corpo = JSON.parse(f.init.body)
+  assert.equal(f.token, 'token-do-hub')
+  const corpo = JSON.parse(f.body)
   assert.equal(corpo.value, CODIGO)
   assert.equal(corpo.entryId, 'e-1')
   assert.equal(corpo.username, null, 'código não leva usuário')
   assert.equal(corpo.label, null, 'nem rótulo')
-  assert.equal(a.chamadas.filter((c) => String(c.init?.body ?? '').includes(CODIGO)).length, 1, 'o código só está no corpo do finish')
+  assert.equal(a.chamadas.filter((c) => c.body.includes(CODIGO)).length, 1, 'o código só está no corpo do finish')
   await settle()
   assert.equal(a.windows[0].destroyed, true)
   same(a.avisos.at(-1), ['fork-cofre-seguro:estado', { entryId: 'e-1', estado: 'salva' }])
@@ -635,7 +639,7 @@ test('código de login: tamanho e formato fora de 4–10 dígitos são recusados
     const b = ambiente({ gets: [ENTRADA_CODIGO] })
     await b.abrir()
     same(await b.chamar('fork-cofre-seguro:salvar', b.windows[0].webContents, 'nonce-0', { valor: bom }), { ok: true })
-    assert.equal(JSON.parse(b.finishes()[0].init.body).value, bom)
+    assert.equal(JSON.parse(b.finishes()[0].body).value, bom)
   }
 })
 
