@@ -257,11 +257,12 @@ impl Actor {
     /// oculto e entrada sem ingresso são `Automatico`. Fecha por padrão.
     pub(super) fn uso_do_plano(&self) -> crate::fork::planos_codigo::Uso {
         use crate::fork::planos_codigo::Uso;
-        // A compactação pedida pelo dono (ou no fim do turno dele) continua a conversa já aberta; a compactação com
-        // o dono ausente é automática. Sem compactação, vale a palavra do dono com o ingresso que o Hub carimbou.
+        // A compactação pedida pelo dono pela API (`context_compaction`) ou enfileirada ao fim de um turno que era a
+        // palavra dele continua a conversa já aberta; com o dono ausente, ou depois de um turno automático, é
+        // automática. Sem compactação, vale a palavra do dono com o ingresso que o Hub carimbou.
         let automatico = match self.compacting {
             Some(true) => true,
-            Some(false) => false,
+            Some(false) => self.context_compaction.is_none() && !self.ultimo_turno_do_dono,
             None => {
                 self.active_routine.is_some()
                     || self.active_group.is_some()
@@ -289,7 +290,11 @@ impl Actor {
         // Modelo de um plano de código (chave colada): perfil e chave próprios do plano, em vez do ambiente do dono. É o
         // primeiro passo do turno: um plano só de conversa é recusado aqui, antes de qualquer outro trabalho.
         let plano = if self.cfg.fork_editor.engine_account_id.is_none() && !antigravity {
-            match crate::fork::planos_codigo::ambiente_do_bot(&self.hub, &self.cfg, self.uso_do_plano()).await {
+            let uso = self.uso_do_plano();
+            if self.compacting.is_none() {
+                self.ultimo_turno_do_dono = uso == crate::fork::planos_codigo::Uso::Conversa;
+            }
+            match crate::fork::planos_codigo::ambiente_do_bot(&self.hub, &self.cfg, uso).await {
                 Ok(plano) => plano,
                 Err(erro) => {
                     // Plano removido, desligado ou sem chave: o processo que sobrou só tem um código morto, e não fica vivo.

@@ -106,7 +106,50 @@ Mensagem"
     actor.compacting = Some(true);
     assert_eq!(actor.uso_do_plano(), Uso::Automatico, "compactação com o dono ausente não é conversa");
     actor.compacting = Some(false);
-    assert_eq!(actor.uso_do_plano(), Uso::Conversa, "compactar a pedido do dono continua a conversa dele");
+    assert_eq!(
+        actor.uso_do_plano(),
+        Uso::Automatico,
+        "compactação sem pedido do dono nem turno dele antes não é conversa"
+    );
+    actor.ultimo_turno_do_dono = true;
+    assert_eq!(actor.uso_do_plano(), Uso::Conversa, "compactação ao fim de um turno do dono continua a conversa dele");
+    actor.ultimo_turno_do_dono = false;
+    actor.context_compaction = Some(crate::fork::contexto::ActiveCompaction {
+        target: crate::fork::contexto::Target {
+            bot: "kimi".into(),
+            hub_id: "hub".into(),
+            space_id: crate::fork::spaces::PERSONAL.into(),
+            epoch: 0,
+            lane: Lane::main("kimi"),
+            acp: None,
+            engine: json!({}),
+        },
+        owner: None,
+    });
+    assert_eq!(actor.uso_do_plano(), Uso::Conversa, "compactar a pedido do dono pela API continua a conversa dele");
+}
+
+#[tokio::test]
+async fn compactacao_depois_de_turno_automatico_e_recusada_pelo_fluxo_real() {
+    let (hub, cfg) = com_plano();
+    let mut actor = new_actor(hub.clone(), cfg);
+    let antes = hub.store.vault_unlock_attempts.load(std::sync::atomic::Ordering::SeqCst);
+
+    // Uma rotina termina e o fim do turno dela enfileira a compactação (`idle: false`, sem pedido do dono).
+    actor.active_routine = Some("rotina".into());
+    assert!(actor.ensure_session(None).await.expect_err("rotina").to_string().contains("plano_so_conversa"));
+    actor.active_routine = None;
+    assert!(!actor.ultimo_turno_do_dono);
+
+    actor.compacting = Some(false);
+    let erro = actor.ensure_session(None).await.expect_err("compactação depois da rotina").to_string();
+    assert!(erro.contains("plano_so_conversa"), "{erro}");
+    assert!(actor.conn.is_none(), "nenhum processo do OpenCode foi aberto");
+    assert_eq!(
+        hub.store.vault_unlock_attempts.load(std::sync::atomic::Ordering::SeqCst),
+        antes,
+        "o cofre nem foi lido"
+    );
 }
 
 #[tokio::test]
@@ -149,7 +192,7 @@ async fn recusa_de_uso_automatico_nao_mata_a_sessao_viva_do_dono() {
     let (hub, cfg) = com_plano();
     let mut actor = new_actor(hub.clone(), cfg);
     // Sessão viva do dono: um processo de verdade rodando, como fica depois de uma conversa dele.
-    let (acp, rx) = Acp::spawn("sleep 30", "/tmp", &[]).unwrap();
+    let (acp, rx) = Acp::spawn("cat", std::env::temp_dir().to_str().unwrap(), &[]).unwrap();
     let pid = acp.pid();
     actor.conn = Some(Conn {
         ponte: None,

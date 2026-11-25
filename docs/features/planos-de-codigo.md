@@ -20,11 +20,17 @@ primeira conversa confirma o acesso. O repasse encaminha ao Kimi só `chat/compl
 provedor. O endereço da China (`kimi-code-plan-cn`) não faz parte deste plano.
 
 **Só em conversa.** O Kimi Code vale apenas para uso interativo da própria pessoa: rotinas, acordar de tarefa agendada,
-avisos de comentário, pedidos de outros bots, canais, a compactação feita com o dono ausente e qualquer entrada sem a
-origem comprovada pelo app do dono (relatório de digitação/fala válido em `contentOrigin`) nunca recebem essa chave. O
-Hub recusa o turno antes de ler o cofre ou abrir o OpenCode (`plano_so_conversa`), no ponto por onde todo turno de bot
-começa (`ensure_session`), com teste; a recusa não encerra a sessão viva do dono. A regra fecha por padrão: sem origem
-comprovada, nega. O item traz `soConversa: true` e o aviso `so_conversa` para a tela.
+avisos de comentário, pedidos de outros bots, canais, a compactação feita com o dono ausente ou depois de um turno
+automático e qualquer entrada que o Hub não tenha recebido de um chamador local ou de um dispositivo pareado não recebem
+essa chave. O Hub recusa o turno antes de ler o cofre ou abrir o OpenCode (`plano_so_conversa`), no ponto por onde todo
+turno de bot começa (`ensure_session`), com teste; a recusa não encerra a sessão viva do dono. A regra fecha por
+padrão. O item traz `soConversa: true` e o aviso `so_conversa` para a tela.
+
+**Limite real.** O Hub distingue os turnos que ele mesmo cria (tarefa, aviso, rotina, delegação, canal, compactação
+automática) dos que chegam pelo método `send`, e só estes podem ser conversa. Mas um chamador local ou um dispositivo
+pareado com o token é aceito como o dono: o relatório de origem que o app envia é declarado pelo cliente e não vale como
+prova. Quem tem esse acesso pode enviar uma mensagem que conta como conversa. A regra impede o uso automático do Hub
+com a chave; não impede quem já controla o Hub do dono.
 
 ## Métodos (só deste computador)
 
@@ -39,8 +45,9 @@ O resultado do teste é `{ok: true, estado: "modelos_no_catalogo" | "acesso_nao_
 mesmos códigos do teste das chaves de API (`chave_invalida`, `sem_permissao`, `limite`, `fornecedor_falhou`,
 `sem_resposta`, `resposta_invalida`, `sem_chave`), escolhidos só pelo status HTTP: o corpo de um erro nunca é lido, porque o
 fornecedor pode repetir a chave nele. `estado` é `recusada` (o fornecedor disse que a chave não vale) ou
-`nao_verificado` (falha que não diz nada sobre a chave). A lista de modelos prova que o fornecedor respondeu à
-chave, não que há saldo ou permissão de conversar com cada modelo.
+`nao_verificado` (falha que não diz nada sobre a chave). Com `modelos_no_catalogo`, a lista de modelos prova que o
+fornecedor respondeu à chave, não que há saldo ou permissão de conversar com cada modelo; com `acesso_nao_confirmado` a
+lista é a da documentação e nada foi confirmado.
 
 ## Onde a chave vive
 

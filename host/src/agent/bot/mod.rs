@@ -315,6 +315,7 @@ fn new_actor(hub: Arc<Hub>, cfg: BotConfig) -> Actor {
         session_fresh: false,
         profile_resend: HashSet::new(),
         compacting: None,
+        ultimo_turno_do_dono: false,
         context_compaction: None,
         raw_prompt: false,
         handoff: None,
@@ -581,6 +582,8 @@ struct Actor {
     profile_resend: HashSet<String>,
     /// The running turn is a compaction the host started (`Some(true)` while the user is away).
     compacting: Option<bool>,
+    /// O último turno que não foi compactação era a palavra do dono: decide a compactação que o Hub enfileira ao fim dele.
+    ultimo_turno_do_dono: bool,
     context_compaction: Option<crate::fork::contexto::ActiveCompaction>,
     /// The next prompt goes as it is: a command such as `/compact`, with nothing put before or after it.
     raw_prompt: bool,
