@@ -645,3 +645,30 @@ test('abertura pendurada não prende hello nem eventos além do prazo', async ()
   await flush()
   assert.deepEqual(closed, ['late'])
 })
+
+test('start disparado por listener de abort espera a drenagem anterior concluir', async () => {
+  const clock = manualClock()
+  const { child: firstChild } = fakeChild({ end: true })
+  const { child: secondChild } = fakeChild({ end: true })
+  const closePending = deferred<void>()
+  let session: object | null = { name: 'a' }
+  let opens = 0
+  let sneaky: Promise<boolean> | null = null
+  let lifecycle: Rc2HubLifecycle
+  const transport = async (signal: AbortSignal) => {
+    const visit = ++opens
+    if (visit === 1) void signal.addEventListener('abort', () => { sneaky = lifecycle.start() })
+    return connectionFixture(visit === 1 ? firstChild : secondChild, () => closePending.promise)
+  }
+  lifecycle = new Rc2HubLifecycle(() => session, transport, { deadlines: shortDeadlines, schedule: clock.schedule })
+  assert.equal(await lifecycle.start(), true)
+  const stopped = lifecycle.stop()
+  assert.ok(sneaky)
+  await flush()
+  assert.equal(opens, 1)
+  closePending.resolve()
+  assert.equal(await sneaky, true)
+  assert.equal(opens, 2)
+  assert.equal(await stopped, true)
+  await lifecycle.stop()
+})

@@ -117,7 +117,6 @@ export class Rc2HubLifecycle {
 
   #invalidate(generation: Generation, invalidation: Invalidation = {}): Promise<boolean> {
     this.#generation = null
-    generation.abort.abort()
     if (invalidation.uncertain) this.#unsafeToRestart = true
     const draining = Promise.resolve().then(async () => {
       let closed = !invalidation.uncertain
@@ -141,6 +140,7 @@ export class Rc2HubLifecycle {
     })
     this.#draining = draining
     void draining.then(() => { if (this.#draining === draining) this.#draining = null })
+    generation.abort.abort()
     return draining
   }
 
