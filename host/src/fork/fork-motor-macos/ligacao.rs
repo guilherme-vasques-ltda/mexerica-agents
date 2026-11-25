@@ -147,14 +147,23 @@ impl<'a> UnidadeRc2<'a> {
     /// porta, cofre e censo, e a partida é recusada após a parada ou se já
     /// foi entregue — nada parte duas vezes, e nada parte depois de
     /// "Parar tudo".
-    /// Partida verificada da unidade: move-only, sai UMA única vez no ponto
-    /// do efeito — e só com a unidade aberta, o aceite do aviso feito e o
-    /// MOTOR REGISTRADO NO CENSO: sem registro não há partida, e o censo
-    /// nunca confirma parada com processo não contabilizado. A unidade NÃO
-    /// deixa de existir: segue supervisora com porta, cofre e censo.
-    /// Nada parte duas vezes; nada parte depois de "Parar tudo"; nada
-    /// parte com a porta fechada por falha de auditoria.
-    pub(super) fn partir_para_o_motor(&mut self) -> Result<partida::Partida<'a>, anyhow::Error> {
+    /// Efeito de partida: a checagem e o início são a MESMA operação da
+    /// unidade — quem parte o Motor entrega o efeito para cá; a unidade
+    /// revalida (aberta, aceite feito, censo com o motor registrado) e
+    /// executa CONSUMINDO a partida dentro da operação. Nenhum token
+    /// escapa para uso posterior: não existe janela entre revalidar e
+    /// iniciar, a parada não corre contra o início e nada depende de
+    /// chamada voluntária de revalidação.
+    ///
+    /// O censo exigido aqui é CONTRATO, não prova do processo real: em
+    /// runtime a entrada e a confirmação de saída vêm do supervisor (PID e
+    /// início OBSERVADOS, saída verificada, grupo ou sessão vazios); a
+    /// fixture usa dublês e a prova do Motor e dos descendentes reais é
+    /// nativa. A unidade segue supervisora com porta, cofre e censo.
+    pub(super) fn partir_para_o_motor(
+        &mut self,
+        efeito: impl FnOnce(partida::Partida<'a>),
+    ) -> Result<(), anyhow::Error> {
         if self.parada || self.porta.fechada() {
             return Err(recusa_de_partida("unidade parada ou porta fechada"));
         }
@@ -164,27 +173,25 @@ impl<'a> UnidadeRc2<'a> {
         if self.porta.sem_processos() {
             return Err(recusa_de_partida("partida exige o motor registrado no censo"));
         }
-        self.partida.take().ok_or_else(|| recusa_de_partida("partida já entregue"))
-    }
-
-    /// Revalidação antes do efeito de quem já tem a partida: a partida em
-    /// si nunca autoriza sozinha — depois da parada (ou do fechamento por
-    /// falha de auditoria) a revalidação recusa, e o lançador do Motor não
-    /// pode prosseguir com ela.
-    pub(super) fn revalidar_partida(&self) -> Result<(), anyhow::Error> {
-        if self.parada || self.porta.fechada() {
-            return Err(recusa_de_partida("unidade parada ou porta fechada"));
-        }
+        let Some(partida) = self.partida.take() else {
+            return Err(recusa_de_partida("partida já executada"));
+        };
+        efeito(partida);
         Ok(())
     }
 
     /// Registra instância observada (motor ou descendente): o censo é o que
-    /// torna sobrevivente visível na parada.
+    /// torna sobrevivente visível na parada. CONTRATO: em runtime a
+    /// instância vem do supervisor (PID e início OBSERVADOS), não do
+    /// chamador livre; a entrada da fixture é dublê e não prova processo
+    /// real.
     pub(super) fn registrar(&mut self, instancia: super::porta::Instancia) -> bool {
         self.porta.registrar(instancia)
     }
 
-    /// Confirma a saída de uma instância registrada.
+    /// Confirma a saída de uma instância registrada. CONTRATO: em runtime a
+    /// saída é verificada pelo supervisor antes de confirmar; a confirmação
+    /// da fixture não prova a morte de processo real.
     pub(super) fn confirmar_saida(&mut self, instancia: super::porta::Instancia) -> bool {
         self.porta.confirmar_saida(instancia)
     }
