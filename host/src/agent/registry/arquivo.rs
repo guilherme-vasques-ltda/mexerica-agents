@@ -4,7 +4,7 @@ use std::fs::{self, File};
 use std::io::{self, Cursor, ErrorKind, Read, Write as _};
 use std::path::{Component, Path, PathBuf};
 
-const MARCADOR: &str = ".installed";
+pub(super) const MARCADOR: &str = ".installed";
 /// Recibo de que a árvore foi publicada por este protocolo, gravado dentro da árvore
 /// antes do rename atômico: transacional com a instalação e morto junto com ela.
 pub(super) const RECIBO: &str = ".publicada";
@@ -163,6 +163,16 @@ pub(super) fn publicar(
     let temporaria = pasta_privada(pai, ".agente-")?;
     let pasta = temporaria.path();
     extrair(nome, bytes, pasta, limite_extraido, LIMITE_ENTRADAS, cmd)?;
+    // O pacote pode trazer um arquivo (ou pasta) com o nome do recibo: ele é conteúdo
+    // legado, nunca a prova. Remove o que a extração deixou e grava a prova nova,
+    // vinculada ao marcador desta instalação.
+    let plantado = pasta.join(RECIBO);
+    match fs::symlink_metadata(&plantado) {
+        Ok(meta) if meta.is_dir() && !meta.file_type().is_symlink() => fs::remove_dir_all(&plantado)?,
+        Ok(_) => fs::remove_file(&plantado)?,
+        Err(e) if e.kind() == ErrorKind::NotFound => {}
+        Err(e) => return Err(e.into()),
+    }
     let exe = executavel_regular(pasta, cmd)?;
     #[cfg(unix)]
     {
@@ -182,16 +192,6 @@ pub(super) fn publicar(
     let mut marcador = opcoes.open(pasta.join(MARCADOR))?;
     write!(marcador, "{hash}{hash_exe}")?;
     drop(marcador);
-    // O pacote pode trazer um arquivo (ou pasta) com o nome do recibo: ele é conteúdo
-    // legado, nunca a prova. Remove o que a extração deixou e grava a prova nova,
-    // vinculada ao marcador desta instalação.
-    let plantado = pasta.join(RECIBO);
-    match fs::symlink_metadata(&plantado) {
-        Ok(meta) if meta.is_dir() && !meta.file_type().is_symlink() => fs::remove_dir_all(&plantado)?,
-        Ok(_) => fs::remove_file(&plantado)?,
-        Err(e) if e.kind() == ErrorKind::NotFound => {}
-        Err(e) => return Err(e.into()),
-    }
     let mut recibo = opcoes.open(&plantado)?;
     write!(recibo, "{}", recibo_conteudo(format!("{hash}{hash_exe}").as_bytes()))?;
     recibo.sync_all()?;
@@ -209,15 +209,38 @@ fn recibo_conteudo(marcador: &[u8]) -> String {
 /// e o resumo exato do marcador desta árvore. Recibo legado (arquivo `.publicada`
 /// vazio, com conteúdo de pacote ou sem vínculo com o marcador) não confere.
 pub(super) fn publicada_por_este_protocolo(pasta: &Path) -> bool {
-    let recibo = pasta.join(RECIBO);
-    if !fs::symlink_metadata(&recibo).is_ok_and(|meta| meta.is_file()) {
-        return false;
+    let abrir = |nome: &str| -> io::Result<File> {
+        let caminho = pasta.join(nome);
+        let mut opcoes = fs::OpenOptions::new();
+        opcoes.read(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            opcoes.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+        }
+        if !fs::symlink_metadata(&caminho)?.is_file() {
+            return Err(io::Error::from(ErrorKind::InvalidData));
+        }
+        let arquivo = opcoes.open(caminho)?;
+        if !arquivo.metadata()?.is_file() {
+            return Err(io::Error::from(ErrorKind::InvalidData));
+        }
+        Ok(arquivo)
+    };
+    let (Ok(marcador), Ok(recibo)) = (abrir(MARCADOR), abrir(RECIBO)) else { return false };
+    conferir_recibo(marcador, recibo).unwrap_or(false)
+}
+
+pub(super) fn conferir_recibo(marcador: impl Read, recibo: impl Read) -> io::Result<bool> {
+    let mut bytes = Vec::new();
+    marcador.take(129).read_to_end(&mut bytes)?;
+    if bytes.len() != 128 || !bytes.iter().all(u8::is_ascii_hexdigit) {
+        return Ok(false);
     }
-    let Ok(marcador) = fs::read(pasta.join(MARCADOR)) else { return false };
-    if marcador.len() != 128 || !marcador.iter().all(u8::is_ascii_hexdigit) {
-        return false;
-    }
-    fs::read(&recibo).is_ok_and(|conteudo| conteudo == recibo_conteudo(&marcador).into_bytes())
+    let esperado = recibo_conteudo(&bytes);
+    bytes.clear();
+    recibo.take(esperado.len() as u64 + 1).read_to_end(&mut bytes)?;
+    Ok(bytes == esperado.as_bytes())
 }
 
 /// Pasta onde a árvore anterior espera durante a troca, com o nome do destino no

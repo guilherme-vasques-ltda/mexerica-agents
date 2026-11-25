@@ -1,7 +1,7 @@
 use crate::fork::motor_exec::fd::{Directory, name, own};
 use anyhow::{Result, ensure};
 use std::ffi::OsStr;
-use std::io::ErrorKind;
+use std::io::{ErrorKind, Read, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::MetadataExt;
@@ -10,6 +10,7 @@ use std::path::Path;
 /// O `:` é impossível num nome de versão do catálogo (`safe_component` recusa): o namespace
 /// da quarentena nunca coincide com uma versão válida.
 const QUARENTENA: &str = ".agente-limpeza:";
+const ARVORE: &str = "versao";
 
 pub(super) fn limpar(instalada: &Path, protecao: Option<&super::Protecao>) {
     let Some(protecao) = protecao else { return };
@@ -43,14 +44,17 @@ fn verificar(dir: &Directory) -> Result<()> {
     Ok(())
 }
 
-fn versao_quarentena(nome: &str) -> Option<&str> {
+fn versao_quarentena(nome: &str) -> Option<(&str, Option<&str>)> {
     let sufixo = nome.strip_prefix(QUARENTENA)?;
-    let (chave, versao) = sufixo.split_once('.').unwrap_or((sufixo, ""));
+    let (chave, versao) = match sufixo.split_once('.') {
+        Some((chave, versao)) => (chave, Some(super::super::safe_component(versao)?)),
+        None => (sufixo, None),
+    };
     let uuid = uuid::Uuid::parse_str(chave).ok()?;
     if uuid.to_string() != chave {
         return None;
     }
-    Some(super::super::safe_component(versao).unwrap_or("desconhecida"))
+    Some((chave, versao))
 }
 
 fn registrar_falha(id: &str, versao: &str, erro: &anyhow::Error) {
@@ -63,10 +67,9 @@ fn limpar_no_diretorio(agente: &Directory, id: &str, atual: &str, protecao: &sup
     let Ok(nomes) = agente.names() else { return };
     for nome in nomes {
         // Nomes de quarentena não passam em `safe_component` (têm `:`); trate-os primeiro.
-        if let Some(original) = nome.to_str().and_then(versao_quarentena) {
-            if let Err(erro) = agente.quarentena_privada(&nome).and_then(|dir| esvaziar_quarentena(agente, &nome, &dir))
-            {
-                registrar_falha(id, original, &erro);
+        if let Some((_, original)) = nome.to_str().and_then(versao_quarentena) {
+            if let Err(erro) = esvaziar_quarentena(agente, &nome, atual, protecao, None) {
+                registrar_falha(id, original.unwrap_or("desconhecida"), &erro);
             }
             continue;
         }
@@ -81,37 +84,133 @@ fn limpar_no_diretorio(agente: &Directory, id: &str, atual: &str, protecao: &sup
         if !protecao.liberada(versao) {
             continue;
         }
-        if agente.child(&nome, None).is_err() {
+        let Ok(candidata) = candidata_com_recibo(agente, &nome) else {
             continue;
-        }
-        if let Err(erro) = remover_versao(agente, versao) {
+        };
+        if let Err(erro) = remover_versao(agente, versao, &candidata, atual, protecao) {
             registrar_falha(id, versao, &erro);
         }
     }
 }
 
-fn remover_versao(agente: &Directory, versao: &str) -> Result<()> {
-    let chave = format!("{QUARENTENA}{}", uuid::Uuid::new_v4());
+fn candidata_com_recibo(agente: &Directory, nome: &OsStr) -> Result<Directory> {
+    use super::super::arquivo::{MARCADOR, RECIBO, conferir_recibo};
+
+    let candidata = agente.child(nome, None)?;
+    verificar(&candidata)?;
+    ensure!(candidata.0.metadata()?.dev() == agente.0.metadata()?.dev(), "versão em outro volume");
+    let marcador = candidata.file(OsStr::new(MARCADOR), libc::O_RDONLY, 0)?;
+    let recibo = candidata.file(OsStr::new(RECIBO), libc::O_RDONLY, 0)?;
+    own(&marcador)?;
+    own(&recibo)?;
+    ensure!(conferir_recibo(marcador, recibo)?, "recibo de publicação inválido");
+    Ok(candidata)
+}
+
+fn identidade(dir: &Directory) -> Result<(u64, u64)> {
+    let meta = dir.0.metadata()?;
+    Ok((meta.dev(), meta.ino()))
+}
+
+fn nome_prova(chave: &str) -> String {
+    format!("{QUARENTENA}prova-{chave}")
+}
+
+fn conteudo_prova(arvore: &Directory, versao: &str) -> Result<String> {
+    let (dev, ino) = identidade(arvore)?;
+    Ok(format!("{versao}\n{dev}\n{ino}\n"))
+}
+
+fn remover_versao(
+    agente: &Directory,
+    versao: &str,
+    candidata: &Directory,
+    atual: &str,
+    protecao: &super::Protecao,
+) -> Result<()> {
+    let chave = uuid::Uuid::new_v4().to_string();
     let nome = OsStr::new(versao);
-    let completo = format!("{chave}.{versao}");
+    let curto = format!("{QUARENTENA}{chave}");
+    let completo = format!("{curto}.{versao}");
     let mut nome_quarentena = OsStr::new(&completo);
     let quarentena = match agente.quarantine(nome, nome_quarentena) {
         Err(erro)
             if erro.downcast_ref::<std::io::Error>().and_then(std::io::Error::raw_os_error)
                 == Some(libc::ENAMETOOLONG) =>
         {
-            nome_quarentena = OsStr::new(&chave);
+            nome_quarentena = OsStr::new(&curto);
             agente.quarantine(nome, nome_quarentena)?
         }
         resultado => resultado?,
     };
-    esvaziar_quarentena(agente, nome_quarentena, &quarentena)
+    let movida = quarentena.child(OsStr::new(ARVORE), None).and_then(|dir| {
+        verificar(&dir)?;
+        ensure!(identidade(&dir)? == identidade(candidata)?, "árvore movida diverge da prova");
+        Ok(dir)
+    });
+    let arvore = match movida {
+        Ok(arvore) => arvore,
+        Err(erro) => {
+            if quarentena.repor(agente, nome).is_ok()
+                && identidade(&quarentena).is_ok_and(|esperada| {
+                    agente.quarentena_privada(nome_quarentena).and_then(|dir| identidade(&dir)).ok() == Some(esperada)
+                })
+            {
+                let _ = agente.unlink(nome_quarentena, true);
+            }
+            return Err(erro);
+        }
+    };
+    let mut prova =
+        arvore.file(OsStr::new(&nome_prova(&chave)), libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL, 0o600)?;
+    prova.write_all(conteudo_prova(&arvore, versao)?.as_bytes())?;
+    prova.sync_all()?;
+    arvore.0.sync_all()?;
+    quarentena.0.sync_all()?;
+    agente.0.sync_all()?;
+    esvaziar_quarentena(agente, nome_quarentena, atual, protecao, Some(candidata))
 }
 
-fn esvaziar_quarentena(agente: &Directory, nome: &OsStr, quarentena: &Directory) -> Result<()> {
+fn esvaziar_quarentena(
+    agente: &Directory,
+    nome: &OsStr,
+    atual: &str,
+    protecao: &super::Protecao,
+    candidata: Option<&Directory>,
+) -> Result<()> {
+    let Some((chave, original)) = nome.to_str().and_then(versao_quarentena) else {
+        anyhow::bail!("nome de quarentena inválido");
+    };
+    let quarentena = agente.quarentena_privada(nome)?;
     let dev = agente.0.metadata()?.dev();
     ensure!(quarentena.0.metadata()?.dev() == dev, "quarentena em outro volume");
-    remover_entrada(quarentena, OsStr::new("versao"), dev)?;
+    let nome_arvore = OsStr::new(ARVORE);
+    let arvore = quarentena.child(nome_arvore, None)?;
+    verificar(&arvore)?;
+    ensure!(arvore.0.metadata()?.dev() == dev, "versão em outro volume");
+    if let Some(candidata) = candidata {
+        ensure!(identidade(&arvore)? == identidade(candidata)?, "árvore em quarentena mudou");
+    }
+    let arquivo_prova = nome_prova(chave);
+    let arquivo_prova = OsStr::new(&arquivo_prova);
+    let prova = arvore.file(arquivo_prova, libc::O_RDONLY, 0)?;
+    own(&prova)?;
+    let mut conteudo = String::new();
+    prova.take(4096).read_to_string(&mut conteudo)?;
+    let versao = conteudo.split_once('\n').and_then(|(versao, _)| super::super::safe_component(versao));
+    let Some(versao) = versao else { anyhow::bail!("prova de limpeza inválida") };
+    ensure!(original.is_none_or(|original| original == versao), "versão em quarentena diverge da prova");
+    ensure!(conteudo == conteudo_prova(&arvore, versao)?, "árvore em quarentena diverge da prova");
+    ensure!(!versao.eq_ignore_ascii_case(atual) && !protecao.em_uso(versao), "versão em quarentena protegida");
+    for entrada in arvore.names()? {
+        if entrada != arquivo_prova {
+            remover_entrada(&arvore, &entrada, dev)?;
+        }
+    }
+    ensure!(identidade(&quarentena.child(nome_arvore, None)?)? == identidade(&arvore)?, "árvore em quarentena mudou");
+    arvore.unlink(arquivo_prova, false)?;
+    quarentena.unlink(nome_arvore, true)?;
+    ensure!(identidade(&agente.quarentena_privada(nome)?)? == identidade(&quarentena)?, "quarentena mudou");
     agente.unlink(nome, true)
 }
 
@@ -138,6 +237,42 @@ impl Directory {
         own(&dir.0)?;
         ensure!(dir.0.metadata()?.mode().trailing_zeros() >= 6, "quarentena não é privada");
         Ok(dir)
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    fn repor(&self, pai: &Directory, destino: &OsStr) -> Result<()> {
+        let destino = name(destino)?;
+        #[cfg(target_os = "linux")]
+        // SAFETY: descritores vivos e nomes de um componente; a flag impede substituição.
+        let rc = unsafe {
+            libc::renameat2(
+                self.0.as_raw_fd(),
+                c"versao".as_ptr(),
+                pai.0.as_raw_fd(),
+                destino.as_ptr(),
+                libc::RENAME_NOREPLACE,
+            )
+        };
+        #[cfg(target_os = "macos")]
+        // SAFETY: descritores vivos e nomes de um componente; a flag impede substituição.
+        let rc = unsafe {
+            libc::renameatx_np(
+                self.0.as_raw_fd(),
+                c"versao".as_ptr(),
+                pai.0.as_raw_fd(),
+                destino.as_ptr(),
+                libc::RENAME_EXCL,
+            )
+        };
+        if rc != 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        Ok(())
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    fn repor(&self, _pai: &Directory, _destino: &OsStr) -> Result<()> {
+        Err(std::io::Error::from(ErrorKind::Unsupported).into())
     }
 
     fn quarantine(&self, entry: &OsStr, quarantine: &OsStr) -> Result<Self> {
@@ -176,6 +311,12 @@ mod tests {
         super::super::Protecao { em_uso: Vec::new(), registradas: versoes.iter().map(|v| (*v).to_owned()).collect() }
     }
 
+    fn publicar(pasta: &Path) {
+        let bytes = b"fixture";
+        let hash = super::super::super::sha256_hex(bytes);
+        super::super::super::arquivo::publicar(pasta, "adapter", bytes, &hash, Path::new("adapter"), 1024).unwrap();
+    }
+
     #[test]
     fn troca_ancestral_por_link_nao_remove_sentinela() {
         let tmp = tempfile::tempdir().unwrap();
@@ -183,7 +324,7 @@ mod tests {
         let agente = raiz.join("agents/agente");
         let atual = agente.join("2");
         fs::create_dir_all(&atual).unwrap();
-        fs::create_dir_all(agente.join("1")).unwrap();
+        publicar(&agente.join("1"));
         let fora = raiz.join("fora");
         fs::create_dir_all(fora.join("1")).unwrap();
         fs::write(fora.join("1/sentinela"), "fora").unwrap();
@@ -202,10 +343,70 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let raiz = tmp.path().canonicalize().unwrap();
         let antiga = raiz.join("agents/agente/1");
-        fs::create_dir_all(&antiga).unwrap();
+        publicar(&antiga);
         fs::set_permissions(&raiz, fs::Permissions::from_mode(0o770)).unwrap();
         limpar(&raiz.join("agents/agente/2"), Some(&registradas(&["1"])));
         assert!(antiga.is_dir());
+    }
+
+    #[test]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    fn prova_aberta_nao_autoriza_outra_arvore_com_recibo_no_mesmo_nome() {
+        let tmp = tempfile::tempdir().unwrap();
+        let agente = tmp.path().canonicalize().unwrap().join("agents/agente");
+        let antiga = agente.join("1");
+        publicar(&antiga);
+        let dir = abrir_agente(&agente.join("2")).unwrap();
+        let candidata = candidata_com_recibo(&dir, OsStr::new("1")).unwrap();
+        fs::rename(&antiga, agente.join("retida")).unwrap();
+        publicar(&antiga);
+        fs::write(antiga.join("sentinela"), b"preservada").unwrap();
+
+        let erro = remover_versao(&dir, "1", &candidata, "2", &registradas(&["1"])).unwrap_err();
+        assert!(erro.to_string().contains("diverge da prova"));
+        assert_eq!(fs::read(antiga.join("sentinela")).unwrap(), b"preservada");
+        assert!(agente.join("retida/adapter").is_file());
+    }
+
+    #[test]
+    fn registro_por_nome_nao_autoriza_recibo_via_link() {
+        let tmp = tempfile::tempdir().unwrap();
+        let raiz = tmp.path().canonicalize().unwrap();
+        let antiga = raiz.join("agents/agente/1");
+        publicar(&antiga);
+        for nome in [super::super::super::arquivo::MARCADOR, super::super::super::arquivo::RECIBO] {
+            let arquivo = antiga.join(nome);
+            let fora = raiz.join(nome);
+            fs::rename(&arquivo, &fora).unwrap();
+            symlink(&fora, &arquivo).unwrap();
+            limpar(&antiga.with_file_name("2"), Some(&registradas(&["1"])));
+            assert!(antiga.join("adapter").is_file());
+            fs::rename(fora, arquivo).unwrap();
+        }
+    }
+
+    #[test]
+    fn retomada_preserva_quarentena_sem_prova_ou_com_arvore_divergente() {
+        let tmp = tempfile::tempdir().unwrap();
+        let raiz = tmp.path().canonicalize().unwrap();
+        let agente = raiz.join("agents/agente");
+        let chave = uuid::Uuid::new_v4().to_string();
+        let quarentena = agente.join(format!("{QUARENTENA}{chave}.1"));
+        let arvore = quarentena.join(ARVORE);
+        let atual = agente.join("2");
+        fs::create_dir_all(&quarentena).unwrap();
+        fs::set_permissions(&quarentena, fs::Permissions::from_mode(0o700)).unwrap();
+        publicar(&arvore);
+        limpar(&atual, Some(&registradas(&["1"])));
+        assert!(arvore.join("adapter").is_file());
+
+        let dir = Directory::open(&arvore).unwrap();
+        let prova = conteudo_prova(&dir, "1").unwrap();
+        fs::rename(&arvore, raiz.join("retida")).unwrap();
+        publicar(&arvore);
+        fs::write(arvore.join(nome_prova(&chave)), prova).unwrap();
+        limpar(&atual, Some(&registradas(&["1"])));
+        assert!(arvore.join("adapter").is_file());
     }
 
     #[test]
@@ -216,6 +417,7 @@ mod tests {
         let atual = agente.join("2");
         let pendente = agente.join("1/restante");
         fs::create_dir_all(&atual).unwrap();
+        publicar(&agente.join("1"));
         fs::create_dir_all(&pendente).unwrap();
         fs::set_permissions(&pendente, fs::Permissions::from_mode(0o770)).unwrap();
         limpar(&atual, Some(&registradas(&["1"])));
@@ -230,7 +432,13 @@ mod tests {
         fs::write(&fora, "sentinela").unwrap();
         symlink(&fora, agente.join(format!("{QUARENTENA}{}", uuid::Uuid::new_v4()))).unwrap();
         fs::set_permissions(quarentena.join("versao/restante"), fs::Permissions::from_mode(0o700)).unwrap();
-        limpar(&atual, Some(&registradas(&["1"])));
+        let mut em_uso = registradas(&[]);
+        em_uso.em_uso.push("1".into());
+        limpar(&atual, Some(&em_uso));
+        assert!(quarentena.join("versao/restante").is_dir());
+        limpar(&agente.join("1"), Some(&registradas(&[])));
+        assert!(quarentena.join("versao/restante").is_dir());
+        limpar(&atual, Some(&registradas(&[])));
         assert!(!quarentena.exists());
         assert!(atual.is_dir());
         assert_eq!(fs::read_to_string(&fora).unwrap(), "sentinela");
@@ -257,6 +465,7 @@ mod tests {
         let atual = agente.join("2.0");
         let pendente = agente.join("1.4/restante");
         fs::create_dir_all(&atual).unwrap();
+        publicar(&agente.join("1.4"));
         fs::create_dir_all(&pendente).unwrap();
         fs::set_permissions(&pendente, fs::Permissions::from_mode(0o770)).unwrap();
         limpar(&atual, Some(&registradas(&["1.4"])));

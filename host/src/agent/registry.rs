@@ -1041,8 +1041,10 @@ mod tests {
     fn keeps_only_the_installed_version() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().canonicalize().unwrap().join("agents/agente");
+        let bytes = b"fixture";
+        let hash = sha256_hex(bytes);
         for v in ["1.0.0", "1.1.0"] {
-            std::fs::create_dir_all(root.join(v)).unwrap();
+            arquivo::publicar(&root.join(v), "adapter", bytes, &hash, Path::new("adapter"), 1024).unwrap();
         }
         let registradas = Protecao { em_uso: Vec::new(), registradas: vec!["1.0.0".into(), "1.1.0".into()] };
         versoes::limpar_versoes(&root.join("1.1.0"), Some(&registradas));

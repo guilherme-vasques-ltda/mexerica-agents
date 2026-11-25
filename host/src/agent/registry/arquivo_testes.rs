@@ -114,6 +114,24 @@ fn pacote_com_recibo_legado_nao_planta_a_prova_nova() {
 }
 
 #[test]
+fn recusa_executavel_no_caminho_do_recibo_sem_trocar_a_instalacao() {
+    let bytes = tar_com_programa(|tar| {
+        let mut cabecalho = tar::Header::new_gnu();
+        cabecalho.set_size(5);
+        cabecalho.set_mode(0o644);
+        tar.append_data(&mut cabecalho, ".publicada/programa", &b"velho"[..]).unwrap();
+    });
+    let raiz = pasta_temporaria();
+    let destino = raiz.path().join("agente");
+    let hash = super::super::sha256_hex(&bytes);
+    publicar(&destino, "pacote.tar", &bytes, &hash, Path::new("bin/programa")).unwrap();
+    let erro = publicar(&destino, "pacote.tar", &bytes, &hash, Path::new(".publicada/programa")).unwrap_err();
+    assert!(erro.to_string().contains("executável do agente"));
+    assert_eq!(fs::read(destino.join("bin/programa")).unwrap(), b"conteudo");
+    assert!(publicada_por_este_protocolo(&destino));
+}
+
+#[test]
 fn troca_interrompida_entre_renames_recupera_a_anterior() {
     let raiz = pasta_temporaria();
     let destino = raiz.path().join("1.0.0");
