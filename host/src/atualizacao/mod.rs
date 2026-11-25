@@ -27,6 +27,8 @@ mod manifesto;
 #[cfg(target_os = "linux")]
 mod manifesto_persistido;
 #[cfg(target_os = "linux")]
+pub(super) mod modo_motor;
+#[cfg(target_os = "linux")]
 pub(super) mod politica;
 #[cfg(target_os = "linux")]
 pub(super) mod processo;

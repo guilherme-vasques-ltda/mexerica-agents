@@ -222,12 +222,34 @@ pub(super) fn publicada_por_este_protocolo(pasta: &Path) -> bool {
 
 /// Pasta onde a árvore anterior espera durante a troca, com o nome do destino no
 /// prefixo: uma interrupção entre os dois renames deixa um resto identificável, e a
-/// publicação seguinte do mesmo destino o recupera antes de trocar de novo. O `:`
-/// no prefixo é impossível num nome de versão válido (`caminho_relativo` o recusa),
-/// então a pasta de recuperação nunca colide com a pasta de uma versão.
+/// publicação seguinte do mesmo destino o recupera antes de trocar de novo. O `!`
+/// é portátil e não passa em `safe_component`, que valida as versões do catálogo.
 fn pasta_anterior(pai: &Path, destino: &Path) -> Result<PathBuf> {
     let nome = destino.file_name().context("Pasta de instalação do agente inválida.")?;
-    Ok(pai.join(format!(".agente-anterior:{}", nome.to_string_lossy())))
+    let nome = nome.to_string_lossy();
+    let nome = if cfg!(windows) { nome.to_ascii_lowercase().into() } else { nome };
+    Ok(pai.join(format!(".agente-anterior!{}", super::sha256_hex(nome.as_bytes()))))
+}
+
+fn sincronizar_diretorio(pasta: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    File::open(pasta)?.sync_all()?;
+    #[cfg(not(unix))]
+    let _ = pasta;
+    Ok(())
+}
+
+fn finalizar_publicacao(pai: &Path, copia: Option<&Path>) {
+    let resultado = sincronizar_diretorio(pai).and_then(|()| {
+        if let Some(copia) = copia {
+            fs::remove_dir_all(copia)?;
+            sincronizar_diretorio(pai)?;
+        }
+        Ok(())
+    });
+    if let Err(erro) = resultado {
+        tracing::warn!(categoria = ?erro.kind(), "agente publicado; finalização da publicação incompleta");
+    }
 }
 
 /// Recuperação de uma troca interrompida entre os renames: se o destino sumiu, a
@@ -236,25 +258,17 @@ fn pasta_anterior(pai: &Path, destino: &Path) -> Result<PathBuf> {
 fn recuperar_anterior(pai: &Path, destino: &Path) -> Result<()> {
     let copia = pasta_anterior(pai, destino)?;
     let anterior = copia.join("instalacao");
-    if !fs::symlink_metadata(&anterior).is_ok_and(|meta| meta.is_dir()) {
+    if !diretorio_real(&copia)? || !diretorio_real(&anterior)? {
         return Ok(());
     }
-    match fs::symlink_metadata(destino) {
-        Ok(_) => {}
-        Err(e) if e.kind() == ErrorKind::NotFound => {
-            fs::rename(&anterior, destino)?;
-            fs::remove_dir_all(&copia)?;
-            File::open(pai)?.sync_all()?;
-            return Ok(());
-        }
-        // Erro de consulta que não é ausência: nada é apagado, porque a cópia pode
-        // ser a única árvore boa. O erro sobe e a recuperação tenta de novo depois.
-        Err(e) => return Err(e).context("consultando o destino da recuperação da publicação"),
+    if !diretorio_real(destino).context("consultando o destino da recuperação da publicação")? {
+        fs::rename(&anterior, destino)?;
+        finalizar_publicacao(pai, Some(&copia));
+        return Ok(());
     }
+    sincronizar_diretorio(pai)?;
     fs::remove_dir_all(&copia)?;
-    // Durabilidade da recuperação: o rename e a remoção só valem depois do fsync
-    // do diretório pai; sem ele, uma queda de energia pode ressuscitar o resto.
-    File::open(pai)?.sync_all()?;
+    sincronizar_diretorio(pai)?;
     Ok(())
 }
 
@@ -263,11 +277,12 @@ fn substituir(pasta: &Path, destino: &Path, pai: &Path) -> Result<()> {
     recuperar_anterior(pai, destino)?;
     if !diretorio_real(destino)? {
         fs::rename(pasta, destino)?;
-        File::open(pai)?.sync_all()?;
+        finalizar_publicacao(pai, None);
         return Ok(());
     }
     let copia = pasta_anterior(pai, destino)?;
     criar_diretorios(&copia)?;
+    ensure!(diretorio_real(&copia)?, "Pasta de recuperação do agente indisponível.");
     let anterior = copia.join("instalacao");
     fs::rename(destino, &anterior)?;
     if let Err(erro) = fs::rename(pasta, destino) {
@@ -277,12 +292,10 @@ fn substituir(pasta: &Path, destino: &Path, pai: &Path) -> Result<()> {
                 copia.display()
             );
         }
-        fs::remove_dir_all(&copia)?;
-        File::open(pai)?.sync_all()?;
+        finalizar_publicacao(pai, Some(&copia));
         return Err(erro).context("Não foi possível publicar a instalação do agente. A anterior foi restaurada.");
     }
-    fs::remove_dir_all(&copia)?;
-    File::open(pai)?.sync_all()?;
+    finalizar_publicacao(pai, Some(&copia));
     Ok(())
 }
 

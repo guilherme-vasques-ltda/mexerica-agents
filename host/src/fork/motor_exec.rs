@@ -16,7 +16,8 @@ pub(crate) mod login_cleanup;
 pub(crate) mod read;
 pub(crate) use child::{Child, Group, output, spawn};
 
-pub(crate) const CONFIG: &str = "/etc/donnabot/motor.conf";
+#[cfg(target_os = "linux")]
+pub(crate) use crate::modo_motor::CONFIG;
 pub(crate) const HELPER: &str = "/opt/donnabot/bin/donnabot-motor-exec";
 pub(crate) const HELPER_GERIDO: &str = "/opt/donnabot/releases/ativo/donnabot-motor-exec";
 
@@ -46,11 +47,7 @@ pub(crate) fn modo_separado_proibido(ambiente: crate::environment::Environment, 
 }
 
 pub(crate) fn exigir_modo_suportado_em(ambiente: crate::environment::Environment, configurado: bool) -> Result<()> {
-    anyhow::ensure!(
-        !modo_separado_proibido(ambiente, configurado),
-        "modo de motor separado indisponível neste build; use o modo local ou uma build de desenvolvimento"
-    );
-    Ok(())
+    crate::modo_motor::exigir_local(modo_separado_proibido(ambiente, configurado))
 }
 
 /// Fronteira de lançamento, instalação e terminal: recusa antes de qualquer caminho.
@@ -60,7 +57,10 @@ pub(crate) fn exigir_modo_suportado() -> Result<()> {
 
 /// Configuração de motor separado presente na máquina (só consulta metadados).
 pub(crate) fn modo_separado_configurado() -> bool {
-    cfg!(target_os = "linux") && configured_at(Path::new(CONFIG))
+    #[cfg(target_os = "linux")]
+    return crate::modo_motor::configurado_em(Path::new(CONFIG));
+    #[cfg(not(target_os = "linux"))]
+    false
 }
 
 pub(crate) fn configured() -> bool {
@@ -71,12 +71,7 @@ pub(crate) fn configured() -> bool {
     if std::env::var_os("DONNABOT_MOTOR_TEST_HELPER").is_some() {
         return true;
     }
-    cfg!(target_os = "linux") && configured_at(Path::new(CONFIG))
-}
-
-fn configured_at(path: &Path) -> bool {
-    // Só ENOENT desliga o modo; configuração ilegível/insegura falha no ajudante.
-    !matches!(std::fs::symlink_metadata(path), Err(e) if e.kind() == std::io::ErrorKind::NotFound)
+    modo_separado_configurado()
 }
 
 pub(crate) fn command(program: impl AsRef<std::ffi::OsStr>, cwd: &Path) -> Command {
@@ -170,7 +165,7 @@ mod tests {
     async fn ausente_preserva_comando_e_separado_chama_ajudante() {
         let dir = std::env::temp_dir().join(format!("motor-exec-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir(&dir).unwrap();
-        assert!(!configured_at(&dir.join("ausente")));
+        assert!(!crate::modo_motor::configurado_em(&dir.join("ausente")));
         let legacy = command_with("/bin/echo".as_ref(), &dir, false, Path::new("/nao-existe"));
         assert_eq!(legacy.as_std().get_program(), "/bin/echo");
         // Ajudante fictício devolve argv e ambiente, sem precisar de root.

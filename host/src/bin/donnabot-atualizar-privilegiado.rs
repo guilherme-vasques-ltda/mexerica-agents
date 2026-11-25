@@ -6,6 +6,7 @@ fn main() {
     let argumentos: Vec<_> = std::env::args_os().skip(1).take(2).collect();
     #[cfg(target_os = "linux")]
     {
+        use atualizacao::modo_motor::{CONFIG, configurado_em};
         // Consulta sem privilégio e sem efeitos para detectar o contrato de aceite.
         if argumentos.as_slice() == [std::ffi::OsString::from("--protocolo-verificacao")] {
             println!("mexerica-verificacao-v1");
@@ -21,6 +22,12 @@ fn main() {
             Ok(None)
         };
         if atualizacao::processo::normalizar().is_err() {
+            std::process::exit(1);
+        }
+        if chamador.is_ok()
+            && operacao == atualizacao::entrada::Operacao::Atualizar
+            && configurado_em(std::path::Path::new(CONFIG))
+        {
             std::process::exit(1);
         }
         let resultado = chamador.and_then(|chamador| {

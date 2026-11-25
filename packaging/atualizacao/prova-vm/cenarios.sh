@@ -48,7 +48,7 @@ caso "etapa administrativa real"
 espera 0 "instalar" $I instalar --login hublogin --pacote $S/pacote --fingerprint-pacote $(cat $S/fp-pacote) --fingerprint-raiz $(cat $S/fp-raiz)
 sed 's/^/    | /' /tmp/saida.txt
 confere "conta motor nologin, home 0700, trabalho 2770" 'id donnabot-motor >/dev/null && [ "$(stat -c %U:%a /var/lib/donnabot/motor)" = donnabot-motor:700 ] && [ "$(stat -c %U:%G:%a /var/lib/donnabot/trabalho)" = hublogin:donnabot-trabalho:2770 ]'
-confere "motor.conf root 0644 com hub_uid" '[ "$(stat -c %U:%a /etc/donnabot/motor.conf)" = root:644 ] && grep -qx "hub_uid=$U" /etc/donnabot/motor.conf'
+confere "preparação local não cria motor.conf" '[ ! -e /etc/donnabot/motor.conf ] && [ ! -L /etc/donnabot/motor.conf ]'
 confere "sudoers 0440 validado, wrapper/guard/instalador root 0755" '[ "$(stat -c %U:%a /etc/sudoers.d/donnabot)" = root:440 ] && [ "$(stat -c %U:%a $W)" = root:755 ] && visudo -cq'
 confere "cgroup com limites da política" '[ "$(cat /sys/fs/cgroup/donnabot-atualizacao/memory.max)" = 1073741824 ] && [ "$(cat /sys/fs/cgroup/donnabot-atualizacao/cpu.max)" = "200000 100000" ]'
 confere "guard ativo e unidade de cgroup habilitada" 'systemctl is-active -q donnabot-guarda-atualizacao@$U && systemctl is-enabled -q donnabot-cgroup-atualizacao'
@@ -64,6 +64,16 @@ confere "motivo: Hub em execução; sem journal nem seletor" 'grep -q "Hub em ex
 . $D/preparatoria.sh
 preparatoria
 
+caso "modo separado existente: instalação e atualização recusam sem mudança"
+printf 'hub_uid=%s\n' "$U" > /etc/donnabot/motor.conf
+espera 1 "reexecução administrativa com motor.conf presente" $I instalar --login hublogin --pacote $S/pacote --fingerprint-pacote $(cat $S/fp-pacote) --fingerprint-raiz $(cat $S/fp-raiz)
+confere "a recusa administrativa identifica motor.conf" 'grep -q motor.conf /tmp/saida.txt'
+espera 1 "coordenador com motor.conf presente" coord
+confere "coordenador recusa sem parar o Hub nem iniciar a migração" 'grep -q motor.conf /tmp/saida.txt && [ "$(servico)" = active ] && [ ! -e $H/dados/atualizacao-privilegiada ] && [ ! -L $R/ativo ]'
+espera 1 "wrapper com motor.conf presente" como_hub sudo -n $W
+confere "wrapper recusa antes de abrir a transação e preserva motor.conf" 'grep -qx "hub_uid=$U" /etc/donnabot/motor.conf && [ ! -e $E/journal ] && [ ! -L $R/ativo ]'
+rm /etc/donnabot/motor.conf
+
 GERENTE=$(systemctl show -p MainPID --value user@$U.service)
 caso "coordenador: 1ª migração (seq 1) com aceite"
 # Layout real de perfil gerido: home <uuid> com a marca .donnabot-profile (raiz F3 enumerada).
@@ -72,7 +82,7 @@ PERFIL=$H/dados/engine-setup/accounts/$ACC/$HOMEID/.claude  # vazamento-ok: cont
 como_hub systemctl --user stop donnabot-host.service
 confere "porta do Hub livre após parada" 'porta_livre'
 como_hub mkdir -p $PERFIL/sub && como_hub sh -c "touch $(dirname $PERFIL)/.donnabot-profile; chmod 600 $(dirname $PERFIL)/.donnabot-profile; printf '{\"tema\":\"x\"}' > $PERFIL/settings.json; printf '#!/bin/sh\necho perfil\n' > $PERFIL/sub/run.sh; chmod 755 $PERFIL/sub/run.sh"
-# Skill com script executável (0755): a cópia de skills é 0640 por contrato e não pode divergir.
+# Skill com script executável (0755) deve continuar no lugar em modo local.
 como_hub sh -c "mkdir -p $H/dados/skills/prova && printf '#!/bin/sh\necho skill\n' > $H/dados/skills/prova/run.sh && chmod 755 $H/dados/skills/prova/run.sh"
 como_hub python3 - <<PY
 import json, sqlite3, uuid
@@ -92,17 +102,13 @@ confere "versões do binário e do hello correspondem ao manifesto de teste" 've
 confere "Hub ativo executando o par gerido do slot-a" '[ "$(servico)" = active ] && [ "$(exe_hub)" = $R/slot-a/donnabot-host ]'
 confere "status liberado, dados preservados" 'grep -q liberado $R/status.json && sentinela | grep -q antes'
 M=/var/lib/donnabot/motor/engine-setup/accounts/$ACC/$HOMEID/.claude
-confere "F3: perfil copiado pelo canal como donnabot-motor (0700/0600, executável preservado)" '[ "$(stat -c %U:%a $M)" = donnabot-motor:700 ] && [ "$(stat -c %U:%a $M/settings.json)" = donnabot-motor:600 ] && [ "$(stat -c %a $M/sub/run.sh)" = 700 ] && cmp -s $M/settings.json $PERFIL/settings.json'
-confere "F3: referências reescritas e marca d330 gravada; origem preservada" 'como_hub python3 -c "import json,sqlite3;c=sqlite3.connect(\"$H/dados/codync.db\");r=json.loads(c.execute(\"select v from kv where k=?\",(\"fork.engine-accounts.v1\",)).fetchone()[0]);assert r[\"accounts\"][0][\"launch\"][\"directory\"]==\"$M\";assert c.execute(\"select 1 from kv where k=\x27d330.raizes.v1\x27\").fetchone()" && [ -f $PERFIL/settings.json ]'
-T=/var/lib/donnabot/trabalho; RAIZES="$T/skills $T/bots"
-confere "F3: raízes de trabalho copiadas pelo Hub com grupo de trabalho" '[ -d $T/skills ] && [ -d $T/bots ] && [ -z "$(find $RAIZES ! -user hublogin)" ] && [ -z "$(find $RAIZES ! -group donnabot-trabalho)" ]'
+confere "modo local mantém referência e perfil na origem, sem cópia F3" 'como_hub python3 -c "import json,sqlite3;c=sqlite3.connect(\"$H/dados/codync.db\");r=json.loads(c.execute(\"select v from kv where k=?\",(\"fork.engine-accounts.v1\",)).fetchone()[0]);assert r[\"accounts\"][0][\"launch\"][\"directory\"]==\"$PERFIL\";assert not c.execute(\"select 1 from kv where k=\x27d330.raizes.v1\x27\").fetchone()" && [ -f $PERFIL/settings.json ] && [ ! -e $M ]'
+confere "modo local mantém o script e o modo originais sem copiá-lo" '[ "$(stat -c %a $H/dados/skills/prova/run.sh)" = 755 ] && [ ! -e /var/lib/donnabot/trabalho/skills/prova ]'
 confere "canal: socket donnabot-motor:hublogin 0660; serviço executa como donnabot-motor" '[ "$(stat -c %U:%G:%a /run/donnabot-motor-copia.sock)" = donnabot-motor:hublogin:660 ] && [ "$(systemctl show -p User --value donnabot-motor-copia.service)" = donnabot-motor ]'
 confere "canal: outro UID não conecta (modo do socket)" '! runuser -u nobody -- python3 -c "import socket;s=socket.socket(socket.AF_UNIX);s.connect(\"/run/donnabot-motor-copia.sock\")" 2>/dev/null'
-confere "F3: skill executável copiada sem divergência, 0640 por contrato" '[ "$(stat -c %a /var/lib/donnabot/trabalho/skills/prova/run.sh)" = 640 ] && cmp -s /var/lib/donnabot/trabalho/skills/prova/run.sh $H/dados/skills/prova/run.sh'
-confere "canal: root conecta mas é recusado pelo SO_PEERCRED" 'python3 $D/canal.py "UID do Hub" >/dev/null'
 install -m 0644 $D/canal.py /tmp/prova-canal.py
-confere "canal: Hub fora da janela da 1ª migração é recusado (após o aceite)" 'runuser -u hublogin -- python3 /tmp/prova-canal.py "janela" >/dev/null'
-confere "canal: registro durável só com as raízes F3 copiadas" '[ "$(cat /var/lib/donnabot/motor/engine-setup/accounts/.donnabot-raizes)" = "$ACC/$HOMEID" ]'
+confere "canal: sem motor.conf, o serviço não atende o Hub" 'runuser -u hublogin -- python3 /tmp/prova-canal.py "sem-configuracao" >/dev/null'
+confere "modo local não registra raízes copiadas" '[ ! -e /var/lib/donnabot/motor/engine-setup/accounts/.donnabot-raizes ]'
 confere "backup privado 0700 com comprovante vinculado" '[ "$(stat -c %a $H/dados/atualizacao-privilegiada)" = 700 ] && ls $H/dados/atualizacao-privilegiada/*/comprovante.json >/dev/null'
 
 caso "coordenador: seq 2 publicada e volta forçada completa (DB, drop-ins, --reverter)"
@@ -169,7 +175,7 @@ sed 's/^/    | /' /tmp/saida.txt | grep revogar
 confere "sudoers removido e sudo -l sem o wrapper" '[ ! -e /etc/sudoers.d/donnabot ] && ! sudo -n -l -U hublogin 2>/dev/null | grep -q atualizar-privilegiado && visudo -cq'
 confere "nenhuma capability restante em /opt; slots, seletor e binários removidos" '[ -z "$(getcap -r /opt 2>/dev/null)" ] && [ ! -e $R ] && [ ! -e /opt/donnabot/sbin ]'
 confere "guard, canal e cgroup desligados e removidos" '! systemctl is-active -q donnabot-guarda-atualizacao@$U && ! systemctl is-active -q donnabot-motor-copia.socket && [ ! -e /etc/systemd/system/donnabot-guarda-atualizacao@.service ] && [ ! -e /run/donnabot-motor-copia.sock ] && [ ! -e /sys/fs/cgroup/donnabot-atualizacao ]'
-confere "estado arquivado com auditoria da revogação; conta e dados do motor preservados" 'A=$(ls -d /var/lib/donnabot/atualizacao.revogada-* | head -1) && [ "$(stat -c %U:%a $A)" = root:700 ] && grep -q "\"operacao\":\"revogar\",\"sequencia_atual\":null,\"sequencia_anterior\":null,\"resultado\":\"sucesso\"" $A/auditoria && id donnabot-motor >/dev/null && [ -d $M ] && [ ! -e $E ]'
+confere "estado arquivado com auditoria da revogação; conta e dados locais preservados" 'A=$(ls -d /var/lib/donnabot/atualizacao.revogada-* | head -1) && [ "$(stat -c %U:%a $A)" = root:700 ] && grep -q "\"operacao\":\"revogar\",\"sequencia_atual\":null,\"sequencia_anterior\":null,\"resultado\":\"sucesso\"" $A/auditoria && id donnabot-motor >/dev/null && [ -d $PERFIL ] && [ ! -e $E ]'
 confere "Hub parado após a revogação" '[ "$(servico)" != active ]'
 espera 0 "revogar de novo é idempotente" $I revogar --login hublogin
 caso "prova serviço-parado (amostragem a cada 50 ms)"

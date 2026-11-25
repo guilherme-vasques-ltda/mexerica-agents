@@ -118,7 +118,7 @@ fn troca_interrompida_entre_renames_recupera_a_anterior() {
     let raiz = pasta_temporaria();
     let destino = raiz.path().join("1.0.0");
     // Interrupção depois do primeiro rename: destino ausente, anterior esperando.
-    let copia = raiz.path().join(".agente-anterior:1.0.0");
+    let copia = pasta_anterior(raiz.path(), &destino).unwrap();
     let anterior = copia.join("instalacao");
     fs::create_dir_all(&anterior).unwrap();
     fs::write(anterior.join("programa"), b"anterior").unwrap();
@@ -140,12 +140,31 @@ fn erro_ao_consultar_o_destino_preserva_a_copia_anterior() {
     let bloqueio = raiz.path().join("bloqueio");
     fs::write(&bloqueio, b"arquivo").unwrap();
     let destino = bloqueio.join("1.0.0");
-    let copia = raiz.path().join(".agente-anterior:1.0.0");
+    let copia = pasta_anterior(raiz.path(), &destino).unwrap();
     let anterior = copia.join("instalacao");
     fs::create_dir_all(&anterior).unwrap();
     fs::write(anterior.join("programa"), b"anterior").unwrap();
     assert!(recuperar_anterior(raiz.path(), &destino).is_err());
     assert_eq!(fs::read(anterior.join("programa")).unwrap(), b"anterior", "a única cópia fica intacta");
+}
+
+#[test]
+fn publica_e_substitui_no_mesmo_destino_com_recuperacao_portatil() {
+    let raiz = pasta_temporaria();
+    let destino = raiz.path().join("1.0.0");
+    let copia = pasta_anterior(raiz.path(), &destino).unwrap();
+    let nome = copia.file_name().unwrap().to_str().unwrap();
+    assert!(caminho_relativo(Path::new(nome)).is_ok());
+    assert!(super::super::safe_component(nome).is_none());
+    let cmd = Path::new("programa");
+    for conteudo in [b"anterior".as_slice(), b"nova"] {
+        let hash = super::super::sha256_hex(conteudo);
+        publicar(&destino, "programa", conteudo, &hash, cmd).unwrap();
+        assert!(cache_verificado(&destino, &hash, cmd).unwrap());
+        assert!(publicada_por_este_protocolo(&destino));
+        assert_eq!(fs::read(destino.join(cmd)).unwrap(), conteudo);
+        assert!(!copia.exists());
+    }
 }
 
 #[test]

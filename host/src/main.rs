@@ -15,6 +15,8 @@ mod guard_hub;
 mod hub;
 mod market;
 mod mcp;
+#[path = "atualizacao/modo_motor.rs"]
+mod modo_motor;
 mod open_hub;
 mod remote;
 mod routines;
@@ -277,7 +279,7 @@ enum Sub {
     Install {
         #[arg(long, default_value_t = service::DEFAULT_PORT)]
         port: u16,
-        /// Linux: ajudante do mesmo pacote, instalado com sudo.
+        /// Opção legada do instalador de motor separado no Linux.
         #[arg(long)]
         ajudante: Option<std::path::PathBuf>,
     },
@@ -753,9 +755,9 @@ async fn main() -> Result<()> {
         }
         Sub::InstallMotor { action } => fork::linux_installer::privileged(action).await,
         Sub::MigrarMotor { action } => fork::linux_installer::migrate(action),
-        Sub::Install { port, ajudante } => {
+        Sub::Install { port, .. } => {
             if cfg!(target_os = "linux") {
-                return fork::linux_installer::install(port, ajudante);
+                return fork::linux_installer::recusar_instalacao_separada();
             }
             // Windows: the shell Claude Code runs status lines in varies (Git Bash, PowerShell), so
             // the line stays the user's; usage still comes from `claude -p /usage` and ACP.

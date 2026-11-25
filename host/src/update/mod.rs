@@ -120,6 +120,7 @@ pub async fn check() -> Result<Value> {
 
 pub async fn apply(port: u16, force: bool, worker: bool) -> Result<Value> {
     crate::environment::Environment::current().require_release_updates()?;
+    crate::fork::motor_exec::exigir_modo_suportado()?;
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     let _lock = loop {
         match lock() {
@@ -167,6 +168,7 @@ pub async fn apply(port: u16, force: bool, worker: bool) -> Result<Value> {
 /// the host would also kill the process responsible for starting its replacement.
 pub fn spawn_worker(port: u16, force: bool) -> Result<()> {
     crate::environment::Environment::current().require_release_updates()?;
+    crate::fork::motor_exec::exigir_modo_suportado()?;
     let _lock = lock()?;
     let previous: State = read("update-state.json")?;
     ensure!(!awaiting_worker(&previous), "a host update is already starting");
