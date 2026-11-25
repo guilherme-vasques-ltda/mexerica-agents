@@ -9,7 +9,9 @@ const invalidBootstrap = () => new Error('invalid_rc2_bootstrap')
 
 const lineLimit = 4096
 const payloadLimit = 256
-const helloBodyLimit = 1024
+// O teto do corpo comporta o pior JSON válido do contrato: duas identidades de 256 unidades
+// UTF-16 cada — \uXXXX ocupa 6 bytes por unidade no pior caso — mais a estrutura do objeto.
+const helloBodyLimit = 4096
 const streamLimit = 1_000_000
 const eventQueueLimit = 256
 
