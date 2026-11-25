@@ -25,7 +25,7 @@ pub(crate) struct Ambiente {
     /// Entra no carimbo da sessão: trocar ou remover a chave reinicia o processo.
     pub(crate) carimbo: String,
     /// A sessão do repasse: guardada junto do processo, que a perde (e o código morre) quando é encerrado ou trocado.
-    pub(crate) concessao: Concessao,
+    pub(crate) concessao: Arc<Concessao>,
 }
 
 fn raiz(store: &Store, plano: &Plano) -> PathBuf {
@@ -116,7 +116,7 @@ pub(crate) async fn ambiente_do_bot(hub: &Arc<Hub>, cfg: &BotConfig, uso: Uso) -
         // A configuração e os plugins do projeto (conteúdo do repositório, não do dono) não valem no plano.
         ("OPENCODE_DISABLE_PROJECT_CONFIG".into(), "1".into()),
     ];
-    Ok(Some(Ambiente { env, carimbo: format!("plano:{}:{revisao}", plano.id), concessao }))
+    Ok(Some(Ambiente { env, carimbo: format!("plano:{}:{revisao}", plano.id), concessao: Arc::new(concessao) }))
 }
 
 /// Aplica o filtro do motor (que tira casa e pastas `XDG_*` herdadas) e só depois entrega o ambiente do plano: o

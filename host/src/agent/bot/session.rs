@@ -496,7 +496,8 @@ impl Actor {
                     let fallback_left = i + 1 < candidates.len();
                     // A local CLI too old for ACP just hangs; don't make the user wait long before the fallback.
                     let budget = Duration::from_secs(if fallback_left { 20 } else { 180 });
-                    match start_agent(command, &self.cfg.cwd, &env, budget).await {
+                    let concessao = plano.as_ref().map(|p| p.concessao.clone());
+                    match start_agent(command, &self.cfg.cwd, &env, budget, concessao).await {
                         Ok(conn) => {
                             spawned = Some(conn);
                             break;
@@ -508,14 +509,10 @@ impl Actor {
                     }
                 }
             }
+            drop(plano);
             if let Some(mut conn) = spawned {
                 let revogador = crate::fork::ponte_credencial::Revogador::new(&self.hub, &self.cfg.id);
                 let _ = conn.ponte.replace(revogador);
-                // A sessão do repasse vive com o processo: quando ele é encerrado ou trocado, o código morre — e o
-                // plano só fica livre depois que a saída do processo é observada por quem é dono dele.
-                if let Some(plano) = plano {
-                    conn.acp.entregar_plano(plano.concessao).await;
-                }
                 let backend = match conn.adapter {
                     Adapter::Codex => "codex",
                     Adapter::Claude => "claude",

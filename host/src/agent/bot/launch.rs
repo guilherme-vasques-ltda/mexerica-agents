@@ -296,8 +296,15 @@ pub(crate) async fn start_mexerica(
 }
 
 /// Spawns an ACP agent and completes the `initialize` handshake.
-pub(crate) async fn start_agent(command: &str, cwd: &str, env: &[(String, String)], budget: Duration) -> Result<Conn> {
-    start_agent_mode(command, cwd, env, budget, false, false).await
+pub(crate) async fn start_agent(
+    command: &str,
+    cwd: &str,
+    env: &[(String, String)],
+    budget: Duration,
+    plano: Option<Arc<crate::fork::planos_codigo::Concessao>>,
+) -> Result<Conn> {
+    let (acp, rx) = Acp::spawn_plan(command, cwd, env, plano)?;
+    finish_launch(acp, rx, env, budget, false).await
 }
 
 pub(crate) async fn start_agent_protected(
@@ -639,4 +646,41 @@ mod tests {
         let own = [("mode", "auto"), ("effort", "high")].map(|(k, v)| (k.to_owned(), v.to_owned())).into();
         assert_eq!(model_choice(&res, "opus[mode=acceptEdits]", &own), ("opus", vec![("effort", "high")]));
     }
+}
+#[cfg(unix)]
+#[tokio::test]
+async fn plano_com_handshake_recusado_espera_o_processo_sair() {
+    use crate::fork::planos_codigo::{Repasse, plano_do_modelo};
+
+    let dir = tempfile::tempdir().unwrap();
+    let repasse = Repasse::iniciar().await.unwrap();
+    let plano = plano_do_modelo("opencode-go/deepseek-v4-flash").unwrap();
+    let (concessao, _) = repasse.conceder(plano, || Ok((0, "fixture".to_owned().into()))).unwrap();
+    let script = dir.path().join("agent.py");
+    std::fs::write(
+        &script,
+        r"import json, pathlib, sys, time
+frame = json.loads(sys.stdin.readline())
+print(json.dumps({'jsonrpc': '2.0', 'id': frame['id'], 'error': {'code': -32000, 'message': 'recusado'}}), flush=True)
+sys.stdin.read()
+while not pathlib.Path('sair').exists():
+    time.sleep(0.01)
+pathlib.Path('saiu').touch()
+",
+    )
+    .unwrap();
+    let command = crate::shell::python(&script);
+    let mut inicio = std::pin::pin!(start_agent(
+        &command,
+        dir.path().to_str().unwrap(),
+        &[],
+        Duration::from_secs(5),
+        Some(Arc::new(concessao)),
+    ));
+    assert!(futures::poll!(&mut inicio).is_pending());
+    assert!(repasse.reservar_troca(plano).is_err());
+    std::fs::write(dir.path().join("sair"), []).unwrap();
+    assert!(inicio.await.is_err());
+    assert!(dir.path().join("saiu").exists());
+    assert!(repasse.reservar_troca(plano).is_ok());
 }
