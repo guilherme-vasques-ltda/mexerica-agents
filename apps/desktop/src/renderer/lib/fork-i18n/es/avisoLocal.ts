@@ -4,4 +4,5 @@ import type { textos as fonte } from '../pt-BR/avisoLocal.ts'
 
 export const textos: Traducao<typeof fonte> = {
   'avisoLocal.texto': 'Instalado solo en este ordenador: si se suspende o se apaga, los bots, las rutinas y el navegador se detienen. Para estar siempre encendido, conecta un VPS propio o considera la Cloud cuando esté disponible.',
+  'avisoLocal.rc2HubLocal': 'Hub local encendido: sin un par autenticado entre la app y el Hub, no hay garantía de que algo ocurra solo después de tu clic.',
 }
