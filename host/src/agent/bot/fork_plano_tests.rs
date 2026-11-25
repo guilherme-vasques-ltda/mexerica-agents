@@ -144,14 +144,15 @@ async fn rotina_em_outra_conta_nao_herda_a_origem_da_conversa_do_dono() {
     let _ = actor.ensure_session(None).await;
     assert!(actor.ultimo_turno_do_dono, "a conversa do dono foi registrada");
 
-    // 2. A rotina roda em outra conta/motor (sem plano): o turno dela limpa o registro em qualquer ramo.
-    actor.cfg.backend = "echo".into();
-    actor.cfg.model = "echo".into();
+    // 2. A rotina roda com uma conta explicitamente selecionada: esse ramo nunca passava pela lógica antiga, e a
+    //    falha na conta desconhecida vem DEPOIS do registro, então a limpeza só existe com a correção.
+    actor.cfg.fork_editor.engine_account_id = Some("conta-outra".into());
     actor.turn_entries = vec![];
     actor.active_routine = Some("rotina".into());
     let _ = actor.ensure_session(None).await;
     assert!(!actor.ultimo_turno_do_dono, "a rotina não herda a origem da conversa");
     actor.active_routine = None;
+    actor.cfg.fork_editor.engine_account_id = None;
 
     // 3. A compactação enfileirada pelo turno da rotina (sem pedido do dono) é automática pela fila real.
     actor.queue.push_back(Queued::Compact { idle: false, manual: None, dono: actor.ultimo_turno_do_dono });
@@ -185,7 +186,9 @@ async fn compactacao_enfileirada_ao_fim_da_conversa_conserva_a_origem_na_fila() 
     actor.ultimo_turno_do_dono = uso == Uso::Conversa;
     assert!(actor.ultimo_turno_do_dono);
 
-    // O fim do turno dela enfileira a compactação pela fila real, preservando a origem.
+    // O fim do turno dela enfileira a compactação, preservando a origem. O push/pop manual copia o contrato da fila
+    // (`queue.rs` retira o item e repassa `dono` a `start_requested_compaction`); o laço completo de `next_in_queue`
+    // não é exercitado porque abrir um turno de verdade exige um motor de verdade, fora deste teste.
     actor.queue.push_back(Queued::Compact { idle: false, manual: None, dono: actor.ultimo_turno_do_dono });
     let Some(Queued::Compact { idle, manual, dono }) = actor.queue.pop_front() else {
         panic!("a compactação foi enfileirada")

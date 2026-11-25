@@ -31,8 +31,9 @@ automático (rotina, pedido, canal), é automática e não recebe a chave: o ato
 era compactação para decidir.
 
 **Limite real.** O Hub distingue os turnos que ele mesmo cria dos que chegam pelo método `send`, e só estes podem ser
-conversa: tarefas e avisos chegam carimbados com `contentOrigin.hubOrigin`; rotina, delegação, canal e compactação
-automática são reconhecidos pelo estado do turno, pelo autor da entrada ou pela falta de ingresso. Mas um chamador local ou um dispositivo
+conversa (com as compactações da seção anterior, que seguem a origem do turno que as motivou): tarefas e avisos chegam
+carimbados com `contentOrigin.hubOrigin`; rotina, delegação, canal e compactação automática são reconhecidos pelo
+estado do turno, pelo autor da entrada ou pela falta de ingresso. Mas um chamador local ou um dispositivo
 pareado com o token é aceito como o dono: o relatório de origem que o app envia é declarado pelo cliente e não vale como
 prova. Um processo com o token local, ou um dispositivo pareado com escopo Controle, pode enviar uma mensagem que
 conta como conversa e aciona o plano; não há prova da presença do dono. A regra impede o uso automático do Hub com a
