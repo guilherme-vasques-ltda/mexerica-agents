@@ -94,7 +94,7 @@ pub(crate) const PLANOS: &[Plano] = &[
     },
 ];
 
-/// A entrada é conversa da própria pessoa: escrita por humano, pelo ingresso que o próprio Hub carimbou do chamador
+/// A entrada conta como conversa: uma entrada de usuário cujo ingresso o próprio Hub carimbou do chamador
 /// autenticado (o computador do Hub ou um aparelho pareado com controle — a mesma fronteira que o sistema de memória
 /// usa para a pessoa), e sem a marca Hub-side de turno automático (`contentOrigin.hubOrigin`, que nenhum corpo de
 /// pedido define). Acordar de tarefa, aviso de comentário e delegação saem marcadas pelo Hub; o relatório que o app

@@ -252,7 +252,7 @@ impl Actor {
         result
     }
 
-    /// `Conversa` só quando o turno é a palavra do próprio dono pelo ingresso que o Hub carimbou do chamador
+    /// `Conversa` só quando o turno é a entrada do dono pelo ingresso que o Hub carimbou do chamador
     /// autenticado: rotina, canal, pedido de outro bot, acordar de tarefa, aviso de comentário, delegação, turno
     /// oculto e entrada sem ingresso são `Automatico`. Fecha por padrão.
     pub(super) fn uso_do_plano(&self) -> crate::fork::planos_codigo::Uso {
