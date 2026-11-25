@@ -477,6 +477,7 @@ function fakeChild(diesOn: { end?: boolean; terminate?: boolean; kill?: boolean 
     terminate: () => { calls.push('terminate'); if (diesOn.terminate) die() },
     kill: () => { calls.push('kill'); if (diesOn.kill !== false) die() },
     exited,
+    survivors: () => 0,
   }
   return { child, calls, die, fail }
 }
@@ -934,4 +935,49 @@ test('sonda de sobreviventes que falha conta como sobrevivente', async () => {
   for (const _ of [1, 2, 3]) { await flush(); clock.fire() }
   assert.equal(await stopped, false)
   assert.equal(await lifecycle.start(), false)
+})
+
+test('sonda que zera dentro do prazo do SIGKILL confirma sem deixar o prazo disparar', async () => {
+  const pending: Array<{ ms: number, fire: () => void }> = []
+  const schedule: Rc2Schedule = (ms, fire) => { pending.push({ ms, fire }); return () => { } }
+  const fireMs = (ms: number) => {
+    const timers = pending.splice(0)
+    for (const timer of timers) if (timer.ms === ms) timer.fire(); else pending.push(timer)
+  }
+  const { child, calls, die } = fakeChild()
+  let sondas = 0
+  const comSonda: Rc2ChildHandle = {
+    ...child,
+    kill: () => { calls.push('kill'); die() },
+    survivors: () => (sondas++ >= 1 ? 0 : 1),
+  }
+  let session: object | null = {}
+  const lifecycle = new Rc2HubLifecycle(() => session, async () => connectionFixture(comSonda, async () => { }),
+    { deadlines: shortDeadlines, schedule })
+  assert.equal(await lifecycle.start(), true)
+  const stopped = lifecycle.stop()
+  await flush()
+  fireMs(1)
+  await flush()
+  fireMs(1)
+  await flush()
+  fireMs(50)
+  assert.equal(await stopped, true, 'confirmou re-consultando dentro do prazo do SIGKILL')
+  assert.deepEqual(calls, ['end', 'terminate', 'kill'])
+  assert.equal(pending.some(timer => timer.ms === 1), true, 'o prazo do SIGKILL seguiu pendente: não disparou')
+})
+
+test('hello que lança de forma síncrona devolve null sem invalidar a geração', async () => {
+  let attempts = 0
+  let session: object | null = {}
+  const lifecycle = new Rc2HubLifecycle(() => session, async () => ({
+    hello: () => { if (attempts++ === 0) throw new Error('fixture_hello_sync_throw'); return Promise.resolve({ ...helloFixture }) },
+    async *events() { },
+    close: async () => { },
+    child: undefined,
+  }), { deadlines: shortDeadlines, schedule: manualClock().schedule })
+  assert.equal(await lifecycle.start(), true)
+  assert.equal(await lifecycle.hello(), null)
+  assert.deepEqual(await lifecycle.hello(), { ...helloFixture }, 'a geração segue viva')
+  await lifecycle.stop()
 })

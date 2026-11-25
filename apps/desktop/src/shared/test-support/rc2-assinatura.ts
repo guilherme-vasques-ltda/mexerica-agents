@@ -21,6 +21,10 @@ interface Opcoes {
   ident?: string
   duplicateCodeSignature?: boolean
   slots?: Array<{ type: number, offset?: number }>
+  // Overrides autoconsistentes para focais que isolam guardas: assinatura coerente consigo
+  // mesma, mas fora do contrato (codeLimit menor que o dataoff, slots além do corpo).
+  codeLimitOverride?: number
+  codeSlotsOverride?: number
 }
 
 // Constrói um Mach-O ARM64 com assinatura ad hoc embutida estruturalmente válida
@@ -43,8 +47,9 @@ export function assinarArm64(payload: Buffer | string, options: Opcoes = {}): Rc
     body.writeUInt32LE(0x1d, 48)
     body.writeUInt32LE(16, 52)
   }
-  const codeLimit = body.length
-  const codeSlots = Math.ceil(codeLimit / (1 << pageSize))
+  const dataoff = body.length
+  const codeLimit = options.codeLimitOverride ?? dataoff
+  const codeSlots = options.codeSlotsOverride ?? Math.ceil(codeLimit / (1 << pageSize))
   const hashOffset = 0x58
   const length = hashOffset + codeSlots * hashSize + ident.length
   const cd = Buffer.alloc(length)
@@ -63,7 +68,6 @@ export function assinarArm64(payload: Buffer | string, options: Opcoes = {}): Rc
   cd.writeUInt8(pageSize, 39)
   if (options.teamOffset) cd.writeUInt32BE(options.teamOffset, 48)
   ident.copy(cd, hashOffset + codeSlots * hashSize)
-  const dataoff = codeLimit
   const slots = options.slots ?? [{ type: 0 }]
   const superblob = Buffer.alloc(12 + slots.length * 8 + length)
   superblob.writeUInt32BE(0xfade0cc0, 0)
@@ -77,9 +81,8 @@ export function assinarArm64(payload: Buffer | string, options: Opcoes = {}): Rc
   body.writeUInt32LE(dataoff, 40)
   body.writeUInt32LE(datasize, 44)
   for (let index = 0; index < codeSlots; index++) {
-    const page = Buffer.alloc(1 << pageSize)
-    body.copy(page, 0, index * (1 << pageSize), Math.min((index + 1) * (1 << pageSize), codeLimit))
-    sha256(page).copy(cd, hashOffset + index * hashSize)
+    sha256(body.subarray(index * (1 << pageSize), Math.min((index + 1) * (1 << pageSize), codeLimit)))
+      .copy(cd, hashOffset + index * hashSize)
   }
   cd.copy(superblob, 20)
   const bytes = Buffer.concat([body, superblob])

@@ -46,12 +46,18 @@ function verifyComponent(root: string, component: Rc2Component): number {
     if (!inspected || realpathSync(path) !== join(resolvedRoot, ...segments)) throw invalid()
     // Fixa o objeto: o descritor aberto tem de ser o mesmo inode inspecionado no caminho.
     const fd = openSync(path, 'r')
-    const pinned = fstatSync(fd)
-    if (!pinned.isFile() || pinned.dev !== inspected.dev || pinned.ino !== inspected.ino ||
-        pinned.size !== inspected.size) throw invalid()
-    const bytes = readFileSync(fd)
-    if (!machoArm64(bytes) || sha256(bytes) !== component.sha256) throw invalid()
-    verifyRc2AdHocSignature(bytes, component.cdhash)
+    try {
+      const pinned = fstatSync(fd)
+      if (!pinned.isFile() || pinned.dev !== inspected.dev || pinned.ino !== inspected.ino ||
+          pinned.size !== inspected.size) throw invalid()
+      const bytes = readFileSync(fd)
+      if (!machoArm64(bytes) || sha256(bytes) !== component.sha256) throw invalid()
+      verifyRc2AdHocSignature(bytes, component.cdhash)
+    } catch (error) {
+      // Nenhuma recusa deixa descritor aberto: o objeto fixado morre com a verificação que falhou.
+      try { closeSync(fd) } catch { /* já fechado */ }
+      throw error
+    }
     return fd
   } catch { throw invalid() }
 }

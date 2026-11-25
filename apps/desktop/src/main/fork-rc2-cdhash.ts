@@ -91,13 +91,12 @@ export function verifyRc2AdHocSignature(bytes: Buffer, cdhash: string): void {
       (length - hashOffset) / hashSize < nCodeSlots) throw invalid()
   if (identOffset === 0 || identOffset >= length || !bytes.subarray(cd + identOffset, cd + length).includes(0)) throw invalid()
   const stored = bytes.subarray(cd + hashOffset, cd + hashOffset + nCodeSlots * hashSize)
-  const slice = Buffer.alloc(page)
+  // A última página parcial é hasheada só nos bytes presentes, sem preenchimento: é o que o
+  // kernel confere por página (XNU ubc_subr.c); preencher com zeros recusa assinatura válida.
   for (let index = 0; index < nCodeSlots; index++) {
     const start = index * page
     const end = Math.min(start + page, codeLimit)
-    slice.fill(0)
-    bytes.copy(slice, 0, start, end)
-    if (!sha256(slice).equals(stored.subarray(index * hashSize, (index + 1) * hashSize))) throw invalid()
+    if (!sha256(bytes.subarray(start, end)).equals(stored.subarray(index * hashSize, (index + 1) * hashSize))) throw invalid()
   }
   const measured = sha256(bytes.subarray(cd, cd + length)).subarray(0, 20).toString('hex')
   if (measured !== cdhash) throw invalid()

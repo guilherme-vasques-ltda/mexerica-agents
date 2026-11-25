@@ -64,19 +64,26 @@ test('binário ausente, trocado, link, slice errado ou diretório no lugar do ar
   }
 })
 
-test('recusa em qualquer componente fecha os descritores já abertos antes de propagar', t => {
+test('recusa fecha o descritor do componente que falhou e recusas repetidas não acumulam', t => {
   const { root, hub, helper } = fixture(t)
   const alterado: Rc2Component = { ...helper, sha256: assinarArm64('outro corpo').sha256 }
   const closed: number[] = []
+  const opened: number[] = []
   const verify = loadMainModule<{ verifyRc2Artifact: typeof verifyRc2Artifact }>('fork-rc2-artifact', {
-    'node:fs': { ...fs, closeSync: (fd: number) => { closed.push(fd); fs.closeSync(fd) } },
+    'node:fs': { ...fs, openSync: (path: string, flags?: string | number | null) => { const fd = fs.openSync(path, flags ?? 'r'); opened.push(fd); return fd },
+      closeSync: (fd: number) => { closed.push(fd); fs.closeSync(fd) } },
     'node:path': path,
     'node:crypto': crypto,
   }, { Buffer }).verifyRc2Artifact
-  assert.throws(() => verify(root, [hub, alterado]), /invalid_rc2_artifact/)
-  assert.equal(closed.length, 1, 'o descritor do Hub verificado é fechado na recusa do helper')
-  verify(root, [hub, helper]).close()
-  assert.equal(closed.length, 3, 'o caminho feliz fecha os dois descritores no close explícito')
+  for (const _ of [1, 2, 3]) {
+    assert.throws(() => verify(root, [hub, alterado]), /invalid_rc2_artifact/)
+  }
+  assert.equal(opened.length, 6, 'cada recusa abriu exatamente os dois componentes')
+  assert.equal(closed.length, 6, 'toda abertura foi fechada: o descritor do componente que falhou também')
+  const verified = verify(root, [hub, helper])
+  assert.equal(closed.length, 6, 'o caminho feliz não fecha nada antes do close explícito')
+  verified.close()
+  assert.equal(closed.length, 8, 'o close explícito fecha os dois descritores verificados')
 })
 
 test('descritor fixado continua lendo os bytes verificados depois de trocar o arquivo no caminho', t => {
@@ -121,26 +128,57 @@ test('verificação abre cada componente exatamente uma vez e não relê caminho
 test('troca na janela entre inspeção e abertura é detectada pela divergência do descritor', t => {
   const { root, components } = fixture(t)
   const hubPath = join(root, components[0].path)
-  const fake = fs.lstatSync(hubPath)
-  const divergente = { ...fake, ino: fake.ino + 1 }
-  const verify = loadMainModule<{ verifyRc2Artifact: typeof verifyRc2Artifact }>('fork-rc2-artifact', {
-    'node:fs': { ...fs, lstatSync: (path: string) => path === hubPath ? divergente : fs.lstatSync(path) },
-    'node:path': path,
-    'node:crypto': crypto,
+  const real = fs.lstatSync(hubPath)
+  const comPrototipo = (stat: object, mudanca: object) =>
+    Object.assign(Object.create(Object.getPrototypeOf(real)), stat, mudanca)
+  const divergente = comPrototipo(real, { ino: real.ino + 1 })
+  const fstat = { ...fs, fstatSync: (fd: number) => comPrototipo(fs.fstatSync(fd), {}) }
+  const verifyDivergente = loadMainModule<{ verifyRc2Artifact: typeof verifyRc2Artifact }>('fork-rc2-artifact', {
+    'node:fs': { ...fs, fstatSync: () => divergente }, 'node:path': path, 'node:crypto': crypto,
   }, { Buffer }).verifyRc2Artifact
-  assert.throws(() => verify(root, components), /invalid_rc2_artifact/)
+  assert.throws(() => verifyDivergente(root, components), /invalid_rc2_artifact/)
+  // controle pelo mesmo caminho de simulação: sem divergência, o fstat preservado é aceito
+  const verifyIgual = loadMainModule<{ verifyRc2Artifact: typeof verifyRc2Artifact }>('fork-rc2-artifact', {
+    'node:fs': fstat, 'node:path': path, 'node:crypto': crypto,
+  }, { Buffer }).verifyRc2Artifact
+  verifyIgual(root, components).close()
 })
 
 test('tamanho divergente entre inspeção e descritor é recusado mesmo com inode igual', t => {
   const { root, components } = fixture(t)
   const hubPath = join(root, components[0].path)
   const real = fs.lstatSync(hubPath)
+  const fstatCom = (mudar: (base: object) => object) => (fd: number) => {
+    const stat = fs.fstatSync(fd)
+    const base = Object.assign(Object.create(Object.getPrototypeOf(real)), stat)
+    return stat.ino === real.ino ? Object.assign(base, mudar(base)) : base
+  }
+  const carregar = (fstat: typeof fs.fstatSync) =>
+    loadMainModule<{ verifyRc2Artifact: typeof verifyRc2Artifact }>('fork-rc2-artifact', {
+      'node:fs': { ...fs, fstatSync: fstat }, 'node:path': path, 'node:crypto': crypto,
+    }, { Buffer }).verifyRc2Artifact
+  assert.throws(() => carregar(fstatCom(() => ({ size: real.size + 1 })))(root, components), /invalid_rc2_artifact/)
+  carregar(fstatCom(() => ({})))(root, components).close()
+})
+
+test('cdhash errado com sha256 correto recusa depois de ler o descritor, não antes', t => {
+  const { root, hub } = fixture(t)
+  const outro = assinarArm64('corpo diferente do pin de cdhash')
+  writeFileSync(join(root, hub.path), outro.bytes)
+  const reads: string[] = []
+  const countingFs = new Proxy(fs, { get(target, key: string) {
+    if (key === 'readFileSync') return (alvo: string | number, ...rest: unknown[]) => {
+      reads.push(String(alvo))
+      return (target as never as Record<string, (alvo: string | number, ...rest: unknown[]) => Buffer>)[key](alvo, ...rest)
+    }
+    return (target as Record<string, unknown>)[key]
+  } })
   const verify = loadMainModule<{ verifyRc2Artifact: typeof verifyRc2Artifact }>('fork-rc2-artifact', {
-    'node:fs': { ...fs, fstatSync: (fd: number) => ({ ...fs.fstatSync(fd), size: real.size + 1 }) },
-    'node:path': path,
-    'node:crypto': crypto,
+    'node:fs': countingFs, 'node:path': path, 'node:crypto': crypto,
   }, { Buffer }).verifyRc2Artifact
-  assert.throws(() => verify(root, components), /invalid_rc2_artifact/)
+  const pinErrado: Rc2Component = { ...hub, sha256: outro.sha256, cdhash: hubAssinado.cdhash }
+  assert.throws(() => verify(root, [pinErrado]), /invalid_rc2_artifact/)
+  assert.ok(/^\d+$/.test(reads[reads.length - 1]), 'o sha256 coerente foi lido pelo descritor antes da recusa de cdhash')
 })
 
 test('hash divergente de qualquer componente declarado recusa o artefato inteiro', t => {
