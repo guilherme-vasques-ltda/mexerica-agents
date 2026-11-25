@@ -1,5 +1,7 @@
-//! Registro durável das recusas da porta de permissões do Motor no macOS.
-//! Cada linha carrega só ids do escopo, a série do pedido, o motivo tipado e o
+//! Registro durável da porta de permissões do Motor no macOS: recusas e a
+//! intenção registrada antes do efeito, na mesma sequência append-only — a
+//! intenção fica ordenada com qualquer revogação seguinte. Cada linha carrega
+//! só ids do escopo, a série do pedido, o motivo tipado, o caminho e o
 //! instante: sem segredo, sem entrada bruta e sem conteúdo da ação.
 
 use anyhow::{Context, Result, ensure};
@@ -14,6 +16,9 @@ pub(super) enum Motivo {
     Negada,
     Expirada,
     Fechada,
+    /// Intenção aprovada, registrada antes do efeito na mesma sequência das
+    /// recusas — a revogação seguinte sempre fica depois dela.
+    Intencao,
 }
 
 impl Motivo {
@@ -22,6 +27,7 @@ impl Motivo {
             Motivo::Negada => "negada",
             Motivo::Expirada => "expirada",
             Motivo::Fechada => "fechada",
+            Motivo::Intencao => "intencao",
         }
     }
 }
@@ -59,7 +65,7 @@ pub(super) fn preparar(db: &Connection) -> Result<()> {
              sessao INTEGER NOT NULL CHECK (sessao > 0),
              geracao INTEGER NOT NULL CHECK (geracao > 0),
              serie INTEGER NOT NULL CHECK (serie > 0),
-             motivo TEXT NOT NULL CHECK (motivo IN ('negada', 'expirada', 'fechada')),
+             motivo TEXT NOT NULL CHECK (motivo IN ('negada', 'expirada', 'fechada', 'intencao')),
              caminho TEXT NOT NULL CHECK (caminho IN ('pedir', 'resolver', 'efetuar', 'parar')),
              instancia INTEGER NOT NULL CHECK (instancia > 0),
              instante_ms INTEGER NOT NULL CHECK (instante_ms >= 0)
@@ -70,8 +76,8 @@ pub(super) fn preparar(db: &Connection) -> Result<()> {
     Ok(())
 }
 
-/// Grava a recusa uma única vez, sem repetição: o erro propaga e o chamador
-/// nega sem efeito. Só aceita o pedido opaco, o caminho, o motivo fechado e a
+/// Grava a linha uma única vez, sem repetição: o erro propaga e o chamador
+/// nega sem efeito. Vale para recusa e para intenção registrada. Só aceita o pedido opaco, o caminho, o motivo fechado e a
 /// identidade da instância; o registro é append-only, sem deduplicação (a
 /// unicidade de série entre portas ainda não está provada — a coluna
 /// `instancia` identifica quem gravou, sem valer unicidade).
