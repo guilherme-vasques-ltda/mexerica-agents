@@ -51,11 +51,9 @@ async fn antigravity_encerra_processo_ao_revogar_dono_motor_ou_modo() {
         let mut actor = new_actor(hub.clone(), cfg.clone());
         let script = path.join("fixture.py");
         std::fs::write(&script, "import json,sys\nfor line in sys.stdin:\n m=json.loads(line)\n if 'id' in m: print(json.dumps(dict(jsonrpc='2.0', id=m['id'], result={})), flush=True)\n").unwrap();
-        actor.conn = Some(
-            launch::start_agent(&crate::shell::python(&script), path.to_str().unwrap(), &[], Duration::from_secs(5))
-                .await
-                .unwrap(),
-        );
+        let command = crate::shell::python(&script).into();
+        actor.conn =
+            Some(launch::start_agent(&command, path.to_str().unwrap(), &[], Duration::from_secs(5)).await.unwrap());
         let acp = actor.conn.as_ref().unwrap().acp.clone();
         actor.turn_session = Some("fixture".into());
         actor.antigravity_active = hub.antigravity_grants.take(&entry.id);

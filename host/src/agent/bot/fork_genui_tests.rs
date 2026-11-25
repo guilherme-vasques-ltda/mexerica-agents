@@ -265,7 +265,7 @@ mod c6 {
         let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/oauth_context_agent.py");
         let command = format!("{} http://127.0.0.1:9/sem-uso", crate::shell::python(&script));
         let cwd = actor.cfg.cwd.clone();
-        actor.conn = Some(start_agent_protected(&command, &cwd, &[], Duration::from_secs(5)).await.unwrap());
+        actor.conn = Some(start_agent_protected(&command.into(), &cwd, &[], Duration::from_secs(5)).await.unwrap());
         actor
     }
 

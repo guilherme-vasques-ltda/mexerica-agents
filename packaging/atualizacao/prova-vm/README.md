@@ -69,19 +69,13 @@ guard com bloqueio durável; e a análise do `amostrador.py` (50 ms), que falha 
 Hub aparecer rodando em fase crítica do journal ou numa troca de seletor.
 
 Na fase 3, os cenários também cobrem:
-- a F3 pelo canal do motor:
-  - um perfil de conta injetado é copiado como motor (0700/0600, bit de execução
-    preservado);
-  - uma skill com script 0755 chega como 0640 sem divergência;
-  - as referências no DB são reescritas com a marca `d330`;
-  - as raízes de trabalho ficam com o Hub e o grupo `donnabot-trabalho`;
+- a recusa do instalador, do coordenador e do wrapper se `motor.conf` já existir,
+  sem parar o Hub nem iniciar uma transação;
+- o modo local: as referências no DB, o perfil e a skill executável ficam na
+  origem, sem cópia F3 nem marca de migração;
 - o isolamento do canal:
   - socket 0660 com o grupo do Hub, e `nobody` não conecta;
-  - root é recusado por `SO_PEERCRED`, e o Hub fora da janela da primeira migração
-    também é recusado (`canal.py`);
-  - o perfil injetado usa o layout real (home `<uuid>` com `.donnabot-profile`), a
-    única raiz de home que o canal aceita;
-  - o registro de raízes tem só as raízes copiadas;
+  - sem `motor.conf`, o serviço não atende o Hub e não registra raízes copiadas;
 - a revogação administrativa: login de outro serviço, espera da trava do wrapper,
   encerramento de chamada suspensa, conferência de capabilities/unidades/estado,
   preservação de conta e dados do motor, e reexecução idempotente.

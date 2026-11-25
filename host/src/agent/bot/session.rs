@@ -502,7 +502,7 @@ impl Actor {
                             break;
                         }
                         Err(e) => {
-                            tracing::info!(command, error = format!("{e:#}"), "agent failed to start");
+                            tracing::info!(backend = %self.cfg.backend, categoria = "lancamento", "agent failed to start");
                             last_err = Some(e);
                         }
                     }

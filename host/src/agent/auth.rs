@@ -15,7 +15,7 @@
 use crate::LockExt;
 use crate::agent::acp::{AUTH_REQUIRED, Acp, Incoming, RpcError};
 use crate::agent::backends;
-use crate::agent::registry::{Cmd, env_prefix};
+use crate::agent::registry::{Cmd, Comando, env_prefix};
 use crate::shell::quote as shell_quote;
 use crate::store::Store;
 use anyhow::{Context, Result, anyhow, bail};
@@ -33,7 +33,7 @@ pub enum MethodKind {
     /// Shell command for a setup terminal. Never sent to clients.
     Terminal {
         #[serde(skip)]
-        command: String,
+        command: Comando,
     },
     Agent,
     EnvVar {
@@ -337,11 +337,7 @@ async fn start_with_env(store: &Store, backend: &str, profile: &[(String, String
     for (i, cmd) in candidates.into_iter().enumerate() {
         // A first `npx` run downloads the package: give the last candidate time.
         let budget = Duration::from_secs(if i + 1 < count { 20 } else { 180 });
-        let spawned = if profile.is_empty() {
-            Acp::spawn(&cmd.acp(), &dir.to_string_lossy(), &env)
-        } else {
-            Acp::spawn_protected(&cmd.acp(), &dir.to_string_lossy(), &env)
-        };
+        let spawned = Acp::spawn_registered(&cmd.acp(), &dir.to_string_lossy(), &env, !profile.is_empty(), false).await;
         let (acp, mut rx) = match spawned {
             Ok(v) => v,
             Err(e) => {
@@ -432,11 +428,13 @@ fn methods(backend: &str, init: &Value, cmd: &Cmd) -> Vec<Method> {
                     return None;
                 }
                 let command = format!("{}{} {}", env_prefix(&t["env"]), shell_quote(program), joined_args(&t["args"]));
-                MethodKind::Terminal { command }
+                MethodKind::Terminal { command: cmd.com_linha(command) }
             } else if m["type"] == "terminal" || meta.get("type").is_some_and(|t| t == "terminal") {
                 let args = if m["args"].is_array() { &m["args"] } else { meta.get("args").unwrap_or(&Value::Null) };
                 let env = if m["env"].is_object() { &m["env"] } else { meta.get("env").unwrap_or(&Value::Null) };
-                MethodKind::Terminal { command: format!("{}{} {}", env_prefix(env), cmd.program, joined_args(args)) }
+                MethodKind::Terminal {
+                    command: cmd.com_linha(format!("{}{} {}", env_prefix(env), cmd.program, joined_args(args))),
+                }
             } else if meta.contains_key("api-key") || meta.contains_key("gateway") {
                 // Keys the agent itself asks for through a UI we don't have.
                 return None;
@@ -454,7 +452,7 @@ fn methods(backend: &str, init: &Value, cmd: &Cmd) -> Vec<Method> {
 }
 
 /// The terminal command for a method found by the last check.
-pub fn terminal_command(backend: &str, method: &str) -> Option<String> {
+pub(crate) fn terminal_command(backend: &str, method: &str) -> Option<Comando> {
     CHECKED.locked().get(backend)?.methods.iter().find(|m| m.id == method).and_then(|m| match &m.kind {
         MethodKind::Terminal { command } => Some(command.clone()),
         _ => None,
@@ -666,7 +664,7 @@ mod tests {
     }
 
     fn cmd() -> Cmd {
-        Cmd { program: "npx -y pkg@1".into(), args: "--acp".into() }
+        Cmd::new("npx -y pkg@1".into(), "--acp".into())
     }
 
     #[test]
@@ -683,17 +681,17 @@ mod tests {
         let m = methods("x", &init, &cmd());
         let kinds: Vec<_> = m.iter().map(|m| (m.id.as_str(), &m.kind)).collect();
         assert!(
-            matches!(kinds[0], ("a", MethodKind::Terminal { command }) if command == &format!("/bin/tool login {}", shell_quote("--x y")))
+            matches!(kinds[0], ("a", MethodKind::Terminal { command }) if command.linha == format!("/bin/tool login {}", shell_quote("--x y")))
         );
         assert!(
-            matches!(kinds[1], ("b", MethodKind::Terminal { command }) if command == "npx -y pkg@1 --terminal-login")
+            matches!(kinds[1], ("b", MethodKind::Terminal { command }) if command.linha == "npx -y pkg@1 --terminal-login")
         );
         assert!(
             matches!(kinds[2], ("c", MethodKind::EnvVar { vars, .. }) if vars.len() == 1 && vars[0].name == "Z_KEY")
         );
         assert!(matches!(kinds[3], ("d", MethodKind::Agent)));
         assert!(
-            matches!(kinds[4], ("f", MethodKind::Terminal { command }) if command == "npx -y pkg@1 --auth-type=openai")
+            matches!(kinds[4], ("f", MethodKind::Terminal { command }) if command.linha == "npx -y pkg@1 --auth-type=openai")
         );
         assert_eq!(m.len(), 5);
         // Commands stay on the host.

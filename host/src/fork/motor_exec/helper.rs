@@ -135,6 +135,13 @@ pub(super) fn run() -> Result<()> {
     let identity = identity(&read_config(Path::new(CONFIG))?)?;
     validate(&identity, caller)?;
     let args: Vec<_> = std::env::args_os().skip(1).collect();
+    // Release recusa o modo separado antes de qualquer efeito de execução. Limpeza e
+    // encerramento de grupos seguem permitidos: são reversão de instalações existentes.
+    if !matches!(args.first().and_then(|a| a.to_str()), Some("kill-group" | "cleanup")) {
+        // Este binário só existe no modo separado (a configuração foi lida acima); em build
+        // de release o modo é recusado antes de qualquer efeito de execução.
+        ensure!(!matches!(option_env!("CODYNC_ENV"), Some("main")), "modo de motor separado indisponível neste build");
+    }
     switch(&identity)?;
     // SAFETY: getppid só consulta o pai atual.
     ensure!(unsafe { libc::getppid() } == parent, "Hub saiu durante a troca de usuário");

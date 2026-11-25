@@ -14,7 +14,7 @@ use std::{
 pub(super) const BASE: &str = "/var/lib/donnabot";
 pub(super) use crate::fork::motor_roots::{MOTOR, WORK};
 pub(super) const BIN: &str = "/opt/donnabot/bin";
-pub(super) const CONFIG: &str = "/etc/donnabot/motor.conf";
+pub(super) use crate::modo_motor::CONFIG;
 const MOTOR_USER: &str = "donnabot-motor";
 const WORK_GROUP: &str = "donnabot-trabalho";
 
@@ -767,24 +767,6 @@ fn request(args: Vec<OsString>) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn request_install(port: u16, helper: Option<PathBuf>) -> Result<()> {
-    crate::environment::ensure_own_port(port)?;
-    crate::environment::ensure_own_data_dir(&crate::service::home(), &crate::service::data_dir())?;
-    let host = crate::service::current_exe()?;
-    let helper = helper.unwrap_or_else(|| host.with_file_name("donnabot-motor-exec"));
-    request(vec![
-        "instalar".into(),
-        "--host".into(),
-        host.into_os_string(),
-        "--ajudante".into(),
-        helper.into_os_string(),
-        "--data-dir".into(),
-        crate::service::data_dir().into_os_string(),
-        "--port".into(),
-        port.to_string().into(),
-    ])
-}
-
 pub(super) fn request_uninstall(remove_user: bool) -> Result<()> {
     let mut args = vec!["desinstalar".into()];
     if remove_user {
@@ -794,39 +776,23 @@ pub(super) fn request_uninstall(remove_user: bool) -> Result<()> {
 }
 
 pub(super) fn request_migrate(action: Migration) -> Result<()> {
-    let mut args: Vec<OsString> = match action {
-        Migration::Aplicar { instalacao_de_teste, ajudante, backup, port } => {
-            ensure!(instalacao_de_teste, "exige --instalacao-de-teste; servidor real é etapa F5");
-            crate::environment::ensure_own_port(port)?;
-            vec![
-                "migrar".into(),
-                "--ajudante".into(),
-                ajudante.into_os_string(),
-                "--backup".into(),
-                backup.into_os_string(),
-                "--port".into(),
-                port.to_string().into(),
-            ]
-        }
+    match action {
+        Migration::Aplicar { .. } => super::recusar_instalacao_separada(),
         Migration::Voltar { instalacao_de_teste, backup } => {
             ensure!(instalacao_de_teste, "exige --instalacao-de-teste");
-            return request(vec!["voltar".into(), "--backup".into(), backup.into_os_string()]);
+            request(vec!["voltar".into(), "--backup".into(), backup.into_os_string()])
         }
         Migration::Conferir => {
             println!("{}", migration::CHECKLIST);
-            return Ok(());
+            Ok(())
         }
-    };
-    args.extend([
-        "--host".into(),
-        crate::service::current_exe()?.into_os_string(),
-        "--data-dir".into(),
-        crate::service::data_dir().into_os_string(),
-    ]);
-    request(args)
+    }
 }
 
 pub(super) async fn execute(action: RootAction) -> Result<()> {
+    if matches!(action, RootAction::Instalar { .. } | RootAction::Migrar { .. }) {
+        return super::recusar_instalacao_separada();
+    }
     prerequisites()?;
     ensure!(
         crate::environment::Environment::current() == crate::environment::Environment::Main,

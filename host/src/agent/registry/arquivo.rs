@@ -4,7 +4,14 @@ use std::fs::{self, File};
 use std::io::{self, Cursor, ErrorKind, Read, Write as _};
 use std::path::{Component, Path, PathBuf};
 
-const MARCADOR: &str = ".installed";
+pub(super) const MARCADOR: &str = ".installed";
+/// Recibo de que a árvore foi publicada por este protocolo, gravado dentro da árvore
+/// antes do rename atômico: transacional com a instalação e morto junto com ela.
+pub(super) const RECIBO: &str = ".publicada";
+/// Versão do formato do recibo: a prova nova carrega esta versão e o resumo do marcador
+/// de instalação. Um arquivo `.publicada` legado (vazio ou com conteúdo do pacote) não
+/// confere com esse formato e nunca vale como prova nova.
+const RECIBO_VERSAO: &str = "mexerica-publicada-v1";
 pub(super) const LIMITE_EXTRAIDO: u64 = 512 * 1024 * 1024;
 const LIMITE_ENTRADAS: usize = 4096;
 
@@ -156,6 +163,16 @@ pub(super) fn publicar(
     let temporaria = pasta_privada(pai, ".agente-")?;
     let pasta = temporaria.path();
     extrair(nome, bytes, pasta, limite_extraido, LIMITE_ENTRADAS, cmd)?;
+    // O pacote pode trazer um arquivo (ou pasta) com o nome do recibo: ele é conteúdo
+    // legado, nunca a prova. Remove o que a extração deixou e grava a prova nova,
+    // vinculada ao marcador desta instalação.
+    let plantado = pasta.join(RECIBO);
+    match fs::symlink_metadata(&plantado) {
+        Ok(meta) if meta.is_dir() && !meta.file_type().is_symlink() => fs::remove_dir_all(&plantado)?,
+        Ok(_) => fs::remove_file(&plantado)?,
+        Err(e) if e.kind() == ErrorKind::NotFound => {}
+        Err(e) => return Err(e.into()),
+    }
     let exe = executavel_regular(pasta, cmd)?;
     #[cfg(unix)]
     {
@@ -175,27 +192,133 @@ pub(super) fn publicar(
     let mut marcador = opcoes.open(pasta.join(MARCADOR))?;
     write!(marcador, "{hash}{hash_exe}")?;
     drop(marcador);
+    let mut recibo = opcoes.open(&plantado)?;
+    write!(recibo, "{}", recibo_conteudo(format!("{hash}{hash_exe}").as_bytes()))?;
+    recibo.sync_all()?;
+    drop(recibo);
     substituir(pasta, destino, pai)
+}
+
+/// Conteúdo da prova de publicação: versão do formato e resumo do marcador de
+/// instalação (`{hash do pacote}{hash do executável}`) gravado por este protocolo.
+fn recibo_conteudo(marcador: &[u8]) -> String {
+    format!("{RECIBO_VERSAO}\n{}\n", super::digest_hex(&Sha256::digest(marcador)))
+}
+
+/// Prova nova de publicação: o recibo precisa ser arquivo regular com a versão atual
+/// e o resumo exato do marcador desta árvore. Recibo legado (arquivo `.publicada`
+/// vazio, com conteúdo de pacote ou sem vínculo com o marcador) não confere.
+pub(super) fn publicada_por_este_protocolo(pasta: &Path) -> bool {
+    let abrir = |nome: &str| -> io::Result<File> {
+        let caminho = pasta.join(nome);
+        let mut opcoes = fs::OpenOptions::new();
+        opcoes.read(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            opcoes.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+        }
+        if !fs::symlink_metadata(&caminho)?.is_file() {
+            return Err(io::Error::from(ErrorKind::InvalidData));
+        }
+        let arquivo = opcoes.open(caminho)?;
+        if !arquivo.metadata()?.is_file() {
+            return Err(io::Error::from(ErrorKind::InvalidData));
+        }
+        Ok(arquivo)
+    };
+    let (Ok(marcador), Ok(recibo)) = (abrir(MARCADOR), abrir(RECIBO)) else { return false };
+    conferir_recibo(marcador, recibo).unwrap_or(false)
+}
+
+pub(super) fn conferir_recibo(marcador: impl Read, recibo: impl Read) -> io::Result<bool> {
+    let mut bytes = Vec::new();
+    marcador.take(129).read_to_end(&mut bytes)?;
+    if bytes.len() != 128 || !bytes.iter().all(u8::is_ascii_hexdigit) {
+        return Ok(false);
+    }
+    let esperado = recibo_conteudo(&bytes);
+    bytes.clear();
+    recibo.take(esperado.len() as u64 + 1).read_to_end(&mut bytes)?;
+    Ok(bytes == esperado.as_bytes())
+}
+
+/// Pasta onde a árvore anterior espera durante a troca, com o nome do destino no
+/// prefixo: uma interrupção entre os dois renames deixa um resto identificável, e a
+/// publicação seguinte do mesmo destino o recupera antes de trocar de novo. O `!`
+/// é portátil e não passa em `safe_component`, que valida as versões do catálogo.
+fn pasta_anterior(pai: &Path, destino: &Path) -> Result<PathBuf> {
+    let nome = destino.file_name().context("Pasta de instalação do agente inválida.")?;
+    let nome = nome.to_string_lossy();
+    let nome = if cfg!(windows) { nome.to_ascii_lowercase().into() } else { nome };
+    Ok(pai.join(format!(".agente-anterior!{}", super::sha256_hex(nome.as_bytes()))))
+}
+
+fn sincronizar_diretorio(pasta: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    File::open(pasta)?.sync_all()?;
+    #[cfg(not(unix))]
+    let _ = pasta;
+    Ok(())
+}
+
+fn finalizar_publicacao(pai: &Path, copia: Option<&Path>) {
+    let resultado = sincronizar_diretorio(pai).and_then(|()| {
+        if let Some(copia) = copia {
+            fs::remove_dir_all(copia)?;
+            sincronizar_diretorio(pai)?;
+        }
+        Ok(())
+    });
+    if let Err(erro) = resultado {
+        tracing::warn!(categoria = ?erro.kind(), "agente publicado; finalização da publicação incompleta");
+    }
+}
+
+/// Recuperação de uma troca interrompida entre os renames: se o destino sumiu, a
+/// árvore anterior volta para o lugar; se o destino existe, o resto é cópia velha e
+/// sai. Sem resto, nada acontece.
+fn recuperar_anterior(pai: &Path, destino: &Path) -> Result<()> {
+    let copia = pasta_anterior(pai, destino)?;
+    let anterior = copia.join("instalacao");
+    if !diretorio_real(&copia)? || !diretorio_real(&anterior)? {
+        return Ok(());
+    }
+    if !diretorio_real(destino).context("consultando o destino da recuperação da publicação")? {
+        fs::rename(&anterior, destino)?;
+        finalizar_publicacao(pai, Some(&copia));
+        return Ok(());
+    }
+    sincronizar_diretorio(pai)?;
+    fs::remove_dir_all(&copia)?;
+    sincronizar_diretorio(pai)?;
+    Ok(())
 }
 
 fn substituir(pasta: &Path, destino: &Path, pai: &Path) -> Result<()> {
     ensure!(diretorio_real(pai)?, "Pasta de instalação do agente indisponível.");
+    recuperar_anterior(pai, destino)?;
     if !diretorio_real(destino)? {
         fs::rename(pasta, destino)?;
+        finalizar_publicacao(pai, None);
         return Ok(());
     }
-    let copia = pasta_privada(pai, ".agente-anterior-")?;
-    let anterior = copia.path().join("instalacao");
+    let copia = pasta_anterior(pai, destino)?;
+    criar_diretorios(&copia)?;
+    ensure!(diretorio_real(&copia)?, "Pasta de recuperação do agente indisponível.");
+    let anterior = copia.join("instalacao");
     fs::rename(destino, &anterior)?;
     if let Err(erro) = fs::rename(pasta, destino) {
         if let Err(restaurar) = fs::rename(&anterior, destino) {
-            let _ = copia.keep();
             bail!(
-                "Falha ao publicar o agente ({erro}) e restaurar a instalação anterior ({restaurar}); a cópia anterior foi preservada."
+                "Falha ao publicar o agente ({erro}) e restaurar a instalação anterior ({restaurar}); a cópia anterior foi preservada em {}",
+                copia.display()
             );
         }
+        finalizar_publicacao(pai, Some(&copia));
         return Err(erro).context("Não foi possível publicar a instalação do agente. A anterior foi restaurada.");
     }
+    finalizar_publicacao(pai, Some(&copia));
     Ok(())
 }
 

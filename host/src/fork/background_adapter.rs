@@ -1,5 +1,4 @@
 //! Conector auditado apenas para catálogo e tarefas de fundo Claude.
-use crate::agent::registry::Cmd;
 use serde_json::Value;
 
 pub(crate) const NAME: &str = "@agentclientprotocol/claude-agent-acp";
@@ -18,7 +17,7 @@ pub(crate) fn commands() -> Vec<String> {
 
 fn legacy_commands() -> Vec<String> {
     let package = format!("{NAME}@{VERSION}");
-    vec![Cmd { program: format!("npx -y {}", crate::shell::quote(&package)), args: String::new() }.acp()]
+    vec![format!("npx -y {} ", crate::shell::quote(&package))]
 }
 
 /// O conector de fundo é a ponte do programa oficial ou, com `MEXERICA_CLAUDE_SDK=1`, o adaptador antigo exato.
