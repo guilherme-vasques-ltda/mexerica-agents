@@ -25,6 +25,24 @@ test('assinatura ad hoc estruturalmente válida com pin exato passa nos dois tam
   }
 })
 
+test('formato real do codesign ad hoc (requirements vazio e CMS BlobWrapper vazio) passa', () => {
+  const fixture = assinarArm64(corpo, { formatoReal: true })
+  assert.equal(fixture.bytes.readUInt32BE(fixture.cms), 0xfade0b01)
+  verifyRc2AdHocSignature(fixture.bytes, fixture.cdhash)
+})
+
+test('CMS só entra vazio: blob com conteúdo ou magic errado recusa, com pin coerente', () => {
+  const fixture = assinarArm64(corpo, { formatoReal: true })
+  const recusa = (mutate: (bytes: Buffer) => void, label: string) => {
+    const bytes = Buffer.from(fixture.bytes)
+    mutate(bytes)
+    assert.throws(() => verifyRc2AdHocSignature(bytes, fixture.cdhash), /invalid_rc2_artifact/, label)
+  }
+  recusa(bytes => { bytes.writeUInt32BE(9, fixture.cms + 4) }, 'CMS com conteúdo')
+  recusa(bytes => { bytes.writeUInt32BE(0xfade0b02, fixture.cms) }, 'magic errado no CMS')
+  recusa(bytes => { bytes.writeUInt32BE(0, fixture.cms + 4) }, 'CMS com length zero')
+})
+
 test('página parcial no fim do corpo passa sem preenchimento e byte trocado nela recusa', () => {
   const fixture = assinarArm64(Buffer.alloc(8200, 7))
   assert.equal(Math.ceil(fixture.dataoff / (1 << 12)), 3)
@@ -63,7 +81,7 @@ test('tabela de recusas do SuperBlob: um focal por linha com o pin coerente', ()
   recusa(bytes => bytes.writeUInt32BE(4, fixture.dataoff + 20), 'offset de entrada abaixo do cabeçalho do índice')
   recusa(bytes => bytes.writeUInt32BE(0xdead, fixture.dataoff + 12), 'tipo de slot fora da allowlist')
   recusa(bytes => bytes.writeUInt32BE(0x1000, fixture.dataoff + 12), 'diretório de código alternativo')
-  recusa(bytes => bytes.writeUInt32BE(0x10000, fixture.dataoff + 12), 'slot de assinatura CMS presente')
+  recusa(bytes => bytes.writeUInt32BE(0x10000, fixture.dataoff + 12), 'slot CMS apontando para fora do formato')
   recusa(bytes => bytes.writeUInt32BE(5, fixture.dataoff + 12), 'sem CodeDirectory')
   assert.throws(() => verifyRc2AdHocSignature(assinarArm64(corpo, { slots: [{ type: 0 }, { type: 0 }] }).bytes,
     assinarArm64(corpo, { slots: [{ type: 0 }, { type: 0 }] }).cdhash), /invalid_rc2_artifact/, 'CodeDirectory duplicado')
@@ -125,8 +143,8 @@ test('byte trocado no corpo recusa mesmo quando só o hash do arquivo seria reca
   assert.throws(() => verifyRc2AdHocSignature(bytes, pinDe(bytes, fixture.cd)), /invalid_rc2_artifact/)
 })
 
-test('vetor ad hoc gerado pelo codesign do macOS confirma cdhash medido e hashes de página', t => {
-  if (process.platform !== 'darwin') return
+test('vetor ad hoc gerado pelo codesign do macOS confirma cdhash medido e hashes de página', { skip: 'roda só em runner macOS com toolchain; o CI atual não executa a suíte do desktop em macOS, então este vetor não é prova de CI' }, async t => {
+  if (process.platform !== 'darwin') t.skip('fora do macOS')
   const dir = mkdtempSync(join(realpathSync(tmpdir()), 'rc2-codesign-'))
   t.after(() => rmSync(dir, { recursive: true, force: true }))
   writeFileSync(join(dir, 'main.c'), 'int main(void) { return 0; }\n')
@@ -134,7 +152,7 @@ test('vetor ad hoc gerado pelo codesign do macOS confirma cdhash medido e hashes
   try {
     execFileSync('cc', ['-arch', 'arm64', '-o', vetor, join(dir, 'main.c')], { cwd: dir, timeout: 120000 })
     execFileSync('codesign', ['--force', '--sign', '-', vetor], { timeout: 60000 })
-  } catch { return } // sem toolchain ou SDK arm64 neste ambiente: o vetor fica por conta do CI macOS
+  } catch { t.skip('sem toolchain arm64 neste ambiente') }
   const display = execFileSync('codesign', ['-dvv', vetor], { timeout: 60000 }).toString('utf8')
   const reported = /CDHash=([0-9a-f]{40})/.exec(display)
   assert.ok(reported, 'saída do codesign sem CDHash')

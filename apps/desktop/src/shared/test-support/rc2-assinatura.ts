@@ -8,6 +8,7 @@ export interface Rc2Assinatura {
   cdhash: string
   dataoff: number
   cd: number
+  cms: number
   hashOffset: number
   pageSize: number
 }
@@ -25,6 +26,9 @@ interface Opcoes {
   // mesma, mas fora do contrato (codeLimit menor que o dataoff, slots além do corpo).
   codeLimitOverride?: number
   codeSlotsOverride?: number
+  // Reproduz o formato que o codesign ad hoc real embute: requirements vazio e BlobWrapper
+  // CMS vazio, além do CodeDirectory.
+  formatoReal?: boolean
 }
 
 // Constrói um Mach-O ARM64 com assinatura ad hoc embutida estruturalmente válida
@@ -68,14 +72,23 @@ export function assinarArm64(payload: Buffer | string, options: Opcoes = {}): Rc
   cd.writeUInt8(pageSize, 39)
   if (options.teamOffset) cd.writeUInt32BE(options.teamOffset, 48)
   ident.copy(cd, hashOffset + codeSlots * hashSize)
-  const slots = options.slots ?? [{ type: 0 }]
-  const superblob = Buffer.alloc(12 + slots.length * 8 + length)
+  const requisito = Buffer.alloc(12)
+  requisito.writeUInt32BE(0xfade0c01, 0)
+  requisito.writeUInt32BE(12, 4)
+  const cmsVazio = Buffer.alloc(8)
+  cmsVazio.writeUInt32BE(0xfade0b01, 0)
+  cmsVazio.writeUInt32BE(8, 4)
+  const slots = options.slots ?? (options.formatoReal
+    ? [{ type: 0 }, { type: 2, offset: length }, { type: 0x10000, offset: length + requisito.length }]
+    : [{ type: 0 }])
+  const extra = options.formatoReal ? requisito.length + cmsVazio.length : 0
+  const superblob = Buffer.alloc(12 + slots.length * 8 + length + extra)
   superblob.writeUInt32BE(0xfade0cc0, 0)
   superblob.writeUInt32BE(superblob.length, 4)
   superblob.writeUInt32BE(slots.length, 8)
   slots.forEach((slot, index) => {
     superblob.writeUInt32BE(slot.type, 12 + index * 8)
-    superblob.writeUInt32BE(20 + (slot.offset ?? 0), 12 + index * 8 + 4)
+    superblob.writeUInt32BE(12 + slots.length * 8 + (slot.offset ?? 0), 12 + index * 8 + 4)
   })
   const datasize = superblob.length
   body.writeUInt32LE(dataoff, 40)
@@ -84,7 +97,11 @@ export function assinarArm64(payload: Buffer | string, options: Opcoes = {}): Rc
     sha256(body.subarray(index * (1 << pageSize), Math.min((index + 1) * (1 << pageSize), codeLimit)))
       .copy(cd, hashOffset + index * hashSize)
   }
-  cd.copy(superblob, 20)
+  cd.copy(superblob, 12 + slots.length * 8)
+  if (options.formatoReal) {
+    requisito.copy(superblob, 12 + slots.length * 8 + length)
+    cmsVazio.copy(superblob, 12 + slots.length * 8 + length + requisito.length)
+  }
   const bytes = Buffer.concat([body, superblob])
   return {
     bytes,
@@ -92,6 +109,7 @@ export function assinarArm64(payload: Buffer | string, options: Opcoes = {}): Rc
     cdhash: sha256(cd).subarray(0, 20).toString('hex'),
     dataoff,
     cd: dataoff + 12 + slots.length * 8,
+    cms: dataoff + 12 + slots.length * 8 + length + requisito.length,
     hashOffset,
     pageSize,
   }

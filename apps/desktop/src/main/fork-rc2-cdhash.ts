@@ -13,6 +13,7 @@ const CSSLOT_ENTITLEMENTS = 5
 const CSSLOT_DER_ENTITLEMENTS = 7
 const CSSLOT_ALTERNATE_CODEDIRECTORIES = 0x1000
 const CSSLOT_SIGNATURESLOT = 0x10000
+const CSMAGIC_BLOBWRAPPER = 0xfade0b01
 const CS_ADHOC = 0x00000002
 const CSHASH_SHA256 = 2
 const CODE_SIGNATURE_HEADER = 0x58
@@ -55,7 +56,13 @@ export function verifyRc2AdHocSignature(bytes: Buffer, cdhash: string): void {
     if (type === CSSLOT_CODEDIRECTORY) {
       if (directory !== -1) throw invalid()
       directory = offset
-    } else if ((type >= CSSLOT_ALTERNATE_CODEDIRECTORIES && type < CSSLOT_SIGNATURESLOT) || type === CSSLOT_SIGNATURESLOT) {
+    } else if (type === CSSLOT_SIGNATURESLOT) {
+      // O codesign ad hoc embute um BlobWrapper vazio (cabeçalho de 8 bytes, sem conteúdo);
+      // CMS com conteúdo é rota assinada separada e recusa.
+      if (dataoff + offset + 8 > dataoff + superLength ||
+          bytes.readUInt32BE(dataoff + offset) !== CSMAGIC_BLOBWRAPPER ||
+          bytes.readUInt32BE(dataoff + offset + 4) !== 8) throw invalid()
+    } else if (type >= CSSLOT_ALTERNATE_CODEDIRECTORIES && type < CSSLOT_SIGNATURESLOT) {
       throw invalid()
     } else if (type !== CSSLOT_REQUIREMENTS && type !== CSSLOT_ENTITLEMENTS && type !== CSSLOT_DER_ENTITLEMENTS) {
       throw invalid()
