@@ -255,11 +255,15 @@ impl Porta {
         self.exigir_aberta().is_ok() && self.processos.insert(instancia)
     }
 
-    /// Registra a instância principal observada (o Motor): entra no censo de
-    /// alvos da parada E é a única marca que abre a partida. Descendente
+    /// Registra a instância principal observada (o Motor): entra no censo
+    /// de alvos da parada E é a única marca que abre a partida. A marca não
+    /// é substituída: segunda marca divergente não vale; descendente
     /// sozinho não basta.
     pub(super) fn registrar_motor(&mut self, instancia: Instancia) -> bool {
         if self.exigir_aberta().is_err() {
+            return false;
+        }
+        if self.motor.is_some_and(|motor| motor != instancia) {
             return false;
         }
         self.processos.insert(instancia);

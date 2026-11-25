@@ -19,8 +19,8 @@
 //!   nunca duas vezes. A intenção aprovada é gravada ANTES do efeito pelo
 //!   gancho de intenção. Gravação falha em qualquer desses pontos nega o
 //!   efeito e fecha a porta.
-//! - `parar`: o fechamento nunca é bloqueado; havendo pendência, grava
-//!   `fechada` — gravação falha deixa o fechamento valendo.
+//! - `parar`: o fechamento nunca é negado nem desfeito; havendo pendência,
+//!   grava `fechada` — gravação falha deixa o fechamento valendo.
 //!
 //! Projeção de log: só campos fixos (código, caminho, motivo) — nenhuma
 //! mensagem dinâmica de erro entra no log, porque a análise atual não
@@ -251,9 +251,9 @@ impl<'a> PortaAuditada<'a> {
         self.porta.motor_no_censo()
     }
 
-    /// Caminho de `parar` ("Parar tudo" na porta): fecha sem bloquear;
-    /// havendo pendência, grava `fechada`. Gravação falha deixa o
-    /// fechamento valendo, com a falha devolvida.
+    /// Caminho de `parar` ("Parar tudo" na porta): o fechamento nunca é
+    /// negado nem desfeito; havendo pendência, grava `fechada`. Gravação
+    /// falha deixa o fechamento valendo, com a falha devolvida.
     pub(super) fn parar(&mut self, agora_ms: u64) -> Result<(), Falha> {
         let pendente = self.porta.pendente();
         self.porta.parar(agora_ms);

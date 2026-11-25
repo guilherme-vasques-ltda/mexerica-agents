@@ -11,16 +11,21 @@
 //! mediadas (sudo sempre negado, shell desligado por padrão, tela
 //! desligada). Toda recusa do caminho de admissão vira o código estável
 //! `motor_macos_indisponivel` antes de Motor/MCP. A unidade admitida carrega
-//! a porta auditada e o cofre da geração: "Parar tudo" fecha os dois juntos,
-//! sem bloquear, e a parada confirmada exige evidência dentro do prazo de
-//! 2 s — sobrevivente é visível, nunca sucesso falso.
+//! a porta auditada e o cofre da geração: "Parar tudo" fecha os dois juntos
+//! — o fechamento nunca é negado nem desfeito; a gravação durável da
+//! pendência ocorre no mesmo caminho e pode custar tempo, mas a parada não
+//! depende dela para valer. A parada confirmada exige evidência dentro do
+//! prazo de 2 s — sobrevivente é visível, nunca sucesso falso.
 //!
 //! Gates de ativação, declarados e NÃO provados aqui: o lançamento e o
 //! registro no censo são feitos pelo supervisor com identidade OBSERVADA
-//! (PID e início de cada processo), a saída é verificada antes de
-//! confirmada e o grupo ou a sessão do Motor e de cada descendente seguem
-//! vazios. Essas provas são nativas no macOS e precedem a retirada da
-//! recusa #117; os dublês das fixtures só exercitam o contrato.
+//! (PID e início de cada processo), com o Motor nascendo SUSPENSO — ou
+//! numa operação atômica de lançar-e-registrar — para que nenhum
+//! descendente exista fora do censo entre o spawn e o registro; a saída é
+//! verificada antes de confirmada e o grupo ou a sessão do Motor e de
+//! cada descendente seguem vazios. Essas provas são nativas no macOS e
+//! precedem a retirada da recusa #117; os dublês das fixtures só exercitam
+//! o contrato.
 
 use std::num::NonZeroU64;
 
@@ -55,6 +60,7 @@ pub(super) struct PartidaEntrada<'a> {
 /// viva como supervisora depois de entregar a partida: porta, cofre e censo
 /// continuam sob seu controle, e a partida é recusada após a parada.
 pub(super) struct UnidadeRc2<'a> {
+    motor_pid: NonZeroU64,
     partida: Option<partida::Partida<'a>>,
     porta: PortaAuditada<'a>,
     cofre: cofre::Cofre<'a>,
@@ -115,6 +121,13 @@ pub(super) fn iniciar<'a>(
         identidade_entrada.par,
     )
     .map_err(|recusa| recusa_estavel_de_identidade(&recusa))?;
+    // Identidade admitida da instância principal: o PID do Motor observado
+    // no censo da admissão. É a ele que a marca do censo fica fixada —
+    // registrar motor divergente não marca e não substitui a marca.
+    let motor_pid = match &partida_entrada.censo {
+        partida::ObservacaoCenso::Observado { motor, .. } => Some(motor.pid),
+        partida::ObservacaoCenso::SemCenso => None,
+    };
     let partida_verificada = partida::partir(
         partida_entrada.esperado,
         partida_entrada.perfil,
@@ -122,12 +135,16 @@ pub(super) fn iniciar<'a>(
         &partida_entrada.capacidades,
     )
     .map_err(partida::recusa_estavel)?;
+    // Sem censo observado a partida já foi recusada com barreira acima.
+    let Some(motor_pid) = motor_pid else {
+        return Err(partida::recusa_estavel(partida::Recusa::Barreira));
+    };
     if escopo.geracao != identidade_entrada.geracao || vinculo.escopo() != escopo {
         return Err(recusa_estavel_de_incoerencia());
     }
     let porta = PortaAuditada::nova(escopo, instancia, registro);
     let cofre = cofre::Cofre::abrir(vinculo);
-    Ok(UnidadeRc2 { partida: Some(partida_verificada), porta, cofre, parada: false })
+    Ok(UnidadeRc2 { motor_pid, partida: Some(partida_verificada), porta, cofre, parada: false })
 }
 
 impl<'a> UnidadeRc2<'a> {
@@ -159,19 +176,19 @@ impl<'a> UnidadeRc2<'a> {
     /// revalida (aberta, aceite feito, motor registrado no censo) e executa
     /// DENTRO da operação, EMPRESTANDO a concessão por `&mut` e
     /// descartando a partida no mesmo passo. A concessão não escapa para
-    /// uso posterior: guardar a partida fora da chamada não compila, o
-    /// empréstimo vive só dentro dela.
-    /// ```compile_fail
-    /// // Reter a concessão fora do efeito não compila: parar a unidade e
-    /// // manter a partida guardada não existe nesta API.
-    /// let mut guardada = None;
-    /// unidade.partir_para_o_motor(|partida| guardada = Some(partida));
-    /// ```
+    /// uso posterior: o efeito só vê o empréstimo, que vive dentro da
+    /// chamada — reter a partida fora dela não compila; o contrato é
+    /// fixado e EXECUTADO pelo pino `exige_emprestimo` dos testes
+    /// (`tests/fork_motor_macos_ligacao.rs`), que empresta a concessão de
+    /// verdade e quebra a suite numa variante por valor.
     /// O lançamento EFETIVO do Motor exige a autorização mediada pela
     /// unidade e é gate pré-ativação: só sai da dormência depois de
     /// comprovado nativamente no macOS — lançamento e registro pelo
-    /// supervisor com identidade OBSERVADA (PID e início), saída verificada
-    /// antes de confirmada e grupo ou sessão vazios do Motor e de cada
+    /// supervisor com identidade OBSERVADA (PID e início), com o Motor
+    /// nascendo SUSPENSO ou registrado numa operação atômica de
+    /// lançar-e-registrar, para que nenhum descendente exista fora do
+    /// censo entre o spawn e o registro; saída verificada antes de
+    /// confirmada e grupo ou sessão vazios do Motor e de cada
     /// descendente. A fixture usa dublês: o censo exigido aqui é CONTRATO,
     /// não prova do processo real.
     pub(super) fn partir_para_o_motor(
@@ -202,11 +219,17 @@ impl<'a> UnidadeRc2<'a> {
         self.porta.registrar(instancia)
     }
 
-    /// Registra a instância principal observada (o Motor): entra no censo
-    /// de alvos e é a única marca que abre a partida — descendente
-    /// sozinho não basta. CONTRATO: em runtime a instância vem do
-    /// supervisor (PID e início OBSERVADOS); a fixture é dublê.
+    /// Registra a instância principal observada (o Motor), FIXADA à
+    /// identidade admitida: só o PID do motor do censo da admissão marca;
+    /// instância divergente não marca, não substitui marca existente e
+    /// descendente não é promovido. É a única marca que abre a partida.
+    /// CONTRATO: em runtime a instância vem do supervisor (PID e início
+    /// OBSERVADOS), com o Motor nascendo suspenso ou registrado numa
+    /// operação atômica de lançar-e-registrar; a fixture é dublê.
     pub(super) fn registrar_motor(&mut self, instancia: super::porta::Instancia) -> bool {
+        if instancia.pid != self.motor_pid {
+            return false;
+        }
         self.porta.registrar_motor(instancia)
     }
 

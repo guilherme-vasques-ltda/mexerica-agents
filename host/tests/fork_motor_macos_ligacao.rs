@@ -565,10 +565,49 @@ fn saida_confirmada_do_motor_tira_a_marca_do_censo_da_partida() {
             .to_string(),
         "motor_macos_indisponivel: partida exige o motor registrado no censo"
     );
+    // Re-registrar marca divergente não abre nada: só o PID admitido volta
+    // a marcar.
+    assert!(!unidade.registrar_motor(Instancia { pid: id(43), inicio: id(52) }));
     // Re-registrado o motor, quem recusa é o descarte único da concessão.
     assert!(unidade.registrar_motor(motor));
     assert_eq!(
         unidade.partir_para_o_motor(|_| panic!("segunda partida")).expect_err("segunda partida").to_string(),
         "motor_macos_indisponivel: partida já executada"
     );
+}
+
+#[test]
+fn marca_do_motor_e_fixada_a_identidade_admitida() {
+    let (_dir, registro) = registro();
+    let mut unidade = unidade(&registro);
+    unidade.aceitar_aviso(escopo()).expect("aceitar aviso da fixture");
+    // PID divergente do motor admitido no censo da admissão: não marca —
+    // e descendente registrado antes não é promovido a motor.
+    assert!(unidade.registrar(Instancia { pid: id(42), inicio: id(51) }));
+    assert!(!unidade.registrar_motor(Instancia { pid: id(42), inicio: id(51) }));
+    assert!(!unidade.registrar_motor(Instancia { pid: id(99), inicio: id(60) }));
+    assert_eq!(
+        unidade
+            .partir_para_o_motor(|_| panic!("partida com marca divergente"))
+            .expect_err("partida com marca divergente")
+            .to_string(),
+        "motor_macos_indisponivel: partida exige o motor registrado no censo"
+    );
+    // O PID admitido marca e abre a partida.
+    assert!(unidade.registrar_motor(Instancia { pid: id(41), inicio: id(50) }));
+    assert!(unidade.partir_para_o_motor(|_| {}).is_ok());
+}
+
+#[test]
+fn segunda_marca_divergente_nao_substitui_a_marca_do_censo() {
+    let (_dir, registro) = registro();
+    let mut unidade = unidade(&registro);
+    unidade.aceitar_aviso(escopo()).expect("aceitar aviso da fixture");
+    assert!(unidade.registrar_motor(Instancia { pid: id(41), inicio: id(50) }));
+    // Marca existente não é substituída: mesmo PID com início divergente,
+    // ou instância diferente, não valem como segunda marca.
+    assert!(!unidade.registrar_motor(Instancia { pid: id(41), inicio: id(51) }));
+    assert!(!unidade.registrar_motor(Instancia { pid: id(43), inicio: id(52) }));
+    // A marca original segue valendo: a partida abre com ela.
+    assert!(unidade.partir_para_o_motor(|_| {}).is_ok());
 }
