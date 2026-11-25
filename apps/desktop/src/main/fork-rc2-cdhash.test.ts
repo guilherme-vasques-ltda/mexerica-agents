@@ -208,3 +208,18 @@ test('vetor ad hoc gerado pelo codesign do macOS confirma cdhash medido e hashes
   assert.ok(reported, 'saída do codesign sem CDHash')
   verifyRc2AdHocSignature(readFileSync(vetor), reported![1])
 })
+
+test('toda forma de truncamento recusa com o erro estável do contrato, sem exceção estranha', () => {
+  const formatos = [
+    assinarArm64(corpo),
+    assinarArm64(corpo, { formatoReal: true }),
+    assinarArm64(Buffer.alloc(8200, 7)),
+    assinarArm64(corpo, { duplicateCodeSignature: true }),
+  ]
+  for (const fixture of formatos) {
+    for (let length = 0; length < fixture.bytes.length; length++) {
+      const truncated = fixture.bytes.subarray(0, length)
+      assert.throws(() => verifyRc2AdHocSignature(truncated, fixture.cdhash), /invalid_rc2_artifact/)
+    }
+  }
+})

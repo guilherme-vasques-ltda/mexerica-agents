@@ -990,3 +990,34 @@ test('hello que lança de forma síncrona devolve null sem invalidar a geração
   assert.deepEqual(await lifecycle.hello(), { ...helloFixture }, 'a geração segue viva')
   await lifecycle.stop()
 })
+
+test('sonda que falha de forma transitória é re-consultada e confirma dentro do prazo', async () => {
+  let agora = 0
+  const pendentes: Array<{ vencimento: number, fire: () => void }> = []
+  const schedule: Rc2Schedule = (ms, fire) => { pendentes.push({ vencimento: agora + ms, fire }); return () => { } }
+  const avancar = (ms: number) => {
+    const alvo = agora + ms
+    agora = alvo
+    const vencidos = pendentes.filter(timer => timer.vencimento <= alvo)
+    for (const timer of vencidos) pendentes.splice(pendentes.indexOf(timer), 1)
+    vencidos.sort((primeiro, segundo) => primeiro.vencimento - segundo.vencimento)
+    for (const timer of vencidos) timer.fire()
+  }
+  const { child, calls } = fakeChild({ end: true })
+  let consultas = 0
+  const intermitente: Rc2ChildHandle = {
+    ...child,
+    survivors: () => { if (++consultas === 1) throw new Error('fixture_probe_transient'); return 0 },
+  }
+  let session: object | null = {}
+  const lifecycle = new Rc2HubLifecycle(() => session, async () => connectionFixture(intermitente, async () => { }),
+    { deadlines: { open: 1, hello: 1, close: 1, eof: 10, sigterm: 10, sigkill: 10, probe: 1 }, schedule })
+  assert.equal(await lifecycle.start(), true)
+  const stopped = lifecycle.stop()
+  await flush()
+  // primeira consulta lança: conta como sobrevivente e agenda re-consulta, não aborta a etapa
+  assert.equal(consultas, 1)
+  avancar(1)
+  assert.equal(await stopped, true, 'a re-consulta confirmou zero dentro do prazo do EOF')
+  assert.deepEqual(calls, ['end'])
+})

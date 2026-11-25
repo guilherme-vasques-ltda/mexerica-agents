@@ -129,19 +129,19 @@ test('troca na janela entre inspeção e abertura é detectada pela divergência
   const { root, components } = fixture(t)
   const hubPath = join(root, components[0].path)
   const real = fs.lstatSync(hubPath)
+  // o fstat simulado só altera o fd do Hub: sem o braço de ino, o resto do artefato passa
   const comPrototipo = (stat: object, mudanca: object) =>
     Object.assign(Object.create(Object.getPrototypeOf(real)), stat, mudanca)
-  const divergente = comPrototipo(real, { ino: real.ino + 1 })
-  const fstat = { ...fs, fstatSync: (fd: number) => comPrototipo(fs.fstatSync(fd), {}) }
-  const verifyDivergente = loadMainModule<{ verifyRc2Artifact: typeof verifyRc2Artifact }>('fork-rc2-artifact', {
-    'node:fs': { ...fs, fstatSync: () => divergente }, 'node:path': path, 'node:crypto': crypto,
-  }, { Buffer }).verifyRc2Artifact
-  assert.throws(() => verifyDivergente(root, components), /invalid_rc2_artifact/)
-  // controle pelo mesmo caminho de simulação: sem divergência, o fstat preservado é aceito
-  const verifyIgual = loadMainModule<{ verifyRc2Artifact: typeof verifyRc2Artifact }>('fork-rc2-artifact', {
-    'node:fs': fstat, 'node:path': path, 'node:crypto': crypto,
-  }, { Buffer }).verifyRc2Artifact
-  verifyIgual(root, components).close()
+  const fstatCom = (mudanca: (stat: object) => object) => (fd: number) => {
+    const stat = fs.fstatSync(fd)
+    return stat.ino === real.ino ? comPrototipo(stat, mudanca(stat)) : comPrototipo(stat, {})
+  }
+  const carregar = (fstat: typeof fs.fstatSync) =>
+    loadMainModule<{ verifyRc2Artifact: typeof verifyRc2Artifact }>('fork-rc2-artifact', {
+      'node:fs': { ...fs, fstatSync: fstat }, 'node:path': path, 'node:crypto': crypto,
+    }, { Buffer }).verifyRc2Artifact
+  assert.throws(() => carregar(fstatCom(() => ({ ino: real.ino + 1 })))(root, components), /invalid_rc2_artifact/)
+  carregar(fstatCom(() => ({})))(root, components).close()
 })
 
 test('divergência isolada de dev no fstat é recusada com ino e size iguais', t => {

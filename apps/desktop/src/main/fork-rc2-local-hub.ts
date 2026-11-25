@@ -129,7 +129,11 @@ export class Rc2HubLifecycle {
           await child.exited
           for (;;) {
             if (done) return
-            if ((await Promise.resolve(child.survivors())) === 0) return finish(true)
+            // Erro da sonda conta como sobrevivente e segue re-consultado até o prazo da etapa;
+            // só a rejeição de exited encerra a etapa sem confirmação.
+            let survivors = 1
+            try { survivors = await Promise.resolve(child.survivors()) } catch { /* sobrevivente */ }
+            if (survivors === 0) return finish(true)
             if (done) return
             await new Promise<void>(resume => { cancelTick = this.#schedule(this.#deadlines.probe, () => resume()) })
           }
