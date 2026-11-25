@@ -22,6 +22,12 @@ pub(super) struct Inferencia<'a> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Vinculo {
+    pub(super) escopo: Escopo,
+    pub(super) provedor: NonZeroU64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Pedido<'a> {
     Inferencia(Inferencia<'a>),
     Leitura(Item<'a>),
@@ -31,16 +37,20 @@ pub(super) enum Pedido<'a> {
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Recusa {
     OperacaoGenerica,
+    Vinculo,
     OutroApp,
 }
 
-/// Autoriza só a inferência vinculada sobre item do próprio app. A resposta é
-/// só `Ok`: segredo e descritor do cofre nunca saem, quem pede só recebe o
-/// resultado funcional pelo canal do broker.
-pub(super) fn autorizar(grupo_do_app: &str, pedido: Pedido<'_>) -> Result<(), Recusa> {
+/// Autoriza só a inferência vinculada a escopo e provedor conferidos, sobre
+/// item do próprio app. A resposta é só `Ok`: segredo e descritor do cofre
+/// nunca saem, quem pede só recebe o resultado funcional pelo canal do broker.
+pub(super) fn autorizar(grupo_do_app: &str, vinculo: Vinculo, pedido: Pedido<'_>) -> Result<(), Recusa> {
     let Pedido::Inferencia(inferencia) = pedido else {
         return Err(Recusa::OperacaoGenerica);
     };
+    if inferencia.escopo != vinculo.escopo || inferencia.provedor != vinculo.provedor {
+        return Err(Recusa::Vinculo);
+    }
     if inferencia.item.grupo != grupo_do_app {
         return Err(Recusa::OutroApp);
     }

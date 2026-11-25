@@ -40,6 +40,10 @@ fn inferencia(item: Item<'_>) -> cofre::Inferencia<'_> {
     cofre::Inferencia { escopo: escopo(), provedor: id(7), item }
 }
 
+fn vinculo() -> cofre::Vinculo {
+    cofre::Vinculo { escopo: escopo(), provedor: id(7) }
+}
+
 fn db_sintetico() -> (tempfile::TempDir, Connection) {
     let dir = tempfile::tempdir().expect("criar diretório da fixture");
     let db = Connection::open(dir.path().join("recusas.sqlite3")).expect("abrir banco da fixture");
@@ -61,20 +65,48 @@ fn linhas(db: &Connection) -> Vec<(i64, String, i64)> {
 
 #[test]
 fn chamada_generica_de_leitura_ou_exportacao_nao_existe() {
-    // A chamada genérica nega antes mesmo de olhar o item, próprio ou alheio.
+    // A chamada genérica nega antes mesmo de olhar vínculo ou item.
     for item in [ITEM_PROPRIO, ITEM_OUTRO_APP] {
-        assert_eq!(cofre::autorizar(GRUPO_DO_APP, cofre::Pedido::Leitura(item)), Err(cofre::Recusa::OperacaoGenerica));
         assert_eq!(
-            cofre::autorizar(GRUPO_DO_APP, cofre::Pedido::Exportacao(item)),
+            cofre::autorizar(GRUPO_DO_APP, vinculo(), cofre::Pedido::Leitura(item)),
+            Err(cofre::Recusa::OperacaoGenerica)
+        );
+        assert_eq!(
+            cofre::autorizar(GRUPO_DO_APP, vinculo(), cofre::Pedido::Exportacao(item)),
             Err(cofre::Recusa::OperacaoGenerica)
         );
     }
 }
 
 #[test]
+fn vinculo_divergente_recusa_antes_do_item() {
+    let escopo_de_outro_par = porta::Escopo { geracao: id(50), ..escopo() };
+    let outro_vinculo = cofre::Vinculo { escopo: escopo_de_outro_par, provedor: id(7) };
+    let outro_provedor = cofre::Vinculo { escopo: escopo(), provedor: id(70) };
+    let ambos_divergentes = cofre::Vinculo { escopo: escopo_de_outro_par, provedor: id(70) };
+    // Escopo errado, provedor errado ou os dois: a inferência não atravessa.
+    for vinculo in [outro_vinculo, outro_provedor, ambos_divergentes] {
+        assert_eq!(
+            cofre::autorizar(GRUPO_DO_APP, vinculo, cofre::Pedido::Inferencia(inferencia(ITEM_PROPRIO))),
+            Err(cofre::Recusa::Vinculo)
+        );
+    }
+    // Autorização não é reaproveitável em outro par: nem com item do próprio app.
+    assert_eq!(
+        cofre::autorizar(GRUPO_DO_APP, outro_vinculo, cofre::Pedido::Inferencia(inferencia(ITEM_PROPRIO))),
+        Err(cofre::Recusa::Vinculo)
+    );
+    // O vínculo nega antes de olhar o item, próprio ou alheio.
+    assert_eq!(
+        cofre::autorizar(GRUPO_DO_APP, ambos_divergentes, cofre::Pedido::Inferencia(inferencia(ITEM_OUTRO_APP))),
+        Err(cofre::Recusa::Vinculo)
+    );
+}
+
+#[test]
 fn item_de_outro_app_nunca_e_atendido() {
     assert_eq!(
-        cofre::autorizar(GRUPO_DO_APP, cofre::Pedido::Inferencia(inferencia(ITEM_OUTRO_APP))),
+        cofre::autorizar(GRUPO_DO_APP, vinculo(), cofre::Pedido::Inferencia(inferencia(ITEM_OUTRO_APP))),
         Err(cofre::Recusa::OutroApp)
     );
 }
@@ -120,5 +152,5 @@ fn parada_cancela_pendente_grava_fechada_e_mostra_sobrevivente() {
 
 #[test]
 fn inferencia_vinculada_do_proprio_app_autoriza_sem_devolver_nada() {
-    assert_eq!(cofre::autorizar(GRUPO_DO_APP, cofre::Pedido::Inferencia(inferencia(ITEM_PROPRIO))), Ok(()));
+    assert_eq!(cofre::autorizar(GRUPO_DO_APP, vinculo(), cofre::Pedido::Inferencia(inferencia(ITEM_PROPRIO))), Ok(()));
 }
