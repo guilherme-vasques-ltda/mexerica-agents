@@ -4,6 +4,7 @@ import { chmodSync, closeSync, mkdtempSync, openSync, readdirSync, readFileSync,
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { before, test } from 'node:test'
+import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import ts from 'typescript'
 import type { Rc2VerifiedArtifact } from './fork-rc2-artifact.ts'
@@ -33,11 +34,12 @@ let compiladorAusente = false
 let binarios: Record<string, string> = {}
 
 before(() => {
+  if (process.platform !== 'linux') return
   const pasta = mkdtempSync(join(tmpdir(), 'rc2-filhos-'))
   for (const flags of cenarios) {
     const cenario = flags ? flags.slice('-DCENARIO_'.length) : ''
     const saida = join(pasta, `${chave(cenario)}.bin`)
-    const resultado = spawnSync('cc', ['-O2', '-o', saida, fonte.pathname, ...(flags ? [flags] : [])])
+    const resultado = spawnSync('cc', ['-O2', '-o', saida, fileURLToPath(fonte), ...(flags ? [flags] : [])])
     if (resultado.error) { compiladorAusente = true; return }
     if (resultado.status !== 0) throw new Error(`cc falhou para ${cenario || 'padrao'}: ${resultado.stderr}`)
     binarios[chave(cenario)] = saida
@@ -45,9 +47,18 @@ before(() => {
 })
 
 function filho(t: { skip: (motivo: string) => unknown }, cenario: string): { caminho: string; fd: number } {
+  // A execução do binário depende da base de descritor, que só existe no Linux comprovado:
+  // os vetores de processo real não rodam nas demais plataformas, onde o transporte é nulo.
+  if (process.platform !== 'linux') return void t.skip('vetor de processo real só existe no Linux: sem base de descritor o transporte é inerte') as never
   const caminho = binarios[chave(cenario)]
   if (compiladorAusente) return void t.skip('sem compilador C neste ambiente: o vetor de processo real não roda') as never
   return { caminho, fd: openSync(caminho, 'r') }
+}
+
+// Toda partida ganha limpeza registrada: se a asserção falhar no meio do teste, o ciclo ainda
+// drena o grupo inteiro e o processo filho não fica vivo prendendo o encerramento da suíte.
+function limpeza(t: { after: (cleanup: () => unknown) => unknown }, ciclo: Rc2HubLifecycle) {
+  t.after(async () => { try { await ciclo.stop() } catch { /* limpeza de melhor esforço */ } })
 }
 
 function cicloDo(componente: Componente) {
@@ -120,6 +131,7 @@ test('fluxo completo com processo real: bootstrap, bearer da geração, hello, e
   const transporte = rc2NativeTransport(artefato({ role: 'hub', path: 'filho-padrao', fd }))!
   const ciclo = new Rc2HubLifecycle(() => sessao.valor,
     signal => { aberturas.push(signal); return transporte(signal) }, { deadlines, schedule: fakeSchedule })
+  limpeza(t, ciclo)
   assert.equal(await ciclo.start(), true)
   assert.equal(aberturas.length, 1, 'uma geração, um spawn')
   assert.deepEqual(await ciclo.hello(), { computerId: 'filho-teste', hostId: 'filho-hub' })
@@ -136,6 +148,7 @@ test('fluxo completo com processo real: bootstrap, bearer da geração, hello, e
 test('mudança de sessão encerra a geração viva e abre a nova; start durante drenagem é recusado', async t => {
   const { fd } = filho(t, '')
   const { sessao, ciclo } = cicloDo({ role: 'hub', path: 'filho-padrao', fd })
+  limpeza(t, ciclo)
   assert.equal(await ciclo.start(), true)
   const parando = ciclo.stop()
   assert.equal(await ciclo.start(), false, 'sem fila: recusado enquanto drena')
@@ -149,6 +162,7 @@ test('linha inválida, linha extra, porta privilegiada, bearer rejeitado e porta
   for (const cenario of ['LINHA_INVALIDA', 'LINHA_EXTRA', 'LINHA_ATRASADA', 'PORTA_BAIXA', 'BEARER_REJEITA', 'NAO_ESCUTA']) {
     const { caminho, fd } = filho(t, cenario)
     const { ciclo } = cicloDo({ role: 'hub', path: `filho-${cenario.toLowerCase()}`, fd })
+    limpeza(t, ciclo)
     assert.equal(await ciclo.start(), true, cenario)
     assert.equal(await ciclo.hello(), null, `${cenario}: hello nunca resolve, o prazo decide`)
     assert.equal(await ciclo.stop(), true, `${cenario}: geração invalidada e grupo morto confirmado`)
@@ -159,6 +173,7 @@ test('linha inválida, linha extra, porta privilegiada, bearer rejeitado e porta
 test('filho que aceita a conexão e nunca responde não deixa órfão quando a geração é abortada', async t => {
   const { caminho, fd } = filho(t, 'MUDO')
   const { ciclo } = cicloDo({ role: 'hub', path: 'filho-mudo', fd })
+  limpeza(t, ciclo)
   assert.equal(await ciclo.start(), false, 'abertura expira no prazo próprio')
   assert.equal(await ciclo.stop(), false, 'partida pendente: recomeço inseguro é recusado')
   assert.ok(await morreu(caminho, 5000), 'o descarte tardio reap o filho após o abort')
@@ -167,6 +182,7 @@ test('filho que aceita a conexão e nunca responde não deixa órfão quando a g
 test('filho que ignora EOF e SIGTERM só sai com o SIGKILL ao grupo', async t => {
   const { caminho, fd } = filho(t, 'IGNORA_SIGTERM')
   const { ciclo } = cicloDo({ role: 'hub', path: 'filho-ignora_sigterm', fd })
+  limpeza(t, ciclo)
   assert.equal(await ciclo.start(), true)
   assert.deepEqual(await ciclo.hello(), { computerId: 'filho-teste', hostId: 'filho-hub' })
   assert.equal(await ciclo.stop(), true, 'escalada completa: EOF e SIGTERM ignorados, SIGKILL confirmou')
@@ -176,6 +192,7 @@ test('filho que ignora EOF e SIGTERM só sai com o SIGKILL ao grupo', async t =>
 test('descendente pendurado morre com o grupo, confirmado pela sonda, com o filho direto servindo', async t => {
   const { caminho, fd } = filho(t, 'DESCENDENTE')
   const { ciclo } = cicloDo({ role: 'hub', path: 'filho-descendente', fd })
+  limpeza(t, ciclo)
   assert.equal(await ciclo.start(), true)
   assert.deepEqual(await ciclo.hello(), { computerId: 'filho-teste', hostId: 'filho-hub' })
   assert.equal(await ciclo.stop(), true, 'descendente morto com o grupo, confirmado pela sonda')
@@ -183,17 +200,20 @@ test('descendente pendurado morre com o grupo, confirmado pela sonda, com o filh
 })
 
 test('exec que nunca aconteceu é recusa limpa: nada vivo e recomeço permitido', async t => {
+  if (process.platform !== 'linux') return void t.skip('vetor de processo real só existe no Linux: sem base de descritor o transporte é inerte')
   const pasta = mkdtempSync(join(tmpdir(), 'rc2-ruim-'))
   t.after(() => rmSync(pasta, { recursive: true, force: true }))
   const alvoRuim = join(pasta, 'nao-executavel')
   writeFileSync(alvoRuim, 'conteúdo sem permissão de execução')
   chmodSync(alvoRuim, 0o644)
   const { sessao, ciclo } = cicloDo({ role: 'hub', path: 'nao-executavel', fd: openSync(alvoRuim, 'r') })
+  limpeza(t, ciclo)
   assert.equal(await ciclo.start(), false, 'exec recusado antes do pid: nada vivo')
   assert.equal(await ciclo.stop(), true, 'recusa limpa permite recomeço')
   const bom = filho(t, '')
   const transporteBom = rc2NativeTransport(artefato({ role: 'hub', path: 'filho-padrao', fd: bom.fd }))!
   const cicloBom = new Rc2HubLifecycle(() => sessao.valor, transporteBom, { deadlines, schedule: fakeSchedule })
+  limpeza(t, cicloBom)
   assert.equal(await cicloBom.start(), true)
   assert.deepEqual(await cicloBom.hello(), { computerId: 'filho-teste', hostId: 'filho-hub' })
   assert.equal(await cicloBom.stop(), true)

@@ -9,7 +9,9 @@ const invalidBootstrap = () => new Error('invalid_rc2_bootstrap')
 
 const lineLimit = 4096
 const payloadLimit = 256
+const helloBodyLimit = 1024
 const streamLimit = 1_000_000
+const eventQueueLimit = 256
 
 // O caminho do descritor fixado só existe onde a execução por descritor tem valor comprovado;
 // sem base, não há transporte e o perfil segue inerte. O executável tem de ser binário: o kernel
@@ -139,7 +141,14 @@ export function rc2NativeTransport(verified: Rc2VerifiedArtifact): Rc2Transport 
         headers: { Host: `127.0.0.1:${port}`, Authorization: `Bearer ${bearer}` } }, (response: IncomingMessage) => {
         if (response.statusCode !== 200) { response.resume(); rejectHello(invalidBootstrap()); return }
         const chunks: Buffer[] = []
-        response.on('data', (part: Buffer) => chunks.push(part))
+        let received = 0
+        // O corpo de hello é minúsculo por contrato: bytes além do limite são recusa já na
+        // leitura, antes de qualquer acúmulo — uma resposta que não termina nunca vira memória.
+        response.on('data', (part: Buffer) => {
+          received += part.length
+          if (received > helloBodyLimit) { rejectHello(invalidBootstrap()); response.destroy(); return }
+          chunks.push(part)
+        })
         response.on('end', () => {
           try { resolveHello(rc2HelloPayload(Buffer.concat(chunks).toString('utf8'))) }
           catch (error) { rejectHello(error as Error) }
@@ -191,6 +200,9 @@ export function rc2NativeTransport(verified: Rc2VerifiedArtifact): Rc2Transport 
                     .map(line => line.slice(5).startsWith(' ') ? line.slice(6) : line.slice(5))
                     .join('\n')
                   if (data) queue.push(data)
+                  // Um Hub que produz mais do que o consumidor consegue ler é um Hub com defeito:
+                  // recusa explícita em vez de fila sem fim crescendo na memória do processo principal.
+                  if (queue.length > eventQueueLimit) { failure = invalidBootstrap(); response.destroy(); done = true; wake?.(); return }
                   wake?.()
                 }
               })
