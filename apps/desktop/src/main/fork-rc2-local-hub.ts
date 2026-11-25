@@ -3,16 +3,40 @@ interface Rc2Hello {
   hostId: string
 }
 
+export interface Rc2ChildHandle {
+  end(): void
+  terminate(): void
+  kill(): void
+  exited: Promise<void>
+}
+
 export interface Rc2Connection {
   hello(): Promise<Rc2Hello>
   events(): AsyncIterable<string>
   close(): Promise<void>
+  child?: Rc2ChildHandle
 }
 
 type Rc2Transport = (signal: AbortSignal) => Promise<Rc2Connection>
 
 export function nativeRc2Transport(): Rc2Transport | null {
   return null
+}
+
+export interface Rc2Deadlines {
+  open: number
+  eof: number
+  sigterm: number
+  sigkill: number
+}
+
+export type Rc2Schedule = (ms: number, fire: () => void) => () => void
+
+const defaultDeadlines: Rc2Deadlines = { open: 15000, eof: 2000, sigterm: 5000, sigkill: 5000 }
+
+const defaultSchedule: Rc2Schedule = (ms, fire) => {
+  const timer = setTimeout(fire, ms)
+  return () => clearTimeout(timer)
 }
 
 interface Generation {
@@ -28,14 +52,51 @@ export class Rc2HubLifecycle {
   #stops = 0
   readonly #session: () => object | null
   readonly #transport: Rc2Transport | null
+  readonly #deadlines: Rc2Deadlines
+  readonly #schedule: Rc2Schedule
 
-  constructor(session: () => object | null, transport: Rc2Transport | null) {
+  constructor(session: () => object | null, transport: Rc2Transport | null,
+    options: { deadlines?: Rc2Deadlines; schedule?: Rc2Schedule } = {}) {
     this.#session = session
     this.#transport = transport
+    this.#deadlines = options.deadlines ?? defaultDeadlines
+    this.#schedule = options.schedule ?? defaultSchedule
   }
 
   #current(generation: Generation) {
     return this.#generation === generation && !generation.abort.signal.aborted && this.#session() === generation.session
+  }
+
+  #settled(promise: Promise<void>, ms: number): Promise<boolean> {
+    return new Promise(resolve => {
+      const cancel = this.#schedule(ms, () => resolve(false))
+      promise.then(() => { cancel(); resolve(true) }, () => { cancel(); resolve(true) })
+    })
+  }
+
+  async #reap(child: Rc2ChildHandle | undefined): Promise<boolean> {
+    if (!child) return true
+    child.end()
+    if (await this.#settled(child.exited, this.#deadlines.eof)) return true
+    child.terminate()
+    if (await this.#settled(child.exited, this.#deadlines.sigterm)) return true
+    child.kill()
+    return this.#settled(child.exited, this.#deadlines.sigkill)
+  }
+
+  #invalidate(generation: Generation): Promise<boolean> {
+    this.#generation = null
+    generation.abort.abort()
+    const draining = generation.opened.then(async connection => {
+      let closed = true
+      try { await connection?.close() } catch { closed = false }
+      try { if (!(await this.#reap(connection?.child))) closed = false } catch { closed = false }
+      if (!closed) this.#unsafeToRestart = true
+      return !this.#unsafeToRestart
+    })
+    this.#draining = draining
+    void draining.then(() => { if (this.#draining === draining) this.#draining = null })
+    return draining
   }
 
   async start(): Promise<boolean> {
@@ -57,15 +118,32 @@ export class Rc2HubLifecycle {
       this.#generation = { session, abort, opened }
     }
     const generation = this.#generation
-    const connection = await generation.opened
-    if (!this.#current(generation)) {
-      if (this.#generation === generation) await this.stop()
+    const opened = await new Promise<{ connection: Rc2Connection | null; timedOut: boolean }>(resolve => {
+      const cancel = this.#schedule(this.#deadlines.open, () => { generation.abort.abort(); resolve({ connection: null, timedOut: true }) })
+      generation.opened.then(connection => { cancel(); resolve({ connection, timedOut: false }) })
+    })
+    if (opened.timedOut) {
+      if (this.#generation === generation) this.#invalidate(generation)
       else if (this.#draining) await this.#draining
       return false
     }
-    if (connection) return true
-    await this.stop()
-    return false
+    const connection = opened.connection
+    if (!this.#current(generation)) {
+      if (this.#generation === generation) await this.#invalidate(generation)
+      else if (this.#draining) await this.#draining
+      return false
+    }
+    if (!connection) {
+      if (this.#generation === generation) await this.#invalidate(generation)
+      else if (this.#draining) await this.#draining
+      return false
+    }
+    if (connection.child) {
+      void connection.child.exited.then(() => {
+        if (this.#generation === generation && !generation.abort.signal.aborted) this.#invalidate(generation)
+      })
+    }
+    return true
   }
 
   stop(): Promise<boolean> {
@@ -73,15 +151,7 @@ export class Rc2HubLifecycle {
     if (this.#draining) return this.#draining
     const generation = this.#generation
     if (!generation) return Promise.resolve(!this.#unsafeToRestart)
-    this.#generation = null
-    const draining = generation.opened.then(async connection => {
-      try { await connection?.close() } catch { this.#unsafeToRestart = true }
-      this.#draining = null
-      return !this.#unsafeToRestart
-    })
-    this.#draining = draining
-    generation.abort.abort()
-    return draining
+    return this.#invalidate(generation)
   }
 
   async hello(): Promise<Rc2Hello | null> {
