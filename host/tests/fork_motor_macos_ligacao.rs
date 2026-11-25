@@ -259,12 +259,19 @@ fn escopo_incoerente_com_a_admissao_recusa() {
 fn admissao_completa_entrega_partida_uma_unica_vez_e_segue_supervisora() {
     let (_dir, registro) = registro();
     let mut unidade = unidade(&registro);
+    // Partida exige aceite do aviso e motor registrado no censo — a
+    // sequência real do runtime, sem processo não contabilizado.
+    unidade.aceitar_aviso(escopo()).expect("aceitar aviso da fixture");
+    assert!(unidade.registrar(Instancia { pid: id(41), inicio: id(50) }));
     // A partida sai UMA única vez, move-only, com o perfil admitido — e a
     // unidade não deixa de existir: segue supervisora.
     let partida = unidade.partir_para_o_motor().expect("entregar partida");
     assert_eq!(partida.perfil(), perfil());
     // Segunda entrega não existe: nada parte duas vezes.
-    assert_eq!(unidade.partir_para_o_motor(), Err(auditoria::Falha::Recusa(porta::Recusa::Fechada)));
+    assert_eq!(
+        unidade.partir_para_o_motor().expect_err("segunda entrega").to_string(),
+        "motor_macos_indisponivel: partida já entregue"
+    );
     // A supervisão segue viva: a porta ainda aceita o caminho de pedir.
     unidade.aceitar_aviso(escopo()).expect("aceitar aviso após a partida");
     let _pedido = unidade.pedir(acao(), 0).expect("abrir pedido após a partida");
@@ -276,13 +283,18 @@ fn partida_recusada_apos_a_parada() {
     let mut unidade = unidade(&registro);
     unidade.parar_tudo(10).expect("parar tudo antes da partida");
     // Nada parte depois de "Parar tudo": a recusa é a mesma da porta fechada.
-    assert_eq!(unidade.partir_para_o_motor(), Err(auditoria::Falha::Recusa(porta::Recusa::Fechada)));
+    assert_eq!(
+        unidade.partir_para_o_motor().expect_err("partida após a parada").to_string(),
+        "motor_macos_indisponivel: unidade parada ou porta fechada"
+    );
 }
 
 #[test]
 fn parada_antes_da_partida_mantem_a_unidade_supervisora() {
     let (_dir, registro) = registro();
     let mut unidade = unidade(&registro);
+    unidade.aceitar_aviso(escopo()).expect("aceitar aviso da fixture");
+    assert!(unidade.registrar(Instancia { pid: id(41), inicio: id(50) }));
     let _partida = unidade.partir_para_o_motor().expect("entregar partida");
     // Supervisão após a partida: "Parar tudo" fecha porta e cofre da mesma
     // forma, e o estado da parada continua observável pela unidade.
@@ -290,8 +302,17 @@ fn parada_antes_da_partida_mantem_a_unidade_supervisora() {
     let _pedido = unidade.pedir(acao(), 0).expect("abrir pedido da fixture");
     unidade.parar_tudo(10).expect("parar tudo após a partida");
     assert_eq!(unidade.autorizar_inferencia(inferencia_padrao()), Err(RecusaCofre::Fechada));
+    // O motor registrado segue contabilizado: sobrevivente visível enquanto
+    // não confirma saída, e a parada só confirma com a saída dele.
+    let motor = Instancia { pid: id(41), inicio: id(50) };
+    assert_eq!(unidade.estado_da_parada(11, Evidencia::Viva(motor)), Parada::Sobrevivente(motor));
+    assert_eq!(unidade.estado_da_parada(2_011, Evidencia::UnidadeFechada(escopo())), Parada::NaoConfirmada);
+    assert!(unidade.confirmar_saida(motor));
     assert_eq!(unidade.estado_da_parada(2_010, Evidencia::UnidadeFechada(escopo())), Parada::ConfirmadaNoPrazo);
-    assert_eq!(unidade.partir_para_o_motor(), Err(auditoria::Falha::Recusa(porta::Recusa::Fechada)));
+    assert_eq!(
+        unidade.partir_para_o_motor().expect_err("partida após a parada").to_string(),
+        "motor_macos_indisponivel: unidade parada ou porta fechada"
+    );
 }
 
 #[test]
@@ -306,7 +327,10 @@ fn parar_tudo_fecha_o_cofre_antes_de_qualquer_gravacao() {
     assert_eq!(unidade.parar_tudo(10), Err(auditoria::Falha::Auditoria));
     assert_eq!(unidade.autorizar_inferencia(inferencia_padrao()), Err(RecusaCofre::Fechada));
     assert_eq!(unidade.pedir(acao(), 11), Err(auditoria::Falha::Recusa(porta::Recusa::Fechada)));
-    assert_eq!(unidade.partir_para_o_motor(), Err(auditoria::Falha::Recusa(porta::Recusa::Fechada)));
+    assert_eq!(
+        unidade.partir_para_o_motor().expect_err("partida após a parada").to_string(),
+        "motor_macos_indisponivel: unidade parada ou porta fechada"
+    );
 }
 
 #[test]
@@ -417,4 +441,47 @@ fn recusa_da_ligacao_e_estavel_em_todos_os_caminhos() {
     let motivos: Vec<String> =
         erros.iter().map(|e| e.to_string().split_once(": ").expect("motivo após o código").1.to_owned()).collect();
     assert_eq!(motivos, vec!["sudo sempre negado", "artefato arm64 ausente", "escopo incoerente com a admissão"]);
+}
+
+#[test]
+fn falha_de_auditoria_em_pedir_fecha_porta_cofre_e_barr_a_partida() {
+    let (dir, registro) = registro();
+    let mut unidade = unidade(&registro);
+    unidade.aceitar_aviso(escopo()).expect("aceitar aviso da fixture");
+    assert!(unidade.registrar(Instancia { pid: id(41), inicio: id(50) }));
+    let _pedido = unidade.pedir(acao(), 0).expect("abrir pedido da fixture");
+    leitor(&dir).execute("DROP TABLE recusas_motor_macos", []).expect("derrubar tabela da fixture");
+    // A expiração no caminho de pedir falha ao gravar: a porta fecha pela
+    // auditoria — e o fechamento unificado fecha o cofre e barra a partida.
+    assert_eq!(unidade.pedir(acao(), 300_000), Err(auditoria::Falha::Recusa(porta::Recusa::Auditoria)));
+    assert_eq!(unidade.autorizar_inferencia(inferencia_padrao()), Err(RecusaCofre::Fechada));
+    assert_eq!(
+        unidade.partir_para_o_motor().expect_err("partida com porta fechada por auditoria").to_string(),
+        "motor_macos_indisponivel: unidade parada ou porta fechada"
+    );
+    assert_eq!(
+        unidade.revalidar_partida().expect_err("revalidação com porta fechada por auditoria").to_string(),
+        "motor_macos_indisponivel: unidade parada ou porta fechada"
+    );
+}
+
+#[test]
+fn partida_sem_aceite_ou_sem_motor_no_censo_e_recusada() {
+    let (_dir, registro) = registro();
+    let mut unidade = unidade(&registro);
+    // Sem aceite do aviso, a partida não sai.
+    assert_eq!(
+        unidade.partir_para_o_motor().expect_err("partida sem aceite").to_string(),
+        "motor_macos_indisponivel: partida exige o aceite do aviso"
+    );
+    // Com aceite mas sem motor registrado no censo, a partida não sai: o
+    // censo nunca confirma parada com processo não contabilizado.
+    unidade.aceitar_aviso(escopo()).expect("aceitar aviso da fixture");
+    assert_eq!(
+        unidade.partir_para_o_motor().expect_err("partida sem registro no censo").to_string(),
+        "motor_macos_indisponivel: partida exige o motor registrado no censo"
+    );
+    // Registrado o motor, a sequência real entrega a partida.
+    assert!(unidade.registrar(Instancia { pid: id(41), inicio: id(50) }));
+    assert!(unidade.partir_para_o_motor().is_ok());
 }

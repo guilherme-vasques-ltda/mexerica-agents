@@ -309,6 +309,22 @@ impl Porta {
         self.solicitacao.as_ref().map(|s| s.pedido)
     }
 
+    /// A porta está fechada por qualquer caminho — `parar` ou falha de
+    /// auditoria: quem coordena fecha o que depende dela (cofre, partida).
+    pub(super) fn fechada(&self) -> bool {
+        matches!(self.estado, EstadoPorta::Fechada)
+    }
+
+    /// O aceite do aviso desta geração aconteceu (porta apta a abrir pedido)?
+    pub(super) fn aceita(&self) -> bool {
+        matches!(self.estado, EstadoPorta::Aberta)
+    }
+
+    /// Censo de instâncias registrado (motor e descendentes).
+    pub(super) fn sem_processos(&self) -> bool {
+        self.processos.is_empty()
+    }
+
     fn solicitacao(&mut self, pedido: Pedido, agora_ms: u64) -> Result<&mut Solicitacao, Recusa> {
         self.exigir_aberta()?;
         if self.escopo != pedido.escopo {

@@ -228,6 +228,22 @@ impl<'a> PortaAuditada<'a> {
         self.porta.confirmar_saida(instancia)
     }
 
+    /// A porta está fechada por qualquer caminho (parar ou falha de
+    /// auditoria): quem coordena fecha o que depende dela.
+    pub(super) fn fechada(&self) -> bool {
+        self.porta.fechada()
+    }
+
+    /// O aceite do aviso desta geração aconteceu?
+    pub(super) fn aceita(&self) -> bool {
+        self.porta.aceita()
+    }
+
+    /// Censo de instâncias registrado (motor e descendentes)?
+    pub(super) fn sem_processos(&self) -> bool {
+        self.porta.sem_processos()
+    }
+
     /// Caminho de `parar` ("Parar tudo" na porta): fecha sem bloquear;
     /// havendo pendência, grava `fechada`. Gravação falha deixa o
     /// fechamento valendo, com a falha devolvida.

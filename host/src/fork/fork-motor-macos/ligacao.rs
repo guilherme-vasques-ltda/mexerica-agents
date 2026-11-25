@@ -21,7 +21,7 @@ use super::auditoria::{Falha, PortaAuditada};
 use super::cofre;
 use super::identidade;
 use super::partida;
-use super::porta::{Decisao, Escopo, Pedido, Recusa};
+use super::porta::{Decisao, Escopo, Pedido};
 use super::recusas::Registro;
 
 /// Entrada de identidade de uma tentativa de partida rc.2: manifesto
@@ -85,6 +85,11 @@ fn recusa_estavel_de_incoerencia() -> anyhow::Error {
     anyhow::anyhow!("{}: escopo incoerente com a admissão", partida::CODIGO)
 }
 
+/// Recusa estável da partida: mesmo código, motivo tipado.
+fn recusa_de_partida(motivo: &'static str) -> anyhow::Error {
+    anyhow::anyhow!("{}: {motivo}", partida::CODIGO)
+}
+
 /// Abre a tentativa de partida rc.2. Falha-closed: identidade primeiro,
 /// partida depois, coerência de escopo por último — toda recusa vira o
 /// código estável antes de qualquer porta, cofre ou efeito existir.
@@ -119,10 +124,22 @@ pub(super) fn iniciar<'a>(
 }
 
 impl<'a> UnidadeRc2<'a> {
+    /// Fechamento unificado: quando a porta fecha por QUALQUER caminho —
+    /// "Parar tudo" ou falha de auditoria — o cofre da geração fecha junto
+    /// e a partida é recusada dali em diante.
+    fn sincronizar_fechamento(&mut self) {
+        if !self.parada && self.porta.fechada() {
+            self.cofre.parar();
+            self.parada = true;
+        }
+    }
+
     /// Aceite do aviso versionado daquele bot: sem aceite, a porta não abre
     /// pedido.
     pub(super) fn aceitar_aviso(&mut self, escopo: Escopo) -> Result<(), Falha> {
-        self.porta.aceitar_aviso(escopo)
+        let resultado = self.porta.aceitar_aviso(escopo);
+        self.sincronizar_fechamento();
+        resultado
     }
 
     /// Partida verificada da unidade: move-only, sai UMA única vez no ponto
@@ -130,11 +147,35 @@ impl<'a> UnidadeRc2<'a> {
     /// porta, cofre e censo, e a partida é recusada após a parada ou se já
     /// foi entregue — nada parte duas vezes, e nada parte depois de
     /// "Parar tudo".
-    pub(super) fn partir_para_o_motor(&mut self) -> Result<partida::Partida<'a>, Falha> {
-        if self.parada {
-            return Err(Falha::Recusa(Recusa::Fechada));
+    /// Partida verificada da unidade: move-only, sai UMA única vez no ponto
+    /// do efeito — e só com a unidade aberta, o aceite do aviso feito e o
+    /// MOTOR REGISTRADO NO CENSO: sem registro não há partida, e o censo
+    /// nunca confirma parada com processo não contabilizado. A unidade NÃO
+    /// deixa de existir: segue supervisora com porta, cofre e censo.
+    /// Nada parte duas vezes; nada parte depois de "Parar tudo"; nada
+    /// parte com a porta fechada por falha de auditoria.
+    pub(super) fn partir_para_o_motor(&mut self) -> Result<partida::Partida<'a>, anyhow::Error> {
+        if self.parada || self.porta.fechada() {
+            return Err(recusa_de_partida("unidade parada ou porta fechada"));
         }
-        self.partida.take().ok_or(Falha::Recusa(Recusa::Fechada))
+        if !self.porta.aceita() {
+            return Err(recusa_de_partida("partida exige o aceite do aviso"));
+        }
+        if self.porta.sem_processos() {
+            return Err(recusa_de_partida("partida exige o motor registrado no censo"));
+        }
+        self.partida.take().ok_or_else(|| recusa_de_partida("partida já entregue"))
+    }
+
+    /// Revalidação antes do efeito de quem já tem a partida: a partida em
+    /// si nunca autoriza sozinha — depois da parada (ou do fechamento por
+    /// falha de auditoria) a revalidação recusa, e o lançador do Motor não
+    /// pode prosseguir com ela.
+    pub(super) fn revalidar_partida(&self) -> Result<(), anyhow::Error> {
+        if self.parada || self.porta.fechada() {
+            return Err(recusa_de_partida("unidade parada ou porta fechada"));
+        }
+        Ok(())
     }
 
     /// Registra instância observada (motor ou descendente): o censo é o que
@@ -148,12 +189,15 @@ impl<'a> UnidadeRc2<'a> {
         self.porta.confirmar_saida(instancia)
     }
 
-    /// Caminho de `pedir` da porta auditada.
+    /// Caminho de `pedir` da porta auditada. Falha de gravação fecha a
+    /// porta — e o fechamento unificado fecha o cofre junto.
     pub(super) fn pedir(&mut self, acao: super::porta::Acao, agora_ms: u64) -> Result<Pedido, Falha> {
-        self.porta.pedir(acao, agora_ms)
+        let resultado = self.porta.pedir(acao, agora_ms);
+        self.sincronizar_fechamento();
+        resultado
     }
 
-    /// Caminho de `resolver` da porta auditada.
+    /// Caminho de `resolver` da porta auditada, com fechamento unificado.
     pub(super) fn resolver(
         &mut self,
         pedido: Pedido,
@@ -161,11 +205,14 @@ impl<'a> UnidadeRc2<'a> {
         decisao: Decisao,
         agora_ms: u64,
     ) -> Result<(), Falha> {
-        self.porta.resolver(pedido, respondente, decisao, agora_ms)
+        let resultado = self.porta.resolver(pedido, respondente, decisao, agora_ms);
+        self.sincronizar_fechamento();
+        resultado
     }
 
     /// Caminho de `efetuar` da porta auditada: a intenção é gravada antes do
-    /// efeito; gravação falha fecha a porta, sem efeito e sem retry.
+    /// efeito; gravação falha fecha a porta — e o fechamento unificado
+    /// fecha o cofre junto, sem efeito e sem retry.
     pub(super) fn efetuar(
         &mut self,
         pedido: Pedido,
@@ -173,7 +220,9 @@ impl<'a> UnidadeRc2<'a> {
         agora_ms: impl FnMut() -> u64,
         efeito_imediato: impl FnOnce(super::porta::Acao),
     ) -> Result<(), Falha> {
-        self.porta.efetuar(pedido, acao, agora_ms, efeito_imediato)
+        let resultado = self.porta.efetuar(pedido, acao, agora_ms, efeito_imediato);
+        self.sincronizar_fechamento();
+        resultado
     }
 
     /// Autoriza inferência pelo cofre da geração: item de outro app negado;
@@ -197,7 +246,9 @@ impl<'a> UnidadeRc2<'a> {
     pub(super) fn parar_tudo(&mut self, agora_ms: u64) -> Result<(), Falha> {
         self.cofre.parar();
         self.parada = true;
-        self.porta.parar(agora_ms)
+        let resultado = self.porta.parar(agora_ms);
+        self.sincronizar_fechamento();
+        resultado
     }
 
     /// Estado da parada com evidência: confirmada no prazo de 2 s só com
