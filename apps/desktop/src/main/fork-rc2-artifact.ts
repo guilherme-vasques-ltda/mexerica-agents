@@ -26,7 +26,9 @@ export interface Rc2VerifiedArtifact {
   close(): void
 }
 
-function verifyComponent(root: string, component: Rc2Component): number {
+type VerifySignature = (bytes: Buffer, component: Rc2Component) => void
+
+function verifyComponent(root: string, component: Rc2Component, verifySignature: VerifySignature): number {
   const segments = component.path.split('/')
   let resolvedRoot: string
   let path = root
@@ -52,7 +54,7 @@ function verifyComponent(root: string, component: Rc2Component): number {
           pinned.size !== inspected.size) throw invalid()
       const bytes = readFileSync(fd)
       if (!machoArm64(bytes) || sha256(bytes) !== component.sha256) throw invalid()
-      verifyRc2AdHocSignature(bytes, component.cdhash)
+      verifySignature(bytes, component)
     } catch (error) {
       // Nenhuma recusa deixa descritor aberto: o objeto fixado morre com a verificação que falhou.
       try { closeSync(fd) } catch { /* já fechado */ }
@@ -62,13 +64,14 @@ function verifyComponent(root: string, component: Rc2Component): number {
   } catch { throw invalid() }
 }
 
-export function verifyRc2Artifact(root: string, components: Rc2Component[]): Rc2VerifiedArtifact {
+export function verifyRc2Artifact(root: string, components: Rc2Component[],
+  verifySignature: VerifySignature = (bytes, { cdhash }) => verifyRc2AdHocSignature(bytes, cdhash)): Rc2VerifiedArtifact {
   if (!Array.isArray(components) || !components.some(component => component.role === 'hub')) throw invalid()
   const verified: Rc2VerifiedComponent[] = []
   const close = () => { for (const component of verified) { try { closeSync(component.fd) } catch { /* já fechado */ } } }
   try {
     for (const component of components) {
-      verified.push({ role: component.role, path: component.path, fd: verifyComponent(root, component) })
+      verified.push({ role: component.role, path: component.path, fd: verifyComponent(root, component, verifySignature) })
     }
   } catch (error) {
     close()

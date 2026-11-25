@@ -13,6 +13,7 @@ import * as rcProfileModule from '../shared/fork-rc-profile.ts'
 import { assinarArm64 } from '../shared/test-support/rc2-assinatura.ts'
 import { rcPaths } from '../shared/fork-rc-profile.ts'
 import * as profileModule from '../shared/fork-rc2-profile.ts'
+import type { Rc2Component } from '../shared/fork-rc2-profile.ts'
 import { compileRc2Profile, rc2ManifestPath, rc2Paths, rc2PathsIsolated, rc2Components, validateRc2Bootstrap } from '../shared/fork-rc2-profile.ts'
 import { Rc2HubLifecycle, type Rc2ChildHandle, type Rc2Connection, type Rc2Schedule } from './fork-rc2-local-hub.ts'
 
@@ -199,6 +200,9 @@ test('entrada empacotada verifica manifesto e binários do artefato antes de qua
         exit: (code: number) => exits.push(code) } },
       '../shared/fork-rc2-profile.ts': profileModule,
       './fork-rc2-artifact.ts': artifact,
+      './fork-rc2-developer-id.ts': { rc2DeveloperIdVerifier: () => (_bytes: Buffer, component: Rc2Component) => {
+        assert.equal(component.cdhash, components[0].cdhash)
+      } },
       './fork-rc2-local-hub.ts': { Rc2HubLifecycle: class {
         sessao: () => unknown
         transporte: unknown
@@ -275,6 +279,7 @@ test('entrada empacotada verifica manifesto e binários do artefato antes de qua
       '../shared/fork-rc2-profile.ts': profileModule, '../shared/fork-rc-profile.ts': rcProfileModule,
       './fork-rc2-cdhash.ts': source('./fork-rc2-cdhash.ts', { 'node:crypto': cryptoModule }, { Buffer }),
     }),
+    './fork-rc2-developer-id.ts': { rc2DeveloperIdVerifier: () => assert.fail('não abre o verificador sem raízes isoladas') },
     './fork-rc2-local-hub.ts': { Rc2HubLifecycle },
     './fork-rc2-transport.ts': { rc2NativeTransport: () => null },
   }, { process: { platform: 'darwin', arch: 'arm64', resourcesPath: join(project, 'resources') },

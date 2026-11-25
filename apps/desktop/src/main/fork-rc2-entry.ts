@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { app } from 'electron'
 import { rc2ManifestPath, rc2PathsIsolated, validateRc2Bootstrap } from '../shared/fork-rc2-profile.ts'
 import { verifyRc2Artifact, verifyRc2StorageRoots } from './fork-rc2-artifact.ts'
+import { rc2DeveloperIdVerifier } from './fork-rc2-developer-id.ts'
 import { Rc2HubLifecycle } from './fork-rc2-local-hub.ts'
 import { rc2NativeTransport } from './fork-rc2-transport.ts'
 
@@ -19,7 +20,7 @@ function boot(): never {
   })
   if (!rc2PathsIsolated(app.getPath('home'), app.getPath('appData'))) throw new Error('invalid_rc2_profile')
   verifyRc2StorageRoots(app.getPath('home'), app.getPath('appData'))
-  const verified = verifyRc2Artifact(process.resourcesPath, artifact.components)
+  const verified = verifyRc2Artifact(process.resourcesPath, artifact.components, rc2DeveloperIdVerifier(process.resourcesPath))
   let transport: ReturnType<typeof rc2NativeTransport>
   try { transport = rc2NativeTransport(verified) } catch { verified.close(); throw new Error('rc2_native_transport_unavailable') }
   if (!transport) { verified.close(); throw new Error('rc2_native_transport_unavailable') }
