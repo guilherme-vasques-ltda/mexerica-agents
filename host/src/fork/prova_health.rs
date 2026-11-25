@@ -4,10 +4,9 @@
 use crate::hub::Hub;
 use hmac::{Hmac, KeyInit, Mac as _};
 use sha2::Sha256;
-use std::collections::HashMap;
+use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, Instant};
 
 /// Domínio desta prova: um HMAC do token aqui nunca vale como credencial de outro uso.
 const ROTULO: &[u8] = b"mexerica/health-proof/v1";
@@ -15,8 +14,6 @@ const ROTULO: &[u8] = b"mexerica/health-proof/v1";
 const RECIBO: &[u8] = b"mexerica/health-receipt/v1";
 /// O nonce é sempre deste tamanho; sem isso a mensagem assinada ficaria ambígua.
 const NONCE: usize = 32;
-/// Enquanto um nonce aceito continua recusado: cobre o tempo em que a prova ainda poderia ser repetida.
-const JANELA: Duration = Duration::from_secs(300);
 
 fn hmac(token: &str, nonce: &[u8]) -> [u8; 32] {
     let mut mac =
@@ -69,11 +66,13 @@ fn deste_computador(peer: SocketAddr) -> bool {
         || (crate::environment::Environment::is_open() && peer == crate::open_hub::SOCKET_PEER)
 }
 
-/// Nonces já aceitos e quando. Um par nonce/prova vale uma vez só, então uma prova capturada não
-/// volta a abrir a identidade do Hub.
-fn consumidos() -> &'static Mutex<HashMap<[u8; 32], Instant>> {
-    static CONSUMIDOS: OnceLock<Mutex<HashMap<[u8; 32], Instant>>> = OnceLock::new();
-    CONSUMIDOS.get_or_init(|| Mutex::new(HashMap::new()))
+/// Nonces já aceitos. Enquanto o Hub roda, um par nonce/prova vale uma vez só: uma prova capturada
+/// não volta a abrir a identidade. Só uma prova válida entra aqui, então quem não tem o token não
+/// consegue crescer esta lista. Um reinício do Hub zera o registro, e o alcance de uma repetição
+/// depois disso é a identidade (versão, caminho e hash do binário), nunca o token.
+fn consumidos() -> &'static Mutex<HashSet<[u8; 32]>> {
+    static CONSUMIDOS: OnceLock<Mutex<HashSet<[u8; 32]>>> = OnceLock::new();
+    CONSUMIDOS.get_or_init(|| Mutex::new(HashSet::new()))
 }
 
 /// Aceita o par uma única vez: confere origem e prova e registra o nonce na mesma operação, sem
@@ -84,8 +83,7 @@ pub(crate) fn aceitar(hub: &Hub, nonce: &str, proof: &str, peer: SocketAddr) -> 
     }
     let nonce = crate::remote::crypto::unb64_n::<NONCE>(nonce).ok()?;
     let mut vistos = consumidos().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    vistos.retain(|_, quando| quando.elapsed() < JANELA);
-    vistos.insert(nonce, Instant::now()).is_none().then_some(nonce)
+    vistos.insert(nonce).then_some(nonce)
 }
 
 /// A identidade que sai, em ordem fixa: o recibo cobre exatamente o que o cliente lê.

@@ -12,7 +12,7 @@ import { join } from 'node:path'
 import { app, dialog, ipcMain, type BrowserWindow } from 'electron'
 import { SSH_STORAGE_STATUS, type SSHAttachment, type SSHMotivo, type SSHProfile, type SSHState, type SSHStatus } from '../shared/ssh'
 import { dataDir } from './host-controller'
-import { localHealth } from './fork-local-health'
+import { localHealth, provarIdentidade } from './fork-local-health'
 import { hubSSHAlias } from './fork-ssh-semente/hub-alias'
 import { seedProfiles, sshAliasExists } from './fork-ssh-semente/semente'
 import { infoArguments, knownHostsFiles, orphanTunnelPattern, resolveArguments, tunnelArguments } from './ssh-command'
@@ -641,18 +641,25 @@ class SSHComputers {
         lastProblem = motivoSSH('ajustes.ssh.erro.portaOcupada').texto
         continue
       }
-      const identity = await localHealth(baseURL, 1000, info.token)
+      const identity = await provarIdentidade(baseURL, 1000, info.token)
       if (token.cancelled) {
         child.kill()
         return idle
       }
-      if (identity?.computerId !== info.computerId) {
-        if (alive()) {
-          child.kill()
-          return stop({ kind: 'failed', ...falha('ajustes.ssh.erro.tunelOutro', { host: profile.host }) })
-        }
+      // O túnel pode cair durante a espera; sem o ssh vivo, nada é registrado e a tentativa se repete.
+      if (!alive()) {
         lastProblem = await tail.lastLine()
         continue
+      }
+      // Sem resposta é falha de passagem, que a próxima tentativa resolve; prova recusada ou outro
+      // `computerId` é o túnel indo para um Hub que não é este computador.
+      if (identity.kind === 'unreachable') {
+        lastProblem = motivoSSH('ajustes.ssh.erro.portaOcupada').texto
+        continue
+      }
+      if (identity.kind === 'refused' || identity.health.computerId !== info.computerId) {
+        child.kill()
+        return stop({ kind: 'failed', ...falha('ajustes.ssh.erro.tunelOutro', { host: profile.host }) })
       }
       this.watch(child, id, tail)
       this.tunnels.set(id, child)

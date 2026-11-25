@@ -16,6 +16,7 @@ export function hostUpdateFixture(options: { environment?: 'main' | 'dev'; rc?: 
   const persisted: Record<string, unknown> = { hostRestartAfterAppUpdate: options.restartMarker ?? false, ...(options.hubLocation ? { hubLocation: options.hubLocation } : {}) }
   const calls: string[][] = []
   const reads: string[] = []
+  const fetched: string[] = []
   const probes: string[][] = []
   const warnings: string[] = []
   const removed: string[] = []
@@ -26,6 +27,8 @@ export function hostUpdateFixture(options: { environment?: 'main' | 'dev'; rc?: 
     stopStatus: 0,
     /** O token que o app lê do Hub (`null`: arquivo ilegível). O `/health` só mostra identidade com ele. */
     token: 'fixture-token' as string | null,
+    /** Um listener que devolve os campos públicos do Hub mas não tem o token: sem recibo. */
+    impostor: false,
     installStatus: 0,
     installed: options.installed ?? true,
     busy: false,
@@ -110,6 +113,7 @@ export function hostUpdateFixture(options: { environment?: 'main' | 'dev'; rc?: 
     clearTimeout: (id: number) => timers.delete(id),
     fetch: async (url: string) => {
       reads.push('health')
+      fetched.push(url)
       if (!behavior.reachable) throw new Error('Host offline')
       // Como o Hub: a identidade só vem com a prova do token local; sem ela, só o anônimo.
       const query = new URL(url, 'http://127.0.0.1').searchParams
@@ -119,6 +123,7 @@ export function hostUpdateFixture(options: { environment?: 'main' | 'dev'; rc?: 
       const anonymous = { ok: true, environment: behavior.runningEnvironment, busy: behavior.busy }
       const identity = { computerId: 'fixture-computer', binaryPath: binary, binaryHash: behavior.wrongBinary ? 'stale' : crypto.createHash('sha256').update(binaryBytes).digest('hex') }
       const receipt = crypto.createHmac('sha256', behavior.token ?? '').update('mexerica/health-receipt/v1').update(Buffer.from(nonce, 'base64url')).update(['', identity.computerId, identity.binaryPath, identity.binaryHash].join('\n')).digest('hex')
+      if (behavior.impostor) return { ok: true, json: async () => ({ ...anonymous, computerId: identity.computerId }) }
       return { ok: true, json: async () => proved ? { ...anonymous, ...identity, receipt } : anonymous }
     },
   })
@@ -131,5 +136,5 @@ export function hostUpdateFixture(options: { environment?: 'main' | 'dev'; rc?: 
     }
     await settle()
   }
-  return { host, probes, warnings, devPort: module.devPort, prefs: module.prefs, persisted, calls, order, behavior, tick, removed, reads }
+  return { host, probes, warnings, devPort: module.devPort, prefs: module.prefs, persisted, calls, order, behavior, tick, removed, reads, fetched }
 }

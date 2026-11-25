@@ -78,7 +78,9 @@ interface da VPN no firewall, mantendo o loopback liberado para as ferramentas l
 A API local continua aceitando só chamadas do loopback, e o `/health` sem prova
 devolve só `ok`, `version`, `environment` e `busy`; a identidade do Hub e do binário exige
 a prova do token local (`?nonce=` e `?proof=`: o HMAC do token sobre um nonce novo) vinda
-deste computador, e o token em si nunca trafega.
+deste computador. Nessa chamada o token não trafega, e a resposta leva um `receipt` (o HMAC
+do mesmo token sobre o nonce e a identidade devolvida) para o app saber que falou com o Hub
+de verdade. As chamadas do `/api` seguem com o bearer de sempre.
 
 **Migração:** uma unidade antiga sem `--bind` passa a escutar só em loopback quando o
 Hub novo reinicia. Um celular que falava direto com o Hub pela rede local ou VPN perde

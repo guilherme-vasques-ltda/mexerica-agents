@@ -50,16 +50,36 @@ export function reciboConfere(token: string, nonce: string, health: LocalHealth)
   return recebido.length === esperado.length && timingSafeEqual(recebido, esperado)
 }
 
+/** O que a leitura com prova encontrou: o Hub com a identidade aceita, a prova recusada, ou nada
+ * do outro lado (porta sem resposta). A diferença importa para quem decide entre repetir e parar. */
+export type Proved = { kind: 'identified'; health: LocalHealth } | { kind: 'refused' } | { kind: 'unreachable' }
+
+/** Prova o token e confere o recibo, dizendo qual dos três casos foi. */
+export async function provarIdentidade(url: string, timeoutMs: number, token: string): Promise<Proved> {
+  const prova = consultaProvada(token)
+  let res: Response
+  let health: LocalHealth
+  try {
+    res = await fetch(`${url}/health${prova.query}`, { signal: AbortSignal.timeout(timeoutMs) })
+    if (!res.ok) return { kind: 'refused' }
+    health = (await res.json()) as LocalHealth
+  } catch {
+    return { kind: 'unreachable' }
+  }
+  return reciboConfere(token, prova.nonce, health) ? { kind: 'identified', health } : { kind: 'refused' }
+}
+
 /** Lê o `/health`: sem token, a resposta anônima (vida, ambiente e `busy`); com o token local, a
  * identidade do Hub, aceita só com o recibo certo. Sem prova válida, nada de identidade. */
 export async function localHealth(url: string, timeoutMs: number, token?: string): Promise<LocalHealth | null> {
+  if (token) {
+    const proved = await provarIdentidade(url, timeoutMs, token)
+    return proved.kind === 'identified' ? proved.health : null
+  }
   try {
-    const prova = token ? consultaProvada(token) : null
-    const res = await fetch(`${url}/health${prova?.query ?? ''}`, { signal: AbortSignal.timeout(timeoutMs) })
+    const res = await fetch(`${url}/health`, { signal: AbortSignal.timeout(timeoutMs) })
     if (!res.ok) return null
-    const health = (await res.json()) as LocalHealth
-    if (!prova) return health
-    return token && reciboConfere(token, prova.nonce, health) ? health : null
+    return (await res.json()) as LocalHealth
   } catch {
     return null
   }

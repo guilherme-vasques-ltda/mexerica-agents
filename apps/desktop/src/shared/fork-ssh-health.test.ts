@@ -57,6 +57,8 @@ function rig(options: { infoToken?: string; tunnelPid?: number; impostor?: boole
   const profiles = [{ id: 'fixture', host: 'ssh.example.invalid', user: null, port: null, remotePort: 19422, identityFile: null, name: '', computerId: COMPUTER }]
   const info = { name: 'computador-ficticio', computerId: COMPUTER, signKey: SIGN_KEY, boxKey: null, token: options.infoToken ?? TOKEN, running: true }
   const tunnels: EventEmitter[] = []
+  /** Quem o `lsof` deste teste diz que é dono de cada porta encaminhada. */
+  const owning = new Map<number, number | undefined>()
   let authorized = false
 
   const spawn = (_bin: string, args: string[]) => {
@@ -82,8 +84,21 @@ function rig(options: { infoToken?: string; tunnelPid?: number; impostor?: boole
     else if (args[0] === 'remote') answer(JSON.stringify(info))
     else if (args[0] === 'tunnel') {
       child.pid = 'tunnelPid' in options ? options.tunnelPid : process.pid
+      // O servidor deste teste roda neste processo; quando o cenário é "a porta não é do ssh", o
+      // `lsof` aponta outro dono.
+      owning.set(Number(args[1]), 'tunnelPid' in options ? 4123 : process.pid)
       tunnels.push(child)
       void hub.listen(Number(args[1]))
+    } else if (args[0] === '-a') {
+      // `lsof -a -n -P -p <pid> -iTCP@127.0.0.1:<porta> -sTCP:LISTEN -t`: só a porta que o próprio
+      // túnel deste teste atende aparece com o pid dele, como no sistema de verdade.
+      const port = Number(/@127\.0\.0\.1:(\d+)/.exec(args.join(' '))?.[1])
+      const owner = owning.get(port)
+      if (owner === undefined) {
+        queueMicrotask(() => child.emit('close', 1))
+      } else {
+        answer(`${owner}\n`)
+      }
     }
     return child
   }
@@ -103,7 +118,8 @@ function rig(options: { infoToken?: string; tunnelPid?: number; impostor?: boole
     'node:net': { createServer: createTcpServer },
     'node:path': path,
     'node:fs': {
-      existsSync: (file: string) => file === '/fixture/known_hosts',
+      // `lsof` presente: é o caminho que existe no macOS e no Windows, não só o `/proc` do Linux.
+      existsSync: (file: string) => file === '/fixture/known_hosts' || file === '/usr/sbin/lsof',
       readFileSync: (file: string) => file === '/fixture/ssh-profiles.json' ? JSON.stringify(profiles) : readFileSync(file),
       promises: { readFile: realFs.readFile, readdir: realFs.readdir, readlink: realFs.readlink },
     },

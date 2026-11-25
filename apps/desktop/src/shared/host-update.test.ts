@@ -123,6 +123,17 @@ test('an unreadable host token leaves the app unattached instead of trusting the
   assert.ok(f.host.state.kind === 'starting' || f.host.state.kind === 'failed', f.host.state.kind)
 })
 
+test('a listener that only knows the public fields is not attached and gets no API call', async () => {
+  // Outro processo na porta devolve `computerId` e ambiente, mas não tem o token para o recibo.
+  const f = hostUpdateFixture()
+  f.behavior.impostor = true
+  await f.host.refresh()
+  await settle()
+  await settle()
+  assert.equal(f.host.local, null, 'sem recibo, nada de identidade')
+  assert.deepEqual(f.fetched.filter((url) => url.includes('/api/')), [], 'nenhuma chamada de API sem o recibo')
+})
+
 test('idle detection distinguishes working, offline and idle hosts', async () => {
   const f = hostUpdateFixture()
   assert.equal(await f.host.isIdleForUpdate(), true)
