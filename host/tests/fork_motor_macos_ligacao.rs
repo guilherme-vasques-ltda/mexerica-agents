@@ -548,7 +548,7 @@ fn concessao_da_partida_nao_escapa_do_efeito() {
 }
 
 #[test]
-fn saida_confirmada_do_motor_tira_a_marca_do_censo_da_partida() {
+fn saida_confirmada_do_motor_e_terminal_para_a_marca_do_censo() {
     let (_dir, registro) = registro();
     let mut unidade = unidade(&registro);
     unidade.aceitar_aviso(escopo()).expect("aceitar aviso da fixture");
@@ -565,18 +565,44 @@ fn saida_confirmada_do_motor_tira_a_marca_do_censo_da_partida() {
             .to_string(),
         "motor_macos_indisponivel: partida exige o motor registrado no censo"
     );
-    // Re-registrar marca divergente não abre nada: só o PID admitido volta
-    // a marcar.
+    // Saída confirmada é TERMINAL: nenhuma remarcação re-cria a marca —
+    // nem a própria identidade, nem PID reutilizado.
     assert!(!unidade.registrar_motor(Instancia { pid: id(43), inicio: id(52) }));
-    // PID reutilizado não re-cria a marca após a saída confirmada: mesma
-    // PID com início diferente é outro processo.
     assert!(!unidade.registrar_motor(Instancia { pid: id(41), inicio: id(51) }));
-    // Re-registrado o motor (mesma identidade), quem recusa é o descarte
-    // único da concessão.
-    assert!(unidade.registrar_motor(motor));
+    assert!(!unidade.registrar_motor(motor));
+    // Sem a marca, a partida segue recusada pelo censo: motor declarado
+    // morto não parte de novo.
     assert_eq!(
-        unidade.partir_para_o_motor(|_| panic!("segunda partida")).expect_err("segunda partida").to_string(),
-        "motor_macos_indisponivel: partida já executada"
+        unidade
+            .partir_para_o_motor(|_| panic!("partida com motor declarado morto"))
+            .expect_err("partida com motor declarado morto")
+            .to_string(),
+        "motor_macos_indisponivel: partida exige o motor registrado no censo"
+    );
+}
+
+#[test]
+fn descendente_da_mesma_instancia_nao_e_promovido_a_motor() {
+    let (_dir, registro) = registro();
+    // O caminho real é marcar o motor direto, sem descendente prévio com
+    // a mesma instância.
+    let mut unidade_limpa = unidade(&registro);
+    unidade_limpa.aceitar_aviso(escopo()).expect("aceitar aviso da fixture");
+    assert!(unidade_limpa.registrar_motor(Instancia { pid: id(41), inicio: id(50) }));
+    assert!(unidade_limpa.partir_para_o_motor(|_| {}).is_ok());
+
+    let mut unidade = unidade(&registro);
+    unidade.aceitar_aviso(escopo()).expect("aceitar aviso da fixture");
+    // A instância admitida registrada como descendente não vira motor:
+    // promoção de descendente não existe nesta API.
+    assert!(unidade.registrar(Instancia { pid: id(41), inicio: id(50) }));
+    assert!(!unidade.registrar_motor(Instancia { pid: id(41), inicio: id(50) }));
+    assert_eq!(
+        unidade
+            .partir_para_o_motor(|_| panic!("partida com descendente promovido"))
+            .expect_err("partida com descendente promovido")
+            .to_string(),
+        "motor_macos_indisponivel: partida exige o motor registrado no censo"
     );
 }
 

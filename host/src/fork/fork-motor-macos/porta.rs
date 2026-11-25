@@ -259,14 +259,21 @@ impl Porta {
 
     /// Registra a instância principal observada (o Motor): entra no censo
     /// de alvos da parada E é a única marca que abre a partida. A
-    /// identidade da marca é fixada na PRIMEIRA observação — mesma PID com
-    /// início diferente não substitui nem re-cria a marca (PID reutilizado
-    /// é outro processo); descendente sozinho não basta.
+    /// identidade é fixada na primeira observação — mesma PID com início
+    /// diferente não vale; instância já registrada como descendente não é
+    /// promovida; e a saída confirmada do motor é TERMINAL: nada re-cria
+    /// a marca, nem a própria identidade. Descendente sozinho não basta.
     pub(super) fn registrar_motor(&mut self, instancia: Instancia) -> bool {
         if self.exigir_aberta().is_err() {
             return false;
         }
         if self.motor_fixado.is_some_and(|fixada| fixada != instancia) {
+            return false;
+        }
+        if self.motor_fixado.is_some() && self.motor.is_none() {
+            return false;
+        }
+        if self.processos.contains(&instancia) && self.motor != Some(instancia) {
             return false;
         }
         self.processos.insert(instancia);
