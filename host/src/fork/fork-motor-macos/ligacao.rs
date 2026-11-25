@@ -17,15 +17,15 @@
 //! depende dela para valer. A parada confirmada exige evidência dentro do
 //! prazo de 2 s — sobrevivente é visível, nunca sucesso falso.
 //!
-//! Gates de ativação, declarados e NÃO provados aqui: o lançamento e o
-//! registro no censo são feitos pelo supervisor com identidade OBSERVADA
-//! (PID e início de cada processo), com o Motor nascendo SUSPENSO — ou
-//! numa operação atômica de lançar-e-registrar — para que nenhum
-//! descendente exista fora do censo entre o spawn e o registro; a saída é
-//! verificada antes de confirmada e o grupo ou a sessão do Motor e de
-//! cada descendente seguem vazios. Essas provas são nativas no macOS e
-//! precedem a retirada da recusa #117; os dublês das fixtures só exercitam
-//! o contrato.
+//! Gates de ativação, declarados e NÃO provados aqui: o Motor nasce
+//! SUSPENSO pelo supervisor — antes de retomar, o supervisor OBSERVA PID
+//! e início, confere o PID contra o admitido no censo da admissão e
+//! registra a instância no censo; nenhum descendente nasce fora do
+//! censo, e PID reutilizado não re-cria a marca. A saída é verificada
+//! antes de confirmada e o grupo ou a sessão do Motor e de cada
+//! descendente seguem vazios. Essas provas são nativas no macOS e
+//! precedem a retirada da recusa #117; os dublês das fixtures só
+//! exercitam o contrato.
 
 use std::num::NonZeroU64;
 
@@ -183,14 +183,13 @@ impl<'a> UnidadeRc2<'a> {
     /// verdade e quebra a suite numa variante por valor.
     /// O lançamento EFETIVO do Motor exige a autorização mediada pela
     /// unidade e é gate pré-ativação: só sai da dormência depois de
-    /// comprovado nativamente no macOS — lançamento e registro pelo
-    /// supervisor com identidade OBSERVADA (PID e início), com o Motor
-    /// nascendo SUSPENSO ou registrado numa operação atômica de
-    /// lançar-e-registrar, para que nenhum descendente exista fora do
-    /// censo entre o spawn e o registro; saída verificada antes de
-    /// confirmada e grupo ou sessão vazios do Motor e de cada
-    /// descendente. A fixture usa dublês: o censo exigido aqui é CONTRATO,
-    /// não prova do processo real.
+    /// comprovado nativamente no macOS — o Motor nasce SUSPENSO pelo
+    /// supervisor; antes de retomar, o supervisor OBSERVA PID e início,
+    /// confere o PID contra o admitido no censo da admissão e registra a
+    /// instância no censo, para que nenhum descendente nasça fora dele;
+    /// saída verificada antes de confirmada e grupo ou sessão vazios do
+    /// Motor e de cada descendente. A fixture usa dublês: o censo exigido
+    /// aqui é CONTRATO, não prova do processo real.
     pub(super) fn partir_para_o_motor(
         &mut self,
         efeito: impl FnOnce(&mut partida::Partida<'a>),
@@ -222,10 +221,13 @@ impl<'a> UnidadeRc2<'a> {
     /// Registra a instância principal observada (o Motor), FIXADA à
     /// identidade admitida: só o PID do motor do censo da admissão marca;
     /// instância divergente não marca, não substitui marca existente e
-    /// descendente não é promovido. É a única marca que abre a partida.
-    /// CONTRATO: em runtime a instância vem do supervisor (PID e início
-    /// OBSERVADOS), com o Motor nascendo suspenso ou registrado numa
-    /// operação atômica de lançar-e-registrar; a fixture é dublê.
+    /// descendente não é promovido. O início é fixado na primeira
+    /// observação: mesma PID com início diferente não vale — nem para
+    /// substituir, nem para re-criar a marca após a saída confirmada (PID
+    /// reutilizado é outro processo). É a única marca que abre a partida.
+    /// CONTRATO: em runtime o Motor nasce SUSPENSO pelo supervisor; antes
+    /// de retomar, o supervisor OBSERVA PID e início, confere o PID contra
+    /// o admitido e registra a instância; a fixture é dublê.
     pub(super) fn registrar_motor(&mut self, instancia: super::porta::Instancia) -> bool {
         if instancia.pid != self.motor_pid {
             return false;
@@ -290,10 +292,11 @@ impl<'a> UnidadeRc2<'a> {
     }
 
     /// "Parar tudo" da unidade: o cofre da geração fecha PRIMEIRO,
-    /// incondicional — nenhuma gravação de auditoria, que pode bloquear ou
-    /// falhar, precede o fechamento do cofre, e o prazo de 2 s não depende
-    /// dela. Depois a porta fecha (gravando a pendência como `fechada`, sem
-    /// bloquear: a gravação falha deixa o fechamento valendo). A partida é
+    /// incondicional — nenhuma gravação de auditoria, que pode custar
+    /// tempo ou falhar, precede o fechamento do cofre, e o prazo de 2 s
+    /// não depende dela. Depois a porta fecha (gravando a pendência como
+    /// `fechada`: a gravação pode custar tempo e, se falhar, deixa o
+    /// fechamento valendo — nunca é negado nem desfeito). A partida é
     /// recusada dali em diante.
     pub(super) fn parar_tudo(&mut self, agora_ms: u64) -> Result<(), Falha> {
         self.cofre.parar();

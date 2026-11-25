@@ -117,6 +117,7 @@ pub(super) struct Porta {
     solicitacao: Option<Solicitacao>,
     processos: BTreeSet<Instancia>,
     motor: Option<Instancia>,
+    motor_fixado: Option<Instancia>,
     parada_ms: Option<u64>,
 }
 
@@ -129,6 +130,7 @@ impl Porta {
             solicitacao: None,
             processos: BTreeSet::new(),
             motor: None,
+            motor_fixado: None,
             parada_ms: None,
         }
     }
@@ -256,18 +258,20 @@ impl Porta {
     }
 
     /// Registra a instância principal observada (o Motor): entra no censo
-    /// de alvos da parada E é a única marca que abre a partida. A marca não
-    /// é substituída: segunda marca divergente não vale; descendente
-    /// sozinho não basta.
+    /// de alvos da parada E é a única marca que abre a partida. A
+    /// identidade da marca é fixada na PRIMEIRA observação — mesma PID com
+    /// início diferente não substitui nem re-cria a marca (PID reutilizado
+    /// é outro processo); descendente sozinho não basta.
     pub(super) fn registrar_motor(&mut self, instancia: Instancia) -> bool {
         if self.exigir_aberta().is_err() {
             return false;
         }
-        if self.motor.is_some_and(|motor| motor != instancia) {
+        if self.motor_fixado.is_some_and(|fixada| fixada != instancia) {
             return false;
         }
         self.processos.insert(instancia);
         self.motor = Some(instancia);
+        self.motor_fixado.get_or_insert(instancia);
         true
     }
 

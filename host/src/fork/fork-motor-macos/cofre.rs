@@ -113,7 +113,7 @@ impl<'a> Cofre<'a> {
     }
 
     /// "Parar tudo" aplicado ao cofre: fecha o acesso da geração, sem
-    /// reabrir. Idempotente e nunca bloqueado por auditoria.
+    /// reabrir. Idempotente e não depende da auditoria.
     pub(super) fn parar(&mut self) {
         self.fechado = true;
     }

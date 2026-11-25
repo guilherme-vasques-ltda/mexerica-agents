@@ -568,7 +568,11 @@ fn saida_confirmada_do_motor_tira_a_marca_do_censo_da_partida() {
     // Re-registrar marca divergente não abre nada: só o PID admitido volta
     // a marcar.
     assert!(!unidade.registrar_motor(Instancia { pid: id(43), inicio: id(52) }));
-    // Re-registrado o motor, quem recusa é o descarte único da concessão.
+    // PID reutilizado não re-cria a marca após a saída confirmada: mesma
+    // PID com início diferente é outro processo.
+    assert!(!unidade.registrar_motor(Instancia { pid: id(41), inicio: id(51) }));
+    // Re-registrado o motor (mesma identidade), quem recusa é o descarte
+    // único da concessão.
     assert!(unidade.registrar_motor(motor));
     assert_eq!(
         unidade.partir_para_o_motor(|_| panic!("segunda partida")).expect_err("segunda partida").to_string(),
