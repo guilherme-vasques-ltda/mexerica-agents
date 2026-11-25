@@ -1,4 +1,5 @@
 #[path = "../src/fork/fork-motor-macos/porta.rs"]
+#[allow(dead_code)]
 mod porta;
 
 use std::{cell::Cell, num::NonZeroU64};
@@ -30,7 +31,7 @@ fn aviso_nao_concede_e_so_aceite_do_escopo_abre_pedido() {
     assert_eq!(pedido.escopo(), escopo());
     assert_eq!(pedido.serie(), 1);
     assert_eq!(porta.resolver(pedido, outro, Decisao::UmaVez, 1), Err(Recusa::Escopo));
-    assert_eq!(porta.efetuar(pedido, acao(), || 1, |_, _, _| true, |_| panic!()), Err(Recusa::SemDecisao));
+    assert_eq!(porta.efetuar(pedido, acao(), || 1, |_, _, _, _| true, |_| panic!()), Err(Recusa::SemDecisao));
 }
 
 #[test]
@@ -41,7 +42,7 @@ fn autoriza_uma_vez_a_acao_exata_e_audita_antes_do_efeito() {
     let pedido = porta.pedir(a, 0).unwrap();
     porta.resolver(pedido, escopo(), Decisao::UmaVez, 1).unwrap();
     let alterada = Acao::Gravar { alvo: Alvo::Autorizavel(id(6)), conteudo: id(8) };
-    assert_eq!(porta.efetuar(pedido, alterada, || 2, |_, _, _| true, |_| panic!()), Err(Recusa::AcaoDiferente));
+    assert_eq!(porta.efetuar(pedido, alterada, || 2, |_, _, _, _| true, |_| panic!()), Err(Recusa::AcaoDiferente));
     let audita = Cell::new(false);
     let efeitos = Cell::new(0);
     assert_eq!(
@@ -49,7 +50,7 @@ fn autoriza_uma_vez_a_acao_exata_e_audita_antes_do_efeito() {
             pedido,
             a,
             || 2,
-            |pedido_auditado, auditada, evento| {
+            |pedido_auditado, auditada, evento, _| {
                 assert_eq!(pedido_auditado, pedido);
                 assert_eq!(auditada, a);
                 assert_eq!(evento, porta::EventoAuditoria::Intencao);
@@ -65,7 +66,7 @@ fn autoriza_uma_vez_a_acao_exata_e_audita_antes_do_efeito() {
         Ok(())
     );
     assert_eq!(efeitos.get(), 1);
-    assert_eq!(porta.efetuar(pedido, a, || 3, |_, _, _| true, |_| panic!()), Err(Recusa::PedidoInvalido));
+    assert_eq!(porta.efetuar(pedido, a, || 3, |_, _, _, _| true, |_| panic!()), Err(Recusa::PedidoInvalido));
     assert_eq!(efeitos.get(), 1);
 
     let pedido = porta.pedir(a, 4).unwrap();
@@ -76,7 +77,7 @@ fn autoriza_uma_vez_a_acao_exata_e_audita_antes_do_efeito() {
             pedido,
             a,
             || relogio.get(),
-            |_, _, _| {
+            |_, _, _, _| {
                 relogio.set(3_006);
                 false
             },
@@ -84,7 +85,7 @@ fn autoriza_uma_vez_a_acao_exata_e_audita_antes_do_efeito() {
         ),
         Err(Recusa::Auditoria)
     );
-    assert_eq!(porta.efetuar(pedido, a, || 3_007, |_, _, _| true, |_| panic!()), Err(Recusa::Fechada));
+    assert_eq!(porta.efetuar(pedido, a, || 3_007, |_, _, _, _| true, |_| panic!()), Err(Recusa::Fechada));
     assert_eq!(porta.estado(5_005, Evidencia::SemCenso), Parada::EmCurso);
     assert_eq!(porta.estado(5_006, Evidencia::SemCenso), Parada::NaoConfirmada);
 }
@@ -98,7 +99,7 @@ fn nega_por_expiracao_no_commit_pedido_recusado_e_reinicio() {
     assert_eq!(porta.resolver(recusado, escopo(), Decisao::UmaVez, 3), Err(Recusa::PedidoInvalido));
     let vencido = porta.pedir(acao(), 10).unwrap();
     porta.resolver(vencido, escopo(), Decisao::UmaVez, 300_009).unwrap();
-    assert_eq!(porta.efetuar(vencido, acao(), || 300_010, |_, _, _| true, |_| panic!()), Err(Recusa::Expirada));
+    assert_eq!(porta.efetuar(vencido, acao(), || 300_010, |_, _, _, _| true, |_| panic!()), Err(Recusa::Expirada));
 
     let antigo = porta.pedir(acao(), 300_011).unwrap();
     let novo = Escopo { geracao: id(10), ..escopo() };
@@ -115,7 +116,7 @@ fn revogar_fecha_porta_e_cancela_efeito_pendente_sem_resposta() {
     let aprovado = porta.pedir(acao(), 0).unwrap();
     porta.resolver(aprovado, escopo(), Decisao::UmaVez, 1).unwrap();
     porta.parar(2);
-    assert_eq!(porta.efetuar(aprovado, acao(), || 2, |_, _, _| true, |_| panic!()), Err(Recusa::Fechada));
+    assert_eq!(porta.efetuar(aprovado, acao(), || 2, |_, _, _, _| true, |_| panic!()), Err(Recusa::Fechada));
     assert_eq!(porta.pedir(acao(), 3), Err(Recusa::Fechada));
     assert_eq!(porta.aceitar_aviso(escopo()), Err(Recusa::Fechada));
 }
@@ -153,7 +154,7 @@ fn segundo_pedido_nao_substitui_o_que_esta_na_tela() {
     assert_eq!(porta.pedir(acao(), 2), Err(Recusa::Ocupada));
     porta.resolver(pedido, escopo(), Decisao::UmaVez, 3).unwrap();
     assert_eq!(porta.resolver(pedido, escopo(), Decisao::UmaVez, 4), Err(Recusa::JaDecidida));
-    porta.efetuar(pedido, acao(), || 4, |_, _, _| true, |_| {}).unwrap();
+    porta.efetuar(pedido, acao(), || 4, |_, _, _, _| true, |_| {}).unwrap();
 }
 
 #[test]
@@ -169,7 +170,7 @@ fn prazo_e_rechecado_depois_da_auditoria() {
             pedido,
             acao(),
             || relogio.get(),
-            |pedido_auditado, acao_auditada, evento| {
+            |pedido_auditado, acao_auditada, evento, _| {
                 assert_eq!(pedido_auditado, pedido);
                 assert_eq!(acao_auditada, acao());
                 registros.borrow_mut().push(evento);
@@ -197,7 +198,7 @@ fn falha_no_registro_terminal_fecha_a_porta_sem_efeito() {
             pedido,
             acao(),
             || relogio.get(),
-            |_, _, evento| {
+            |_, _, evento, _| {
                 if evento == porta::EventoAuditoria::Intencao {
                     relogio.set(300_000);
                     true

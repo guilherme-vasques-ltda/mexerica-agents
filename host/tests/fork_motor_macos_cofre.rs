@@ -24,6 +24,10 @@ const ITEM_PROPRIO: Item<'_> = Item { grupo: GRUPO_DO_APP, identificador: "inval
 const ITEM_OUTRO_APP: Item<'_> =
     Item { grupo: "invalid.example.outro", identificador: "invalid.example.segredo-alheio" };
 
+fn instancia() -> NonZeroU64 {
+    NonZeroU64::new(9).expect("ID da fixture deve ser diferente de zero")
+}
+
 fn id(valor: u64) -> NonZeroU64 {
     NonZeroU64::new(valor).expect("ID da fixture deve ser diferente de zero")
 }
@@ -132,7 +136,8 @@ fn parada_cancela_pendente_grava_fechada_e_mostra_sobrevivente() {
     assert!(porta.registrar(filho));
     // "Parar tudo" não bloqueia: pendência cancelada na hora e porta fechada.
     porta.parar(10);
-    recusas::registrar(&db, pedido, recusas::Motivo::Fechada, 10).expect("persistir recusa do fechamento");
+    recusas::registrar(&db, pedido, recusas::Caminho::Parar, recusas::Motivo::Fechada, instancia(), 10)
+        .expect("persistir recusa do fechamento");
     assert_eq!(porta.resolver(pedido, escopo(), Decisao::UmaVez, 11), Err(Recusa::Fechada));
     assert_eq!(porta.pedir(acao(), 12), Err(Recusa::Fechada));
     assert!(!porta.registrar(Instancia { pid: id(43), inicio: id(52) }));
