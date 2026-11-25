@@ -5,6 +5,7 @@
  * encerramento gracioso. Este arquivo é fixture de teste, não código do produto. */
 #include <arpa/inet.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <netinet/in.h>
 #include <signal.h>
 #include <stdint.h>
@@ -18,6 +19,57 @@
 #include <unistd.h>
 
 static char bearer[128];
+
+/* Marcadores ao lado do próprio binário (dirname de /proc/self/exe): argv[0] é inútil no
+ * exec por /proc/self/fd/<n> e o cwd é o do processo pai; cada prova copia o binário para
+ * uma pasta exclusiva, então o marcador cai no lugar certo. */
+static void grava_marcador(const char *nome, int modo_signal_safe) {
+  char exe[4096];
+  ssize_t n = readlink("/proc/self/exe", exe, sizeof exe - 1);
+  if (n <= 0) return;
+  exe[n] = '\0';
+  char *barra = strrchr(exe, '/');
+  if (barra == NULL) return;
+  char caminho[4096];
+  int prefixo = snprintf(caminho, sizeof caminho, "%.*s/%s", (int)(barra - exe), exe, nome);
+  if (prefixo <= 0 || (size_t)prefixo >= sizeof caminho) return;
+  int fd = open(caminho, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+  if (fd < 0) return;
+  static const char conteudo[] = "presente\n";
+  ssize_t ignorado = write(fd, conteudo, sizeof conteudo - 1);
+  (void)ignorado;
+  close(fd);
+  (void)modo_signal_safe;
+}
+
+/* Caminho do marcador do sinal pré-computado ANTES de instalar o handler: dentro do
+ * handler só entram syscalls async-signal-safe (open/write/close/_exit) — nada de snprintf,
+ * stdio ou alocação, que a glibc não garante em contexto de sinal. */
+static char caminho_marcador_sinal[4096];
+
+static int prepara_marcador_sinal(void) {
+  char exe[4096];
+  ssize_t n = readlink("/proc/self/exe", exe, sizeof exe - 1);
+  if (n <= 0) return -1;
+  exe[n] = '\0';
+  char *barra = strrchr(exe, '/');
+  if (barra == NULL) return -1;
+  int prefixo = snprintf(caminho_marcador_sinal, sizeof caminho_marcador_sinal, "%.*s/sigterm.marcador", (int)(barra - exe), exe);
+  if (prefixo <= 0 || (size_t)prefixo >= sizeof caminho_marcador_sinal) return -1;
+  return 0;
+}
+
+static void ao_sigterm(int sinal) {
+  (void)sinal;
+  int fd = open(caminho_marcador_sinal, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+  if (fd >= 0) {
+    static const char conteudo[] = "presente\n";
+    ssize_t ignorado = write(fd, conteudo, sizeof conteudo - 1);
+    (void)ignorado;
+    close(fd);
+  }
+  _exit(0);
+}
 
 static void __attribute__((unused)) espera_eof(void) {
   char memoria[64];
@@ -129,7 +181,7 @@ static void serve(int escuta, int porta, int rejeita_bearer, int sai_no_eof) {
       char c;
       ssize_t n = read(STDIN_FILENO, &c, 1);
       if (n == 0) {
-        if (sai_no_eof) { fprintf(stderr, "eof-gracioso\n"); exit(0); }
+        if (sai_no_eof) { grava_marcador("eof-gracioso.marcador", 0); fprintf(stderr, "eof-gracioso\n"); exit(0); }
         vigia_stdin = 0;
       } else if (n < 0 && errno != EINTR) {
         exit(1);
@@ -202,6 +254,13 @@ int main(void) {
     pid_t pid = fork();
     if (pid == 0) { close(STDIN_FILENO); close(STDOUT_FILENO); for (;;) pause(); }
     serve(fd, porta, 0, 1); }
+#elif defined(CENARIO_SEM_LINHA)
+  /* Nunca escreve a linha de bootstrap e não lê stdin: o EOF do escalonamento é inútil,
+   * a morte tem de vir do sinal — o handler grava a evidência do SIGTERM com syscalls
+   * async-signal-safe sobre um caminho pré-computado antes da instalação. */
+  if (prepara_marcador_sinal() != 0) exit(1);
+  signal(SIGTERM, ao_sigterm);
+  for (;;) pause();
 #else
   { int fd = abre_escuta();
     int porta = porta_da_escuta(fd);
