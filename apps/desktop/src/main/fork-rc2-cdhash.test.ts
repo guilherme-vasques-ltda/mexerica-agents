@@ -79,8 +79,8 @@ test('tabela de recusas do CodeDirectory: um focal por linha', () => {
 })
 
 test('CD enxertado de outro binário com pin correto é recusado pelos hashes de página', () => {
-  const original = assinarArm64('corpo original de mesmo tamanho-----')
-  const outro = assinarArm64('corpo substituto de mesmo tamanho----')
+  const original = assinarArm64('corpo-A-do-hub-com-tamanho-igual')
+  const outro = assinarArm64('corpo-B-do-hub-com-tamanho-igual')
   const enxertado = Buffer.concat([outro.bytes.subarray(0, outro.dataoff), original.bytes.subarray(original.dataoff)])
   assert.throws(() => verifyRc2AdHocSignature(enxertado, original.cdhash), /invalid_rc2_artifact/)
 })
