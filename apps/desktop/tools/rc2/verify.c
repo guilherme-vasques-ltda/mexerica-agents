@@ -37,7 +37,7 @@ static napi_value verify(napi_env env, napi_callback_info callback) {
     if (!rule || !url ||
         SecRequirementCreateWithString(rule, kSecCSDefaultFlags, &requirement) != errSecSuccess ||
         SecStaticCodeCreateWithPath(url, kSecCSDefaultFlags, &code) != errSecSuccess ||
-        SecStaticCodeCheckValidity(code, kSecCSStrictValidate | kSecCSCheckAllArchitectures, requirement) != errSecSuccess ||
+        SecStaticCodeCheckValidity(code, kSecCSStrictValidate | kSecCSCheckAllArchitectures | kSecCSNoNetworkAccess, requirement) != errSecSuccess ||
         SecCodeCopySigningInformation(code, kSecCSSigningInformation, &info) != errSecSuccess || !info) goto done;
 
     CFDataRef cdhash = CFDictionaryGetValue(info, kSecCodeInfoUnique);
