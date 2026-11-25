@@ -39,7 +39,10 @@ pub(super) enum Capacidade {
     Tela,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Autorização de partida: move-only, sem `Copy`/`Clone`. Cada instância sai
+/// apenas da verificação e não pode ser duplicada para burlar "Parar tudo";
+/// quem a segura só lê o perfil admitido.
+#[derive(Debug, PartialEq, Eq)]
 pub(super) struct Partida<'a> {
     perfil: Perfil<'a>,
 }
