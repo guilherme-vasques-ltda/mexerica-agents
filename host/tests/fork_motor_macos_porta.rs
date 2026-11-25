@@ -231,3 +231,26 @@ fn parada_confirmada_no_limite_exige_evidencia_e_saidas() {
     assert_eq!(porta.estado(2_001, Evidencia::UnidadeFechada(anterior)), Parada::NaoConfirmada);
     assert_eq!(porta.estado(2_001, Evidencia::UnidadeFechada(escopo())), Parada::ConfirmadaNoPrazo);
 }
+
+#[test]
+fn saida_confirmada_e_terminal_para_reativacao_no_censo() {
+    // Caso sintético: descendente registrado, saída confirmada e depois a
+    // mesma identidade reaparece — a memória da saída fecha a reativação
+    // como descendente E como motor, em qualquer papel.
+    let filho = Instancia { pid: id(80), inicio: id(81) };
+    let mut s = Porta::nova(escopo());
+    s.aceitar_aviso(escopo()).unwrap();
+    assert!(s.registrar(filho));
+    assert!(s.confirmar_saida(filho));
+    assert!(!s.registrar(filho));
+    assert!(!s.registrar_motor(filho));
+    // Identidade viva, sem saída confirmada: segue registrável como motor.
+    let vivo = Instancia { pid: id(90), inicio: id(91) };
+    assert!(s.registrar_motor(vivo));
+    assert!(s.confirmar_saida(vivo));
+    assert!(!s.registrar_motor(vivo));
+    assert!(!s.registrar(vivo));
+    // A memória é por identidade exata (pid + início): outra identidade não é atingida.
+    let outro = Instancia { pid: id(82), inicio: id(83) };
+    assert!(s.registrar(outro));
+}

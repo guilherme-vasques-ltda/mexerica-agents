@@ -81,40 +81,43 @@ impl<'a> Vinculo<'a> {
         }
         Ok(Self { escopo, provedor, item: Item { grupo: grupo_do_app, identificador } })
     }
+
+    /// Escopo do vínculo (inclui a geração): a ligação confere a coerência
+    /// com o escopo da unidade antes de abrir o cofre.
+    pub(super) fn escopo(&self) -> Escopo {
+        self.escopo
+    }
 }
 
-/// Autorização da inferência: move-only e ligada à geração do vínculo.
-/// Consumida por valor no ponto do efeito — reuso não compila; cada
-/// autorização sai de uma consulta única ao cofre.
+/// Autorização da inferência: move-only e ligada à geração do vínculo E ao
+/// cofre emissor. Redimida por valor SÓ pelo cofre que a emitiu, ainda
+/// aberto (`Cofre::redimir`) — reuso não compila, cada autorização sai de
+/// uma consulta única ao cofre, a emitida antes da parada morre com ela e
+/// outro cofre aberto na mesma geração não a redime.
 #[derive(Debug, PartialEq, Eq)]
 pub(super) struct Autorizacao {
     geracao: NonZeroU64,
-}
-
-impl Autorizacao {
-    /// Consumo único no ponto do efeito: devolve a geração do vínculo que
-    /// autorizou e destrói a autorização — depois disso ela não existe.
-    pub(super) fn consumir(self) -> NonZeroU64 {
-        self.geracao
-    }
+    emissor: uuid::Uuid,
 }
 
 /// Cofre da geração: aberto sobre o vínculo composto pelo Hub, fechado por
 /// "Parar tudo" e nunca reaberto. A autorização não atravessa gerações — o
 /// escopo do vínculo carrega a geração e pedido de outra geração recusa
-/// antes de olhar o item.
+/// antes de olhar o item — e não atravessa cofres: o emissor é único por
+/// abertura e a redenção confere os dois.
 pub(super) struct Cofre<'a> {
     vinculo: Vinculo<'a>,
     fechado: bool,
+    emissor: uuid::Uuid,
 }
 
 impl<'a> Cofre<'a> {
     pub(super) fn abrir(vinculo: Vinculo<'a>) -> Self {
-        Self { vinculo, fechado: false }
+        Self { vinculo, fechado: false, emissor: uuid::Uuid::new_v4() }
     }
 
     /// "Parar tudo" aplicado ao cofre: fecha o acesso da geração, sem
-    /// reabrir. Idempotente e nunca bloqueado por auditoria.
+    /// reabrir. Idempotente e não depende da auditoria.
     pub(super) fn parar(&mut self) {
         self.fechado = true;
     }
@@ -138,7 +141,24 @@ impl<'a> Cofre<'a> {
         if inferencia.item != self.vinculo.item {
             return Err(Recusa::ItemDivergente);
         }
-        Ok(Autorizacao { geracao: self.vinculo.escopo.geracao })
+        Ok(Autorizacao { geracao: self.vinculo.escopo.geracao, emissor: self.emissor })
+    }
+
+    /// Redenção da autorização: só pelo cofre EMISSOR, ainda aberto. O
+    /// token é consumido por valor — fechado o cofre, a autorização
+    /// emitida antes morre com ele; outro cofre aberto na mesma geração
+    /// não a redime; nunca por estado do portador, e sem redenção não há
+    /// efeito.
+    #[allow(clippy::needless_pass_by_value)]
+    pub(super) fn redimir(&self, autorizacao: Autorizacao) -> Result<NonZeroU64, Recusa> {
+        let Autorizacao { geracao, emissor } = autorizacao;
+        if self.fechado {
+            return Err(Recusa::Fechada);
+        }
+        if geracao != self.vinculo.escopo.geracao || emissor != self.emissor {
+            return Err(Recusa::Vinculo);
+        }
+        Ok(geracao)
     }
 }
 

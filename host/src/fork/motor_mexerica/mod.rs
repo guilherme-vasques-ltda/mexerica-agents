@@ -305,6 +305,12 @@ pub(crate) fn engine_gone(error: &anyhow::Error) -> bool {
 /// fora do worker de instalação. Vale para o `Engine` e para tudo que o
 /// antecede no caminho do bot (servidores MCP do `session/new`): desligada,
 /// nenhum processo — nem de motor, nem de servidor MCP.
+///
+/// No macOS, a recusa `motor_macos_indisponivel` fica na frente de tudo: a
+/// ligação do perfil rc.2 (`fork-motor-macos/ligacao.rs`, admissão verificada
+/// de identidade e partida sob Seatbelt comprovado) segue DORMENTE enquanto
+/// esta recusa valer — sem chamador de produção e sem fonte de entrada rc.2
+/// no Hub, nenhum Motor/MCP inicia no macOS, com ou sem partida verificada.
 pub(crate) fn ensure_runnable() -> Result<()> {
     #[cfg(target_os = "macos")]
     {

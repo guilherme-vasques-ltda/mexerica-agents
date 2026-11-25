@@ -19,8 +19,8 @@
 //!   nunca duas vezes. A intenção aprovada é gravada ANTES do efeito pelo
 //!   gancho de intenção. Gravação falha em qualquer desses pontos nega o
 //!   efeito e fecha a porta.
-//! - `parar`: o fechamento nunca é bloqueado; havendo pendência, grava
-//!   `fechada` — gravação falha deixa o fechamento valendo.
+//! - `parar`: o fechamento nunca é negado nem desfeito; havendo pendência,
+//!   grava `fechada` — gravação falha deixa o fechamento valendo.
 //!
 //! Projeção de log: só campos fixos (código, caminho, motivo) — nenhuma
 //! mensagem dinâmica de erro entra no log, porque a análise atual não
@@ -211,9 +211,49 @@ impl<'a> PortaAuditada<'a> {
         }
     }
 
-    /// Caminho de `parar` ("Parar tudo" na porta): fecha sem bloquear;
-    /// havendo pendência, grava `fechada`. Gravação falha deixa o
-    /// fechamento valendo, com a falha devolvida.
+    /// Estado da parada com evidência: só a porta aberta expõe; sem
+    /// evidência nunca é sucesso falso.
+    pub(super) fn estado(&self, agora_ms: u64, evidencia: super::porta::Evidencia) -> super::porta::Parada {
+        self.porta.estado(agora_ms, evidencia)
+    }
+
+    /// Registra descendente observado da unidade: entra no censo que torna
+    /// sobrevivente visível na parada — não abre partida.
+    pub(super) fn registrar(&mut self, instancia: super::porta::Instancia) -> bool {
+        self.porta.registrar(instancia)
+    }
+
+    /// Registra a instância principal observada (o Motor): única marca que
+    /// abre a partida; descendente sozinho não basta.
+    pub(super) fn registrar_motor(&mut self, instancia: super::porta::Instancia) -> bool {
+        self.porta.registrar_motor(instancia)
+    }
+
+    /// Confirma a saída de uma instância registrada; a saída confirmada do
+    /// motor retira a marca que abre a partida.
+    pub(super) fn confirmar_saida(&mut self, instancia: super::porta::Instancia) -> bool {
+        self.porta.confirmar_saida(instancia)
+    }
+
+    /// A porta está fechada por qualquer caminho (parar ou falha de
+    /// auditoria): quem coordena fecha o que depende dela.
+    pub(super) fn fechada(&self) -> bool {
+        self.porta.fechada()
+    }
+
+    /// O aceite do aviso desta geração aconteceu?
+    pub(super) fn aceita(&self) -> bool {
+        self.porta.aceita()
+    }
+
+    /// A instância principal (o Motor) está no censo, sem saída confirmada?
+    pub(super) fn motor_no_censo(&self) -> bool {
+        self.porta.motor_no_censo()
+    }
+
+    /// Caminho de `parar` ("Parar tudo" na porta): o fechamento nunca é
+    /// negado nem desfeito; havendo pendência, grava `fechada`. Gravação
+    /// falha deixa o fechamento valendo, com a falha devolvida.
     pub(super) fn parar(&mut self, agora_ms: u64) -> Result<(), Falha> {
         let pendente = self.porta.pendente();
         self.porta.parar(agora_ms);
