@@ -152,7 +152,7 @@ async fn rodar<T: Transporte>(store: &Store, fake: &T, cofre: &dyn Cofre) -> Res
 }
 
 fn porta_fixture<'a>(vinculo: &Vinculo<'a>, pedido: &Pedido<'a>) -> ativacao::Porta<'a> {
-    ativacao::Porta::fixture(vinculo.bot, vinculo.concessao, pedido.modelo, std::time::Duration::from_mins(15))
+    ativacao::Porta::fixture(vinculo.bot, vinculo.concessao, pedido.modelo, std::time::Duration::from_secs(15 * 60))
 }
 
 async fn turno<T: Transporte>(
