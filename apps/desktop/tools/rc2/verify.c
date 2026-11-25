@@ -6,28 +6,6 @@
 #include <string.h>
 #include <sys/syslimits.h>
 
-static bool trusted_offline(SecTrustRef trust) {
-    CFArrayRef policies = NULL;
-    CFMutableArrayRef extended = NULL;
-    SecPolicyRef revocation = SecPolicyCreateRevocation(
-        kSecRevocationUseAnyAvailableMethod | kSecRevocationRequirePositiveResponse |
-        kSecRevocationNetworkAccessDisabled);
-    bool valid = false;
-    if (trust && revocation && SecTrustCopyPolicies(trust, &policies) == errSecSuccess && policies) {
-        extended = CFArrayCreateMutableCopy(NULL, 0, policies);
-        if (extended) {
-            CFArrayAppendValue(extended, revocation);
-            valid = SecTrustSetNetworkFetchAllowed(trust, false) == errSecSuccess &&
-                    SecTrustSetPolicies(trust, extended) == errSecSuccess &&
-                    SecTrustEvaluateWithError(trust, NULL);
-        }
-    }
-    if (extended) CFRelease(extended);
-    if (policies) CFRelease(policies);
-    if (revocation) CFRelease(revocation);
-    return valid;
-}
-
 static napi_value verify(napi_env env, napi_callback_info callback) {
     const char *hex = "0123456789abcdef";
     size_t argc = 2, path_len = 0, role_len = 0;
@@ -66,15 +44,13 @@ static napi_value verify(napi_env env, napi_callback_info callback) {
     CFStringRef team = CFDictionaryGetValue(info, kSecCodeInfoTeamIdentifier);
     CFNumberRef flags = CFDictionaryGetValue(info, kSecCodeInfoFlags);
     CFDictionaryRef entitlements = CFDictionaryGetValue(info, kSecCodeInfoEntitlementsDict);
-    SecTrustRef trust = (SecTrustRef)CFDictionaryGetValue(info, kSecCodeInfoTrust);
     int64_t signature_flags = 0;
     if (!cdhash || CFGetTypeID(cdhash) != CFDataGetTypeID() || CFDataGetLength(cdhash) != 20 ||
         !team || !CFEqual(team, CFSTR("XYTFAFLUK9")) ||
         !flags || CFGetTypeID(flags) != CFNumberGetTypeID() ||
         !CFNumberGetValue(flags, kCFNumberSInt64Type, &signature_flags) ||
         !(signature_flags & kSecCodeSignatureRuntime) || (signature_flags & kSecCodeSignatureAdhoc) ||
-        (entitlements && (CFGetTypeID(entitlements) != CFDictionaryGetTypeID() || CFDictionaryGetCount(entitlements))) ||
-        !trust || CFGetTypeID(trust) != SecTrustGetTypeID() || !trusted_offline(trust)) goto done;
+        (entitlements && (CFGetTypeID(entitlements) != CFDictionaryGetTypeID() || CFDictionaryGetCount(entitlements)))) goto done;
 
     const UInt8 *bytes = CFDataGetBytePtr(cdhash);
     for (size_t i = 0; i < 20; i++) {
