@@ -187,6 +187,13 @@ async fn health_names_this_binary() {
     assert_eq!(health["receipt"], recibo(&host.token, &nonce, &health), "o recibo prova a resposta");
     let (outro, _) = proved(&host.base, &host.token, [4u8; 32]);
     assert_eq!(client.get(outro).send().await.unwrap().status(), 401, "o mesmo nonce não abre duas vezes");
+    // A repetição em sequência não cobre a janela da disputa: duas requisições com a MESMA prova
+    // ao mesmo tempo — uma só registra o nonce, a outra encontra ele já consumido.
+    let (corrida, _) = proved(&host.base, &host.token, [5u8; 32]);
+    let (primeira, segunda) = tokio::join!(client.get(&corrida).send(), client.get(&corrida).send());
+    let mut status = [primeira.unwrap().status().as_u16(), segunda.unwrap().status().as_u16()];
+    status.sort_unstable();
+    assert_eq!(status, [200, 401], "na disputa pelo mesmo nonce, só uma prova passa");
     assert!(health["binaryHash"].as_str().is_some_and(|hash| hash.len() == 64));
     // The apps compare it with the path they resolve, which on Windows has no `\\?\` prefix.
     let exe = std::fs::canonicalize(env!("CARGO_BIN_EXE_donnabot-host")).unwrap();

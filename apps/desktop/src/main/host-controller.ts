@@ -14,6 +14,7 @@ import { forkFeatures, officialDesktop } from '../shared/fork-features'
 import { launchdServiceAbsent, localHostOff as localHostOffFor, macPlistValid, uninstallArgs, type UninstallLevel } from '../shared/fork-mac-local-hub'
 import { envAlias } from '../shared/env-alias'
 import { localHealth, provarIdentidade } from './fork-local-health'
+import { postProvado } from './fork-proved-loopback'
 import { idiomaDoApp } from './fork-idioma'
 import { traduzir } from '../renderer/lib/fork-i18n/index.ts'
 import type { HostSetupStage } from './analytics'
@@ -296,14 +297,17 @@ export class HostController extends EventEmitter {
     if (!this.canUseHost()) throw new Error('account_required')
     const local = this.local
     if (!local) throw new Error('The host isn’t running')
-    const res = await fetch(`${local.baseURL}/api/${method}`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${local.token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(params),
-      signal: AbortSignal.timeout(timeoutMs),
-    })
-    if (!res.ok) throw new Error(`${method}: HTTP ${res.status}`)
-    return (await res.json()) as T
+    // A prova do token e a credencial passam pela mesma conexão, uma atrás da outra: não há
+    // janela para outro listener ocupar a porta entre uma e outra.
+    const res = await postProvado(local.baseURL, `/api/${method}`, local.token, JSON.stringify(params), timeoutMs)
+    if (res.statusCode !== 200) {
+      res.resume()
+      throw new Error(`${method}: HTTP ${res.statusCode}`)
+    }
+    let text = ''
+    res.setEncoding('utf8')
+    for await (const chunk of res) text += chunk as string
+    return JSON.parse(text) as T
   }
 
   async uninstall(level: UninstallLevel = 1): Promise<boolean> {

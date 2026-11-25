@@ -13,6 +13,7 @@ import { app, dialog, ipcMain, type BrowserWindow } from 'electron'
 import { SSH_STORAGE_STATUS, type SSHAttachment, type SSHMotivo, type SSHProfile, type SSHState, type SSHStatus } from '../shared/ssh'
 import { dataDir } from './host-controller'
 import { localHealth, provarIdentidade } from './fork-local-health'
+import { postProvado } from './fork-proved-loopback'
 import { hubSSHAlias } from './fork-ssh-semente/hub-alias'
 import { seedProfiles, sshAliasExists } from './fork-ssh-semente/semente'
 import { infoArguments, knownHostsFiles, orphanTunnelPattern, resolveArguments, tunnelArguments } from './ssh-command'
@@ -275,7 +276,10 @@ export class LocalCloudCallError extends Error {
 
 type LocalCaptureDeps = {
   profileId: string; computerId: string; signKey: string; baseURL: string; token: string
-  current: () => boolean; listener: () => Promise<boolean>; send: typeof fetch
+  current: () => boolean; listener: () => Promise<boolean>
+  /** O envio com a credencial: por padrão a conexão provada (a prova e o bearer na mesma conexão,
+   * uma atrás da outra — fork-proved-loopback); testes injetam o deles. */
+  send?: (url: string, init: { method: string; headers: Record<string, string>; body: string }, token: string) => Promise<{ ok: boolean; json: () => Promise<unknown> }>
 }
 
 /** Fábrica interna do Main. Injeção existe para testar a guarda, não é um ingresso IPC. */
@@ -293,10 +297,20 @@ export function createLocalCloudCapture(deps: LocalCaptureDeps): CapturedSSHLoca
       const payload = JSON.stringify(route.body)
       if (!current()) throw new LocalCloudCallError('notSent')
       try {
-        const response = await deps.send(`${deps.baseURL}/api/${route.method}`, {
+        const enviar = deps.send ?? ((url: string, init: { method: string; headers: Record<string, string>; body: string }, token: string) =>
+          postProvado(new URL(url).origin, new URL(url).pathname, token, init.body, 20_000).then((res) => ({
+            ok: res.statusCode === 200,
+            json: async () => {
+              res.setEncoding('utf8')
+              let text = ''
+              for await (const chunk of res) text += chunk as string
+              return JSON.parse(text)
+            },
+          })))
+        const response = await enviar(`${deps.baseURL}/api/${route.method}`, {
           method: 'POST', headers: { Authorization: `Bearer ${deps.token}`, 'Content-Type': 'application/json' },
-          body: payload, redirect: 'error', signal: AbortSignal.timeout(20_000),
-        })
+          body: payload,
+        }, deps.token)
         if (!current() || !response.ok) throw new LocalCloudCallError('unknown')
         const stillListening = await deps.listener()
         if (!current() || !stillListening) throw new LocalCloudCallError('unknown')

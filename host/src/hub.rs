@@ -118,6 +118,8 @@ pub struct Hub {
     /// Loopback-only bearer token for this computer's own apps and helpers.
     pub token: String,
     pub(crate) pontes: crate::fork::ponte_credencial::Credenciais,
+    /// Registro dos nonces de prova do `/health`, deste Hub e zera com ele (`fork::prova_health`).
+    pub(crate) consumidos: Mutex<crate::fork::prova_health::Consumidos>,
     /// Repasse local dos planos de código (iniciado sob demanda).
     pub(crate) planos: tokio::sync::OnceCell<Arc<crate::fork::planos_codigo::Repasse>>,
     pub port: u16,
@@ -191,6 +193,7 @@ impl Hub {
             identity,
             token,
             pontes: crate::fork::ponte_credencial::Credenciais::default(),
+            consumidos: Mutex::new(crate::fork::prova_health::Consumidos::new()),
             planos: tokio::sync::OnceCell::new(),
             port,
             events,

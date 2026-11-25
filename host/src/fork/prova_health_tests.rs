@@ -134,7 +134,7 @@ fn a_lista_de_nonces_nao_cresce_sem_limite() {
         let prova = prova(TOKEN, &nonce);
         assert_eq!(aceitar(&f.hub, &b64, &prova, loopback), Some(nonce), "nonce {i} é novo");
     }
-    let vistos = consumidos().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let vistos = f.hub.consumidos.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     assert!(vistos.ordem.len() <= TETO_NONCES, "a memória fica no teto, não no tanto de provas");
     drop(vistos);
     assert_eq!(

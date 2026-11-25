@@ -4,9 +4,8 @@
 use crate::hub::Hub;
 use hmac::{Hmac, KeyInit, Mac as _};
 use sha2::Sha256;
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::net::SocketAddr;
-use std::sync::{Mutex, OnceLock};
 
 /// Domínio desta prova: um HMAC do token aqui nunca vale como credencial de outro uso.
 const ROTULO: &[u8] = b"mexerica/health-proof/v1";
@@ -66,14 +65,15 @@ fn deste_computador(peer: SocketAddr) -> bool {
         || (crate::environment::Environment::is_open() && peer == crate::open_hub::SOCKET_PEER)
 }
 
-/// Nonces já aceitos, em ordem de chegada e com teto. Enquanto o Hub roda, um par nonce/prova vale
-/// uma vez só: uma prova capturada não volta a abrir a identidade. Só uma prova válida entra aqui,
-/// então quem não tem o token não consegue crescer esta lista — e ela mesmo assim não cresce sem
-/// limite: passando do teto, o nonce mais antigo sai. Um reinício do Hub zera o registro. Nas duas
-/// saídas (reinício ou teto), repetir uma prova antiga não passa de revelar a identidade de novo
+/// Nonces já aceitos, em ordem de chegada e com teto — um registro POR Hub, nunca do processo:
+/// reiniciar o Hub é o zera de verdade, e um teste não interfere no outro. Enquanto o Hub roda,
+/// um par nonce/prova vale uma vez só: uma prova capturada não volta a abrir a identidade. Só uma
+/// prova válida entra aqui, então quem não tem o token não consegue crescer esta lista — e ela
+/// mesmo assim não cresce sem limite: passando do teto, o nonce mais antigo sai. Nas duas saídas
+/// (reinício ou teto), repetir uma prova antiga não passa de revelar a identidade de novo
 /// (versão, caminho e hash do binário), nunca o token nem nada que valha como credencial.
-struct Consumidos {
-    ordem: std::collections::VecDeque<[u8; 32]>,
+pub(crate) struct Consumidos {
+    ordem: VecDeque<[u8; 32]>,
     conjunto: HashSet<[u8; 32]>,
 }
 
@@ -82,8 +82,8 @@ struct Consumidos {
 const TETO_NONCES: usize = 4096;
 
 impl Consumidos {
-    fn new() -> Self {
-        Self { ordem: std::collections::VecDeque::new(), conjunto: HashSet::new() }
+    pub(crate) fn new() -> Self {
+        Self { ordem: VecDeque::new(), conjunto: HashSet::new() }
     }
 
     /// Insere o nonce se ele ainda não estava na lista, devolvendo se é novo; passando do teto, o
@@ -102,11 +102,6 @@ impl Consumidos {
     }
 }
 
-fn consumidos() -> &'static Mutex<Consumidos> {
-    static CONSUMIDOS: OnceLock<Mutex<Consumidos>> = OnceLock::new();
-    CONSUMIDOS.get_or_init(|| Mutex::new(Consumidos::new()))
-}
-
 /// Aceita o par uma única vez: confere origem e prova e registra o nonce na mesma operação, sem
 /// consumir o nonce de uma tentativa recusada. Devolve o nonce, que o handler usa no recibo.
 pub(crate) fn aceitar(hub: &Hub, nonce: &str, proof: &str, peer: SocketAddr) -> Option<[u8; 32]> {
@@ -114,7 +109,7 @@ pub(crate) fn aceitar(hub: &Hub, nonce: &str, proof: &str, peer: SocketAddr) -> 
         return None;
     }
     let nonce = crate::remote::crypto::unb64_n::<NONCE>(nonce).ok()?;
-    let mut vistos = consumidos().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut vistos = hub.consumidos.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     vistos.inserir_uma_vez(nonce).then_some(nonce)
 }
 

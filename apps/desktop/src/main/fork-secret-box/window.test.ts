@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import * as path from 'node:path'
 import type { WebContents } from 'electron'
 import { deferred, loadMainModule, settle } from '../../shared/test-support/main-module.ts'
@@ -206,7 +207,8 @@ test('host-proxy recusa host:call vindo da janela privada, sem fetch', async () 
     electron: { ipcMain: { handle: (channel: string, h: Handler) => handlers.set(channel, h), on: (channel: string, h: Handler) => handlers.set(channel, h) } },
     './analytics': { noteAnalyticsSetting: () => {} },
     './fork-secret-box/contexts': contexts,
-  }, { URL, fetch: async () => { fetches++; throw new Error('fetch inesperado') }, AbortController, setTimeout, clearTimeout, TextDecoder })
+    'node:crypto': { createHmac, randomBytes, timingSafeEqual },
+  }, { URL, AbortController, setTimeout, clearTimeout, TextDecoder, Buffer })
   proxy.registerHostProxy()
   const result = await handlers.get('host:call')!({ sender: f.windows[0].webContents, senderFrame: null }, 'http://localhost:1', 'fixture', 'ping', {}, 1000)
   assert.equal(JSON.stringify(result), JSON.stringify({ ok: false, error: { status: 0, message: 'Contexto indisponível.' } }))

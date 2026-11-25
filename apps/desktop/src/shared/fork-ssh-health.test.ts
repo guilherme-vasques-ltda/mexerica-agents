@@ -36,8 +36,10 @@ function hubOf(token: string, impostor = false, closesBeforeProof = false) {
         seen.push({ url: request.url ?? '', authorization: request.headers.authorization })
         answered += 1
         if (closesBeforeProof && answered === 1) {
-          response.end()
+          response.writeHead(200, { 'content-type': 'application/json' })
+          response.end(JSON.stringify({ ok: true, environment: 'main', busy: false }))
           server.close()
+          server.closeAllConnections()
           return
         }
         const query = new URL(request.url ?? '/', 'http://127.0.0.1').searchParams
@@ -101,8 +103,11 @@ function rig(options: { infoToken?: string; tunnelPid?: number; impostor?: boole
       // `lsof -a -n -P -p <pid> -iTCP@127.0.0.1:<porta> -sTCP:LISTEN -t`: só a porta que o próprio
       // túnel deste teste atende aparece com o pid dele, como no sistema de verdade.
       const port = Number(/@127\.0\.0\.1:(\d+)/.exec(args.join(' '))?.[1])
+      const pid = Number(/-p\s+(\d+)/.exec(args.join(' '))?.[1])
       const owner = owning.get(port)
-      if (owner === undefined) {
+      // O `-a` com `-p` filtra pelo processo pedido: dono diferente ou porta sem dono não imprime
+      // nada e o lsof sai com erro, como no sistema de verdade.
+      if (owner === undefined || owner !== pid) {
         queueMicrotask(() => child.emit('close', 1))
       } else {
         answer(`${owner}\n`)
@@ -187,7 +192,11 @@ test('a listener that answers the public identity without the token is not accep
   const r = rig({ impostor: true })
   r.connect()
   await r.wait()
-  assert.notEqual(r.status()?.kind, 'connected', 'a forged identity does not attach')
+  const comProva = r.seen.filter((call) => new URL(call.url, 'http://127.0.0.1').searchParams.has('proof'))
+  assert.ok(comProva.length > 0, 'the test reached the identity proof, not just the anonymous probe')
+  const status = r.status()
+  assert.equal(status?.kind, 'failed', JSON.stringify(status))
+  assert.equal(status?.kind === 'failed' ? status.motivo?.chave : null, 'ajustes.ssh.erro.tunelOutro', 'a forged identity fails as another computer')
   assert.deepEqual(r.seen.filter((call) => call.authorization !== undefined), [], 'no bearer ever reaches the impostor')
   assert.deepEqual(r.seen.filter((call) => call.url.startsWith('/api')), [], 'and no API call either')
   r.controller.disconnectAll()
@@ -200,6 +209,7 @@ test('when the answered port stops answering, the ssh of that attempt is killed 
   r.connect()
   await r.wait()
   assert.notEqual(r.status()?.kind, 'connected')
+  assert.ok(r.seen.some((call) => call.url === '/health'), 'the anonymous probe answered')
   assert.ok(r.tunnels.length > 0 && r.tunnels.every((child) => (child as unknown as { exitCode: number | null }).exitCode !== null), 'every spawned ssh was killed, none left running beside a retry')
   assert.deepEqual(r.seen.filter((call) => call.authorization !== undefined), [], 'no credential ever travels')
   r.controller.disconnectAll()
