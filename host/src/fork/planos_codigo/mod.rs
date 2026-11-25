@@ -51,6 +51,16 @@ pub(crate) struct Plano {
     /// O fornecedor só permite o plano em conversa da própria pessoa: rotinas, tarefas agendadas, pedidos de outros bots e
     /// canais nunca recebem a chave (`Uso::Automatico`).
     pub(crate) so_conversa: bool,
+    /// O fornecedor só permite o plano nas ferramentas da lista dele, e o Mexerica ainda não consta nela: o plano nasce
+    /// desligado e só aparece, salva e conversa depois da liberação (`liberado`).
+    pub(crate) sob_consulta: bool,
+}
+
+/// O plano está oferecido neste Hub? Um plano `sob_consulta` só depois de liberado: não existe método para liberar, é
+/// uma decisão registrada no próprio Hub depois da resposta do fornecedor.
+pub(crate) fn oferecido(store: &Store, plano: &Plano) -> bool {
+    !plano.sob_consulta
+        || store.kv_read(&format!("planos-codigo.liberado/{}", plano.id)).ok().flatten().as_deref() == Some("1")
 }
 
 pub(crate) const PLANOS: &[Plano] = &[
@@ -73,6 +83,7 @@ pub(crate) const PLANOS: &[Plano] = &[
         ],
         avisos: &["saldo_extra"],
         so_conversa: false,
+        sob_consulta: false,
     },
     Plano {
         id: "kimi-code",
@@ -91,6 +102,19 @@ pub(crate) const PLANOS: &[Plano] = &[
         rotas: &[("chat/completions", "https://api.kimi.ai/coding/v1/chat/completions")],
         avisos: &["so_conversa"],
         so_conversa: true,
+        sob_consulta: false,
+    },
+    Plano {
+        id: "glm-coding-plan",
+        nome: "GLM Coding Plan",
+        provedor: "zai-coding-plan",
+        variavel: "ZHIPU_API_KEY",
+        lista: None,
+        modelos: &[("glm-5.3", "GLM-5.3"), ("glm-5.3-flash", "GLM-5.3-Flash")],
+        rotas: &[("chat/completions", "https://api.z.ai/api/coding/paas/v4/chat/completions")],
+        avisos: &["so_ferramentas_da_lista"],
+        so_conversa: false,
+        sob_consulta: true,
     },
 ];
 
@@ -166,6 +190,10 @@ pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Va
         return listar(&hub.store);
     }
     let plano = plano(pedido.plano.as_deref().unwrap_or_default())?;
+    ensure!(
+        method == "planoCodigoRemover" || oferecido(&hub.store, plano),
+        "plano_desligado: este plano ainda não está disponível neste computador."
+    );
     match method {
         "planoCodigoTestar" => {
             if let Some(texto) = pedido.chave.as_deref() {
@@ -287,7 +315,7 @@ fn modelos_guardados(store: &Store, plano: &Plano) -> Result<Option<Value>> {
 /// Os planos para a tela «Adicionar conexão», no grupo «Planos». Nunca a chave, nem parte dela.
 pub(crate) fn listar(store: &Store) -> Result<Value> {
     let mut lista = Vec::new();
-    for plano in PLANOS {
+    for plano in PLANOS.iter().filter(|plano| oferecido(store, plano)) {
         let configurada = store.kv_read(&slot_chave(plano))?.is_some();
         let guardado = if configurada { modelos_guardados(store, plano)? } else { None };
         lista.push(json!({
@@ -309,7 +337,7 @@ pub(crate) fn listar(store: &Store) -> Result<Value> {
 pub(crate) fn acrescentar_modelos(store: &Store, catalogo: &mut Value) -> Result<()> {
     let Some(modelos) = catalogo["models"].as_array_mut() else { return Ok(()) };
     for plano in PLANOS {
-        if store.kv_read(&slot_chave(plano))?.is_none() {
+        if !oferecido(store, plano) || store.kv_read(&slot_chave(plano))?.is_none() {
             continue;
         }
         for modelo in

@@ -717,3 +717,85 @@ async fn kimi_nunca_entrega_a_chave_a_uso_automatico_e_entrega_a_conversa() {
     com_chave(&hub).await;
     assert!(ambiente_do_bot(&hub, &go, Uso::Automatico).await.unwrap().is_some());
 }
+
+fn glm() -> &'static Plano {
+    PLANOS.iter().find(|plano| plano.id == "glm-coding-plan").unwrap()
+}
+
+fn liberar_glm(hub: &Arc<Hub>) {
+    hub.store.kv_set("planos-codigo.liberado/glm-coding-plan", "1").unwrap();
+}
+
+#[test]
+fn glm_nasce_desligado_e_so_o_provedor_do_plano_de_codigo_conta() {
+    assert!(glm().sob_consulta && !glm().so_conversa);
+    assert_eq!((glm().provedor, glm().variavel), ("zai-coding-plan", "ZHIPU_API_KEY"));
+    assert_eq!(plano_do_modelo("zai-coding-plan/glm-5.3").map(|p| p.id), Some("glm-coding-plan"));
+    assert!(plano_do_modelo("zai/glm-5.3").is_none(), "o provedor de pagamento por uso não é este plano");
+    assert!(PLANOS.iter().filter(|plano| plano.id != "glm-coding-plan").all(|plano| !plano.sob_consulta));
+}
+
+#[tokio::test]
+async fn glm_desligado_nao_aparece_nao_salva_nao_testa_e_nao_abre_o_opencode() {
+    let hub = hub_de_prova();
+    let ids: Vec<_> =
+        listar(&hub.store).unwrap()["planos"].as_array().unwrap().iter().map(|p| p["id"].clone()).collect();
+    assert_eq!(ids, [json!("opencode-go"), json!("kimi-code")]);
+    for metodo in ["planoCodigoSalvar", "planoCodigoTestar"] {
+        let erro = call(&hub, &Caller::Local, metodo, json!({"plano": "glm-coding-plan", "chave": CHAVE}))
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(erro.starts_with("plano_desligado"), "{metodo}: {erro}");
+        assert!(!erro.contains(CHAVE));
+    }
+    assert_eq!(hub.store.kv_read("plano-codigo/glm-coding-plan").unwrap(), None);
+
+    // Mesmo com uma chave já no cofre (por fora), o lançamento é recusado e a lista de modelos não a mostra.
+    crate::market::vault::write(&hub.store, "plano-codigo/glm-coding-plan", CHAVE).unwrap();
+    hub.store
+        .kv_set(
+            "plano-codigo.modelos/glm-coding-plan",
+            r#"{"modelos":[{"id":"zai-coding-plan/glm-5.3","name":"GLM"}],"conferidoEm":1}"#,
+        )
+        .unwrap();
+    let cfg = bot("b1", "opencode", "zai-coding-plan/glm-5.3", crate::fork::spaces::PERSONAL);
+    hub.store.save_bot(&cfg).unwrap();
+    let erro = ambiente_do_bot(&hub, &cfg, Uso::Conversa).await.err().expect("desligado").to_string();
+    assert!(erro.starts_with("plano_desligado"), "{erro}");
+    let mut catalogo = json!({"models": []});
+    acrescentar_modelos(&hub.store, &mut catalogo).unwrap();
+    assert_eq!(catalogo["models"], json!([]));
+    let erro = call(&hub, &Caller::Local, "planoCodigoRemover", json!({"plano": "glm-coding-plan"}))
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(erro.starts_with("plano_chave_ja_salva"), "{erro}");
+}
+
+#[tokio::test]
+async fn glm_liberado_salva_sem_chamada_e_conversa_com_o_perfil_e_a_extensao_do_plano() {
+    let hub = hub_de_prova();
+    liberar_glm(&hub);
+    let acesso = salvar(&hub, glm(), None, Zeroizing::new(CHAVE.into())).await.unwrap();
+    assert_eq!(acesso["estado"], "acesso_nao_confirmado");
+    let ids: Vec<_> = acesso["modelos"].as_array().unwrap().iter().map(|m| m["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["zai-coding-plan/glm-5.3", "zai-coding-plan/glm-5.3-flash"]);
+    assert!(!acesso.to_string().contains(CHAVE));
+    let ids: Vec<_> =
+        listar(&hub.store).unwrap()["planos"].as_array().unwrap().iter().map(|p| p["id"].clone()).collect();
+    assert!(ids.contains(&json!("glm-coding-plan")));
+
+    let cfg = bot("b1", "opencode", "zai-coding-plan/glm-5.3", crate::fork::spaces::PERSONAL);
+    hub.store.save_bot(&cfg).unwrap();
+    let ambiente = ambiente_do_bot(&hub, &cfg, Uso::Conversa).await.unwrap().expect("liberado");
+    let env: std::collections::BTreeMap<_, _> = ambiente.env.iter().cloned().collect();
+    assert!(env["ZHIPU_API_KEY"].starts_with("mxs_"), "o processo recebe o código de sessão, não a chave");
+    assert!(!ambiente.env.iter().any(|(_, valor)| valor.contains(CHAVE)));
+    let casa = std::path::PathBuf::from(&env["HOME"]);
+    assert!(casa.starts_with(hub.store.engine_setup_root.join("planos").join("glm-coding-plan")));
+    assert!(
+        ambiente_do_bot(&hub, &cfg, Uso::Automatico).await.unwrap().is_some(),
+        "o GLM não tem a regra de só conversa"
+    );
+}
