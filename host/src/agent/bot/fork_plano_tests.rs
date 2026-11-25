@@ -115,7 +115,10 @@ Mensagem"
         "compactação sem pedido do dono nem turno dele antes não é conversa"
     );
     actor.ultimo_turno_do_dono = true;
+    // A fila conserva esse registro e `start_compaction` o repassa a `compactacao_do_dono` antes de abrir o turno.
+    actor.compactacao_do_dono = true;
     assert_eq!(actor.uso_do_plano(), Uso::Conversa, "compactação ao fim de um turno do dono continua a conversa dele");
+    actor.compactacao_do_dono = false;
     actor.ultimo_turno_do_dono = false;
     actor.context_compaction = Some(crate::fork::contexto::ActiveCompaction {
         target: crate::fork::contexto::Target {
@@ -136,13 +139,15 @@ Mensagem"
 async fn rotina_em_outra_conta_nao_herda_a_origem_da_conversa_do_dono() {
     let (hub, cfg) = com_plano();
     let mut actor = new_actor(hub.clone(), cfg);
-    let antes = hub.store.vault_unlock_attempts.load(std::sync::atomic::Ordering::SeqCst);
 
     // 1. Conversa do dono no plano: o `ensure_session` real registra a origem dela.
     let dono = enviar(&hub, "me ajuda com esse código", false).await;
     actor.turn_entries = vec![dono.id.clone()];
     let _ = actor.ensure_session(None).await;
     assert!(actor.ultimo_turno_do_dono, "a conversa do dono foi registrada");
+
+    // O cofre já foi lido pela conversa dela; o que se prova é que a compactação da rotina não lê de novo.
+    let antes = hub.store.vault_unlock_attempts.load(std::sync::atomic::Ordering::SeqCst);
 
     // 2. A rotina roda com uma conta explicitamente selecionada: esse ramo nunca passava pela lógica antiga, e a
     //    falha na conta desconhecida vem DEPOIS do registro, então a limpeza só existe com a correção.
@@ -154,14 +159,15 @@ async fn rotina_em_outra_conta_nao_herda_a_origem_da_conversa_do_dono() {
     actor.active_routine = None;
     actor.cfg.fork_editor.engine_account_id = None;
 
-    // 3. A compactação enfileirada pelo turno da rotina (sem pedido do dono) é automática pela fila real.
+    // 3. A compactação enfileirada pelo turno da rotina (sem pedido do dono) é automática; o push/pop abaixo
+    //    copia o contrato da fila, sem montar o laço inteiro.
     actor.queue.push_back(Queued::Compact { idle: false, manual: None, dono: actor.ultimo_turno_do_dono });
     let Some(Queued::Compact { idle, manual, dono }) = actor.queue.pop_front() else { panic!("enfileirada") };
     assert!(!idle && manual.is_none() && !dono);
 
     // 4. O bot volta ao plano antes da compactação rodar: ela é recusada, sem processo nem leitura do cofre.
     actor.cfg.backend = "opencode".into();
-    actor.cfg.model = "kimi-code-plan-global/k3".into();
+    actor.cfg.model = Some("kimi-code-plan-global/k3".into());
     actor.compactacao_do_dono = manual.is_some() || dono;
     actor.compacting = Some(false);
     let erro = actor.ensure_session(None).await.expect_err("compactação motivada por rotina").to_string();
