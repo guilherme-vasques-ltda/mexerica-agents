@@ -42,6 +42,16 @@ pub(super) struct Pedido {
     serie: u64,
 }
 
+impl Pedido {
+    pub(super) fn escopo(&self) -> Escopo {
+        self.escopo
+    }
+
+    pub(super) fn serie(&self) -> u64 {
+        self.serie
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Recusa {
     Fechada,
