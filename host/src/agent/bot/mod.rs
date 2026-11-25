@@ -261,10 +261,13 @@ enum Queued {
         text: String,
     },
     BotRequest(crate::chat::team::BotRequest),
-    /// A compaction the host decided on (see `compaction`); `idle` while the user is away.
+    /// A compaction the host decided on (see `compaction`); `idle` while the user is away. `dono` preserva, no
+    /// enfileiramento, se o turno que a motivou era a entrada do dono: a execução não relê o estado do turno, que um
+    /// turno automático posterior poderia ter mudado.
     Compact {
         idle: bool,
         manual: Option<crate::fork::contexto::Manual>,
+        dono: bool,
     },
     Group(GroupTurn),
 }
@@ -315,6 +318,8 @@ fn new_actor(hub: Arc<Hub>, cfg: BotConfig) -> Actor {
         session_fresh: false,
         profile_resend: HashSet::new(),
         compacting: None,
+        ultimo_turno_do_dono: false,
+        compactacao_do_dono: false,
         context_compaction: None,
         raw_prompt: false,
         handoff: None,
@@ -581,6 +586,10 @@ struct Actor {
     profile_resend: HashSet<String>,
     /// The running turn is a compaction the host started (`Some(true)` while the user is away).
     compacting: Option<bool>,
+    /// A origem da compactação em curso, preservada quando ela foi enfileirada (ver `Queued::Compact`).
+    compactacao_do_dono: bool,
+    /// O último turno que não foi compactação era a palavra do dono: decide a compactação que o Hub enfileira ao fim dele.
+    ultimo_turno_do_dono: bool,
     context_compaction: Option<crate::fork::contexto::ActiveCompaction>,
     /// The next prompt goes as it is: a command such as `/compact`, with nothing put before or after it.
     raw_prompt: bool,
@@ -886,6 +895,8 @@ mod fork_genui_tests;
 
 #[cfg(test)]
 mod fork_fila_tests;
+#[cfg(test)]
+mod fork_plano_tests;
 #[cfg(test)]
 mod fork_reinicio_tests;
 #[cfg(test)]

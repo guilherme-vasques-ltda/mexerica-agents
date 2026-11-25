@@ -534,7 +534,7 @@ async fn d543_space_delete_ator_confere_turno_fila_pedido_e_reserva_ate_commit()
     assert!(actor.space_delete_busy(&chats, false));
     actor.queue.clear();
     actor.queue.push_back(Queued::Routine("rotina-pessoal".into()));
-    actor.queue.push_back(Queued::Compact { idle: true, manual: None });
+    actor.queue.push_back(Queued::Compact { idle: true, manual: None, dono: false });
     let (ask, _answer) = crate::chat::team::BotRequest::for_test("pedido-pessoal");
     actor.queue.push_back(Queued::BotRequest(ask));
     assert!(!actor.space_delete_busy(&chats, false), "trabalho do Pessoal não pertence à conversa foreign");

@@ -395,6 +395,11 @@ pub(super) async fn call(
                 data["replyTo"] = reply;
             }
             data["contentOrigin"] = crate::guard_hub::origem::capture(caller, &b, &data);
+            // Turno automático do próprio Hub (acordar de tarefa, aviso de comentário): marca Hub-side na origem,
+            // depois da captura — nenhum corpo de pedido define nem apaga isso.
+            if crate::api::AUTOMATICO.try_get().is_ok() {
+                data["contentOrigin"]["hubOrigin"] = json!("automatico");
+            }
             let (lane, effective) = {
                 let db = hub.store.db.locked();
                 let lane = crate::fork::sessoes::api::send_lane(&db, bot, &b)?;

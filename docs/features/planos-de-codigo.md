@@ -9,9 +9,35 @@ Hub já conhece como motor de bot. Cada plano é um item do catálogo em `host/s
 | Plano | Provedor no OpenCode | Variável da chave | Lista de modelos |
 |---|---|---|---|
 | OpenCode Go | `opencode-go` | `OPENCODE_API_KEY` | `GET https://opencode.ai/inference/go/v1/models` com a chave |
+| Kimi Code | `kimi-code-plan-global` | `KIMI_API_KEY` | nenhuma: lista curta da documentação, estado `acesso_nao_confirmado` |
 
 O OpenCode Go é feito para o OpenCode e outros agentes de código, para uso próprio da conta. O uso além do limite do plano
 pode consumir o saldo da conta no OpenCode: o item traz o aviso `saldo_extra` para a tela mostrar.
+
+O Kimi Code usa o endereço do exterior (`https://api.kimi.ai/coding/v1`), que o OpenCode já conhece. O fornecedor não
+documenta uma lista de modelos para a chave, então o teste não faz chamada: a chave é guardada pelo formato e só a
+primeira conversa confirma o acesso. O repasse encaminha ao Kimi só `chat/completions`, que é o que o OpenCode usa nesse
+provedor. O endereço da China (`kimi-code-plan-cn`) não faz parte deste plano.
+
+**Só em conversa.** O Kimi Code vale apenas para uso interativo da própria pessoa: rotinas, acordar de tarefa agendada,
+avisos de comentário, pedidos de outros bots, canais e qualquer entrada que o Hub não tenha recebido de um chamador
+local ou de um dispositivo pareado não recebem essa chave. O Hub recusa o turno antes de ler o cofre ou abrir o OpenCode
+(`plano_so_conversa`), no ponto por onde todo turno de bot começa (`ensure_session`), com teste; a recusa não encerra
+a sessão viva do dono. A regra fecha por padrão. O item traz `soConversa: true` e o aviso `so_conversa` para a tela.
+
+**Compactação.** A compactação pedida pelo dono pela API de contexto, ou a que o Hub enfileira ao fim de um turno que
+era a palavra dele, continua a conversa. A compactação feita com o dono ausente, ou enfileirada ao fim de um turno
+automático (rotina, pedido, canal), é automática e não recebe a chave: o ator registra a origem do último turno que não
+era compactação para decidir.
+
+**Limite real.** O Hub distingue os turnos que ele mesmo cria dos que chegam pelo método `send`, e só estes podem ser
+conversa (com as compactações da seção anterior, que seguem a origem do turno que as motivou): tarefas e avisos chegam
+carimbados com `contentOrigin.hubOrigin`; rotina, delegação, canal e compactação automática são reconhecidos pelo
+estado do turno, pelo autor da entrada ou pela falta de ingresso. Mas um chamador local ou um dispositivo
+pareado com o token é aceito como o dono: o relatório de origem que o app envia é declarado pelo cliente e não vale como
+prova. Um processo com o token local, ou um dispositivo pareado com escopo Controle, pode enviar uma mensagem que
+conta como conversa e aciona o plano; não há prova da presença do dono. A regra impede o uso automático do Hub com a
+chave; não impede quem já controla o Hub do dono.
 
 ## Métodos (só deste computador)
 
@@ -22,12 +48,13 @@ pode consumir o saldo da conta no OpenCode: o item traz o aviso `saldo_extra` pa
 - `planoCodigoRemover { plano }`: recusa («plano_chave_ja_salva: Trocar ou remover a chave do plano ainda não está
   disponível nesta versão.») sem apagar nada.
 
-O resultado do teste é `{ok: true, estado: "modelos_no_catalogo", modelos}` ou `{ok: false, erro, estado}`. `erro` usa os
+O resultado do teste é `{ok: true, estado: "modelos_no_catalogo" | "acesso_nao_confirmado", modelos}` ou `{ok: false, erro, estado}`. `erro` usa os
 mesmos códigos do teste das chaves de API (`chave_invalida`, `sem_permissao`, `limite`, `fornecedor_falhou`,
 `sem_resposta`, `resposta_invalida`, `sem_chave`), escolhidos só pelo status HTTP: o corpo de um erro nunca é lido, porque o
 fornecedor pode repetir a chave nele. `estado` é `recusada` (o fornecedor disse que a chave não vale) ou
-`nao_verificado` (falha que não diz nada sobre a chave). A lista de modelos prova que o fornecedor respondeu à
-chave, não que há saldo ou permissão de conversar com cada modelo.
+`nao_verificado` (falha que não diz nada sobre a chave). Com `modelos_no_catalogo`, a lista de modelos prova que o
+fornecedor respondeu à chave, não que há saldo ou permissão de conversar com cada modelo; com `acesso_nao_confirmado` a
+lista é a da documentação e nada foi confirmado.
 
 ## Onde a chave vive
 
@@ -35,8 +62,8 @@ chave, não que há saldo ou permissão de conversar com cada modelo.
   põe em mensagem de erro. O endereço do teste é fixo no catálogo (https, do fornecedor) e o pedido não aceita endereço; o
   redirecionamento não é seguido. Uma resposta de sucesso que repete a chave é recusada, não é devolvida nem guardada.
 - O OpenCode não recebe a chave. O Hub mantém um repasse local (`host/src/fork/planos_codigo/repasse.rs`): um servidor
-  só em loopback, em porta efêmera. A cada sessão o Hub cria um código aleatório (`mxs_…`) e o entrega ao OpenCode em
-  `OPENCODE_API_KEY`, junto com o endereço do repasse no lugar do endereço do fornecedor (`OPENCODE_CONFIG_CONTENT`).
+  só em loopback, em porta efêmera. A cada sessão o Hub cria um código aleatório (`mxs_…`) e o entrega ao OpenCode na
+  variável do plano (`OPENCODE_API_KEY`, `KIMI_API_KEY`), junto com o endereço do repasse no lugar do endereço do fornecedor (`OPENCODE_CONFIG_CONTENT`).
   O repasse confere o código, troca-o pela chave guardada e encaminha o pedido ao endereço fixo do plano.
 - O repasse só aceita o método e os caminhos que o fornecedor usa (uma tabela fixa por plano), nunca segue
   redirecionamento, limita tamanho e tempo de cada pedido (a vaga do teto de pedidos só volta no fim da resposta) e não

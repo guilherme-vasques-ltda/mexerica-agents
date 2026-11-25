@@ -4,7 +4,6 @@
 use super::store::{self, Agenda, Gate};
 use crate::{
     LockExt,
-    api::devices::Caller,
     fork::{autoridade::Autoridade, sessoes::bindings},
     hub::Hub,
     store::now_ms,
@@ -351,9 +350,9 @@ async fn perform(hub: &Arc<Hub>, f: &Fire) -> Result<bool> {
     if let Err(error) = revalidate_before_effect(hub, f).await {
         return reconcile_on_error(hub, &nonce, error).await;
     }
-    let sent = crate::api::dispatch(
+    // Turno automático do Hub: entra com a marca de origem que o `send` carimba (`dispatch_do_hub`).
+    let sent = crate::api::dispatch_do_hub(
         hub,
-        &Caller::Local,
         "send",
         json!({
             "botId": f.bot_id,

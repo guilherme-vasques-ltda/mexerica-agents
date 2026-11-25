@@ -261,9 +261,9 @@ async fn deliver_one(hub: &Arc<Hub>, p: &Pending, _now: i64) {
             "Comentário do dono na tarefa «{}» (projeto «{}», tarefa {}, comentário {}):\n\n{}",
             task_title, project, p.task_id, p.comment_id, text
         );
-        match crate::api::dispatch(
+        // Turno automático do Hub: entra com a marca de origem que o `send` carimba (`dispatch_do_hub`).
+        match crate::api::dispatch_do_hub(
             hub,
-            &crate::api::devices::Caller::Local,
             "send",
             json!({
                 "botId": p.bot_id,

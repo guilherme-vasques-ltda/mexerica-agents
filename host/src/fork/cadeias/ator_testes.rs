@@ -59,6 +59,8 @@ impl Fixture {
             session_fresh: false,
             profile_resend: HashSet::new(),
             compacting: None,
+            ultimo_turno_do_dono: false,
+            compactacao_do_dono: false,
             context_compaction: None,
             raw_prompt: false,
             handoff: None,

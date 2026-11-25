@@ -85,11 +85,11 @@ mod tests {
         actor.restart_admission = false;
         let lane = Lane::main("a");
         let (done_tx, _) = tokio::sync::mpsc::unbounded_channel();
-        actor.start_compaction(true, None, &done_tx).await;
+        actor.start_compaction(true, None, false, &done_tx).await;
         assert_eq!(compressao::failures(&hub.store, "a", &lane).unwrap().consecutive, 1);
-        actor.start_compaction(true, None, &done_tx).await;
+        actor.start_compaction(true, None, false, &done_tx).await;
         assert_eq!(compressao::failures(&hub.store, "a", &lane).unwrap().consecutive, 2);
-        actor.start_compaction(true, None, &done_tx).await;
+        actor.start_compaction(true, None, false, &done_tx).await;
         assert_eq!(
             compressao::failures(&hub.store, "a", &lane).unwrap().consecutive,
             2,

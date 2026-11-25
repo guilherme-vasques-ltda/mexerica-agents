@@ -10,6 +10,15 @@ use anyhow::{Context, Result, anyhow, ensure};
 use std::{path::PathBuf, sync::Arc};
 use zeroize::Zeroizing;
 
+/// Para quem o turno trabalha. `Conversa`: a entrada recebida no chat do dono pelo chamador autenticado, sem a marca
+/// Hub-side de turno automático. `Automatico`: rotina, tarefa agendada, pedido de outro bot, canal ou compactação
+/// com o dono ausente ou enfileirada ao fim de um turno automático.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Uso {
+    Conversa,
+    Automatico,
+}
+
 /// O que o Hub entrega ao processo do OpenCode de um bot ligado a um plano.
 pub(crate) struct Ambiente {
     pub(crate) env: Vec<(String, String)>,
@@ -35,12 +44,16 @@ fn casa(store: &Store, plano: &Plano) -> Result<PathBuf> {
 
 /// O ambiente do OpenCode para este bot, ou `None` quando o modelo não é de um plano (o caminho de sempre).
 /// Fecha por padrão: plano desligado ou sem chave, comando próprio, bot fora do Space pessoal ou executor isolado é
-/// erro, nunca o ambiente do dono.
-pub(crate) async fn ambiente_do_bot(hub: &Arc<Hub>, cfg: &BotConfig) -> Result<Option<Ambiente>> {
+/// erro, nunca o ambiente do dono. Um plano só de conversa também é recusado fora da conversa do dono.
+pub(crate) async fn ambiente_do_bot(hub: &Arc<Hub>, cfg: &BotConfig, uso: Uso) -> Result<Option<Ambiente>> {
     if cfg.backend != "opencode" {
         return Ok(None);
     }
     let Some(plano) = cfg.model.as_deref().and_then(plano_do_modelo) else { return Ok(None) };
+    ensure!(
+        !(plano.so_conversa && uso == Uso::Automatico),
+        "plano_so_conversa: este plano só vale em conversa sua; rotinas, tarefas agendadas e pedidos de outros bots não o usam."
+    );
     ensure!(
         cfg.command.as_deref().is_none_or(|comando| comando.trim().is_empty()),
         "plano_comando_proprio: um bot com plano de código só roda o OpenCode oficial, sem comando próprio."

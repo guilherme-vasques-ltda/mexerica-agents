@@ -405,7 +405,12 @@ fn a_tabela_de_rotas_so_aponta_para_o_fornecedor_do_plano() {
             assert!(!local.starts_with('/') && !local.contains(".."), "{local}");
             let endereco = reqwest::Url::parse(&url.replace('*', "modelo")).unwrap();
             assert_eq!(endereco.scheme(), "https", "{url}");
-            assert_eq!(endereco.host_str(), Some("opencode.ai"), "{url}");
+            let fornecedor = match plano.id {
+                "opencode-go" => "opencode.ai",
+                "kimi-code" => "api.kimi.ai",
+                outro => panic!("plano sem fornecedor conhecido no teste: {outro}"),
+            };
+            assert_eq!(endereco.host_str(), Some(fornecedor), "{url}");
             assert!(endereco.username().is_empty() && endereco.query().is_none(), "{url}");
         }
     }
@@ -598,7 +603,7 @@ async fn o_repasse_do_hub_e_um_so_e_escuta_so_em_loopback() {
     com_chave(&hub).await;
     let cfg = bot("b1", "opencode", "opencode-go/glm-5.3", crate::fork::spaces::PERSONAL);
     hub.store.save_bot(&cfg).unwrap();
-    let ambiente = ambiente_do_bot(&hub, &cfg).await.unwrap().unwrap();
+    let ambiente = ambiente_do_bot(&hub, &cfg, Uso::Conversa).await.unwrap().unwrap();
     assert!(ambiente.concessao.base().starts_with("http://127.0.0.1:"));
 }
 
@@ -669,7 +674,7 @@ async fn opencode_de_verdade_nem_ele_nem_o_mcp_filho_nem_o_shell_enxergam_a_chav
     *repasse.base_de_prova.locked() = Some(up.base.clone());
     let cfg = bot("b1", "opencode", "opencode-go/glm-5.3", crate::fork::spaces::PERSONAL);
     hub.store.save_bot(&cfg).unwrap();
-    let ambiente = ambiente_do_bot(&hub, &cfg).await.unwrap().unwrap();
+    let ambiente = ambiente_do_bot(&hub, &cfg, Uso::Conversa).await.unwrap().unwrap();
     let mut env = Vec::new();
     aplicar_ambiente(&mut env, "opencode", "", Some(&ambiente));
     env.push(("OPENCODE_PERMISSION".into(), r#"{"bash":"allow"}"#.into()));
