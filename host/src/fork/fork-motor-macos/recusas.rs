@@ -50,6 +50,7 @@ pub(super) fn preparar(db: &Connection) -> Result<()> {
 /// append-only, sem deduplicação (a unicidade de série entre portas ainda não
 /// está provada).
 pub(super) fn registrar(db: &Connection, pedido: Pedido, motivo: Motivo, instante_ms: u64) -> Result<()> {
+    exigir_autocommit(db)?;
     exigir_durabilidade(db)?;
     let escopo = pedido.escopo();
     db.execute(
@@ -75,7 +76,15 @@ fn i64_sql(valor: u64, campo: &'static str) -> Result<i64> {
     i64::try_from(valor).with_context(|| format!("{campo} fora do intervalo do registro de recusas"))
 }
 
+fn exigir_autocommit(db: &Connection) -> Result<()> {
+    ensure!(db.is_autocommit(), "transação externa aberta: recusa não pode ficar sujeita a rollback");
+    Ok(())
+}
+
 fn exigir_durabilidade(db: &Connection) -> Result<()> {
+    let journal: String =
+        db.pragma_query_value(None, "journal_mode", |row| row.get(0)).context("consultar journal das recusas")?;
+    ensure!(journal == "wal", "journal das recusas não é WAL; durabilidade confirmada só em WAL com synchronous FULL");
     let sincrono: i64 =
         db.pragma_query_value(None, "synchronous", |row| row.get(0)).context("consultar sincronização das recusas")?;
     ensure!(sincrono == 2, "sincronização das recusas não é FULL; gravação durável exigida");

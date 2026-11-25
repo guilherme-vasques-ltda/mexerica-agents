@@ -25,6 +25,9 @@ fn acao() -> Acao {
 fn db_sintetico() -> (tempfile::TempDir, Connection) {
     let dir = tempfile::tempdir().expect("criar diretório da fixture");
     let db = Connection::open(dir.path().join("recusas.sqlite3")).expect("abrir banco da fixture");
+    let modo: String =
+        db.pragma_update_and_check(None, "journal_mode", "wal", |row| row.get(0)).expect("ligar WAL da fixture");
+    assert_eq!(modo, "wal");
     recusas::preparar(&db).expect("preparar registro de recusas");
     (dir, db)
 }
@@ -222,6 +225,33 @@ fn tabela_guarda_somente_ids_motivo_e_instante_tipados() {
     assert!(db.execute("INSERT INTO recusas_motor_macos VALUES (NULL, 1, 2, 3, 4, 5, 1, 'conteudo', 0)", []).is_err());
     assert!(db.execute("INSERT INTO recusas_motor_macos VALUES (NULL, 0, 2, 3, 4, 5, 1, 'negada', 0)", []).is_err());
     assert_eq!(linhas(&db), []);
+}
+
+#[test]
+fn gravacao_dentro_de_transacao_externa_e_recusada() {
+    let (_dir, db) = db_sintetico();
+    let mut porta = Porta::nova(escopo());
+    porta.aceitar_aviso(escopo()).unwrap();
+    let pedido = porta.pedir(acao(), 0).unwrap();
+    porta.resolver(pedido, escopo(), Decisao::Negar, 2).unwrap();
+    db.execute_batch("BEGIN").expect("abrir transação externa da fixture");
+    assert!(recusas::registrar(&db, pedido, Motivo::Negada, 2).is_err());
+    db.execute_batch("ROLLBACK").expect("desfazer transação externa da fixture");
+    // Nenhum Ok ficou sujeito a rollback: nada foi gravado.
+    assert_eq!(linhas(&db), []);
+}
+
+#[test]
+fn journal_fora_do_wal_bloqueia_a_gravacao_duravel() {
+    let dir = tempfile::tempdir().expect("criar diretório da fixture");
+    let db = Connection::open(dir.path().join("recusas-rollback.sqlite3")).expect("abrir banco da fixture");
+    let mut porta = Porta::nova(escopo());
+    porta.aceitar_aviso(escopo()).unwrap();
+    let pedido = porta.pedir(acao(), 0).unwrap();
+    porta.resolver(pedido, escopo(), Decisao::Negar, 2).unwrap();
+    // Sem WAL o banco fica em journal de rollback: preparar e gravar recusam.
+    assert!(recusas::preparar(&db).is_err());
+    assert!(recusas::registrar(&db, pedido, Motivo::Negada, 2).is_err());
 }
 
 #[test]
