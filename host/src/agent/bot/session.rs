@@ -511,8 +511,11 @@ impl Actor {
             if let Some(mut conn) = spawned {
                 let revogador = crate::fork::ponte_credencial::Revogador::new(&self.hub, &self.cfg.id);
                 let _ = conn.ponte.replace(revogador);
-                // A sessão do repasse vive com o processo: quando ele é encerrado ou trocado, o código morre.
-                conn.plano = plano.map(|plano| plano.concessao);
+                // A sessão do repasse vive com o processo: quando ele é encerrado ou trocado, o código morre — e o
+                // plano só fica livre depois que a saída do processo é observada por quem é dono dele.
+                if let Some(plano) = plano {
+                    conn.acp.entregar_plano(plano.concessao).await;
+                }
                 let backend = match conn.adapter {
                     Adapter::Codex => "codex",
                     Adapter::Claude => "claude",

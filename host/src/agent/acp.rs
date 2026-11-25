@@ -230,6 +230,9 @@ pub struct Acp {
     pending: Pending,
     /// `None` once stopped (handed to [`reap`]).
     child: tokio::sync::Mutex<Option<Child>>,
+    /// Sessão do plano de código que este processo usa. Só é solta depois de a saída do processo ser observada: o
+    /// plano (e a chave) não fica livre enquanto o OpenCode antigo ainda roda.
+    plano: tokio::sync::Mutex<Option<crate::fork::planos_codigo::Concessao>>,
     /// The process (and, on Unix, process group) leader.
     pid: Option<u32>,
 }
@@ -429,6 +432,7 @@ impl Acp {
             next_id: AtomicI64::new(1),
             pending,
             child: tokio::sync::Mutex::new(Some(child)),
+            plano: tokio::sync::Mutex::new(None),
             pid,
         });
         Ok((acp, rx))
@@ -459,9 +463,20 @@ impl Acp {
             next_id: AtomicI64::new(1),
             pending,
             child: tokio::sync::Mutex::new(None),
+            plano: tokio::sync::Mutex::new(None),
             pid: None,
         });
         (acp, rx)
+    }
+
+    /// Entrega a sessão do plano de código ao processo: ela vive até a saída dele ser observada.
+    pub(crate) async fn entregar_plano(&self, concessao: crate::fork::planos_codigo::Concessao) {
+        *self.plano.lock().await = Some(concessao);
+    }
+
+    /// Este processo usa um plano de código?
+    pub(crate) async fn tem_plano(&self) -> bool {
+        self.plano.lock().await.is_some()
     }
 
     pub fn pid(&self) -> Option<u32> {
@@ -612,11 +627,13 @@ impl Acp {
         if let Some(link) = &self.link {
             link.shutdown().await;
         }
-        if let Some(child) = self.child.lock().await.take() {
+        let child = self.child.lock().await.take();
+        if let Some(child) = child {
             if self.protected {
                 crate::fork::engine_setup::kill_setup_group(child.id());
             }
-            reap(child).await;
+            Box::pin(reap(child)).await;
+            drop(self.plano.lock().await.take());
         }
     }
 
@@ -631,11 +648,24 @@ impl Acp {
                 link.shutdown().await;
             });
         }
-        if let Some(child) = self.child.lock().await.take() {
+        let child = self.child.lock().await.take();
+        if let Some(child) = child {
             #[cfg(test)]
             self.stopped.notify_one();
             if self.protected {
                 crate::fork::engine_setup::kill_setup_group(child.id());
+            }
+            // Processo de um plano de código: quem é dono do processo observa a saída antes de soltar o plano, então
+            // trocar ou remover a chave nunca acontece com o OpenCode antigo ainda rodando. Não guarda PID.
+            let plano = self.plano.lock().await.take();
+            if let Some(plano) = plano {
+                // Caixa para o futuro de `kill` não crescer com a espera: o encerramento do plano vive no heap.
+                Box::pin(async move {
+                    reap(child).await;
+                    drop(plano);
+                })
+                .await;
+                return;
             }
             let mut stopping = STOPPING.locked();
             stopping.retain(|task| !task.is_finished());
@@ -646,18 +676,22 @@ impl Acp {
 
 impl Drop for Acp {
     fn drop(&mut self) {
+        let plano = self.plano.get_mut().take();
         if self.protected
             && let Some(child) = self.child.get_mut().as_ref()
         {
             crate::fork::engine_setup::kill_setup_group(child.id());
-        } else if self.background
+        } else if (self.background || plano.is_some())
             && let Some(child) = self.child.get_mut().take()
         {
             self.stdin.get_mut().take();
             if let Ok(runtime) = tokio::runtime::Handle::try_current() {
                 let mut stopping = STOPPING.locked();
                 stopping.retain(|task| !task.is_finished());
-                stopping.push(runtime.spawn(reap(child)));
+                stopping.push(runtime.spawn(async move {
+                    reap(child).await;
+                    drop(plano);
+                }));
             } else {
                 crate::fork::engine_setup::kill_setup_group(child.id());
             }

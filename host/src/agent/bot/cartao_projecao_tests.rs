@@ -22,7 +22,6 @@ fn ator(f: &Fixture) -> Actor {
     actor.turn_session = Some("sessao-A".into());
     actor.conn = Some(Conn {
         ponte: None,
-        plano: None,
         curated: crate::fork::conectores::Pool::default(),
         acp,
         rx,

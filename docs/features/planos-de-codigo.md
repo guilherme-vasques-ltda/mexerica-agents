@@ -52,10 +52,8 @@ Quando ligado, o repasse encaminha ao plano só `chat/completions` (`https://api
 
 - `planosCodigo`: a lista de planos, com `configurada`, `programaInstalado`, os modelos do último teste e `avisos`.
 - `planoCodigoTestar { plano, chave? }`: lê a lista de modelos. Não abre conversa e não gera custo.
-- `planoCodigoSalvar { plano, chave }`: testa e só então grava a chave no cofre; com chave já salva no plano, recusa
-  sem tocar em nada do que está salvo.
-- `planoCodigoRemover { plano }`: recusa («plano_chave_ja_salva: Trocar ou remover a chave do plano ainda não está
-  disponível nesta versão.») sem apagar nada.
+- `planoCodigoSalvar { plano, chave }`: testa e só então grava a chave no cofre.
+- `planoCodigoRemover { plano }`: apaga a chave, a lista de modelos e o perfil do plano.
 
 O resultado do teste é `{ok: true, estado: "modelos_no_catalogo" | "acesso_nao_confirmado", modelos}` ou `{ok: false, erro, estado}`. `erro` usa os
 mesmos códigos do teste das chaves de API (`chave_invalida`, `sem_permissao`, `limite`, `fornecedor_falhou`,
@@ -90,8 +88,8 @@ lista é a da documentação e nada foi confirmado.
   que contêm a chave (zero). A sonda do próprio processo do OpenCode lê `/proc` e só roda em Linux; nos outros sistemas
   a prova cobre o shell e o MCP filho. Outras versões precisam ser reconferidas.
 - O código de sessão é mascarado (`mxs_[oculto]`) onde texto do motor sai do processo do Hub: cada texto e cada nome
-  de campo do JSON já interpretado (escapes desfeitos, mensagens de erro inclusive) e a linha de saída que não é JSON
-  (só para o log de debug), o texto de um segmento de conversa montado de
+  de campo do JSON já interpretado (escapes desfeitos, mensagens de erro inclusive), a linha de saída que não é JSON
+  (só para o log de debug) e o texto de um segmento de conversa montado de
   vários pedaços (o fim que ainda pode ser o começo de um código fica retido até o próximo pedaço) e a saída de
   ferramentas. Limite: um código que o motor escreva de outro jeito que não o literal (por exemplo em base64) não é
   reconhecido; ele vale só enquanto o processo dura.
@@ -101,8 +99,17 @@ lista é a da documentação e nada foi confirmado.
   estado e cache só do plano), com a configuração de projeto desligada (`OPENCODE_DISABLE_PROJECT_CONFIG`). Um bot com
   comando próprio de execução não recebe o ambiente do plano: o lançamento falha. Sem chave, fora do Space pessoal ou
   no executor isolado, também falha: o Hub nunca cai no ambiente do dono.
-- Trocar ou remover a chave do plano ainda não está disponível nesta versão: com chave salva, colar outra ou remover
-  responde isso e não altera o que está salvo.
+- Trocar ou remover a chave de um plano é RECUSADO enquanto o plano tiver qualquer conversa viva ou abertura em
+  curso («plano_em_uso: encerre as conversas deste plano e tente de novo»). A recusa é a confirmação: ela só aparece
+  quando há gente usando o plano, e nada é encerrado por trás de quem pediu a troca. Chave, lista de modelos e perfil
+  ficam intactos; quem encerrar as conversas (ou esperar a abertura em curso se resolver) troca na chamada seguinte.
+- Abrir sessão nova durante a troca em andamento também é recusado («plano_em_troca»). A revisão do plano e a chave
+  saem do mesmo retrato, lido sob a mesma trava que confere a troca: não existe intervalo em que uma abertura combine a
+  revisão nova com a chave velha.
+- O plano só é dado como livre quando a saída do processo do OpenCode é observada por quem é dono dele: a sessão do
+  repasse é entregue ao processo e solta no fim do encerramento (`Acp::kill`, `kill_and_wait` ou a queda do processo),
+  não antes. Sem guardar PID: a concessão viaja junto do processo, e a troca ou remoção nunca apaga nem reabre o perfil
+  com o OpenCode antigo ainda rodando.
 - O código de sessão morre com a sessão: quando a concessão sai de escopo (o processo do OpenCode sai), o código é
   revogado e os pedidos em andamento são cortados, também a leitura do corpo — e a revogação nunca se perde, fica
   marcada para quem chegar depois.

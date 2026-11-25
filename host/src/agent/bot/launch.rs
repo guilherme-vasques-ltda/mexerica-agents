@@ -276,7 +276,6 @@ pub(crate) async fn start_mexerica(
         let (acp, rx) = Acp::spawn_link(link);
         Ok(Conn {
             ponte: None,
-            plano: None,
             curated: crate::fork::conectores::Pool::default(),
             acp,
             rx,
@@ -428,7 +427,6 @@ async fn finish_launch(
     };
     Ok(Conn {
         ponte: None,
-        plano: None,
         curated: crate::fork::conectores::Pool::default(),
         acp,
         rx,
