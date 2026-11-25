@@ -89,6 +89,12 @@ jobs:
           xcodebuild -project MexericaMobile.xcodeproj -scheme 'iOS Dev' \
             -configuration DevDebug -sdk iphonesimulator \
             -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+      - name: Compilar o Kit em Release para o simulador
+        working-directory: apps/mobile/ios/Kit
+        run: |
+          xcodebuild -list
+          xcodebuild build -scheme CodyncUI -configuration Release \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO
       - name: Rodar os testes unitários do Kit no simulador
         working-directory: apps/mobile/ios/Kit
         run: |
