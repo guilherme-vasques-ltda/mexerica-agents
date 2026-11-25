@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import { createServer, type Server } from 'node:http'
 import test from 'node:test'
-import { loadMainModule } from './test-support/main-module.ts'
+import { deferred, loadMainModule } from './test-support/main-module.ts'
 
 /**
  * A conexão provada (fork-proved-loopback): a prova do token e a credencial passam pela MESMA
@@ -90,7 +90,7 @@ const load = () =>
 
 test('the proof and credential share a connection and the full response survives delayed chunks', async (t) => {
   const { postProvado, fecharProvedLoopback } = load()
-  const corpo = Promise.withResolvers<void>()
+  const corpo = deferred()
   const hub = hubOf(TOKEN, { corpoAtrasado: corpo.promise })
   t.after(async () => { await fecharProvedLoopback(); await hub.close() })
   const url = await hub.listen()
@@ -111,12 +111,12 @@ test('the proof and credential share a connection and the full response survives
 
 test('a stream cancelled before or during proof never sends the bearer', async (t) => {
   const { streamProvado, fecharProvedLoopback } = load()
-  const prova = Promise.withResolvers<void>()
+  const prova = deferred()
   const hub = hubOf(TOKEN, { pausarProva: prova.resolve })
   t.after(async () => { await fecharProvedLoopback(); await hub.close() })
   const url = await hub.listen()
   await assert.rejects(streamProvado(url, '/stream', TOKEN, AbortSignal.abort(), 5_000), { name: 'AbortError' })
-  assert.deepEqual(hub.seen, [])
+  assert.equal(hub.seen.length, 0)
   const controller = new AbortController()
   const stream = streamProvado(url, '/stream', TOKEN, controller.signal, 5_000)
   await prova.promise

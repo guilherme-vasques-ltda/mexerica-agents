@@ -277,12 +277,9 @@ export class LocalCloudCallError extends Error {
 type LocalCaptureDeps = {
   profileId: string; computerId: string; signKey: string; baseURL: string; token: string
   current: () => boolean; listener: () => Promise<boolean>
-  /** O envio com a credencial: por padrão a conexão provada (a prova e o bearer na mesma conexão,
-   * uma atrás da outra — fork-proved-loopback); testes injetam o deles. */
-  send?: (url: string, init: { method: string; headers: Record<string, string>; body: string }, token: string) => Promise<{ ok: boolean; json: () => Promise<unknown> }>
 }
 
-/** Fábrica interna do Main. Injeção existe para testar a guarda, não é um ingresso IPC. */
+/** Fábrica interna do Main; não é um ingresso IPC. */
 export function createLocalCloudCapture(deps: LocalCaptureDeps): CapturedSSHLocal {
   const current = () => { try { return deps.current() === true } catch { return false } }
   return Object.freeze({
@@ -298,27 +295,14 @@ export function createLocalCloudCapture(deps: LocalCaptureDeps): CapturedSSHLoca
       if (!current()) throw new LocalCloudCallError('notSent')
       let res: Awaited<ReturnType<typeof postProvado>> | undefined
       try {
-        const response = deps.send
-          ? await deps.send(`${deps.baseURL}/api/${route.method}`, {
-            method: 'POST', headers: { Authorization: `Bearer ${deps.token}`, 'Content-Type': 'application/json' },
-            body: payload,
-          }, deps.token)
-          : await postProvado(deps.baseURL, `/api/${route.method}`, deps.token, payload, 20_000, { atual: current }).then((proved) => {
-            res = proved
-            return {
-              ok: proved.statusCode === 200,
-              json: async () => {
-                proved.setEncoding('utf8')
-                let text = ''
-                for await (const chunk of proved) text += chunk as string
-                return JSON.parse(text)
-              },
-            }
-          })
-        if (!current() || !response.ok) throw new LocalCloudCallError('unknown')
+        res = await postProvado(deps.baseURL, `/api/${route.method}`, deps.token, payload, 20_000, { atual: current })
+        if (!current() || res.statusCode !== 200) throw new LocalCloudCallError('unknown')
         const stillListening = await deps.listener()
         if (!current() || !stillListening) throw new LocalCloudCallError('unknown')
-        const value: unknown = await response.json()
+        res.setEncoding('utf8')
+        let text = ''
+        for await (const chunk of res) text += chunk as string
+        const value: unknown = JSON.parse(text)
         if (!current()) throw new LocalCloudCallError('unknown')
         const listenerAtDelivery = await deps.listener()
         if (!current() || !listenerAtDelivery) throw new LocalCloudCallError('unknown')
@@ -414,7 +398,7 @@ class SSHComputers {
     const { attachment, current, listener } = raw
     const captured = createLocalCloudCapture({ profileId, computerId: attachment.computer.id, signKey: attachment.computer.signKey,
       baseURL: attachment.baseURL, token: attachment.token, current,
-      listener, send: fetch })
+      listener })
     return captured.current() ? captured : null
   }
 

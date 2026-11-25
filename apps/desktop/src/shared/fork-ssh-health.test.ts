@@ -3,7 +3,7 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypt
 import { EventEmitter } from 'node:events'
 import { readFileSync, promises as realFs } from 'node:fs'
 import { createServer, type Server } from 'node:http'
-import { createServer as createTcpServer } from 'node:net'
+import { createServer as createTcpServer, type Socket } from 'node:net'
 import * as path from 'node:path'
 import { test } from 'node:test'
 import type { SSHState } from './ssh.ts'
@@ -24,6 +24,7 @@ const prova = (token: string, nonce: string) => createHmac('sha256', token).upda
  * nada de credencial pode chegar até ele sem essa prova. */
 function hubOf(token: string, impostor = false, closesBeforeProof = false) {
   const seen: { url: string; authorization: string | undefined }[] = []
+  const provados = new WeakSet<Socket>()
   const servers = new Set<Server>()
   return {
     seen,
@@ -34,6 +35,11 @@ function hubOf(token: string, impostor = false, closesBeforeProof = false) {
       let answered = 0
       const server = createServer((request, response) => {
         seen.push({ url: request.url ?? '', authorization: request.headers.authorization })
+        if (request.url === '/api/hello') {
+          const aceito = provados.has(request.socket) && request.headers.authorization === `Bearer ${token}`
+          response.writeHead(aceito ? 200 : 401, { 'content-type': 'application/json' }).end('{"ok":true}')
+          return
+        }
         answered += 1
         if (closesBeforeProof && answered === 1) {
           response.writeHead(200, { 'content-type': 'application/json' })
@@ -53,6 +59,7 @@ function hubOf(token: string, impostor = false, closesBeforeProof = false) {
           response.end(JSON.stringify({ ok: true, environment: 'main', busy: false, computerId: COMPUTER }))
           return
         }
+        if (proved) provados.add(request.socket)
         response.end(JSON.stringify(proved ? { ok: true, environment: 'main', busy: false, computerId: COMPUTER, receipt } : { ok: true, environment: 'main', busy: false }))
       })
       servers.add(server)
@@ -142,7 +149,7 @@ function rig(options: { infoToken?: string; tunnelPid?: number; impostor?: boole
       ipcMain: { on: (name: string, fn: (...args: unknown[]) => unknown) => handlers.set(name, fn), handle: (name: string, fn: (...args: unknown[]) => unknown) => handlers.set(name, fn) },
       dialog: {},
     },
-  }, { Buffer, process, setTimeout, clearTimeout, fetch })
+  }, { Buffer, Object, process, setTimeout, clearTimeout, URL, fetch })
 
   const controller = registerSSH(() => [], () => authorized)
   const status = () => (handlers.get('ssh:state')!() as SSHState).status.fixture
@@ -151,30 +158,38 @@ function rig(options: { infoToken?: string; tunnelPid?: number; impostor?: boole
     controller,
     tunnels,
     status,
+    close: hub.close,
     connect() {
       authorized = true
       handlers.get('ssh:connect')!('', 'fixture')
     },
     /** Deixa o fluxo correr até o estado parar de mudar (o túnel nasce num spawn de verdade). */
-    async wait() {
+    async wait(close = true) {
       for (let i = 0; i < 200 && status()?.kind === 'connecting'; i++) await new Promise((resolve) => setTimeout(resolve, 20))
       await settle()
-      await hub.close()
+      if (close) await hub.close()
     },
   }
 }
 
-test('the tunnel identity is read with the host token, after ssh proves it owns the port', async () => {
+test('the tunnel proves its identity and the live capture sends credentials only on a proved connection', async (t) => {
   const r = rig()
+  t.after(async () => { r.controller.disconnectAll(); await r.close() })
   r.connect()
-  await r.wait()
+  await r.wait(false)
   const status = r.status()
   assert.equal(status?.kind, 'connected', JSON.stringify(status))
   assert.deepEqual(r.seen.map((call) => call.authorization), [undefined, undefined], 'no credential travels')
   assert.ok(r.seen.every((call) => !call.url.includes(TOKEN)), 'nor appears in the query')
   assert.equal(r.seen[0]!.url, '/health', 'the readiness probe is anonymous')
   assert.ok(new URL(r.seen[1]!.url, 'http://127.0.0.1').searchParams.has('proof'), 'the identity probe carries the proof')
-  r.controller.disconnectAll()
+  const captura = r.controller.captureLocal('fixture', () => true)
+  assert.ok(captura)
+  assert.equal(JSON.stringify(await captura.execute({ kind: 'hello' })), '{"ok":true}')
+  assert.equal(r.seen.length, 4)
+  assert.match(r.seen[2]!.url, /^\/health\?/)
+  assert.equal(r.seen[2]!.authorization, undefined)
+  assert.deepEqual(r.seen[3], { url: '/api/hello', authorization: `Bearer ${TOKEN}` })
 })
 
 test('a port taken by something else never receives the host token', async () => {
