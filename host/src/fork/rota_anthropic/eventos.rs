@@ -113,7 +113,7 @@ fn aplicar(estado: &mut Acumulado, valor: &Value, nome: Option<&str>) -> Result<
             estado.cache_escrito = Some(contagem(uso, "cache_creation_input_tokens")?);
         }
         "content_block_start" => {
-            if estado.parada.is_some() {
+            if estado.fase_final {
                 return Err(Falha::RespostaInvalida);
             }
             if valor["content_block"]["type"].as_str() != Some("text") {
@@ -130,7 +130,7 @@ fn aplicar(estado: &mut Acumulado, valor: &Value, nome: Option<&str>) -> Result<
             if delta["type"] != "text_delta" {
                 return Err(Falha::ConteudoNaoTexto);
             }
-            if estado.parada.is_some() || estado.bloco != Some(indice(valor)?) {
+            if estado.fase_final || estado.bloco != Some(indice(valor)?) {
                 return Err(Falha::RespostaInvalida);
             }
             let pedaco = delta["text"].as_str().ok_or(Falha::RespostaInvalida)?;
@@ -140,7 +140,7 @@ fn aplicar(estado: &mut Acumulado, valor: &Value, nome: Option<&str>) -> Result<
             }
         }
         "content_block_stop" => {
-            if estado.bloco != Some(indice(valor)?) {
+            if estado.fase_final || estado.bloco != Some(indice(valor)?) {
                 return Err(Falha::RespostaInvalida);
             }
             estado.bloco = None;
