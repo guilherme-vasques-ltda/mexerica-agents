@@ -11,7 +11,8 @@ use std::{path::PathBuf, sync::Arc};
 use zeroize::Zeroizing;
 
 /// Para quem o turno trabalha. `Conversa`: a entrada recebida no chat do dono pelo chamador autenticado, sem a marca
-/// Hub-side de turno automático. `Automatico`: rotina, tarefa
+/// Hub-side de turno automático. `Automatico`: rotina, tarefa, compactação com o dono ausente ou enfileirada ao fim
+/// de um turno automático,
 /// agendada, pedido de outro bot, canal ou compactação feita com o dono ausente.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Uso {
