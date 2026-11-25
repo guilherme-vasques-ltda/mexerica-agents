@@ -30,7 +30,6 @@ export function verifyRc2AdHocSignature(bytes: Buffer, cdhash: string): void {
   let signature: { dataoff: number, datasize: number } | null = null
   let cursor = 32
   for (let remaining = bytes.readUInt32LE(16); remaining > 0; remaining--) {
-    if (cursor + 8 > 32 + sizeofcmds) throw invalid()
     const cmd = bytes.readUInt32LE(cursor)
     const cmdsize = bytes.readUInt32LE(cursor + 4)
     if (cmdsize < 8 || cmdsize % 8 !== 0 || cursor + cmdsize > 32 + sizeofcmds) throw invalid()
@@ -43,7 +42,9 @@ export function verifyRc2AdHocSignature(bytes: Buffer, cdhash: string): void {
   }
   if (!signature) throw invalid()
   const { dataoff, datasize } = signature
-  if (dataoff < cursor || datasize < 12 || dataoff > bytes.length - datasize) throw invalid()
+  // dataoff < cursor é defesa em profundidade intertravada: assinatura dentro da área de
+  // comandos não passa pelas demais checagens de estrutura do SuperBlob.
+  if (dataoff < cursor || dataoff > bytes.length - datasize) throw invalid()
   if (bytes.readUInt32BE(dataoff) !== CSMAGIC_EMBEDDED_SIGNATURE) throw invalid()
   const superLength = bytes.readUInt32BE(dataoff + 4)
   const count = bytes.readUInt32BE(dataoff + 8)

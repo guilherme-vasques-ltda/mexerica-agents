@@ -29,6 +29,11 @@ interface Opcoes {
   // Reproduz o formato que o codesign ad hoc real embute: requirements vazio e BlobWrapper
   // CMS vazio, além do CodeDirectory.
   formatoReal?: boolean
+  // Overrides para focais que isolam guardas de caminhada e layout, coerentes consigo mesmos.
+  sizeofcmdsOverride?: number
+  lcCmdsizeOverride?: number
+  hashOffsetOverride?: number
+  cputypeOverride?: number
 }
 
 // Constrói um Mach-O ARM64 com assinatura ad hoc embutida estruturalmente válida
@@ -43,10 +48,11 @@ export function assinarArm64(payload: Buffer | string, options: Opcoes = {}): Rc
     Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 0x0c, 0x00, 0x00, 0x01]), Buffer.alloc(24),
     Buffer.alloc(options.duplicateCodeSignature ? 32 : 16), Buffer.from(payload),
   ])
+  if (options.cputypeOverride) body.writeUInt32LE(options.cputypeOverride, 4)
   body.writeUInt32LE(options.duplicateCodeSignature ? 2 : 1, 16)
-  body.writeUInt32LE(options.duplicateCodeSignature ? 32 : 16, 20)
+  body.writeUInt32LE(options.sizeofcmdsOverride ?? (options.duplicateCodeSignature ? 32 : options.lcCmdsizeOverride ?? 16), 20)
   body.writeUInt32LE(0x1d, 32)
-  body.writeUInt32LE(16, 36)
+  body.writeUInt32LE(options.lcCmdsizeOverride ?? 16, 36)
   if (options.duplicateCodeSignature) {
     body.writeUInt32LE(0x1d, 48)
     body.writeUInt32LE(16, 52)
@@ -54,7 +60,7 @@ export function assinarArm64(payload: Buffer | string, options: Opcoes = {}): Rc
   const dataoff = body.length
   const codeLimit = options.codeLimitOverride ?? dataoff
   const codeSlots = options.codeSlotsOverride ?? Math.ceil(codeLimit / (1 << pageSize))
-  const hashOffset = 0x58
+  const hashOffset = options.hashOffsetOverride ?? 0x58
   const length = hashOffset + codeSlots * hashSize + ident.length
   const cd = Buffer.alloc(length)
   cd.writeUInt32BE(0xfade0c02, 0)
@@ -93,6 +99,10 @@ export function assinarArm64(payload: Buffer | string, options: Opcoes = {}): Rc
   const datasize = superblob.length
   body.writeUInt32LE(dataoff, 40)
   body.writeUInt32LE(datasize, 44)
+  if (options.duplicateCodeSignature) {
+    body.writeUInt32LE(dataoff, 56)
+    body.writeUInt32LE(datasize, 60)
+  }
   for (let index = 0; index < codeSlots; index++) {
     sha256(body.subarray(index * (1 << pageSize), Math.min((index + 1) * (1 << pageSize), codeLimit)))
       .copy(cd, hashOffset + index * hashSize)

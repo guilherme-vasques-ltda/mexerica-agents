@@ -33,17 +33,16 @@ export interface Rc2Deadlines {
   eof: number
   sigterm: number
   sigkill: number
+  // Intervalo da re-consulta da sonda de sobreviventes; a coerência com os prazos das etapas
+  // de escalonamento é exigida na construção: a sonda tem de poder disparar dentro de cada prazo.
+  probe: number
 }
 
 export type Rc2Schedule = (ms: number, fire: () => void) => () => void
 
-const defaultDeadlines: Rc2Deadlines = { open: 15000, hello: 10000, close: 5000, eof: 2000, sigterm: 5000, sigkill: 5000 }
+const defaultDeadlines: Rc2Deadlines = { open: 15000, hello: 10000, close: 5000, eof: 2000, sigterm: 5000, sigkill: 5000, probe: 50 }
 
-// Intervalo de re-consulta da sonda de sobreviventes; a segurança vem do prazo da etapa,
-// que é quem decide entre confirmar e escalonar.
-const probeTick = 50
-
-const deadlineKeys = ['open', 'hello', 'close', 'eof', 'sigterm', 'sigkill'] as const
+const deadlineKeys = ['open', 'hello', 'close', 'eof', 'sigterm', 'sigkill', 'probe'] as const
 
 const maxDeadline = 2 ** 31 - 1
 
@@ -84,6 +83,8 @@ export class Rc2HubLifecycle {
           entries.some(([, value]) => typeof value !== 'number' || !Number.isFinite(value) || value <= 0 || value > maxDeadline)) {
         throw new Error('invalid_rc2_deadlines')
       }
+      const { eof, sigterm, sigkill, probe } = options.deadlines
+      if (probe > eof || probe > sigterm || probe > sigkill) throw new Error('invalid_rc2_deadlines')
     }
     this.#schedule = options.schedule ?? defaultSchedule
   }
@@ -130,7 +131,7 @@ export class Rc2HubLifecycle {
             if (done) return
             if ((await Promise.resolve(child.survivors())) === 0) return finish(true)
             if (done) return
-            await new Promise<void>(resume => { cancelTick = this.#schedule(probeTick, () => resume()) })
+            await new Promise<void>(resume => { cancelTick = this.#schedule(this.#deadlines.probe, () => resume()) })
           }
         } catch { finish(false) }
       })()

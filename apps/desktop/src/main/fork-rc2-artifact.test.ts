@@ -317,3 +317,16 @@ test('sobreposição compara com caixa dobrada para volumes insensíveis', () =>
   assert.equal(rc2PathOverlaps(join('raiz', 'dados 2'), base), false)
   assert.equal(rc2PathOverlaps(join('raiz', 'outra coisa'), base), false)
 })
+
+test('caminho resolvido fora da raiz é recusado mesmo com caminhada limpa', t => {
+  const { root, components } = fixture(t)
+  const hubPath = join(root, components[0].path)
+  const fora = join(root, 'fora-da-raiz')
+  const carregar = (realpath: (entry: string) => string) =>
+    loadMainModule<{ verifyRc2Artifact: typeof verifyRc2Artifact }>('fork-rc2-artifact', {
+      'node:fs': { ...fs, realpathSync: realpath }, 'node:path': path, 'node:crypto': crypto,
+    }, { Buffer }).verifyRc2Artifact
+  assert.throws(() => carregar(entry => entry === hubPath ? fora : fs.realpathSync(entry))(root, components), /invalid_rc2_artifact/)
+  // controle: o mesmo canal de simulação com realpath intacto aceita
+  carregar(entry => fs.realpathSync(entry))(root, components).close()
+})

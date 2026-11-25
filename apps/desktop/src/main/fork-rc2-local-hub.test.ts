@@ -464,7 +464,7 @@ function manualClock() {
   return { schedule, fire: () => { for (const fire of pending.splice(0)) fire() } }
 }
 
-const shortDeadlines = { open: 1, hello: 1, close: 1, eof: 1, sigterm: 1, sigkill: 1 }
+const shortDeadlines = { open: 1, hello: 1, close: 1, eof: 1, sigterm: 1, sigkill: 1, probe: 1 }
 
 function fakeChild(diesOn: { end?: boolean; terminate?: boolean; kill?: boolean } = {}) {
   const calls: string[] = []
@@ -723,14 +723,17 @@ test('prazos ausentes, nulos, negativos ou de tipo errado são recusados na cons
   const session = () => sessionValue
   const transport = async () => connectionFixture(undefined, async () => {})
   for (const deadlines of [
-    {}, { open: 0, hello: 1, close: 1, eof: 1, sigterm: 1, sigkill: 1 },
-    { open: -1, hello: 1, close: 1, eof: 1, sigterm: 1, sigkill: 1 },
-    { open: 1, hello: 1, close: 1, eof: 1, sigterm: 1 },
+    {}, { open: 0, hello: 1, close: 1, eof: 1, sigterm: 1, sigkill: 1, probe: 1 },
+    { open: -1, hello: 1, close: 1, eof: 1, sigterm: 1, sigkill: 1, probe: 1 },
+    { open: 1, hello: 1, close: 1, eof: 1, sigterm: 1, probe: 1 },
     { open: 1, hello: 0, close: 1, eof: 1, sigterm: 1, sigkill: 1 },
-    { open: 1, close: 1, eof: 1, sigterm: 1, sigkill: 1, extra: 1 },
-    { open: 1, hello: Number.NaN, close: 1, eof: 1, sigterm: 1, sigkill: 1 },
-    { open: '1', hello: 1, close: 1, eof: 1, sigterm: 1, sigkill: 1 },
-    { open: 2 ** 31, hello: 1, close: 1, eof: 1, sigterm: 1, sigkill: 1 },
+    { open: 1, hello: 1, close: 1, eof: 1, sigterm: 1, sigkill: 1 },
+    { open: 1, hello: 1, close: 1, eof: 1, sigterm: 1, sigkill: 2, probe: 3 },
+    { open: 1, hello: 1, close: 1, eof: 2, sigterm: 1, sigkill: 1, probe: 2 },
+    { open: 1, hello: 1, close: 1, eof: 1, sigterm: 1, sigkill: 1, extra: 1 },
+    { open: 1, hello: Number.NaN, close: 1, eof: 1, sigterm: 1, sigkill: 1, probe: 1 },
+    { open: '1', hello: 1, close: 1, eof: 1, sigterm: 1, sigkill: 1, probe: 1 },
+    { open: 2 ** 31, hello: 1, close: 1, eof: 1, sigterm: 1, sigkill: 1, probe: 1 },
   ]) assert.throws(() => new Rc2HubLifecycle(session, transport, { deadlines: deadlines as never, schedule: manualClock().schedule }), /invalid_rc2_deadlines/)
   assert.ok(new Rc2HubLifecycle(session, transport, { deadlines: shortDeadlines, schedule: manualClock().schedule }))
 })
@@ -937,12 +940,17 @@ test('sonda de sobreviventes que falha conta como sobrevivente', async () => {
   assert.equal(await lifecycle.start(), false)
 })
 
-test('sonda que zera dentro do prazo do SIGKILL confirma sem deixar o prazo disparar', async () => {
-  const pending: Array<{ ms: number, fire: () => void }> = []
-  const schedule: Rc2Schedule = (ms, fire) => { pending.push({ ms, fire }); return () => { } }
-  const fireMs = (ms: number) => {
-    const timers = pending.splice(0)
-    for (const timer of timers) if (timer.ms === ms) timer.fire(); else pending.push(timer)
+test('sonda que zera dentro do prazo do SIGKILL confirma antes do vencimento do prazo', async () => {
+  let agora = 0
+  const pendentes: Array<{ vencimento: number, fire: () => void }> = []
+  const schedule: Rc2Schedule = (ms, fire) => { pendentes.push({ vencimento: agora + ms, fire }); return () => { } }
+  const avancar = (ms: number) => {
+    const alvo = agora + ms
+    agora = alvo
+    const vencidos = pendentes.filter(timer => timer.vencimento <= alvo)
+    for (const timer of vencidos) pendentes.splice(pendentes.indexOf(timer), 1)
+    vencidos.sort((primeiro, segundo) => primeiro.vencimento - segundo.vencimento)
+    for (const timer of vencidos) timer.fire()
   }
   const { child, calls, die } = fakeChild()
   let sondas = 0
@@ -953,18 +961,19 @@ test('sonda que zera dentro do prazo do SIGKILL confirma sem deixar o prazo disp
   }
   let session: object | null = {}
   const lifecycle = new Rc2HubLifecycle(() => session, async () => connectionFixture(comSonda, async () => { }),
-    { deadlines: shortDeadlines, schedule })
+    { deadlines: { open: 1, hello: 1, close: 1, eof: 2, sigterm: 3, sigkill: 10, probe: 1 }, schedule })
   assert.equal(await lifecycle.start(), true)
   const stopped = lifecycle.stop()
   await flush()
-  fireMs(1)
+  avancar(2)
   await flush()
-  fireMs(1)
+  avancar(3)
   await flush()
-  fireMs(50)
-  assert.equal(await stopped, true, 'confirmou re-consultando dentro do prazo do SIGKILL')
+  assert.equal(sondas, 1, 'a primeira sonda pós-SIGKILL ainda via sobrevivente')
+  avancar(1)
+  assert.equal(await stopped, true, 'a re-consulta confirmou antes do vencimento do prazo do SIGKILL')
   assert.deepEqual(calls, ['end', 'terminate', 'kill'])
-  assert.equal(pending.some(timer => timer.ms === 1), true, 'o prazo do SIGKILL seguiu pendente: não disparou')
+  assert.ok(pendentes.every(timer => timer.vencimento > agora), 'o prazo do SIGKILL segue pendente: não venceu')
 })
 
 test('hello que lança de forma síncrona devolve null sem invalidar a geração', async () => {
