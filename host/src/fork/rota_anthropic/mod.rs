@@ -5,11 +5,18 @@
 //! nem chama [`executar`]. A recusa da automação por chave continua valendo até
 //! a ligação autorizada (cerca de efeito própria e cofre novo).
 //!
-//! Fronteira provada aqui: o Hub reserva o gasto ANTES do envio, lê a chave só
-//! do registro cifrado do próprio vínculo, faz uma única chamada, aceita apenas
-//! texto e devolve texto com uso. Não existe fallback para outro provedor,
-//! retentativa, ferramenta, catálogo ou sessão de chat. A credencial não entra
-//! no corpo, no resultado, no log nem no erro.
+//! Fronteira garantida aqui: o Hub reserva uma estimativa de gasto ANTES do
+//! envio, lê a chave só do registro cifrado do próprio vínculo, faz uma única
+//! chamada, aceita apenas texto e devolve texto com uso. Não existe fallback
+//! para outro provedor, retentativa, ferramenta, catálogo ou sessão de chat. A
+//! credencial não entra no corpo, no resultado, no log nem no erro.
+//!
+//! Condição de ativação: a reserva é uma estimativa conservadora, NÃO um limite
+//! superior provado. Tokenizador, enquadramento real da requisição, preços
+//! vigentes e identificadores de modelo só se comprovam contra o contrato do
+//! provedor, com teto imposto pelo provedor, no artefato exato — é o roteiro da
+//! chave de teste. Até lá [`Ativacao`] é `Pendente`, e o turno recusa antes de
+//! qualquer leitura de banco, cofre ou rede.
 #![allow(dead_code)] // Fatia inerte: entrega o ponto de ligação sem ligar chamada real.
 
 pub(crate) mod cofre;
@@ -104,8 +111,10 @@ pub(crate) enum Falha {
     UsoIncerto,
     /// Modelo sem preço verificado: o teto não é conferível.
     SemPreco,
-    /// O uso medido passou da reserva: a estimativa não era limite superior.
+    /// O uso medido passou da reserva: a estimativa não cobriu o turno.
     TetoExcedido,
+    /// A prova do limite superior ainda não foi feita; a rota não roda.
+    AtivacaoPendente,
     Cofre(RecusaCofre),
     Transporte,
     Provedor {
@@ -131,6 +140,7 @@ impl Falha {
             Self::UsoIncerto => "uso_incerto",
             Self::SemPreco => "sem_preco",
             Self::TetoExcedido => "teto_excedido",
+            Self::AtivacaoPendente => "ativacao_pendente",
             Self::Cofre(recusa) => recusa.codigo(),
             Self::Transporte => "transporte",
             Self::Provedor { .. } => "provedor",
@@ -155,6 +165,7 @@ impl std::fmt::Display for Falha {
             Self::UsoIncerto => "Há envio anterior sem uso confirmado; a rota fica fechada até a prova.",
             Self::SemPreco => "O modelo não tem preço verificado; o teto não é conferível.",
             Self::TetoExcedido => "O uso medido passou da reserva; a chamada não vira sucesso.",
+            Self::AtivacaoPendente => "A rota ainda não tem o limite de gasto comprovado; ela não roda.",
             Self::Cofre(recusa) => return recusa.fmt(f),
             Self::Transporte => "Não foi possível enviar a chamada.",
             Self::Provedor { .. } => "O provedor recusou a chamada.",
@@ -174,12 +185,13 @@ fn escopo(bot: &str) -> String {
     format!("bot:{bot}")
 }
 
-/// Reserva conservadora em micro-USD e limite superior do que o pedido pode
-/// custar: cada byte do texto conta como um token (um token tem ao menos um
-/// byte), mais a margem do envelope; uma gravação de cache relatada pelo
-/// provedor sem `cache_control` no pedido é limitada ao mesmo tamanho; a saída
-/// é o teto pedido. Modelo sem preço verificado não tem estimativa.
-fn estimativa_micros(modelo: &str) -> Option<i64> {
+/// Estimativa conservadora em micro-USD: cada byte do texto conta como um
+/// token, mais a margem do envelope; uma gravação de cache relatada pelo
+/// provedor sem `cache_control` no pedido entra limitada ao mesmo tamanho; a
+/// saída é o teto pedido. Não é prova de limite superior — isso é a condição de
+/// ativação descrita no topo do módulo. Modelo sem preço verificado não tem
+/// estimativa.
+fn reserva_conservadora_micros(modelo: &str) -> Option<i64> {
     let entrada = i64::try_from(MAX_ENTRADA.checked_add(MARGEM_ENVELOPE)?).ok()?;
     let tokens = crate::fork::custo::Tokens {
         input: Some(entrada),
@@ -208,6 +220,15 @@ fn micros(custo: &crate::fork::custo::Cost) -> Option<i64> {
     (0.0..=9_007_199_254_740_992.0).contains(&valor).then(|| valor.round() as i64)
 }
 
+/// Estado de ativação da rota. `Pendente` é o padrão e recusa antes de qualquer
+/// leitura; `Provada` só pode ser passado depois da comprovação registrada da
+/// reserva contra o contrato do provedor.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Ativacao {
+    Pendente,
+    Provada,
+}
+
 /// Executa um turno da rota: teto reservado, cofre do vínculo, uma chamada,
 /// texto tipado e liquidação pelo uso medido. Qualquer dúvida fecha a rota.
 pub(crate) async fn executar<T, C>(
@@ -216,13 +237,14 @@ pub(crate) async fn executar<T, C>(
     cofre: &C,
     vinculo: &Vinculo<'_>,
     pedido: &Pedido<'_>,
+    ativacao: Ativacao,
     agora: i64,
 ) -> Result<Resposta, Falha>
 where
     T: Transporte,
     C: Cofre + ?Sized,
 {
-    let resultado = turno(store, transporte, cofre, vinculo, pedido, agora).await;
+    let resultado = turno(store, transporte, cofre, vinculo, pedido, ativacao, agora).await;
     if let Err(falha) = &resultado {
         tracing::warn!(motivo = falha.codigo(), "rota Anthropic recusada");
     }
@@ -235,46 +257,56 @@ async fn turno<T, C>(
     cofre: &C,
     vinculo: &Vinculo<'_>,
     pedido: &Pedido<'_>,
+    ativacao: Ativacao,
     agora: i64,
 ) -> Result<Resposta, Falha>
 where
     T: Transporte,
     C: Cofre + ?Sized,
 {
+    if ativacao != Ativacao::Provada {
+        return Err(Falha::AtivacaoPendente);
+    }
     vinculo.validar().map_err(|_| Falha::VinculoInvalido)?;
     pedido.validar()?;
-    let estimativa = estimativa_micros(pedido.modelo).ok_or(Falha::SemPreco)?;
+    let estimativa = reserva_conservadora_micros(pedido.modelo).ok_or(Falha::SemPreco)?;
     let reserva = limite::reservar(store, &escopo(vinculo.bot), estimativa, agora)?;
     let chave = match cofre.abrir(vinculo) {
         Ok(chave) => chave,
         Err(recusa) => {
-            limite::liberar_sem_envio(store, &reserva)?;
+            limite::liberar_sem_envio(store, reserva)?;
             return Err(Falha::Cofre(recusa));
         }
     };
     if let Err(falha) = limite::revalidar(store, &escopo(vinculo.bot), agora) {
-        limite::liberar_sem_envio(store, &reserva)?;
+        // Dúvida sobre o período: a reserva fica cheia e incerta, sem devolver
+        // margem. Só teto rebaixado ou ilegível (nada saiu) devolve a margem.
+        if falha == Falha::UsoIncerto {
+            limite::incerta(store, reserva, agora)?;
+        } else {
+            limite::liberar_sem_envio(store, reserva)?;
+        }
         return Err(falha);
     }
     let corpo = match transporte.enviar(pedido, &chave).await {
         Ok(corpo) => corpo,
         Err(falha) => {
-            limite::incerta(store, &reserva, agora)?;
+            limite::incerta(store, reserva, agora)?;
             return Err(falha.into());
         }
     };
     let resposta = match eventos::interpretar(&corpo, &chave) {
         Ok(resposta) => resposta,
         Err(falha) => {
-            limite::incerta(store, &reserva, agora)?;
+            limite::incerta(store, reserva, agora)?;
             return Err(falha);
         }
     };
     let Some(uso) = uso_micros(&resposta.modelo, resposta.uso) else {
-        limite::incerta(store, &reserva, agora)?;
+        limite::incerta(store, reserva, agora)?;
         return Err(Falha::UsoNaoConfirmado);
     };
-    if limite::liquidar(store, &reserva, uso, agora)? {
+    if limite::liquidar(store, reserva, uso, agora)? {
         return Err(Falha::TetoExcedido);
     }
     Ok(resposta)

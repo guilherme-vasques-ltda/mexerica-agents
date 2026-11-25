@@ -41,6 +41,19 @@ impl Cofre for CofreQueBaixaTeto<'_> {
     }
 }
 
+/// Deixa outra reserva incerta no período entre a nossa reserva e a
+/// revalidação: em dúvida, o período fecha e nada sai.
+struct CofreQueDeixaIncerta<'a>(&'a Store);
+
+impl Cofre for CofreQueDeixaIncerta<'_> {
+    fn abrir(&self, vinculo: &Vinculo<'_>) -> Result<Segredo, RecusaCofre> {
+        let escopo = format!("bot:{}", vinculo.bot);
+        let outra = limite::reservar(self.0, &escopo, estimativa(), AGORA).unwrap();
+        limite::incerta(self.0, outra, AGORA).unwrap();
+        Segredo::novo(CHAVE.to_owned())
+    }
+}
+
 struct Fake {
     chamadas: AtomicUsize,
     resposta: Mutex<Option<Result<CorpoBruto, FalhaTransporte>>>,
@@ -117,11 +130,11 @@ fn pedido() -> Pedido<'static> {
 }
 
 fn estimativa() -> i64 {
-    estimativa_micros(MODELO).unwrap()
+    reserva_conservadora_micros(MODELO).unwrap()
 }
 
 async fn rodar<T: Transporte>(store: &Store, fake: &T, cofre: &dyn Cofre) -> Result<Resposta, Falha> {
-    executar(store, fake, cofre, &vinculo(), &pedido(), AGORA).await
+    executar(store, fake, cofre, &vinculo(), &pedido(), Ativacao::Provada, AGORA).await
 }
 
 #[tokio::test]
@@ -148,7 +161,7 @@ async fn modelo_sem_preco_nao_envia() {
     com_teto(&store, estimativa());
     let fake = Fake::com(stream(MODELO, "texto", 2, 3));
     let sem_preco = Pedido { modelo: "claude-sem-linha-de-preco", sistema: "s", usuario: "u" };
-    let falha = executar(&store, &fake, &CofreBom, &vinculo(), &sem_preco, AGORA).await.unwrap_err();
+    let falha = executar(&store, &fake, &CofreBom, &vinculo(), &sem_preco, Ativacao::Provada, AGORA).await.unwrap_err();
     assert_eq!(falha, Falha::SemPreco);
     assert_eq!(fake.chamadas(), 0);
 }
@@ -179,7 +192,9 @@ async fn teto_baixado_depois_da_reserva_nao_envia() {
     let store = loja();
     com_teto(&store, estimativa());
     let fake = Fake::com(stream(MODELO, "texto", 2, 3));
-    let falha = executar(&store, &fake, &CofreQueBaixaTeto(&store), &vinculo(), &pedido(), AGORA).await.unwrap_err();
+    let falha = executar(&store, &fake, &CofreQueBaixaTeto(&store), &vinculo(), &pedido(), Ativacao::Provada, AGORA)
+        .await
+        .unwrap_err();
     assert_eq!(falha, Falha::TetoEsgotado);
     assert_eq!(fake.chamadas(), 0);
 }
@@ -192,11 +207,14 @@ async fn pedido_grande_ou_vazio_recusado() {
     let grande = "x".repeat(MAX_ENTRADA + 1);
     let pedido_grande = Pedido { modelo: MODELO, sistema: "", usuario: &grande };
     assert_eq!(
-        executar(&store, &fake, &CofreBom, &vinculo(), &pedido_grande, AGORA).await.unwrap_err(),
+        executar(&store, &fake, &CofreBom, &vinculo(), &pedido_grande, Ativacao::Provada, AGORA).await.unwrap_err(),
         Falha::PedidoInvalido
     );
     let vazio = Pedido { modelo: MODELO, sistema: "", usuario: "   " };
-    assert_eq!(executar(&store, &fake, &CofreBom, &vinculo(), &vazio, AGORA).await.unwrap_err(), Falha::PedidoInvalido);
+    assert_eq!(
+        executar(&store, &fake, &CofreBom, &vinculo(), &vazio, Ativacao::Provada, AGORA).await.unwrap_err(),
+        Falha::PedidoInvalido
+    );
     assert_eq!(fake.chamadas(), 0);
     assert_eq!(limite::disponivel(&store, "bot:bot-fixture", AGORA).unwrap(), estimativa());
 }
@@ -207,7 +225,7 @@ async fn vinculo_invalido_nao_le_cofre_nem_envia() {
     com_teto(&store, estimativa());
     let fake = Fake::com(stream(MODELO, "texto", 2, 3));
     let invalido = Vinculo { bot: "bot:outro", concessao: "c" };
-    let falha = executar(&store, &fake, &CofreBom, &invalido, &pedido(), AGORA).await.unwrap_err();
+    let falha = executar(&store, &fake, &CofreBom, &invalido, &pedido(), Ativacao::Provada, AGORA).await.unwrap_err();
     assert_eq!(falha, Falha::VinculoInvalido);
     assert_eq!(fake.chamadas(), 0);
 }
@@ -330,13 +348,32 @@ async fn evento_desconhecido_recusado() {
     assert_eq!(rodar(&store, &fake, &CofreBom).await.unwrap_err(), Falha::RespostaInvalida);
 }
 
-#[test]
-fn reserva_e_limite_superior_do_pedido() {
-    let entrada = u64::try_from(MAX_ENTRADA).unwrap();
-    let saida = u64::from(MAX_SAIDA_TOKENS);
-    let pior_caso = Uso { entrada, saida, cache_lido: 0, cache_escrito: entrada };
-    let custo = uso_micros(MODELO, pior_caso).unwrap();
-    assert!(custo <= estimativa(), "a reserva precisa cobrir o pior caso do pedido: {custo} > {}", estimativa());
+#[tokio::test]
+async fn ativacao_pendente_recusa_sem_reservar_nem_enviar() {
+    let store = loja();
+    com_teto(&store, estimativa());
+    let fake = Fake::com(stream(MODELO, "texto", 2, 3));
+    let falha = executar(&store, &fake, &CofreBom, &vinculo(), &pedido(), Ativacao::Pendente, AGORA).await.unwrap_err();
+    assert_eq!(falha, Falha::AtivacaoPendente);
+    assert_eq!(fake.chamadas(), 0);
+    assert_eq!(limite::disponivel(&store, "bot:bot-fixture", AGORA).unwrap(), estimativa());
+}
+
+#[tokio::test]
+async fn revalidacao_com_uso_incerto_fecha_sem_enviar_e_sem_devolver_margem() {
+    let store = loja();
+    com_teto(&store, estimativa().saturating_mul(3));
+    let fake = Fake::com(stream(MODELO, "texto", 2, 3));
+    let falha = executar(&store, &fake, &CofreQueDeixaIncerta(&store), &vinculo(), &pedido(), Ativacao::Provada, AGORA)
+        .await
+        .unwrap_err();
+    assert_eq!(falha, Falha::UsoIncerto);
+    assert_eq!(fake.chamadas(), 0);
+    assert_eq!(
+        limite::disponivel(&store, "bot:bot-fixture", AGORA).unwrap(),
+        estimativa(),
+        "as duas reservas ficam cheias e incertas"
+    );
 }
 
 #[tokio::test]
@@ -428,9 +465,10 @@ fn incerta_fecha_admissao_e_resolver_reabre() {
     let est = estimativa();
     com_teto(&store, est);
     let reserva = limite::reservar(&store, "bot:bot-fixture", est, AGORA).unwrap();
-    limite::incerta(&store, &reserva, AGORA).unwrap();
+    let id = reserva.id.clone();
+    limite::incerta(&store, reserva, AGORA).unwrap();
     assert_eq!(limite::reservar(&store, "bot:bot-fixture", est, AGORA).unwrap_err(), Falha::UsoIncerto);
-    limite::resolver_incerta(&store, &reserva.id, 0, AGORA).unwrap();
+    limite::resolver_incerta(&store, &id, 0, AGORA).unwrap();
     assert!(limite::reservar(&store, "bot:bot-fixture", est, AGORA).is_ok());
 }
 
@@ -443,7 +481,7 @@ fn reserva_sobrevive_ao_reinicio() {
         migrate(&store.db.locked()).unwrap();
         com_teto(&store, estimativa());
         let reserva = limite::reservar(&store, "bot:bot-fixture", estimativa(), AGORA).unwrap();
-        limite::incerta(&store, &reserva, AGORA).unwrap();
+        limite::incerta(&store, reserva, AGORA).unwrap();
     }
     let store = Store::open(&caminho).unwrap();
     assert_eq!(limite::reservar(&store, "bot:bot-fixture", estimativa(), AGORA).unwrap_err(), Falha::UsoIncerto);

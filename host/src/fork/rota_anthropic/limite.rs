@@ -30,8 +30,9 @@ pub(crate) fn migrate(c: &Connection) -> anyhow::Result<()> {
 }
 
 /// Reserva viva de uma chamada. `micros` é a margem conservadora tomada antes
-/// do envio; `id` é a chave da liquidação.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// do envio; `id` é a chave da liquidação. Sem `Clone`: o valor tem um dono só,
+/// então devolver margem depois de um envio possível não compila.
+#[derive(Debug)]
 pub(crate) struct ReservaDeGasto {
     pub(crate) id: String,
     pub(crate) micros: i64,
@@ -135,19 +136,21 @@ pub(crate) fn reservar(store: &Store, escopo: &str, micros: i64, agora: i64) -> 
 /// Devolve a margem SÓ quando o transporte comprovadamente não foi chamado: a
 /// reserva nunca foi enviada, então não há cobrança a preservar. Erro depois de
 /// um envio possível usa [`incerta`], que mantém a margem cheia.
-pub(crate) fn liberar_sem_envio(store: &Store, reserva: &ReservaDeGasto) -> Result<(), Falha> {
+pub(crate) fn liberar_sem_envio(store: &Store, reserva: ReservaDeGasto) -> Result<(), Falha> {
+    let ReservaDeGasto { id, .. } = reserva;
     store
         .db
         .locked()
-        .execute("DELETE FROM donna_rota_anthropic_reservas WHERE id = ?1 AND estado = 'retida'", [&reserva.id])
+        .execute("DELETE FROM donna_rota_anthropic_reservas WHERE id = ?1 AND estado = 'retida'", [id])
         .map_err(|_| Falha::TetoIndisponivel)?;
     Ok(())
 }
 
 /// A resposta chegou com uso medido: a reserva vira o gasto real. Devolve
-/// `true` quando o uso medido passou da reserva — a estimativa falhou como
-/// limite superior e quem chamou não pode reportar sucesso.
-pub(crate) fn liquidar(store: &Store, reserva: &ReservaDeGasto, uso_micros: i64, agora: i64) -> Result<bool, Falha> {
+/// `true` quando o uso medido passou da reserva — a estimativa conservadora
+/// não cobriu o turno e quem chamou não pode reportar sucesso.
+pub(crate) fn liquidar(store: &Store, reserva: ReservaDeGasto, uso_micros: i64, agora: i64) -> Result<bool, Falha> {
+    let ReservaDeGasto { id, micros } = reserva;
     if uso_micros < 0 {
         return Err(Falha::TetoIndisponivel);
     }
@@ -158,25 +161,26 @@ pub(crate) fn liquidar(store: &Store, reserva: &ReservaDeGasto, uso_micros: i64,
             "UPDATE donna_rota_anthropic_reservas
                 SET estado = 'liquidada', uso_micros = ?1, encerrada = ?2
               WHERE id = ?3 AND estado = 'retida'",
-            params![uso_micros, agora, reserva.id],
+            params![uso_micros, agora, id],
         )
         .map_err(|_| Falha::TetoIndisponivel)?;
     if mudou != 1 {
         return Err(Falha::TetoIndisponivel);
     }
-    Ok(uso_micros > reserva.micros)
+    Ok(uso_micros > micros)
 }
 
 /// O envio pode ter saído e o uso não foi medido: mantém a margem cheia e
 /// fecha o período até haver prova. Nunca conta como zero.
-pub(crate) fn incerta(store: &Store, reserva: &ReservaDeGasto, agora: i64) -> Result<(), Falha> {
+pub(crate) fn incerta(store: &Store, reserva: ReservaDeGasto, agora: i64) -> Result<(), Falha> {
+    let ReservaDeGasto { id, .. } = reserva;
     let mudou = store
         .db
         .locked()
         .execute(
             "UPDATE donna_rota_anthropic_reservas SET estado = 'incerta', encerrada = ?1
               WHERE id = ?2 AND estado = 'retida'",
-            params![agora, reserva.id],
+            params![agora, id],
         )
         .map_err(|_| Falha::TetoIndisponivel)?;
     if mudou != 1 {
@@ -217,6 +221,11 @@ pub(crate) fn revalidar(store: &Store, escopo: &str, agora: i64) -> Result<(), F
     let limite = limite_on(&db, escopo)?;
     if gasto_on(&db, escopo, &periodo)? > limite {
         return Err(Falha::TetoEsgotado);
+    }
+    // Outra chamada ficou incerta entre a reserva e o envio: o período está
+    // fechado e este envio também não pode sair.
+    if pendente_on(&db, escopo, &periodo)? {
+        return Err(Falha::UsoIncerto);
     }
     Ok(())
 }
