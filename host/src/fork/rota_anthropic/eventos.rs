@@ -10,6 +10,7 @@
 //! | iniciado | `content_block_start` | bloco aberto | só tipo texto; índice obrigatório; sem aninhar |
 //! | bloco aberto | `content_block_delta` | bloco aberto | índice igual ao bloco; só `text_delta` |
 //! | bloco aberto | `content_block_stop` | bloco fechado | índice igual ao bloco |
+//! | fase final | `content_block_start` | recusa | nenhum bloco depois da fase final |
 //! | iniciado/bloco fechado | `message_delta` | fase final | único; exige blocos fechados; totais cumulativos só crescem |
 //! | fase final | `message_stop` | terminado | — |
 //! | qualquer | `ping` | igual | ignorado |
@@ -130,7 +131,7 @@ fn aplicar(estado: &mut Acumulado, valor: &Value, nome: Option<&str>) -> Result<
             if delta["type"] != "text_delta" {
                 return Err(Falha::ConteudoNaoTexto);
             }
-            if estado.fase_final || estado.bloco != Some(indice(valor)?) {
+            if estado.bloco != Some(indice(valor)?) {
                 return Err(Falha::RespostaInvalida);
             }
             let pedaco = delta["text"].as_str().ok_or(Falha::RespostaInvalida)?;
@@ -140,7 +141,7 @@ fn aplicar(estado: &mut Acumulado, valor: &Value, nome: Option<&str>) -> Result<
             }
         }
         "content_block_stop" => {
-            if estado.fase_final || estado.bloco != Some(indice(valor)?) {
+            if estado.bloco != Some(indice(valor)?) {
                 return Err(Falha::RespostaInvalida);
             }
             estado.bloco = None;

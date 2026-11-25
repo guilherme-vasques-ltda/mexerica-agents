@@ -506,8 +506,6 @@ async fn parser_recusa_fase_final_duplicada_sem_motivo() {
     com_teto(&store, estimativa());
     let inicio = serde_json::json!({"type":"message_start","message":{"model":MODELO,
         "usage":{"input_tokens":2,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}});
-    let final_sem_motivo = serde_json::json!({"type":"message_delta","delta":{"stop_reason":null},
-        "usage":{"output_tokens":3}});
     let fake = Fake::com(
         [
             evento(&inicio),
@@ -515,8 +513,36 @@ async fn parser_recusa_fase_final_duplicada_sem_motivo() {
                 &serde_json::json!({"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}),
             ),
             evento(&serde_json::json!({"type":"content_block_stop","index":0})),
-            evento(&final_sem_motivo),
-            evento(&final_sem_motivo),
+            evento(&serde_json::json!({"type":"message_delta","delta":{"stop_reason":null},
+                "usage":{"output_tokens":100}})),
+            evento(&serde_json::json!({"type":"message_delta","delta":{"stop_reason":"end_turn"},
+                "usage":{"output_tokens":3}})),
+            evento(&serde_json::json!({"type":"message_stop"})),
+        ]
+        .concat(),
+    );
+    assert_eq!(rodar(&store, &fake, &CofreBom).await.unwrap_err(), Falha::RespostaInvalida);
+}
+
+#[tokio::test]
+async fn parser_recusa_bloco_depois_da_fase_final() {
+    let store = loja();
+    com_teto(&store, estimativa());
+    let fake = Fake::com(
+        [
+            evento(&serde_json::json!({"type":"message_start","message":{"model":MODELO,
+                "usage":{"input_tokens":2,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}})),
+            evento(
+                &serde_json::json!({"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}),
+            ),
+            evento(&serde_json::json!({"type":"content_block_stop","index":0})),
+            evento(&serde_json::json!({"type":"message_delta","delta":{"stop_reason":"end_turn"},
+                "usage":{"output_tokens":3}})),
+            evento(
+                &serde_json::json!({"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}),
+            ),
+            evento(&serde_json::json!({"type":"content_block_stop","index":1})),
+            evento(&serde_json::json!({"type":"message_stop"})),
         ]
         .concat(),
     );
