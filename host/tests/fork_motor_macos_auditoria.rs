@@ -208,6 +208,63 @@ fn efetuar_com_prazo_vencido_e_gravacao_falha_nega_fecha_e_sem_retry() {
 }
 
 #[test]
+fn resolver_com_pendencia_vencida_e_gravacao_falha_deixa_a_expiracao_valendo() {
+    let (dir, registro) = registro();
+    let mut porta = porta(&registro, 9);
+    porta.aceitar_aviso(escopo()).expect("aceitar aviso da fixture");
+    let pedido = porta.pedir(acao(), 0).expect("abrir pedido da fixture");
+    leitor(&dir).execute("DROP TABLE recusas_motor_macos", []).expect("derrubar tabela da fixture");
+    assert_eq!(porta.resolver(pedido, escopo(), Decisao::UmaVez, 300_000), Err(Falha::Auditoria));
+    // A expiração não é devolvida: o pedido morreu e nada é refeito.
+    assert_eq!(
+        porta.efetuar(pedido, acao(), || 300_001, |_| panic!("efeito de pedido expirado")),
+        Err(Falha::Recusa(Recusa::PedidoInvalido))
+    );
+    let _novo = porta.pedir(acao(), 300_002).expect("porta segue útil para pedido novo");
+}
+
+#[test]
+fn efetuar_com_pendencia_vencida_na_entrada_grava_expirada_uma_vez() {
+    let (dir, registro) = registro();
+    let mut porta = porta(&registro, 9);
+    porta.aceitar_aviso(escopo()).expect("aceitar aviso da fixture");
+    let pedido = porta.pedir(acao(), 0).expect("abrir pedido da fixture");
+    porta.resolver(pedido, escopo(), Decisao::UmaVez, 1).expect("aprovar pedido da fixture");
+    // Aprovado e nunca efetuado: na entrada do caminho de efetuar já venceu.
+    assert_eq!(
+        porta.efetuar(pedido, acao(), || 300_000, |_| panic!("efeito de pedido vencido na entrada")),
+        Err(Falha::Recusa(Recusa::Expirada))
+    );
+    assert_eq!(linhas(&leitor(&dir)), vec![(1, "expirada".to_owned(), "efetuar".to_owned(), 9, 300_000)]);
+    // O instante gravado é o medido pela porta na entrada; nada além dele.
+    assert_eq!(
+        porta.efetuar(pedido, acao(), || 300_001, |_| panic!("efeito de pedido vencido na entrada")),
+        Err(Falha::Recusa(Recusa::PedidoInvalido))
+    );
+    assert_eq!(linhas(&leitor(&dir)), vec![(1, "expirada".to_owned(), "efetuar".to_owned(), 9, 300_000)]);
+}
+
+#[test]
+fn efetuar_com_pendencia_vencida_na_entrada_e_gravacao_falha_nega_sem_efeito() {
+    let (dir, registro) = registro();
+    let mut porta = porta(&registro, 9);
+    porta.aceitar_aviso(escopo()).expect("aceitar aviso da fixture");
+    let pedido = porta.pedir(acao(), 0).expect("abrir pedido da fixture");
+    porta.resolver(pedido, escopo(), Decisao::UmaVez, 1).expect("aprovar pedido da fixture");
+    leitor(&dir).execute("DROP TABLE recusas_motor_macos", []).expect("derrubar tabela da fixture");
+    assert_eq!(
+        porta.efetuar(pedido, acao(), || 300_000, |_| panic!("efeito com gravação falha")),
+        Err(Falha::Auditoria)
+    );
+    // A expiração segue valendo: o pedido morreu, sem efeito e sem retry.
+    assert_eq!(
+        porta.efetuar(pedido, acao(), || 300_001, |_| panic!("efeito com gravação falha")),
+        Err(Falha::Recusa(Recusa::PedidoInvalido))
+    );
+    let _novo = porta.pedir(acao(), 300_002).expect("porta segue útil para pedido novo");
+}
+
+#[test]
 fn parar_com_pendencia_grava_fechada_e_nunca_bloqueia() {
     let (dir, registro) = registro();
     let mut porta = porta(&registro, 9);

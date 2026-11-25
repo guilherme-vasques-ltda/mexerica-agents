@@ -10,11 +10,17 @@
 //!   pedido novo nascer; sem gravação, a porta fecha e o pedido não nasce.
 //! - `resolver`: negar grava `negada`; vencer grava `expirada`; recusa de
 //!   pedido desconhecido não grava — a série é da porta que a emitiu.
-//! - `efetuar`: prazo vencido entre a auditoria e o efeito grava `expirada`
-//!   com o instante medido pela porta; sem gravação, o efeito não roda e a
-//!   porta fecha.
+//! - `efetuar`: vencer na entrada grava `expirada` com o instante medido
+//!   pela porta; vencer depois da auditoria grava `expirada` pelo gancho —
+//!   nunca duas vezes. Sem gravação, o efeito não roda e a porta fecha.
 //! - `parar`: o fechamento nunca é bloqueado; havendo pendência, grava
 //!   `fechada` — gravação falha deixa o fechamento valendo.
+//!
+//! Lacuna declarada: o gancho de intenção de `efetuar` não grava registro
+//! nesta fatia. A gravação durável da intenção, ordenada com a revogação
+//! antes do efeito, é condição explícita da fatia de integração — nenhum
+//! caminho de produção alcança este código enquanto a recusa
+//! `motor_macos_indisponivel` estiver na frente.
 
 use std::num::NonZeroU64;
 
@@ -112,6 +118,17 @@ impl<'a> PortaAuditada<'a> {
         }
     }
 
+    /// Caminho de `efetuar`: vencer na ENTRADA (antes de qualquer efeito)
+    /// grava `expirada` com o instante medido pela porta; vencer DEPOIS da
+    /// auditoria grava `expirada` pelo próprio gancho — as duas expirações
+    /// nunca gravam duas vezes a mesma recusa. Gravação falha deixa o efeito
+    /// negado e devolve a falha, sem retry.
+    ///
+    /// Lacuna declarada: o gancho de intenção não grava registro nesta fatia.
+    /// A gravação durável da intenção — ordenada com a revogação, antes do
+    /// efeito — é condição explícita da fatia de integração; enquanto ela não
+    /// existir, nenhum caminho de produção alcança este código e a recusa
+    /// `motor_macos_indisponivel` segue na frente de tudo.
     pub(super) fn efetuar(
         &mut self,
         pedido: Pedido,
@@ -121,32 +138,56 @@ impl<'a> PortaAuditada<'a> {
     ) -> Result<(), Falha> {
         let registro = self.registro;
         let instancia = self.instancia;
-        self.porta
-            .efetuar(
-                pedido,
-                acao,
-                agora_ms,
-                |pedido, _acao, evento, instante| match evento {
-                    super::porta::EventoAuditoria::Intencao => true,
-                    super::porta::EventoAuditoria::ExpiradaNaoExecutada => {
-                        if let Err(erro) =
-                            registro.registrar(pedido, Caminho::Efetuar, Motivo::Expirada, instancia, instante)
-                        {
-                            tracing::warn!(
-                                codigo = "motor_macos_auditoria",
-                                caminho = "efetuar",
-                                motivo = "expirada",
-                                erro = %erro,
-                                "gravação durável da recusa falhou; o efeito segue negado"
-                            );
-                            return false;
-                        }
-                        true
+        let gravada_pela_porta = std::cell::Cell::new(false);
+        let ultimo_instante = std::cell::Cell::new(0);
+        let mut relogio = agora_ms;
+        let resultado = self.porta.efetuar(
+            pedido,
+            acao,
+            || {
+                let agora = relogio();
+                ultimo_instante.set(agora);
+                agora
+            },
+            |pedido, _acao, evento, instante| match evento {
+                super::porta::EventoAuditoria::Intencao => true,
+                super::porta::EventoAuditoria::ExpiradaNaoExecutada => {
+                    gravada_pela_porta.set(true);
+                    if let Err(erro) =
+                        registro.registrar(pedido, Caminho::Efetuar, Motivo::Expirada, instancia, instante)
+                    {
+                        tracing::warn!(
+                            codigo = "motor_macos_auditoria",
+                            caminho = "efetuar",
+                            motivo = "expirada",
+                            erro = %erro,
+                            "gravação durável da recusa falhou; o efeito segue negado"
+                        );
+                        return false;
                     }
-                },
-                efeito_imediato,
-            )
-            .map_err(Falha::Recusa)
+                    true
+                }
+            },
+            efeito_imediato,
+        );
+        match resultado {
+            Err(Recusa::Expirada) if !gravada_pela_porta.get() => {
+                if let Err(erro) =
+                    registro.registrar(pedido, Caminho::Efetuar, Motivo::Expirada, instancia, ultimo_instante.get())
+                {
+                    tracing::warn!(
+                        codigo = "motor_macos_auditoria",
+                        caminho = "efetuar",
+                        motivo = "expirada",
+                        erro = %erro,
+                        "gravação durável da recusa falhou; a expiração segue valendo"
+                    );
+                    return Err(Falha::Auditoria);
+                }
+                Err(Falha::Recusa(Recusa::Expirada))
+            }
+            restante => restante.map_err(Falha::Recusa),
+        }
     }
 
     pub(super) fn parar(&mut self, agora_ms: u64) -> Result<(), Falha> {
