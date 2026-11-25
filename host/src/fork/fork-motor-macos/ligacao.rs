@@ -14,6 +14,13 @@
 //! a porta auditada e o cofre da geração: "Parar tudo" fecha os dois juntos,
 //! sem bloquear, e a parada confirmada exige evidência dentro do prazo de
 //! 2 s — sobrevivente é visível, nunca sucesso falso.
+//!
+//! Gates de ativação, declarados e NÃO provados aqui: o lançamento e o
+//! registro no censo são feitos pelo supervisor com identidade OBSERVADA
+//! (PID e início de cada processo), a saída é verificada antes de
+//! confirmada e o grupo ou a sessão do Motor e de cada descendente seguem
+//! vazios. Essas provas são nativas no macOS e precedem a retirada da
+//! recusa #117; os dublês das fixtures só exercitam o contrato.
 
 use std::num::NonZeroU64;
 
@@ -142,27 +149,34 @@ impl<'a> UnidadeRc2<'a> {
         resultado
     }
 
-    /// Partida verificada da unidade: move-only, sai UMA única vez no ponto
-    /// do efeito. A unidade NÃO deixa de existir: segue supervisora com
-    /// porta, cofre e censo, e a partida é recusada após a parada ou se já
-    /// foi entregue — nada parte duas vezes, e nada parte depois de
+    /// Partida verificada da unidade: sai UMA única vez, EMPRESTADA, no
+    /// ponto do efeito. A unidade NÃO deixa de existir: segue supervisora
+    /// com porta, cofre e censo, e a partida é recusada após a parada ou se
+    /// já foi executada — nada parte duas vezes, e nada parte depois de
     /// "Parar tudo".
     /// Efeito de partida: a checagem e o início são a MESMA operação da
     /// unidade — quem parte o Motor entrega o efeito para cá; a unidade
-    /// revalida (aberta, aceite feito, censo com o motor registrado) e
-    /// executa CONSUMINDO a partida dentro da operação. Nenhum token
-    /// escapa para uso posterior: não existe janela entre revalidar e
-    /// iniciar, a parada não corre contra o início e nada depende de
-    /// chamada voluntária de revalidação.
-    ///
-    /// O censo exigido aqui é CONTRATO, não prova do processo real: em
-    /// runtime a entrada e a confirmação de saída vêm do supervisor (PID e
-    /// início OBSERVADOS, saída verificada, grupo ou sessão vazios); a
-    /// fixture usa dublês e a prova do Motor e dos descendentes reais é
-    /// nativa. A unidade segue supervisora com porta, cofre e censo.
+    /// revalida (aberta, aceite feito, motor registrado no censo) e executa
+    /// DENTRO da operação, EMPRESTANDO a concessão por `&mut` e
+    /// descartando a partida no mesmo passo. A concessão não escapa para
+    /// uso posterior: guardar a partida fora da chamada não compila, o
+    /// empréstimo vive só dentro dela.
+    /// ```compile_fail
+    /// // Reter a concessão fora do efeito não compila: parar a unidade e
+    /// // manter a partida guardada não existe nesta API.
+    /// let mut guardada = None;
+    /// unidade.partir_para_o_motor(|partida| guardada = Some(partida));
+    /// ```
+    /// O lançamento EFETIVO do Motor exige a autorização mediada pela
+    /// unidade e é gate pré-ativação: só sai da dormência depois de
+    /// comprovado nativamente no macOS — lançamento e registro pelo
+    /// supervisor com identidade OBSERVADA (PID e início), saída verificada
+    /// antes de confirmada e grupo ou sessão vazios do Motor e de cada
+    /// descendente. A fixture usa dublês: o censo exigido aqui é CONTRATO,
+    /// não prova do processo real.
     pub(super) fn partir_para_o_motor(
         &mut self,
-        efeito: impl FnOnce(partida::Partida<'a>),
+        efeito: impl FnOnce(&mut partida::Partida<'a>),
     ) -> Result<(), anyhow::Error> {
         if self.parada || self.porta.fechada() {
             return Err(recusa_de_partida("unidade parada ou porta fechada"));
@@ -170,28 +184,36 @@ impl<'a> UnidadeRc2<'a> {
         if !self.porta.aceita() {
             return Err(recusa_de_partida("partida exige o aceite do aviso"));
         }
-        if self.porta.sem_processos() {
+        if !self.porta.motor_no_censo() {
             return Err(recusa_de_partida("partida exige o motor registrado no censo"));
         }
-        let Some(partida) = self.partida.take() else {
+        let Some(mut partida) = self.partida.take() else {
             return Err(recusa_de_partida("partida já executada"));
         };
-        efeito(partida);
+        efeito(&mut partida);
         Ok(())
     }
 
-    /// Registra instância observada (motor ou descendente): o censo é o que
-    /// torna sobrevivente visível na parada. CONTRATO: em runtime a
-    /// instância vem do supervisor (PID e início OBSERVADOS), não do
-    /// chamador livre; a entrada da fixture é dublê e não prova processo
-    /// real.
+    /// Registra descendente observado no censo de alvos da parada: torna
+    /// sobrevivente visível na parada — não abre partida. CONTRATO: em
+    /// runtime a instância vem do supervisor (PID e início OBSERVADOS),
+    /// não do chamador livre; a entrada da fixture é dublê.
     pub(super) fn registrar(&mut self, instancia: super::porta::Instancia) -> bool {
         self.porta.registrar(instancia)
     }
 
-    /// Confirma a saída de uma instância registrada. CONTRATO: em runtime a
-    /// saída é verificada pelo supervisor antes de confirmar; a confirmação
-    /// da fixture não prova a morte de processo real.
+    /// Registra a instância principal observada (o Motor): entra no censo
+    /// de alvos e é a única marca que abre a partida — descendente
+    /// sozinho não basta. CONTRATO: em runtime a instância vem do
+    /// supervisor (PID e início OBSERVADOS); a fixture é dublê.
+    pub(super) fn registrar_motor(&mut self, instancia: super::porta::Instancia) -> bool {
+        self.porta.registrar_motor(instancia)
+    }
+
+    /// Confirma a saída de uma instância registrada; a saída confirmada do
+    /// motor retira a marca que abre a partida. CONTRATO: em runtime a
+    /// saída é verificada pelo supervisor antes de confirmar; a
+    /// confirmação da fixture não prova a morte de processo real.
     pub(super) fn confirmar_saida(&mut self, instancia: super::porta::Instancia) -> bool {
         self.porta.confirmar_saida(instancia)
     }

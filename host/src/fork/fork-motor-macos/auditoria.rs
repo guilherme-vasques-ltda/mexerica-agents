@@ -217,13 +217,20 @@ impl<'a> PortaAuditada<'a> {
         self.porta.estado(agora_ms, evidencia)
     }
 
-    /// Registra instância observada da unidade (motor ou descendente): o
-    /// censo é o que torna sobrevivente visível na parada.
+    /// Registra descendente observado da unidade: entra no censo que torna
+    /// sobrevivente visível na parada — não abre partida.
     pub(super) fn registrar(&mut self, instancia: super::porta::Instancia) -> bool {
         self.porta.registrar(instancia)
     }
 
-    /// Confirma a saída de uma instância registrada.
+    /// Registra a instância principal observada (o Motor): única marca que
+    /// abre a partida; descendente sozinho não basta.
+    pub(super) fn registrar_motor(&mut self, instancia: super::porta::Instancia) -> bool {
+        self.porta.registrar_motor(instancia)
+    }
+
+    /// Confirma a saída de uma instância registrada; a saída confirmada do
+    /// motor retira a marca que abre a partida.
     pub(super) fn confirmar_saida(&mut self, instancia: super::porta::Instancia) -> bool {
         self.porta.confirmar_saida(instancia)
     }
@@ -239,9 +246,9 @@ impl<'a> PortaAuditada<'a> {
         self.porta.aceita()
     }
 
-    /// Censo de instâncias registrado (motor e descendentes)?
-    pub(super) fn sem_processos(&self) -> bool {
-        self.porta.sem_processos()
+    /// A instância principal (o Motor) está no censo, sem saída confirmada?
+    pub(super) fn motor_no_censo(&self) -> bool {
+        self.porta.motor_no_censo()
     }
 
     /// Caminho de `parar` ("Parar tudo" na porta): fecha sem bloquear;

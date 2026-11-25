@@ -116,6 +116,7 @@ pub(super) struct Porta {
     ultima_serie: u64,
     solicitacao: Option<Solicitacao>,
     processos: BTreeSet<Instancia>,
+    motor: Option<Instancia>,
     parada_ms: Option<u64>,
 }
 
@@ -127,6 +128,7 @@ impl Porta {
             ultima_serie: 0,
             solicitacao: None,
             processos: BTreeSet::new(),
+            motor: None,
             parada_ms: None,
         }
     }
@@ -247,12 +249,30 @@ impl Porta {
         self.parada_ms.get_or_insert(agora_ms);
     }
 
+    /// Registra descendente observado no censo de alvos da parada: entra no
+    /// conjunto que a parada confirma por saída — não abre partida.
     pub(super) fn registrar(&mut self, instancia: Instancia) -> bool {
         self.exigir_aberta().is_ok() && self.processos.insert(instancia)
     }
 
+    /// Registra a instância principal observada (o Motor): entra no censo de
+    /// alvos da parada E é a única marca que abre a partida. Descendente
+    /// sozinho não basta.
+    pub(super) fn registrar_motor(&mut self, instancia: Instancia) -> bool {
+        if self.exigir_aberta().is_err() {
+            return false;
+        }
+        self.processos.insert(instancia);
+        self.motor = Some(instancia);
+        true
+    }
+
     pub(super) fn confirmar_saida(&mut self, instancia: Instancia) -> bool {
-        self.processos.remove(&instancia)
+        let removida = self.processos.remove(&instancia);
+        if removida && self.motor == Some(instancia) {
+            self.motor = None;
+        }
+        removida
     }
 
     pub(super) fn alvos_da_parada(&self) -> Option<&BTreeSet<Instancia>> {
@@ -320,9 +340,10 @@ impl Porta {
         matches!(self.estado, EstadoPorta::Aberta)
     }
 
-    /// Censo de instâncias registrado (motor e descendentes).
-    pub(super) fn sem_processos(&self) -> bool {
-        self.processos.is_empty()
+    /// A instância principal está no censo (registrada e sem saída
+    /// confirmada)? É ela que abre a partida — o censo de descendentes não.
+    pub(super) fn motor_no_censo(&self) -> bool {
+        self.motor.is_some_and(|motor| self.processos.contains(&motor))
     }
 
     fn solicitacao(&mut self, pedido: Pedido, agora_ms: u64) -> Result<&mut Solicitacao, Recusa> {

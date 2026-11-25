@@ -119,6 +119,17 @@ fn leitor(dir: &tempfile::TempDir) -> Connection {
     Connection::open(dir.path().join("hub.sqlite3")).expect("abrir leitor da fixture")
 }
 
+/// Pino de compilação do empréstimo: a concessão só atravessa o efeito por
+/// `&mut` emprestado — uma variante que entregue a partida por valor ao
+/// chamador não compila neste pino, e nenhuma fixture guarda a concessão
+/// fora da chamada.
+fn exige_emprestimo<'u, F>(unidade: &mut UnidadeRc2<'u>, efeito: F) -> Result<(), anyhow::Error>
+where
+    F: for<'r> FnOnce(&'r mut partida::Partida<'u>),
+{
+    unidade.partir_para_o_motor(efeito)
+}
+
 fn inferencia_padrao() -> cofre::Pedido<'static> {
     cofre::Pedido::Inferencia(cofre::Inferencia {
         escopo: escopo(),
@@ -262,9 +273,10 @@ fn admissao_completa_entrega_partida_uma_unica_vez_e_segue_supervisora() {
     // Partida exige aceite do aviso e motor registrado no censo — a
     // sequência real do runtime, sem processo não contabilizado.
     unidade.aceitar_aviso(escopo()).expect("aceitar aviso da fixture");
-    assert!(unidade.registrar(Instancia { pid: id(41), inicio: id(50) }));
+    assert!(unidade.registrar_motor(Instancia { pid: id(41), inicio: id(50) }));
     // O efeito de partida passa pela unidade: checagem e início na mesma
-    // operação, a partida consumida dentro dela — nenhum token escapa.
+    // operação, a concessão EMPRESTADA e descartada dentro dela — nenhum
+    // token escapa.
     let entregue = std::cell::Cell::new(false);
     unidade
         .partir_para_o_motor(|partida| {
@@ -302,7 +314,7 @@ fn parada_antes_da_partida_mantem_a_unidade_supervisora() {
     let (_dir, registro) = registro();
     let mut unidade = unidade(&registro);
     unidade.aceitar_aviso(escopo()).expect("aceitar aviso da fixture");
-    assert!(unidade.registrar(Instancia { pid: id(41), inicio: id(50) }));
+    assert!(unidade.registrar_motor(Instancia { pid: id(41), inicio: id(50) }));
     unidade.partir_para_o_motor(|_| {}).expect("partir o motor");
     // Supervisão após a partida: "Parar tudo" fecha porta e cofre da mesma
     // forma, e o estado da parada continua observável pela unidade.
@@ -479,7 +491,7 @@ fn falha_de_auditoria_em_pedir_fecha_porta_cofre_e_barr_a_partida() {
 }
 
 #[test]
-fn partida_sem_aceite_ou_sem_motor_no_censo_e_recusada() {
+fn partida_sem_aceite_ou_com_descendente_sozinho_no_censo_e_recusada() {
     let (_dir, registro) = registro();
     let mut unidade = unidade(&registro);
     // Sem aceite do aviso, a partida não sai.
@@ -487,17 +499,76 @@ fn partida_sem_aceite_ou_sem_motor_no_censo_e_recusada() {
         unidade.partir_para_o_motor(|_| panic!("partida sem aceite")).expect_err("partida sem aceite").to_string(),
         "motor_macos_indisponivel: partida exige o aceite do aviso"
     );
-    // Com aceite mas sem motor registrado no censo, a partida não sai: o
-    // censo nunca confirma parada com processo não contabilizado.
+    // Com aceite mas com apenas um descendente no censo, a partida não
+    // sai: registrar somente um descendente não basta.
     unidade.aceitar_aviso(escopo()).expect("aceitar aviso da fixture");
+    assert!(unidade.registrar(Instancia { pid: id(42), inicio: id(51) }));
     assert_eq!(
         unidade
-            .partir_para_o_motor(|_| panic!("partida sem registro no censo"))
-            .expect_err("partida sem registro no censo")
+            .partir_para_o_motor(|_| panic!("partida com descendente sozinho no censo"))
+            .expect_err("partida com descendente sozinho no censo")
             .to_string(),
         "motor_macos_indisponivel: partida exige o motor registrado no censo"
     );
     // Registrado o motor, a sequência real executa a partida.
-    assert!(unidade.registrar(Instancia { pid: id(41), inicio: id(50) }));
+    assert!(unidade.registrar_motor(Instancia { pid: id(41), inicio: id(50) }));
     assert!(unidade.partir_para_o_motor(|_| {}).is_ok());
+}
+
+#[test]
+fn concessao_da_partida_nao_escapa_do_efeito() {
+    let (_dir, registro) = registro();
+    let mut unidade = unidade(&registro);
+    unidade.aceitar_aviso(escopo()).expect("aceitar aviso da fixture");
+    assert!(unidade.registrar_motor(Instancia { pid: id(41), inicio: id(50) }));
+    // O efeito só vê a concessão por empréstimo, dentro da chamada: lê o
+    // perfil admitido e nada sai dela — reter a partida fora não compila
+    // (pino `exige_emprestimo`).
+    let emprestimo_visto = std::cell::Cell::new(false);
+    exige_emprestimo(&mut unidade, |partida| {
+        assert_eq!(partida.perfil(), perfil());
+        emprestimo_visto.set(true);
+    })
+    .expect("partir o motor por empréstimo");
+    assert!(emprestimo_visto.get());
+    // A concessão foi descartada dentro da operação: nada parte duas vezes
+    // e "Parar tudo" segue valendo depois dela.
+    assert_eq!(
+        unidade.partir_para_o_motor(|_| panic!("segunda partida")).expect_err("segunda partida").to_string(),
+        "motor_macos_indisponivel: partida já executada"
+    );
+    unidade.parar_tudo(10).expect("parar tudo após a partida");
+    assert_eq!(
+        unidade
+            .partir_para_o_motor(|_| panic!("partida após a parada"))
+            .expect_err("partida após a parada")
+            .to_string(),
+        "motor_macos_indisponivel: unidade parada ou porta fechada"
+    );
+}
+
+#[test]
+fn saida_confirmada_do_motor_tira_a_marca_do_censo_da_partida() {
+    let (_dir, registro) = registro();
+    let mut unidade = unidade(&registro);
+    unidade.aceitar_aviso(escopo()).expect("aceitar aviso da fixture");
+    let motor = Instancia { pid: id(41), inicio: id(50) };
+    assert!(unidade.registrar_motor(motor));
+    unidade.partir_para_o_motor(|_| {}).expect("partir o motor");
+    // A saída confirmada do motor retira a marca que abre a partida: a
+    // recusa seguinte é do censo, antes do descarte único da concessão.
+    assert!(unidade.confirmar_saida(motor));
+    assert_eq!(
+        unidade
+            .partir_para_o_motor(|_| panic!("partida com motor fora do censo"))
+            .expect_err("partida com motor fora do censo")
+            .to_string(),
+        "motor_macos_indisponivel: partida exige o motor registrado no censo"
+    );
+    // Re-registrado o motor, quem recusa é o descarte único da concessão.
+    assert!(unidade.registrar_motor(motor));
+    assert_eq!(
+        unidade.partir_para_o_motor(|_| panic!("segunda partida")).expect_err("segunda partida").to_string(),
+        "motor_macos_indisponivel: partida já executada"
+    );
 }
