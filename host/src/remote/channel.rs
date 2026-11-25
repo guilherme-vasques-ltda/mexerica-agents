@@ -176,6 +176,7 @@ enum ToDevice {
     InnerBytes(Vec<u8>),
     Plain(Value),
     Close(u16, &'static str),
+    Terminal(Terminal),
 }
 
 /// Owns the host → device counter: seals inner messages in order, stops at the first close.
@@ -204,6 +205,14 @@ async fn write_frames(
         let (frames, last) = match msg {
             ToDevice::Plain(v) => (vec![Out::Msg(v)], false),
             ToDevice::Close(code, reason) => (vec![Out::Close(code, reason)], true),
+            ToDevice::Terminal(t) => {
+                if let Some(b) = barreira.as_mut() {
+                    send_terminal(&out, b.resolver().await.unwrap_or(t)).await;
+                } else {
+                    send_terminal(&out, t).await;
+                }
+                return;
+            }
             ToDevice::InnerBytes(bytes) => sealed(&mut sealer, &bytes),
             ToDevice::Inner(v) => sealed(&mut sealer, v.to_string().as_bytes()),
         };
@@ -306,7 +315,7 @@ pub async fn run(hub: Arc<Hub>, t: Transport, kind: ChannelKind) {
             Caller::Device { autoridade: Some(a), .. } => a.geracao_capturada(),
             _ => None,
         };
-        Barreira::nova(hub.clone(), caller.clone(), aviso, epoch, prazo_rx, geracao)
+        Barreira::nova(hub.clone(), caller.clone(), aviso, epoch, prazo_rx, geracao, hs.th)
     });
     let admissao = barreira.as_ref().and_then(Barreira::admissao);
     if let Some(barreira) = &barreira {
@@ -696,6 +705,11 @@ impl Channel {
                 Ok(())
             }
             Err(code) => {
+                if let Some(t) = self.porta.terminal_recheck() {
+                    let close = (t.close, t.reason);
+                    let _ = self.tx.send(ToDevice::Terminal(t)).await;
+                    return Err(close);
+                }
                 // Gone from the table while connected: it was revoked.
                 let code = if code == RejectCode::Unauthorized { RejectCode::Revoked } else { code };
                 tracing::info!(device = self.key, ?code, "closing channel: device no longer authorized");
@@ -1351,14 +1365,21 @@ mod tests {
         }
 
         async fn hello(&mut self, hub: &Hub, pair: bool) -> Out {
+            self.hello_with_caps(hub, pair, Value::Null).await
+        }
+
+        async fn hello_with_caps(&mut self, hub: &Hub, pair: bool, caps: Value) -> Out {
             let ek = StaticSecret::from(crypto::random::<32>());
             let ek_pub = crypto::x25519_pub(&ek);
             let n = crypto::random::<32>();
             let dk = self.key.verifying_key().to_bytes();
             let cid = hub.identity.cid_raw();
             let sig = crypto::sign(&self.key, &crypto::hs1_input(&cid, &dk, &ek_pub, &n));
-            let hello = json!({"t": "hello", "v": 1, "dk": self.dk(), "ek": crypto::b64(&ek_pub),
+            let mut hello = json!({"t": "hello", "v": 1, "dk": self.dk(), "ek": crypto::b64(&ek_pub),
                 "n": crypto::b64(&n), "sig": crypto::b64(&sig), "pair": pair});
+            if !caps.is_null() {
+                hello["caps"] = caps;
+            }
             self.tx.send(hello).await.unwrap();
             let out = self.next().await;
             if let Out::Msg(w) = &out

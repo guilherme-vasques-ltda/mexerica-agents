@@ -333,6 +333,17 @@ impl Session {
 
     async fn publish_acl(&mut self) -> Result<()> {
         let msg = signed_acl(&self.hub)?;
+        let terminais: Vec<_> = self
+            .portas
+            .iter()
+            .filter_map(|(link, porta)| porta.terminal_assinado().map(|terminal| (link.clone(), terminal)))
+            .collect();
+        for (link, terminal) in terminais {
+            if let Some(reject) = terminal.reject {
+                self.link_out(link.clone(), Out::Msg(reject)).await?;
+            }
+            self.link_out(link, Out::Close(terminal.close, terminal.reason)).await?;
+        }
         self.send(&msg).await
     }
 
@@ -1041,6 +1052,63 @@ mod tests {
         assert_eq!(bumped[0]["code"], 4011);
         assert_eq!(bumped[0]["reason"], "rekey");
         assert!(s.portas.is_empty());
+    }
+
+    #[tokio::test]
+    async fn acl_sai_depois_do_terminal_assinado_sem_drenar_dados_do_link() {
+        let (hub, _dir) = temp_hub();
+        hub.store
+            .put_device(&Device {
+                key: "cut-fixture".into(),
+                name: "Fixture".into(),
+                platform: "ios".into(),
+                source: DeviceSource::Local,
+                grant_id: None,
+                scopes: vec![Scope::Control],
+                lease_until: None,
+                created_at: now_ms(),
+                last_seen_at: None,
+            })
+            .unwrap();
+        let fake = Arc::new(Fake::default());
+        let base = fake_cloud(fake.clone(), hub.clone()).await;
+        let (ws, _) = tokio_tungstenite::connect_async(relay_url(&base).unwrap()).await.unwrap();
+        let (sink, _incoming) = ws.split();
+        let mut s = Session {
+            hub: hub.clone(),
+            base,
+            sink,
+            links: HashMap::new(),
+            outs: StreamMap::new(),
+            portas: HashMap::new(),
+            pulls: Pulls::default(),
+            held: None,
+            ready: true,
+            retried: false,
+        };
+        let aberto_em = hub.workspace.atual();
+        let th = [7; 32];
+        let porta = channel::Porta::armada_com_anuncio(&hub, "cut-fixture", th);
+        let (tx, rx) = mpsc::channel(1);
+        tx.try_send(Out::Msg(json!({"t":"f"}))).unwrap();
+        s.outs.insert("cut".into(), Box::pin(porta.clone().filtrar(rx)));
+        s.portas.insert("cut".into(), porta);
+        assert!(hub.revoke_device("cut-fixture").unwrap());
+        let epoch = hub.workspace.atual();
+        s.publish_acl().await.unwrap();
+        wait_for(&fake, |messages| messages.iter().any(|v| v["t"] == "acl")).await;
+        let sent = fake.from_host.lock().unwrap();
+        let [msg, close, acl] = sent.as_slice() else { panic!("expected terminal, close and ACL: {sent:?}") };
+        assert_eq!((msg["t"].as_str(), msg["link"].as_str()), (Some("data"), Some("cut")));
+        assert_eq!(msg["m"]["stableCode"], "device_revoked");
+        assert_eq!(msg["m"]["prova"]["tipo"], "corte");
+        let sig = crypto::unb64_n(msg["m"]["prova"]["sig"].as_str().unwrap()).unwrap();
+        let bytes = [b"codync/corte/v1".as_slice(), &th, &[1], &epoch.to_be_bytes(), &aberto_em.to_be_bytes()].concat();
+        assert!(crypto::verify(&hub.identity.sign_pub(), &bytes, &sig).is_ok());
+        assert_eq!(close, &json!({"t":"close","link":"cut","code":4003,"reason":"rejected"}));
+        let acl: Value = serde_json::from_slice(&crypto::unb64(acl["d"].as_str().unwrap()).unwrap()).unwrap();
+        assert_eq!(acl["devices"], json!([]));
+        assert!(s.outs.is_empty() && s.portas.is_empty());
     }
 
     #[tokio::test]
