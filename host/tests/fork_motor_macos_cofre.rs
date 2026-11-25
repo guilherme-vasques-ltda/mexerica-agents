@@ -139,11 +139,13 @@ fn parada_cancela_pendente_grava_fechada_e_mostra_sobrevivente() {
     // Sobrevivente visível com identidade; sem evidência, nunca sucesso falso.
     assert!(porta.confirmar_saida(lider));
     assert_eq!(porta.estado(1_000, Evidencia::Viva(filho)), Parada::Sobrevivente(filho));
-    assert_eq!(porta.estado(1_000, Evidencia::SemCenso), Parada::EmCurso);
-    assert_eq!(porta.estado(2_011, Evidencia::SemCenso), Parada::NaoConfirmada);
+    assert_eq!(porta.estado(1_500, Evidencia::SemCenso), Parada::EmCurso);
     // Com unidade fechada e saídas dentro do prazo de 2 s, a parada é confirmada.
     assert!(porta.confirmar_saida(filho));
     assert_eq!(porta.estado(2_000, Evidencia::UnidadeFechada(escopo())), Parada::ConfirmadaNoPrazo);
+    // Instantes crescentes: após o prazo, sem prova é incerteza e fechamento tardio é atraso.
+    assert_eq!(porta.estado(2_011, Evidencia::SemCenso), Parada::NaoConfirmada);
+    assert_eq!(porta.estado(2_011, Evidencia::UnidadeFechada(escopo())), Parada::ConfirmadaAtrasada);
     // A recusa do fechamento sobrevive ao reinício do banco.
     drop(db);
     let db = Connection::open(dir.path().join("recusas.sqlite3")).expect("reabrir banco da fixture");
