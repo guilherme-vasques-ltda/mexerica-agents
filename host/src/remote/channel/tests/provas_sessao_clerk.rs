@@ -114,7 +114,7 @@ fn pausadas(hub: &Hub) -> bool {
 }
 
 /// Apresenta num canal novo um token com outro papel: o registro sobe o epoch, e o próprio canal que
-/// o apresentou fecha com os demais (`role_changed`, 4003). Espera o segundo seguinte e emite o token
+/// o apresentou fecha com os demais (1011 até a confirmação da sessão nova). Espera o segundo seguinte e emite o token
 /// depois, para o `iat` ser mais novo que o registrado.
 async fn trocar_papel(hub: &Arc<Hub>, key: &SigningKey, via: Via, afirmacoes: &Value) {
     tokio::time::sleep(Duration::from_millis(1100)).await;
@@ -124,7 +124,7 @@ async fn trocar_papel(hub: &Arc<Hub>, key: &SigningKey, via: Via, afirmacoes: &V
     pedido["id"] = 1.into();
     q.send(pedido).await;
     let (code, reject) = fim(&mut q).await;
-    assert_eq!((code, reject["stableCode"].as_str()), (4003, Some("role_changed")), "{via:?}");
+    assert_eq!((code, reject), (close::TIMEOUT, Value::Null), "{via:?}");
 }
 
 #[tokio::test]
@@ -266,7 +266,7 @@ async fn aparelho_sem_userid_ligado_ou_de_outro_usuario_nao_entra() {
     pedido["id"] = 2.into();
     p.send(pedido).await;
     let (code, reject) = fim(&mut p).await;
-    assert_eq!((code, reject["stableCode"].as_str()), (4003, Some("workspace_revoked")), "org divergente");
+    assert_eq!((code, reject), (close::TIMEOUT, Value::Null), "org divergente");
     let mut q = conectado(&hub, do_outro).await;
     let recusa = autenticar(&mut q, &hub, 1, &curto(com_org(afirmacoes(OUTRO), "org_outra", "member"), 50)).await;
     assert_eq!(codigo(&recusa), (&json!(403), &json!("workspace_forbidden")), "org divergente");
@@ -398,13 +398,12 @@ async fn canal_fecha_no_exp_com_auth_invalid_a_menos_que_reautentique() {
 
 #[tokio::test]
 async fn papel_trocado_ou_retirado_fecha_o_canal_e_a_renovacao_nao_troca_o_papel() {
-    let hub = temp_hub();
-    vincular(&hub, &vinculo_time());
     let admin = || com_org(afirmacoes(OUTRO), ORG, "admin");
-    let key = parear(&hub, &admin()).await.unwrap();
     for via in [Via::Direto, Via::Relay] {
-        for ((org, rol), estavel) in [((ORG, "member"), "role_changed"), (("org_outra", "admin"), "workspace_revoked")]
-        {
+        let hub = temp_hub();
+        vincular(&hub, &vinculo_time());
+        let key = parear(&hub, &admin()).await.unwrap();
+        for (org, rol) in [(ORG, "member"), ("org_outra", "admin")] {
             let mut p = conectado_via(&hub, key.clone(), via).await;
             assert_eq!(autenticar(&mut p, &hub, 1, &token(&admin())).await["ok"]["role"], "admin");
             assinar_eventos(&mut p, &hub, 2).await;
@@ -416,7 +415,7 @@ async fn papel_trocado_ou_retirado_fecha_o_canal_e_a_renovacao_nao_troca_o_papel
             renovar["id"] = 3.into();
             p.send(renovar).await;
             let (code, reject) = fim(&mut p).await;
-            assert_eq!((code, reject["stableCode"].as_str()), (4003, Some(estavel)), "{via:?}");
+            assert_eq!((code, reject), (close::TIMEOUT, Value::Null), "{via:?}");
             // O admin de antes não volta com um token mais velho que o papel novo.
             let mut velho = admin();
             velho["iat"] = json!(now_ms() / 1000 - 5);
@@ -450,7 +449,7 @@ async fn efeito_admitido_nao_roda_depois_que_o_papel_muda() {
         // Outro canal do mesmo usuário apresenta um token mais novo, agora como membro.
         trocar_papel(&hub, &key, via, &com_org(afirmacoes(OUTRO), ORG, "member")).await;
         let (code, reject) = fim(&mut p).await;
-        assert_eq!((code, reject["stableCode"].as_str()), (4003, Some("role_changed")), "{via:?}");
+        assert_eq!((code, reject), (close::TIMEOUT, Value::Null), "{via:?}");
         drop(bloqueio);
         // O `team_lock` é justo: tomá-lo de novo espera o pedido da fila terminar o efeito.
         drop(hub.store.team_lock.lock().await);

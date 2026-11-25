@@ -42,6 +42,31 @@ async fn recusa(hub: &Arc<Hub>, key: &SigningKey, valido: bool, pair: bool) -> (
 }
 
 #[tokio::test]
+async fn corte_legado_e_recusa_assinada_coexistem_no_mesmo_epoch() {
+    let hub = temp_hub();
+    let autorizada = paired_phone(&hub).await;
+    let revogada = paired_phone(&hub).await;
+    let mut aberta = Phone::direct(&hub, autorizada.clone());
+    assert!(matches!(aberta.hello(&hub, false).await, Out::Msg(v) if v["t"] == "welcome"));
+    let dk = revogada.verifying_key().to_bytes();
+    assert!(hub.revoke_device(&crypto::b64(&dk)).unwrap());
+    assert_eq!(aberta.recv().await.unwrap_err(), (close::REKEY, Value::Null));
+    let (rejeicao, fechamento, ek_d, n) = recusa(&hub, &revogada, true, false).await;
+    assert_eq!(fechamento, 4003);
+    assert_eq!(rejeicao["stableCode"], "device_revoked");
+    let sig = crypto::unb64_n(rejeicao["prova"]["sig"].as_str().unwrap()).unwrap();
+    let mut bytes = b"codync/recusa/v1".to_vec();
+    bytes.extend(hub.identity.cid_raw());
+    bytes.extend(dk);
+    bytes.extend(ek_d);
+    bytes.extend(n);
+    bytes.push(1);
+    crypto::verify(&hub.identity.sign_pub(), &bytes, &sig).unwrap();
+    let mut nova = Phone::direct(&hub, autorizada);
+    assert!(matches!(nova.hello(&hub, false).await, Out::Msg(v) if v["t"] == "welcome"));
+}
+
+#[tokio::test]
 async fn fatos_lidos_e_posse_geram_recusa_assinada() {
     let hub = temp_hub();
     let revogada = paired_phone(&hub).await;

@@ -1,8 +1,89 @@
-//! Prova do `/channel`: evento em voo não sai depois do bump, o canal fecha com `reject`
-//! estável, o aparelho revogado não reabre canal, e só o pareamento por código no fio readmite.
+//! Prova do `/channel`: evento em voo não sai depois do bump, o canal fecha sem dados
+//! após o corte, o aparelho revogado não reabre canal, e só o pareamento por código no fio readmite.
 use super::*;
 
 const MARCA: &str = "evento-em-voo-canal";
+
+#[tokio::test]
+async fn anuncio_selado_vale_apenas_no_canal_que_o_enviou() {
+    let hub = temp_hub();
+    let key = paired_phone(&hub).await;
+    let mut anuncia = Phone::direct(&hub, key.clone());
+    let mut legado = Phone::direct(&hub, key.clone());
+    for phone in [&mut anuncia, &mut legado] {
+        assert!(matches!(phone.hello(&hub, false).await, Out::Msg(v) if v["t"] == "welcome"));
+    }
+    assert!(anuncia.call(1, "hello", json!({"corte":1})).await["ok"].is_object());
+    assert!(legado.call(1, "hello", json!({"corte":"1"})).await["ok"].is_object());
+    crate::fork::workspace::bump(&hub, crate::fork::workspace::Motivo::RoleChanged).unwrap();
+    assert_eq!(anuncia.recv().await.unwrap_err(), (close::TIMEOUT, Value::Null));
+    assert_eq!(legado.recv().await.unwrap_err(), (close::REKEY, Value::Null));
+    let mut nova = Phone::direct(&hub, key);
+    assert!(matches!(nova.hello(&hub, false).await, Out::Msg(v) if v["t"] == "welcome"));
+    crate::fork::workspace::bump(&hub, crate::fork::workspace::Motivo::RoleChanged).unwrap();
+    assert_eq!(nova.recv().await.unwrap_err(), (close::REKEY, Value::Null));
+}
+
+#[tokio::test]
+async fn geracao_alterada_ou_banco_ilegivel_fecha_sem_prova() {
+    for leitura_falha in [false, true] {
+        let hub = temp_hub();
+        let key = paired_phone(&hub).await;
+        let mut phone = Phone::direct(&hub, key);
+        assert!(matches!(phone.hello(&hub, false).await, Out::Msg(v) if v["t"] == "welcome"));
+        if leitura_falha {
+            hub.store.db.locked().execute_batch("CREATE TEMP TABLE devices(unreadable TEXT)").unwrap();
+        } else {
+            let mut device = hub.store.device(&phone.dk()).unwrap();
+            device.scopes = vec![Scope::Control];
+            hub.store.put_device(&device).unwrap();
+        }
+        crate::fork::workspace::bump(&hub, crate::fork::workspace::Motivo::RoleChanged).unwrap();
+        assert_eq!(phone.recv().await.unwrap_err(), (close::TIMEOUT, Value::Null));
+    }
+}
+
+#[tokio::test]
+async fn um_bump_permite_reconexao_de_tres_aparelhos_distintos() {
+    use crate::fork::workspace::{self, Motivo};
+    let hub = temp_hub();
+    let mut keys = Vec::new();
+    let mut canais = Vec::new();
+    for _ in 0..3 {
+        let key = paired_phone(&hub).await;
+        let mut phone = Phone::direct(&hub, key.clone());
+        assert!(matches!(phone.hello(&hub, false).await, Out::Msg(v) if v["t"] == "welcome"));
+        keys.push(key);
+        canais.push(phone);
+    }
+    let before = hub.workspace.atual();
+    assert_eq!(workspace::bump(&hub, Motivo::RoleChanged).unwrap(), before + 1);
+    for (key, mut anterior) in keys.into_iter().zip(canais) {
+        assert_eq!(anterior.recv().await.unwrap_err(), (close::REKEY, Value::Null));
+        let mut nova = Phone::direct(&hub, key);
+        assert!(matches!(nova.hello(&hub, false).await, Out::Msg(v) if v["t"] == "welcome"));
+    }
+    assert_eq!(hub.workspace.atual(), before + 1);
+}
+
+#[tokio::test]
+async fn teto_de_bumps_limita_reconexao_sem_atrasar_corte() {
+    use crate::fork::workspace::{self, LIMITE_BUMPS_POR_MINUTO, Motivo};
+    let hub = temp_hub();
+    let key = paired_phone(&hub).await;
+    for _ in 1..LIMITE_BUMPS_POR_MINUTO {
+        workspace::bump(&hub, Motivo::RoleChanged).unwrap();
+    }
+    let mut ativa = Phone::direct(&hub, key.clone());
+    assert!(matches!(ativa.hello(&hub, false).await, Out::Msg(v) if v["t"] == "welcome"));
+    let before = hub.workspace.atual();
+    assert_eq!(workspace::bump(&hub, Motivo::RoleChanged).unwrap(), before + 1);
+    assert_eq!(ativa.recv().await.unwrap_err(), (close::REKEY, Value::Null));
+    assert_eq!(workspace::bump(&hub, Motivo::RoleChanged).unwrap(), before + 2);
+    let mut tenta = Phone::direct(&hub, key);
+    assert!(matches!(tenta.hello(&hub, false).await, Out::Msg(v) if v["code"] == "rateLimited"));
+    assert_eq!(closed(&tenta.next().await), 4008);
+}
 
 #[tokio::test]
 async fn bump_com_canal_aberto_fecha_sem_entregar_evento_em_voo() {
@@ -41,8 +122,7 @@ async fn bump_com_canal_aberto_fecha_sem_entregar_evento_em_voo() {
             Err(fim) => break fim,
         }
     };
-    assert_eq!(code, 4003);
-    assert_eq!((reject["code"].as_str(), reject["stableCode"].as_str()), (Some("revoked"), Some("workspace_revoked")));
+    assert_eq!((code, reject), (close::REKEY, Value::Null));
 
     // O aparelho revogado não reabre, nem com a linha devolvida por uma releitura atrasada.
     // Sem linha, o revogado só é nomeado depois de a assinatura provar a posse da chave.
@@ -89,14 +169,15 @@ async fn bump_com_canal_aberto_fecha_sem_entregar_evento_em_voo() {
 }
 
 #[tokio::test]
-async fn escritor_com_fila_ocupada_descarta_o_ja_filtrado_e_nao_fecha_com_4011() {
+async fn escritor_com_fila_ocupada_substitui_o_fechamento_antigo() {
     let hub = temp_hub();
     let fica = crypto::b64(paired_phone(&hub).await.verifying_key().as_bytes());
     let sai = crypto::b64(paired_phone(&hub).await.verifying_key().as_bytes());
     let (tx, rx) = mpsc::channel(256);
     let (out, mut transporte) = mpsc::channel(1);
     let (_, sem_prazo) = tokio::sync::watch::channel(None);
-    let barreira = Barreira::nova(hub.clone(), fica, hub.workspace.assinar(), hub.workspace.atual(), sem_prazo, None);
+    let (_, caller) = autoridade::autenticar(&hub, &fica).unwrap();
+    let barreira = Barreira::nova(hub.clone(), caller, hub.workspace.assinar(), hub.workspace.atual(), sem_prazo, None);
     let escritor = tokio::spawn(write_frames(Sealer::new([7; 32]), rx, out, Some(barreira)));
     // Eventos que já passaram pelo filtro de autoridade, e o transporte parado.
     for n in 0..64 {
@@ -112,10 +193,8 @@ async fn escritor_com_fila_ocupada_descarta_o_ja_filtrado_e_nao_fecha_com_4011()
     escritor.await.unwrap();
     let quadros = saida.iter().filter(|o| matches!(o, Out::Msg(v) if v["t"] == "f")).count();
     assert!(quadros <= 1, "só o quadro já entregue ao transporte antes do bump sai: {quadros}");
-    let [.., Out::Msg(reject), Out::Close(code, _)] = saida.as_slice() else { panic!("sem fechamento terminal") };
-    assert_eq!((reject["code"].as_str(), reject["stableCode"].as_str()), (Some("revoked"), Some("workspace_revoked")));
-    assert_eq!(*code, 4003, "o 4011 enfileirado antes não sai depois do bump");
-    assert!(!saida.iter().any(|o| matches!(o, Out::Close(c, _) if *c == close::REKEY)));
+    assert!(matches!(saida.last(), Some(Out::Close(close::REKEY, "rekey"))));
+    assert!(saida.iter().all(|o| !matches!(o, Out::Msg(v) if v["t"] != "f")));
 }
 
 #[tokio::test]
@@ -136,11 +215,10 @@ async fn porta_espera_o_commit_em_curso_e_so_corta_quando_o_numero_avanca() {
 
     assert!(hub.revoke_device(&sai).unwrap());
     entrada.send(Out::Msg(json!({"t": "f", "marca": MARCA}))).await.unwrap();
-    let Some(Out::Msg(reject)) = timeout(Duration::from_secs(5), saida.next()).await.unwrap() else {
-        panic!("sem terminal depois do bump")
-    };
-    assert_eq!((reject["code"].as_str(), reject["stableCode"].as_str()), (Some("revoked"), Some("workspace_revoked")));
-    assert!(matches!(saida.next().await, Some(Out::Close(4003, _))));
+    assert!(matches!(
+        timeout(Duration::from_secs(5), saida.next()).await.unwrap(),
+        Some(Out::Close(close::REKEY, "rekey"))
+    ));
     assert!(saida.next().await.is_none());
 }
 
@@ -154,24 +232,12 @@ async fn bump_durante_a_autenticacao_fecha_o_canal_logo_depois_do_welcome() {
     assert!(hub.revoke_device(&sai).unwrap());
     assert!(matches!(p.hello(&hub, false).await, Out::Msg(v) if v["t"] == "welcome"));
     let (code, reject) = p.recv().await.unwrap_err();
-    assert_eq!(code, 4003);
-    assert_eq!((reject["code"].as_str(), reject["stableCode"].as_str()), (Some("revoked"), Some("workspace_revoked")));
+    assert_eq!((code, reject), (close::REKEY, Value::Null));
 }
 
 /// Lê quadros crus até o fechamento; nenhum quadro cifrado pode sair depois do bump.
 async fn fecha_sem_quadro(p: &mut Phone) {
-    let mut reject = Value::Null;
-    loop {
-        match p.next().await {
-            Out::Msg(f) if f["t"] == "f" => panic!("quadro depois do bump"),
-            Out::Msg(plain) => reject = plain,
-            Out::Close(code, _) => {
-                assert_eq!(code, 4003);
-                break;
-            }
-        }
-    }
-    assert_eq!((reject["code"].as_str(), reject["stableCode"].as_str()), (Some("revoked"), Some("workspace_revoked")));
+    assert!(matches!(p.next().await, Out::Close(close::REKEY, "rekey")));
 }
 
 #[tokio::test]
@@ -287,12 +353,8 @@ async fn socket_direto_com_fila_cheia_so_entrega_o_terminal_depois_do_bump() {
     let (socket, enviados) = futures::channel::mpsc::unbounded::<Message>();
     timeout(Duration::from_secs(5), write_socket(socket, porta.filtrar(cheia))).await.unwrap();
     let enviados: Vec<Message> = enviados.collect().await;
-    let [Message::Text(reject), Message::Close(Some(fim))] = enviados.as_slice() else {
-        panic!("só o terminal pode sair: {enviados:?}")
-    };
-    let reject: Value = serde_json::from_str(reject.as_str()).unwrap();
-    assert_eq!((reject["code"].as_str(), reject["stableCode"].as_str()), (Some("revoked"), Some("workspace_revoked")));
-    assert_eq!(fim.code, 4003, "o 4011 enfileirado antes não sai depois do bump");
+    let [Message::Close(Some(fim))] = enviados.as_slice() else { panic!("só o terminal pode sair: {enviados:?}") };
+    assert_eq!((fim.code, fim.reason.as_str()), (close::REKEY, "rekey"));
 }
 
 #[tokio::test]
@@ -321,11 +383,10 @@ async fn porta_entrega_o_terminal_da_revogacao_confirmada_com_o_dono_retido() {
 
     assert!(hub.revoke_device(&sai).unwrap());
     assert!(hub.workspace.retrato().pendente(), "a retenção do dono continua");
-    let Some(Out::Msg(reject)) = timeout(Duration::from_secs(5), saida.next()).await.unwrap() else {
-        panic!("sem terminal com o epoch já avançado")
-    };
-    assert_eq!((reject["code"].as_str(), reject["stableCode"].as_str()), (Some("revoked"), Some("workspace_revoked")));
-    assert!(matches!(saida.next().await, Some(Out::Close(4003, _))));
+    assert!(matches!(
+        timeout(Duration::from_secs(5), saida.next()).await.unwrap(),
+        Some(Out::Close(close::TIMEOUT, "tryAgain"))
+    ));
     assert!(saida.next().await.is_none());
     hub.store.db.locked().execute_batch("DROP TRIGGER dono_nao_grava").unwrap();
 }

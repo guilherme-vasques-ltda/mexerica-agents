@@ -545,6 +545,14 @@ pub(crate) fn com_saida_validada<T>(
 /// Valida a mesma geração/grant/escopos/dono na Connection da captura. Pedidos
 /// já enfileirados conservam Arc/prazo/época originais e nunca recebem esta renovação.
 pub(crate) fn reconferir(hub: &Hub, caller: &Caller) -> std::result::Result<(Device, Caller), RejectCode> {
+    reconferir_captura(hub, caller, false)
+}
+
+pub(crate) fn reconferir_terminal(hub: &Hub, caller: &Caller) -> std::result::Result<(), RejectCode> {
+    reconferir_captura(hub, caller, true).map(|_| ())
+}
+
+fn reconferir_captura(hub: &Hub, caller: &Caller, terminal: bool) -> std::result::Result<(Device, Caller), RejectCode> {
     let Caller::Device { key, scopes, autoridade: Some(original) } = caller else {
         return Err(RejectCode::Unauthorized);
     };
@@ -566,7 +574,7 @@ pub(crate) fn reconferir(hub: &Hub, caller: &Caller) -> std::result::Result<(Dev
                 }
                 let mut renovada = original.as_ref().clone();
                 renovada.captura = Arc::new(());
-                if let Original::Dispositivo { prazo, epoca_sincronizacao, .. } = &mut renovada.original {
+                if !terminal && let Original::Dispositivo { prazo, epoca_sincronizacao, .. } = &mut renovada.original {
                     *prazo = dispositivo.lease_until;
                     *epoca_sincronizacao = sincronizacao.epoca();
                 }

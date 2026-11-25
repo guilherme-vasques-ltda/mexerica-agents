@@ -68,7 +68,7 @@ async fn efeitos_rpc_reconferem_epoch_no_ponto_da_escrita() {
                     crate::fork::workspace::bump(&bump_hub, crate::fork::workspace::Motivo::RoleChanged).unwrap();
                 });
                 phone.send(json!({"id":1,"m":method,"b":body})).await;
-                assert_eq!(phone.recv().await.unwrap_err().0, 4003, "{method}");
+                assert_eq!(phone.recv().await.unwrap_err(), (close::REKEY, Value::Null), "{method}");
                 timeout(Duration::from_secs(5), async {
                     while !reached.load(std::sync::atomic::Ordering::Acquire) {
                         tokio::task::yield_now().await;
@@ -117,6 +117,7 @@ async fn request_legada_admitida_antes_do_bump_nao_grava_na_transacao() {
     let (tx, mut rx) = mpsc::channel(1);
     let (prazo, _) = tokio::sync::watch::channel(None);
     let mut canal = Channel {
+        porta: Porta::default(),
         hub: hub.clone(),
         tx,
         jobs: Arc::default(),
@@ -265,7 +266,7 @@ async fn send_legado_cortado_depois_do_commit_preserva_mensagem_sem_marcar_leitu
         workspace::bump(&bump_hub, Motivo::RoleChanged).unwrap();
     });
     phone.send(json!({"id":1,"m":"send","b":{"botId":bot,"text":"Mensagem","clientNonce":"send-corte"}})).await;
-    assert_eq!(phone.recv().await.unwrap_err().0, 4003);
+    assert_eq!(phone.recv().await.unwrap_err(), (close::REKEY, Value::Null));
     timeout(Duration::from_secs(2), async {
         while hub.store.find_by_nonce(bot, "send-corte").is_none_or(|entry| entry.data["status"] == "queued") {
             tokio::task::yield_now().await;
@@ -292,6 +293,7 @@ async fn request_cancelada_conclui_sem_tomar_sub_ou_request_do_mesmo_id() {
     // O mesmo handle/dispatch e a fila de saída usados após abrir o frame do canal.
     // A identidade vem da autenticação real, não de um Caller fabricado pelo teste.
     let mut canal = Channel {
+        porta: Porta::default(),
         hub: hub.clone(),
         tx,
         jobs: Arc::default(),
