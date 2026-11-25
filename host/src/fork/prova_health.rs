@@ -66,13 +66,45 @@ fn deste_computador(peer: SocketAddr) -> bool {
         || (crate::environment::Environment::is_open() && peer == crate::open_hub::SOCKET_PEER)
 }
 
-/// Nonces já aceitos. Enquanto o Hub roda, um par nonce/prova vale uma vez só: uma prova capturada
-/// não volta a abrir a identidade. Só uma prova válida entra aqui, então quem não tem o token não
-/// consegue crescer esta lista. Um reinício do Hub zera o registro, e o alcance de uma repetição
-/// depois disso é a identidade (versão, caminho e hash do binário), nunca o token.
-fn consumidos() -> &'static Mutex<HashSet<[u8; 32]>> {
-    static CONSUMIDOS: OnceLock<Mutex<HashSet<[u8; 32]>>> = OnceLock::new();
-    CONSUMIDOS.get_or_init(|| Mutex::new(HashSet::new()))
+/// Nonces já aceitos, em ordem de chegada e com teto. Enquanto o Hub roda, um par nonce/prova vale
+/// uma vez só: uma prova capturada não volta a abrir a identidade. Só uma prova válida entra aqui,
+/// então quem não tem o token não consegue crescer esta lista — e ela mesmo assim não cresce sem
+/// limite: passando do teto, o nonce mais antigo sai. Um reinício do Hub zera o registro. Nas duas
+/// saídas (reinício ou teto), repetir uma prova antiga não passa de revelar a identidade de novo
+/// (versão, caminho e hash do binário), nunca o token nem nada que valha como credencial.
+struct Consumidos {
+    ordem: std::collections::VecDeque<[u8; 32]>,
+    conjunto: HashSet<[u8; 32]>,
+}
+
+/// Teto de nonces lembrados: 4096 entradas de 32 bytes são pouco mais de 128 KiB, muito além do
+/// que um app faz de chamadas na vida de um Hub, e um invasor sem o token não engorda a lista.
+const TETO_NONCES: usize = 4096;
+
+impl Consumidos {
+    fn new() -> Self {
+        Self { ordem: std::collections::VecDeque::new(), conjunto: HashSet::new() }
+    }
+
+    /// Insere o nonce se ele ainda não estava na lista, devolvendo se é novo; passando do teto, o
+    /// mais antigo sai para a memória não crescer.
+    fn inserir_uma_vez(&mut self, nonce: [u8; 32]) -> bool {
+        if !self.conjunto.insert(nonce) {
+            return false;
+        }
+        self.ordem.push_back(nonce);
+        while self.ordem.len() > TETO_NONCES {
+            if let Some(antigo) = self.ordem.pop_front() {
+                self.conjunto.remove(&antigo);
+            }
+        }
+        true
+    }
+}
+
+fn consumidos() -> &'static Mutex<Consumidos> {
+    static CONSUMIDOS: OnceLock<Mutex<Consumidos>> = OnceLock::new();
+    CONSUMIDOS.get_or_init(|| Mutex::new(Consumidos::new()))
 }
 
 /// Aceita o par uma única vez: confere origem e prova e registra o nonce na mesma operação, sem
@@ -83,7 +115,7 @@ pub(crate) fn aceitar(hub: &Hub, nonce: &str, proof: &str, peer: SocketAddr) -> 
     }
     let nonce = crate::remote::crypto::unb64_n::<NONCE>(nonce).ok()?;
     let mut vistos = consumidos().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    vistos.insert(nonce).then_some(nonce)
+    vistos.inserir_uma_vez(nonce).then_some(nonce)
 }
 
 /// A identidade que sai, em ordem fixa: o recibo cobre exatamente o que o cliente lê.

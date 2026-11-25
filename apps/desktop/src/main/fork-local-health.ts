@@ -54,19 +54,25 @@ export function reciboConfere(token: string, nonce: string, health: LocalHealth)
  * do outro lado (porta sem resposta). A diferença importa para quem decide entre repetir e parar. */
 export type Proved = { kind: 'identified'; health: LocalHealth } | { kind: 'refused' } | { kind: 'unreachable' }
 
+/** Só um objeto é saúde: `null`, texto ou número como corpo não carrega campo nenhum e a leitura
+ * não pode quebrar por causa dele (um listener estranho não deve conseguir derrubar a vigia). */
+function corpoSaude(body: unknown): LocalHealth | null {
+  return body !== null && typeof body === 'object' ? (body as LocalHealth) : null
+}
+
 /** Prova o token e confere o recibo, dizendo qual dos três casos foi. */
 export async function provarIdentidade(url: string, timeoutMs: number, token: string): Promise<Proved> {
   const prova = consultaProvada(token)
   let res: Response
-  let health: LocalHealth
+  let health: LocalHealth | null
   try {
     res = await fetch(`${url}/health${prova.query}`, { signal: AbortSignal.timeout(timeoutMs) })
     if (!res.ok) return { kind: 'refused' }
-    health = (await res.json()) as LocalHealth
+    health = corpoSaude(await res.json())
   } catch {
     return { kind: 'unreachable' }
   }
-  return reciboConfere(token, prova.nonce, health) ? { kind: 'identified', health } : { kind: 'refused' }
+  return health !== null && reciboConfere(token, prova.nonce, health) ? { kind: 'identified', health } : { kind: 'refused' }
 }
 
 /** Lê o `/health`: sem token, a resposta anônima (vida, ambiente e `busy`); com o token local, a
@@ -79,7 +85,7 @@ export async function localHealth(url: string, timeoutMs: number, token?: string
   try {
     const res = await fetch(`${url}/health`, { signal: AbortSignal.timeout(timeoutMs) })
     if (!res.ok) return null
-    return (await res.json()) as LocalHealth
+    return corpoSaude(await res.json())
   } catch {
     return null
   }

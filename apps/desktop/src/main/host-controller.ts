@@ -13,7 +13,9 @@ import { hostEnvironmentError, isCodyncDataDir, isCodyncPort } from '../shared/e
 import { forkFeatures, officialDesktop } from '../shared/fork-features'
 import { launchdServiceAbsent, localHostOff as localHostOffFor, macPlistValid, uninstallArgs, type UninstallLevel } from '../shared/fork-mac-local-hub'
 import { envAlias } from '../shared/env-alias'
-import { localHealth } from './fork-local-health'
+import { localHealth, provarIdentidade } from './fork-local-health'
+import { idiomaDoApp } from './fork-idioma'
+import { traduzir } from '../renderer/lib/fork-i18n/index.ts'
 import type { HostSetupStage } from './analytics'
 
 /** `MEXERICA_PORT` (antiga `DONNABOT_PORT`, ainda aceita) / `MEXERICA_HOME` point the app at a dev host started with `donnabot-host serve`. */
@@ -427,8 +429,17 @@ export class HostController extends EventEmitter {
         ? new SetupError('not_responding', `The host is running, but its token (${join(dataDir, 'token')}) can't be read.`)
         : noAnswer
     }
-    const health = await localHealth(baseURL, 4000, token)
-    if (!health?.computerId) return noAnswer
+    // A porta responder mas recusar a prova do token é outra falha, não ausência de resposta: um
+    // Hub antigo não conhece a prova (a instalação de uma versão nova é o caminho), e um listener
+    // que não é o Hub não consegue respondê-la. Nos dois casos a identidade não é aceita — sem
+    // recibo válido, nada de anexar — e mexer em token local não destrava nada disso.
+    const identity = await provarIdentidade(baseURL, 4000, token)
+    if (identity.kind === 'refused') {
+      return new SetupError('not_responding', traduzir(idiomaDoApp(), 'ajustes.hub.erro.semProva'))
+    }
+    if (identity.kind !== 'identified') return noAnswer
+    const health = identity.health
+    if (!health.computerId) return noAnswer
     const mismatch = hostEnvironmentError(localIdentity.environment, health.environment)
     if (mismatch) return new SetupError('environment', mismatch)
     if (devPort === null) {

@@ -22,15 +22,24 @@ const prova = (token: string, nonce: string) => createHmac('sha256', token).upda
 
 /** Um Hub de mentira atrás do túnel: a identidade só sai com a prova do token que ele conhece, e
  * nada de credencial pode chegar até ele sem essa prova. */
-function hubOf(token: string, impostor = false) {
+function hubOf(token: string, impostor = false, closesBeforeProof = false) {
   const seen: { url: string; authorization: string | undefined }[] = []
   const servers = new Set<Server>()
   return {
     seen,
     /** Sobe o Hub na porta que o túnel encaminha e devolve o servidor. */
     listen: (port: number) => new Promise<Server>((resolve) => {
+      // A primeira requisição de cada servidor: a porta atende a sonda anônima e morre antes da
+      // prova, em qualquer tentativa — senão a segunda tentativa conectaria de verdade.
+      let answered = 0
       const server = createServer((request, response) => {
         seen.push({ url: request.url ?? '', authorization: request.headers.authorization })
+        answered += 1
+        if (closesBeforeProof && answered === 1) {
+          response.end()
+          server.close()
+          return
+        }
         const query = new URL(request.url ?? '/', 'http://127.0.0.1').searchParams
         const nonce = query.get('nonce') ?? ''
         const proved = query.get('proof') === prova(token, nonce)
@@ -51,8 +60,8 @@ function hubOf(token: string, impostor = false) {
   }
 }
 
-function rig(options: { infoToken?: string; tunnelPid?: number; impostor?: boolean } = {}) {
-  const hub = hubOf(TOKEN, options.impostor ?? false)
+function rig(options: { infoToken?: string; tunnelPid?: number; impostor?: boolean; closesBeforeProof?: boolean } = {}) {
+  const hub = hubOf(TOKEN, options.impostor ?? false, options.closesBeforeProof ?? false)
   const handlers = new Map<string, (...args: unknown[]) => unknown>()
   const profiles = [{ id: 'fixture', host: 'ssh.example.invalid', user: null, port: null, remotePort: 19422, identityFile: null, name: '', computerId: COMPUTER }]
   const info = { name: 'computador-ficticio', computerId: COMPUTER, signKey: SIGN_KEY, boxKey: null, token: options.infoToken ?? TOKEN, running: true }
@@ -72,7 +81,6 @@ function rig(options: { infoToken?: string; tunnelPid?: number; impostor?: boole
       kill() {
         if (this.exitCode !== null) return
         this.exitCode = 0
-        void hub.close()
       },
     })
     const answer = (stdout: string) => queueMicrotask(() => {
@@ -180,6 +188,20 @@ test('a listener that answers the public identity without the token is not accep
   r.connect()
   await r.wait()
   assert.notEqual(r.status()?.kind, 'connected', 'a forged identity does not attach')
+  assert.deepEqual(r.seen.filter((call) => call.authorization !== undefined), [], 'no bearer ever reaches the impostor')
+  assert.deepEqual(r.seen.filter((call) => call.url.startsWith('/api')), [], 'and no API call either')
+  r.controller.disconnectAll()
+})
+
+test('when the answered port stops answering, the ssh of that attempt is killed before the retry', async () => {
+  // O servidor de mentira atende a sonda anônima e some antes da prova: `unreachable`. A tentativa
+  // não pode deixar o ssh vivo — com ele morto, o laço morre junto (sem servidor, nada responde).
+  const r = rig({ closesBeforeProof: true })
+  r.connect()
+  await r.wait()
+  assert.notEqual(r.status()?.kind, 'connected')
+  assert.ok(r.tunnels.length > 0 && r.tunnels.every((child) => (child as unknown as { exitCode: number | null }).exitCode !== null), 'every spawned ssh was killed, none left running beside a retry')
+  assert.deepEqual(r.seen.filter((call) => call.authorization !== undefined), [], 'no credential ever travels')
   r.controller.disconnectAll()
 })
 

@@ -113,3 +113,33 @@ fn formato_errado_da_prova_e_recusado_sem_panico() {
         assert!(!confere(TOKEN, errado, &certa), "{errado}");
     }
 }
+
+#[test]
+fn a_lista_de_nonces_nao_cresce_sem_limite() {
+    // O teto é o que o processo usa: provas válidas entram uma a uma e, passando dele, o nonce mais
+    // antigo sai — a memória fica presa no teto e uma prova desse nonce antigo volta a abrir só a
+    // identidade, que é tudo o que uma repetição alcança.
+    let f = Fixture::new(TOKEN);
+    let loopback: SocketAddr = "127.0.0.1:5000".parse().unwrap();
+    let mut primeiro = [0u8; 32];
+    primeiro[0] = 250;
+    let primeiro_b64 = crate::remote::crypto::b64(&primeiro);
+    let primeira_prova = prova(TOKEN, &primeiro);
+    assert_eq!(aceitar(&f.hub, &primeiro_b64, &primeira_prova, loopback), Some(primeiro));
+    for i in 0..TETO_NONCES {
+        let mut nonce = [0u8; 32];
+        nonce[..2].copy_from_slice(&u16::try_from(i).unwrap().to_be_bytes());
+        nonce[2] = 99;
+        let b64 = crate::remote::crypto::b64(&nonce);
+        let prova = prova(TOKEN, &nonce);
+        assert_eq!(aceitar(&f.hub, &b64, &prova, loopback), Some(nonce), "nonce {i} é novo");
+    }
+    let vistos = consumidos().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    assert!(vistos.ordem.len() <= TETO_NONCES, "a memória fica no teto, não no tanto de provas");
+    drop(vistos);
+    assert_eq!(
+        aceitar(&f.hub, &primeiro_b64, &primeira_prova, loopback),
+        Some(primeiro),
+        "o nonce mais antigo já saiu da lista; repetir a prova dele revela só a identidade, nunca credencial"
+    );
+}

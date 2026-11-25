@@ -235,6 +235,7 @@ export const textos: Traducao<typeof fonte> = {
   'ajustes.ssh.passo.tunel': 'Ouverture du tunnel…',
   'ajustes.ssh.erro.iniciar': 'Impossible de lancer ssh.',
   'ajustes.ssh.erro.tunelOutro': 'Le tunnel vers {host} a atteint un autre ordinateur que celui attendu.',
+  'ajustes.hub.erro.semProva': "Un programme répond sur le port de l'hôte, mais n'a pas pu prouver qu'il est l'hôte de cette app. Un hôte d'une version ancienne ne connaît pas cette preuve : installez la nouvelle version pour le mettre à jour. Si ce n'est pas l'hôte, fermez ce qui utilise le port. Rien n'a été attaché : une identité sans preuve n'est jamais acceptée.",
   'ajustes.ssh.erro.portaOcupada': 'Un autre programme a répondu sur le port local du tunnel.',
   'ajustes.ssh.erro.abrirTunel': 'Impossible d’ouvrir le tunnel vers {host}. {detalhe}',
   'ajustes.ssh.erro.caiu': 'La connexion SSH a été coupée. {detalhe}',

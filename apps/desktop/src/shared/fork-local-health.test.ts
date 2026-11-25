@@ -89,6 +89,28 @@ test('the proof of the local token unlocks the identity, accepted only with the 
   }
 })
 
+test('a body that is not an object never breaks the watch nor reads as health', async () => {
+  // `null` (e texto ou número) é um JSON válido que não carrega campo nenhum: ler `.receipt` dele
+  // quebraria a vigia com uma exceção. A leitura recusa sem exceção, nos dois caminhos.
+  for (const body of ['null', '"texto"', '42']) {
+    const server = createServer((_request, response) => {
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(body)
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const address = server.address()
+    assert.ok(address && typeof address === 'object')
+    const url = `http://127.0.0.1:${address.port}`
+    try {
+      const { localHealth } = load()
+      assert.equal(await localHealth(url, 2000), null, `corpo ${body} não é saúde anônima`)
+      assert.equal(await localHealth(url, 2000, TOKEN), null, `corpo ${body} não é identidade`)
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
+  }
+})
+
 test('each call carries a fresh nonce', async () => {
   const hub = hubOf(TOKEN, IDENTIDADE)
   const url = await hub.listen()

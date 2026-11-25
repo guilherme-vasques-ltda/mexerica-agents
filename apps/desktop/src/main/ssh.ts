@@ -651,9 +651,11 @@ class SSHComputers {
         lastProblem = await tail.lastLine()
         continue
       }
-      // Sem resposta é falha de passagem, que a próxima tentativa resolve; prova recusada ou outro
+      // Sem resposta é falha de passagem, que a próxima tentativa resolve com um ssh novo: este
+      // processo é encerrado aqui, nunca fica rodando junto do substituto. Prova recusada ou outro
       // `computerId` é o túnel indo para um Hub que não é este computador.
       if (identity.kind === 'unreachable') {
+        child.kill()
         lastProblem = motivoSSH('ajustes.ssh.erro.portaOcupada').texto
         continue
       }

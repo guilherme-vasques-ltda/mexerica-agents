@@ -235,6 +235,7 @@ export const textos: Traducao<typeof fonte> = {
   'ajustes.ssh.passo.tunel': 'Opening the tunnel…',
   'ajustes.ssh.erro.iniciar': 'Couldn’t start ssh.',
   'ajustes.ssh.erro.tunelOutro': 'The tunnel to {host} reached a different computer than expected.',
+  'ajustes.hub.erro.semProva': "A program answers on the host port, but it couldn't prove it is this app's host. A host from an older version doesn't know this proof: install the new version to update it. If it's not the host, close what is using the port. Nothing was attached: an identity without proof is never accepted.",
   'ajustes.ssh.erro.portaOcupada': 'Another program answered on the tunnel’s local port.',
   'ajustes.ssh.erro.abrirTunel': 'Couldn’t open the tunnel to {host}. {detalhe}',
   'ajustes.ssh.erro.caiu': 'The SSH connection dropped. {detalhe}',
