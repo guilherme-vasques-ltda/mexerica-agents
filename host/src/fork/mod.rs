@@ -143,6 +143,7 @@ pub(crate) mod whatsapp;
 pub(crate) mod workspace;
 
 pub mod modelos_funcao;
+pub(crate) mod rota_anthropic;
 pub(crate) mod roteamento;
 pub(crate) mod rotina_resultado;
 pub(crate) mod routine_creation;
@@ -182,6 +183,7 @@ pub(crate) fn migrate(store: &crate::store::Store) -> anyhow::Result<()> {
     resumo_diario::migrate(&store.db.locked())?;
     roteamento::receipt::migrate(&store.db.locked())?;
     teto::migrate(&store.db.locked())?;
+    rota_anthropic::migrate(&store.db.locked())?;
     uso_historico::migrate(&store.db.locked())?;
     modelos_funcao::config::initialize(store)
 }
