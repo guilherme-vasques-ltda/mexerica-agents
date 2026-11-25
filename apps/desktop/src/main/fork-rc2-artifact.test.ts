@@ -64,6 +64,23 @@ test('hash divergente de qualquer componente declarado recusa o artefato inteiro
   assert.deepEqual(verifyRc2Artifact(root, [hub, helper]), [hub.path, helper.path])
 })
 
+test('hash correto não autoriza x64, binário universal nem cabeçalho incompleto', t => {
+  const { root, hub } = fixture(t)
+  const universal = Buffer.alloc(32)
+  universal.writeUInt32BE(0xcafebabe, 0)
+  universal.writeUInt32BE(1, 4)
+  universal.writeUInt32BE(0x0100000c, 8)
+  universal.writeUInt32BE(universal.length, 16)
+  universal.writeUInt32BE(hubBytes.length, 20)
+  for (const [label, bytes] of [
+    ['x64', macho(0x07)], ['universal', Buffer.concat([universal, hubBytes])],
+    ...[8, 16, 31].map(length => [`cabeçalho de ${length} bytes`, hubBytes.subarray(0, length)] as const),
+  ] as const) {
+    writeFileSync(join(root, hub.path), bytes)
+    assert.throws(() => verifyRc2Artifact(root, [{ ...hub, sha256: sha256(bytes) }]), /invalid_rc2_artifact/, label)
+  }
+})
+
 test('pasta intermediária simbólica que sai da raiz é recusada mesmo com binário válido fora dela', t => {
   const outside = mkdtempSync(join(tmpdir(), 'rc2-fora-'))
   t.after(() => rmSync(outside, { recursive: true, force: true }))

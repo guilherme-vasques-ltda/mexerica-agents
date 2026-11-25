@@ -8,7 +8,7 @@ import { rc2Paths, type Rc2Component } from '../shared/fork-rc2-profile.ts'
 const invalid = () => new Error('invalid_rc2_artifact')
 
 function machoArm64(bytes: Buffer): boolean {
-  return bytes.length >= 8 && bytes.readUInt32LE(0) === 0xfeedfacf && bytes.readUInt32LE(4) === 0x0100000c
+  return bytes.length >= 32 && bytes.readUInt32LE(0) === 0xfeedfacf && bytes.readUInt32LE(4) === 0x0100000c
 }
 
 const sha256 = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex')

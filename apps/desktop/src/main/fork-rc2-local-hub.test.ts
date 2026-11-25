@@ -169,6 +169,7 @@ test('entrada empacotada verifica manifesto e binários do artefato antes de qua
     const accesses: string[] = []
     const reads: string[] = []
     const exits: number[] = []
+    let transportLookups = 0
     const recordingFs = new Proxy(fsModule, { get: (target, key: string) => {
       accesses.push(key)
       if (key === 'readFileSync' || key === 'lstatSync') {
@@ -191,10 +192,10 @@ test('entrada empacotada verifica manifesto e binários do artefato antes de qua
         exit: (code: number) => exits.push(code) } },
       '../shared/fork-rc2-profile.ts': profileModule,
       './fork-rc2-artifact.ts': artifact,
-      './fork-rc2-local-hub.ts': { nativeRc2Transport },
+      './fork-rc2-local-hub.ts': { nativeRc2Transport: () => { transportLookups++; return null } },
     }, { process: { platform: 'darwin', arch, resourcesPath: join(project, 'resources') },
       __MEXERICA_RC2_PROFILE__: profile.profile, __MEXERICA_RC2_MANIFEST_HASH__: pin })
-    return { accesses, reads, exits }
+    return { accesses, reads, exits, transportLookups }
   }
   for (const tamper of [
     { label: 'binário ausente', apply: () => {} },
@@ -204,8 +205,9 @@ test('entrada empacotada verifica manifesto e binários do artefato antes de qua
   ]) {
     if (tamper.label === 'binário ausente') rmSync(hubPath, { force: true })
     else { writeFileSync(hubPath, hubBytes); tamper.apply() }
-    const { accesses, reads, exits } = run('arm64', compiled.pin)
+    const { accesses, reads, exits, transportLookups } = run('arm64', compiled.pin)
     assert.deepEqual(exits, [1], tamper.label)
+    assert.equal(transportLookups, 0, tamper.label)
     assert.ok(reads[reads.length - 1].startsWith(`lstatSync:${hubPath}`) || reads[reads.length - 1].startsWith(`readFileSync:${hubPath}`), tamper.label)
     assert.ok(!accesses.includes('writeFileSync') && !accesses.includes('mkdirSync') && !accesses.includes('appendFileSync'), tamper.label)
     rmSync(hubPath, { force: true })
@@ -213,6 +215,7 @@ test('entrada empacotada verifica manifesto e binários do artefato antes de qua
   writeFileSync(hubPath, hubBytes)
   const good = run('arm64', compiled.pin)
   assert.deepEqual(good.exits, [1])
+  assert.equal(good.transportLookups, 1)
   const firstArtifactRead = good.reads.indexOf(`lstatSync:${hubPath}`)
   assert.ok(firstArtifactRead > 2)
   assert.deepEqual(good.reads, [
