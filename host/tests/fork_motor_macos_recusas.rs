@@ -243,15 +243,21 @@ fn gravacao_dentro_de_transacao_externa_e_recusada() {
 
 #[test]
 fn journal_fora_do_wal_bloqueia_a_gravacao_duravel() {
-    let dir = tempfile::tempdir().expect("criar diretório da fixture");
-    let db = Connection::open(dir.path().join("recusas-rollback.sqlite3")).expect("abrir banco da fixture");
+    let (dir, db) = db_sintetico();
+    // A tabela já existe: o bloqueio vem do journal, não de tabela ausente.
+    let modo: String = db
+        .pragma_update_and_check(None, "journal_mode", "delete", |row| row.get(0))
+        .expect("voltar ao journal de rollback da fixture");
+    assert_eq!(modo, "delete");
     let mut porta = Porta::nova(escopo());
     porta.aceitar_aviso(escopo()).unwrap();
     let pedido = porta.pedir(acao(), 0).unwrap();
     porta.resolver(pedido, escopo(), Decisao::Negar, 2).unwrap();
-    // Sem WAL o banco fica em journal de rollback: preparar e gravar recusam.
-    assert!(recusas::preparar(&db).is_err());
-    assert!(recusas::registrar(&db, pedido, Motivo::Negada, 2).is_err());
+    let erro = recusas::registrar(&db, pedido, Motivo::Negada, 2).expect_err("gravar sem WAL");
+    assert!(erro.to_string().contains("WAL"), "erro sem WAL: {erro}");
+    // Banco novo em journal de rollback: preparar também recusa.
+    let novo = Connection::open(dir.path().join("recusas-novo.sqlite3")).expect("abrir banco novo da fixture");
+    assert!(recusas::preparar(&novo).is_err());
 }
 
 #[test]
