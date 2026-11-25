@@ -340,10 +340,10 @@ impl Porta {
         matches!(self.estado, EstadoPorta::Aberta)
     }
 
-    /// A instância principal está no censo (registrada e sem saída
-    /// confirmada)? É ela que abre a partida — o censo de descendentes não.
+    /// A instância principal está no censo, sem saída confirmada? É ela que
+    /// abre a partida — o censo de descendentes não.
     pub(super) fn motor_no_censo(&self) -> bool {
-        self.motor.is_some_and(|motor| self.processos.contains(&motor))
+        self.motor.is_some()
     }
 
     fn solicitacao(&mut self, pedido: Pedido, agora_ms: u64) -> Result<&mut Solicitacao, Recusa> {
