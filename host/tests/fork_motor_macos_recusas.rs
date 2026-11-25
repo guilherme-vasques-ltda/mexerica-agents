@@ -2,6 +2,7 @@
 #[allow(dead_code)]
 mod porta;
 #[path = "../src/fork/fork-motor-macos/recusas.rs"]
+#[allow(dead_code)]
 mod recusas;
 
 use std::{cell::Cell, num::NonZeroU64};
@@ -12,6 +13,10 @@ use rusqlite::Connection;
 
 fn id(valor: u64) -> NonZeroU64 {
     NonZeroU64::new(valor).expect("ID da fixture deve ser diferente de zero")
+}
+
+fn instancia() -> NonZeroU64 {
+    NonZeroU64::new(9).expect("ID da fixture deve ser diferente de zero")
 }
 
 fn escopo() -> Escopo {
@@ -32,10 +37,10 @@ fn db_sintetico() -> (tempfile::TempDir, Connection) {
     (dir, db)
 }
 
-fn linhas(db: &Connection) -> Vec<(i64, String, i64)> {
-    db.prepare("SELECT serie, motivo, instante_ms FROM recusas_motor_macos ORDER BY id")
+fn linhas(db: &Connection) -> Vec<(i64, String, String, i64)> {
+    db.prepare("SELECT serie, motivo, caminho, instante_ms FROM recusas_motor_macos ORDER BY id")
         .expect("preparar consulta de recusas")
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))
         .expect("consultar recusas")
         .collect::<rusqlite::Result<_>>()
         .expect("juntar recusas")
@@ -49,10 +54,11 @@ fn pendencia_sem_resposta_expira_no_prazo_e_grava_duravel() {
     let pedido = porta.pedir(acao(), 0).unwrap();
     // Sem resposta: no instante exato de 5 minutos a pendência já está expirada.
     assert_eq!(porta.resolver(pedido, escopo(), Decisao::UmaVez, 300_000), Err(Recusa::Expirada));
-    recusas::registrar(&db, pedido, Motivo::Expirada, 300_000).expect("persistir recusa de expiração");
+    recusas::registrar(&db, pedido, recusas::Caminho::Resolver, Motivo::Expirada, instancia(), 300_000)
+        .expect("persistir recusa de expiração");
     // O pedido expirado não volta: sem retry e sem reabrir.
     assert_eq!(
-        porta.efetuar(pedido, acao(), || 300_001, |_, _, _| true, |_| panic!("efeito de pedido expirado")),
+        porta.efetuar(pedido, acao(), || 300_001, |_, _, _, _| true, |_| panic!("efeito de pedido expirado")),
         Err(Recusa::PedidoInvalido)
     );
     assert_eq!(porta.resolver(pedido, escopo(), Decisao::UmaVez, 300_002), Err(Recusa::PedidoInvalido));
@@ -62,7 +68,7 @@ fn pendencia_sem_resposta_expira_no_prazo_e_grava_duravel() {
     drop(db);
     let db = Connection::open(dir.path().join("recusas.sqlite3")).expect("reabrir banco da fixture");
     recusas::preparar(&db).expect("repreparar registro de recusas");
-    assert_eq!(linhas(&db), vec![(1, "expirada".to_owned(), 300_000)]);
+    assert_eq!(linhas(&db), vec![(1, "expirada".to_owned(), "resolver".to_owned(), 300_000)]);
 }
 
 #[test]
@@ -78,7 +84,7 @@ fn auditoria_fora_do_prazo_nega_sem_efeito_sem_retry_e_sem_reabrir() {
             pedido,
             acao(),
             || relogio.get(),
-            |auditado, _, evento| {
+            |auditado, _, evento, instante| {
                 assert_eq!(auditado, pedido);
                 match evento {
                     porta::EventoAuditoria::Intencao => {
@@ -87,7 +93,17 @@ fn auditoria_fora_do_prazo_nega_sem_efeito_sem_retry_e_sem_reabrir() {
                         true
                     }
                     porta::EventoAuditoria::ExpiradaNaoExecutada => {
-                        recusas::registrar(&db, pedido, Motivo::Expirada, relogio.get()).is_ok()
+                        // O instante é o medido pela porta, não uma segunda leitura.
+                        assert_eq!(instante, 300_010);
+                        recusas::registrar(
+                            &db,
+                            pedido,
+                            recusas::Caminho::Efetuar,
+                            Motivo::Expirada,
+                            instancia(),
+                            instante,
+                        )
+                        .is_ok()
                     }
                 }
             },
@@ -96,7 +112,7 @@ fn auditoria_fora_do_prazo_nega_sem_efeito_sem_retry_e_sem_reabrir() {
         Err(Recusa::Expirada)
     );
     assert_eq!(
-        porta.efetuar(pedido, acao(), || 300_011, |_, _, _| true, |_| panic!("retry do pedido negado")),
+        porta.efetuar(pedido, acao(), || 300_011, |_, _, _, _| true, |_| panic!("retry do pedido negado")),
         Err(Recusa::PedidoInvalido)
     );
     assert_eq!(porta.resolver(pedido, escopo(), Decisao::UmaVez, 300_012), Err(Recusa::PedidoInvalido));
@@ -104,7 +120,7 @@ fn auditoria_fora_do_prazo_nega_sem_efeito_sem_retry_e_sem_reabrir() {
     let novo = porta.pedir(acao(), 300_013).unwrap();
     assert_ne!(novo, pedido);
     porta.resolver(novo, escopo(), Decisao::Negar, 300_014).unwrap();
-    assert_eq!(linhas(&db), vec![(1, "expirada".to_owned(), 300_010)]);
+    assert_eq!(linhas(&db), vec![(1, "expirada".to_owned(), "efetuar".to_owned(), 300_010)]);
 }
 
 #[test]
@@ -121,12 +137,13 @@ fn falha_ao_gravar_expiracao_fecha_a_porta_sem_efeito() {
             pedido,
             acao(),
             || relogio.get(),
-            |_, _, evento| {
+            |_, _, evento, instante| {
                 if evento == porta::EventoAuditoria::Intencao {
                     relogio.set(300_010);
                     return true;
                 }
-                recusas::registrar(&db, pedido, Motivo::Expirada, relogio.get()).is_ok()
+                recusas::registrar(&db, pedido, recusas::Caminho::Efetuar, Motivo::Expirada, instancia(), instante)
+                    .is_ok()
             },
             |_| panic!("efeito executado com registro falho"),
         ),
@@ -146,14 +163,15 @@ fn recusa_explicita_grava_e_o_pedido_morre() {
     assert_eq!(pedido.escopo(), escopo());
     assert_eq!(pedido.serie(), 1);
     porta.resolver(pedido, escopo(), Decisao::Negar, 2).unwrap();
-    recusas::registrar(&db, pedido, Motivo::Negada, 2).expect("persistir recusa explícita");
+    recusas::registrar(&db, pedido, recusas::Caminho::Resolver, Motivo::Negada, instancia(), 2)
+        .expect("persistir recusa explícita");
     // Segundo clique na mesma decisão não grava duas vezes nem revive o pedido.
     assert_eq!(porta.resolver(pedido, escopo(), Decisao::UmaVez, 3), Err(Recusa::PedidoInvalido));
     assert_eq!(
-        porta.efetuar(pedido, acao(), || 3, |_, _, _| true, |_| panic!("efeito de pedido negado")),
+        porta.efetuar(pedido, acao(), || 3, |_, _, _, _| true, |_| panic!("efeito de pedido negado")),
         Err(Recusa::PedidoInvalido)
     );
-    assert_eq!(linhas(&db), vec![(1, "negada".to_owned(), 2)]);
+    assert_eq!(linhas(&db), vec![(1, "negada".to_owned(), "resolver".to_owned(), 2)]);
 }
 
 #[test]
@@ -167,15 +185,22 @@ fn registro_sem_deduplicacao_enquanto_serie_recomeca_por_porta() {
     let pedido_fechado = segunda.pedir(acao(), 0).unwrap();
     primeira.resolver(pedido_negado, escopo(), Decisao::Negar, 1).unwrap();
     segunda.parar(2);
-    recusas::registrar(&db, pedido_negado, Motivo::Negada, 1).expect("persistir recusa explícita");
-    recusas::registrar(&db, pedido_fechado, Motivo::Fechada, 2).expect("persistir recusa do fechamento");
+    recusas::registrar(&db, pedido_negado, recusas::Caminho::Resolver, Motivo::Negada, instancia(), 1)
+        .expect("persistir recusa explícita");
+    recusas::registrar(&db, pedido_fechado, recusas::Caminho::Parar, Motivo::Fechada, instancia(), 2)
+        .expect("persistir recusa do fechamento");
     // Duas portas do mesmo escopo recomeçam a série: unicidade aqui corromperia o registro.
     assert_eq!(pedido_negado.serie(), pedido_fechado.serie());
     // Repetir a mesma gravação acumula: o registro é append-only, sem deduplicação.
-    recusas::registrar(&db, pedido_negado, Motivo::Negada, 3).expect("persistir repetição da recusa");
+    recusas::registrar(&db, pedido_negado, recusas::Caminho::Resolver, Motivo::Negada, instancia(), 3)
+        .expect("persistir repetição da recusa");
     assert_eq!(
         linhas(&db),
-        vec![(1, "negada".to_owned(), 1), (1, "fechada".to_owned(), 2), (1, "negada".to_owned(), 3)]
+        vec![
+            (1, "negada".to_owned(), "resolver".to_owned(), 1),
+            (1, "fechada".to_owned(), "parar".to_owned(), 2),
+            (1, "negada".to_owned(), "resolver".to_owned(), 3),
+        ]
     );
 }
 
@@ -187,10 +212,10 @@ fn falha_ao_gravar_recusa_nao_devolve_a_permissao() {
     let pedido = porta.pedir(acao(), 0).unwrap();
     porta.resolver(pedido, escopo(), Decisao::Negar, 2).unwrap();
     db.execute("DROP TABLE recusas_motor_macos", []).expect("derrubar tabela da fixture");
-    assert!(recusas::registrar(&db, pedido, Motivo::Negada, 3).is_err());
+    assert!(recusas::registrar(&db, pedido, recusas::Caminho::Resolver, Motivo::Negada, instancia(), 3).is_err());
     // A negação já vale; o registro falho não vira permissão nem retry.
     assert_eq!(
-        porta.efetuar(pedido, acao(), || 3, |_, _, _| true, |_| panic!("efeito com registro falho")),
+        porta.efetuar(pedido, acao(), || 3, |_, _, _, _| true, |_| panic!("efeito com registro falho")),
         Err(Recusa::PedidoInvalido)
     );
     let novo = porta.pedir(acao(), 4).unwrap();
@@ -204,9 +229,10 @@ fn parar_cancela_pendencia_e_grava_fechada() {
     porta.aceitar_aviso(escopo()).unwrap();
     let pedido = porta.pedir(acao(), 0).unwrap();
     porta.parar(5);
-    recusas::registrar(&db, pedido, Motivo::Fechada, 5).expect("persistir recusa do fechamento");
+    recusas::registrar(&db, pedido, recusas::Caminho::Parar, Motivo::Fechada, instancia(), 5)
+        .expect("persistir recusa do fechamento");
     assert_eq!(porta.resolver(pedido, escopo(), Decisao::UmaVez, 6), Err(Recusa::Fechada));
-    assert_eq!(linhas(&db), vec![(1, "fechada".to_owned(), 5)]);
+    assert_eq!(linhas(&db), vec![(1, "fechada".to_owned(), "parar".to_owned(), 5)]);
 }
 
 #[test]
@@ -219,11 +245,37 @@ fn tabela_guarda_somente_ids_motivo_e_instante_tipados() {
         .expect("consultar colunas")
         .collect::<rusqlite::Result<_>>()
         .expect("juntar colunas");
-    let esperadas = ["id", "titular", "dispositivo", "bot", "sessao", "geracao", "serie", "motivo", "instante_ms"];
+    let esperadas = [
+        "id",
+        "titular",
+        "dispositivo",
+        "bot",
+        "sessao",
+        "geracao",
+        "serie",
+        "motivo",
+        "caminho",
+        "instancia",
+        "instante_ms",
+    ];
     assert_eq!(colunas, esperadas.iter().map(ToString::to_string).collect::<Vec<_>>());
     // Motivo fora do conjunto tipado e id vazio não entram: nada de entrada bruta.
-    assert!(db.execute("INSERT INTO recusas_motor_macos VALUES (NULL, 1, 2, 3, 4, 5, 1, 'conteudo', 0)", []).is_err());
-    assert!(db.execute("INSERT INTO recusas_motor_macos VALUES (NULL, 0, 2, 3, 4, 5, 1, 'negada', 0)", []).is_err());
+    assert!(
+        db.execute("INSERT INTO recusas_motor_macos VALUES (NULL, 1, 2, 3, 4, 5, 1, 'conteudo', 'pedir', 9, 0)", [])
+            .is_err()
+    );
+    assert!(
+        db.execute("INSERT INTO recusas_motor_macos VALUES (NULL, 0, 2, 3, 4, 5, 1, 'negada', 'pedir', 9, 0)", [])
+            .is_err()
+    );
+    assert!(
+        db.execute("INSERT INTO recusas_motor_macos VALUES (NULL, 1, 2, 3, 4, 5, 1, 'negada', 'outro', 9, 0)", [])
+            .is_err()
+    );
+    assert!(
+        db.execute("INSERT INTO recusas_motor_macos VALUES (NULL, 1, 2, 3, 4, 5, 1, 'negada', 'pedir', 0, 0)", [])
+            .is_err()
+    );
     assert_eq!(linhas(&db), []);
 }
 
@@ -235,7 +287,7 @@ fn gravacao_dentro_de_transacao_externa_e_recusada() {
     let pedido = porta.pedir(acao(), 0).unwrap();
     porta.resolver(pedido, escopo(), Decisao::Negar, 2).unwrap();
     db.execute_batch("BEGIN").expect("abrir transação externa da fixture");
-    assert!(recusas::registrar(&db, pedido, Motivo::Negada, 2).is_err());
+    assert!(recusas::registrar(&db, pedido, recusas::Caminho::Resolver, Motivo::Negada, instancia(), 2).is_err());
     db.execute_batch("ROLLBACK").expect("desfazer transação externa da fixture");
     // Nenhum Ok ficou sujeito a rollback: nada foi gravado.
     assert_eq!(linhas(&db), []);
@@ -253,7 +305,8 @@ fn journal_fora_do_wal_bloqueia_a_gravacao_duravel() {
     porta.aceitar_aviso(escopo()).unwrap();
     let pedido = porta.pedir(acao(), 0).unwrap();
     porta.resolver(pedido, escopo(), Decisao::Negar, 2).unwrap();
-    let erro = recusas::registrar(&db, pedido, Motivo::Negada, 2).expect_err("gravar sem WAL");
+    let erro = recusas::registrar(&db, pedido, recusas::Caminho::Resolver, Motivo::Negada, instancia(), 2)
+        .expect_err("gravar sem WAL");
     assert!(erro.to_string().contains("WAL"), "erro sem WAL: {erro}");
     // Banco novo em journal de rollback: preparar também recusa.
     let novo = Connection::open(dir.path().join("recusas-novo.sqlite3")).expect("abrir banco novo da fixture");
@@ -273,7 +326,7 @@ fn aprovacao_no_prazo_executa_sem_recusa_registrada() {
             pedido,
             acao(),
             || 2,
-            |_, _, _| true,
+            |_, _, _, _| true,
             |efetivada| {
                 assert_eq!(efetivada, acao());
                 executado.set(true);
@@ -282,4 +335,19 @@ fn aprovacao_no_prazo_executa_sem_recusa_registrada() {
         .unwrap();
     assert!(executado.get());
     assert_eq!(linhas(&db), []);
+}
+
+#[test]
+fn sincronizacao_normal_do_store_legado_bloqueia_a_gravacao_duravel() {
+    let (_dir, db) = db_sintetico();
+    // O Store legado abre em WAL+NORMAL: essa conexão não pode gravar recusa.
+    db.pragma_update(None, "synchronous", "NORMAL").expect("baixar sincronização da fixture");
+    let mut porta = Porta::nova(escopo());
+    porta.aceitar_aviso(escopo()).unwrap();
+    let pedido = porta.pedir(acao(), 0).unwrap();
+    porta.resolver(pedido, escopo(), Decisao::Negar, 2).unwrap();
+    let erro = recusas::registrar(&db, pedido, recusas::Caminho::Resolver, Motivo::Negada, instancia(), 2)
+        .expect_err("gravar em sincronização NORMAL");
+    assert!(erro.to_string().contains("sincronização"), "erro sem FULL: {erro}");
+    assert_eq!(linhas(&db), vec![]);
 }

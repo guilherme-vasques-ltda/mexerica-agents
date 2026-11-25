@@ -143,12 +143,32 @@ impl Porta {
     }
 
     pub(super) fn pedir(&mut self, acao: Acao, agora_ms: u64) -> Result<Pedido, Recusa> {
+        self.pedir_auditando(acao, agora_ms, |_| true)
+    }
+
+    /// Cria o pedido expondo a expiração de uma pendência anterior: `auditar`
+    /// recebe o pedido que venceu e deve confirmar a gravação durável. Sem
+    /// confirmação, a porta fecha e o pedido novo não nasce — a expiração
+    /// nunca fica silenciosa, e a recusa de alvo vem antes, sem tocar na
+    /// pendência vigente.
+    pub(super) fn pedir_auditando(
+        &mut self,
+        acao: Acao,
+        agora_ms: u64,
+        mut auditar: impl FnMut(Pedido) -> bool,
+    ) -> Result<Pedido, Recusa> {
         self.exigir_aberta()?;
         let (Acao::Gravar { alvo, .. } | Acao::Apagar(alvo)) = acao;
         if alvo == Alvo::Proibido {
             return Err(Recusa::AlvoProibido);
         }
-        self.expirar(agora_ms);
+        if let Some(vencida) = self.vencida(agora_ms) {
+            self.solicitacao = None;
+            if !auditar(vencida) {
+                self.parar(agora_ms);
+                return Err(Recusa::Auditoria);
+            }
+        }
         if self.solicitacao.is_some() {
             return Err(Recusa::Ocupada);
         }
@@ -183,12 +203,16 @@ impl Porta {
         Ok(())
     }
 
+    /// Efetiva a ação aprovada, rechecando o prazo depois da auditoria: o
+    /// callback de auditoria recebe o instante medido pela porta (antes da
+    /// intenção; depois dela, na expiração) e confirma a gravação durável.
+    /// Sem confirmação, nada é executado e a porta fecha.
     pub(super) fn efetuar(
         &mut self,
         pedido: Pedido,
         acao: Acao,
         mut agora_ms: impl FnMut() -> u64,
-        mut auditar: impl FnMut(Pedido, Acao, EventoAuditoria) -> bool,
+        mut auditar: impl FnMut(Pedido, Acao, EventoAuditoria, u64) -> bool,
         efeito_imediato: impl FnOnce(Acao),
     ) -> Result<(), Recusa> {
         let antes_ms = agora_ms();
@@ -201,13 +225,13 @@ impl Porta {
         }
         let criada_ms = solicitacao.criada_ms;
         self.solicitacao = None;
-        if !auditar(pedido, acao, EventoAuditoria::Intencao) {
+        if !auditar(pedido, acao, EventoAuditoria::Intencao, antes_ms) {
             self.parar(agora_ms().max(antes_ms));
             return Err(Recusa::Auditoria);
         }
         let depois_ms = agora_ms();
         if depois_ms < antes_ms || depois_ms - criada_ms >= PRAZO_PEDIDO_MS {
-            if !auditar(pedido, acao, EventoAuditoria::ExpiradaNaoExecutada) {
+            if !auditar(pedido, acao, EventoAuditoria::ExpiradaNaoExecutada, depois_ms) {
                 self.parar(agora_ms().max(depois_ms).max(antes_ms));
                 return Err(Recusa::Auditoria);
             }
@@ -266,14 +290,23 @@ impl Porta {
     }
 
     fn expirar(&mut self, agora_ms: u64) -> bool {
-        let venceu = self
-            .solicitacao
-            .as_ref()
-            .is_some_and(|s| agora_ms.checked_sub(s.criada_ms).is_none_or(|idade| idade >= PRAZO_PEDIDO_MS));
+        let venceu = self.solicitacao.as_ref().is_some_and(|s| venceu_em(s.criada_ms, agora_ms));
         if venceu {
             self.solicitacao = None;
         }
         venceu
+    }
+
+    /// Pendência que já venceu no instante dado, sem consumi-la: o caminho de
+    /// `pedir` audita essa expiração antes de criar o pedido novo.
+    fn vencida(&self, agora_ms: u64) -> Option<Pedido> {
+        self.solicitacao.as_ref().filter(|s| venceu_em(s.criada_ms, agora_ms)).map(|s| s.pedido)
+    }
+
+    /// Pedido pendente, sem consumir: o caminho de `parar` audita qual
+    /// pendência foi cancelada pelo fechamento.
+    pub(super) fn pendente(&self) -> Option<Pedido> {
+        self.solicitacao.as_ref().map(|s| s.pedido)
     }
 
     fn solicitacao(&mut self, pedido: Pedido, agora_ms: u64) -> Result<&mut Solicitacao, Recusa> {
@@ -289,4 +322,10 @@ impl Porta {
         }
         self.solicitacao.as_mut().ok_or(Recusa::PedidoInvalido)
     }
+}
+
+/// Predicado único do prazo do pedido: `pedir`, `resolver` e `efetuar`
+/// expiram pela mesma regra, sem cópia divergente.
+fn venceu_em(criada_ms: u64, agora_ms: u64) -> bool {
+    agora_ms.checked_sub(criada_ms).is_none_or(|idade| idade >= PRAZO_PEDIDO_MS)
 }
