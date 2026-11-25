@@ -2,9 +2,8 @@ use crate::remote::{crypto, identity::Identity};
 
 const RECUSA_V1: &[u8; 16] = b"codync/recusa/v1";
 
-#[cfg_attr(not(test), expect(dead_code, reason = "o corte no fio é ligado separadamente"))]
 pub(super) mod corte {
-    use super::{Identity, crypto};
+    use super::Identity;
     const CORTE_V1: &[u8; 15] = b"codync/corte/v1";
 
     #[derive(Clone, Copy)]
@@ -13,6 +12,16 @@ pub(super) mod corte {
         DeviceRevoked = 1,
         WorkspaceRevoked = 2,
         RoleChanged = 3,
+    }
+
+    impl Estavel {
+        pub(super) fn codigo(self) -> &'static str {
+            match self {
+                Self::DeviceRevoked => "device_revoked",
+                Self::WorkspaceRevoked => "workspace_revoked",
+                Self::RoleChanged => "role_changed",
+            }
+        }
     }
 
     pub(crate) struct Corte {
@@ -40,14 +49,26 @@ pub(super) mod corte {
             Some(identidade.sign(&self.bytes()?))
         }
 
+        #[cfg(test)]
         pub(crate) fn verificar(&self, chave: &[u8; 32], bytes: &[u8], sig: &[u8]) -> bool {
             let (Some(esperado), Ok(bytes), Ok(sig)) = (self.bytes(), <&[u8; 64]>::try_from(bytes), sig.try_into())
             else {
                 return false;
             };
-            bytes == &esperado && crypto::verify(chave, bytes, sig).is_ok()
+            bytes == &esperado && super::crypto::verify(chave, bytes, sig).is_ok()
         }
     }
+}
+
+pub(super) fn reject_corte(identidade: &Identity, corte: &corte::Corte) -> Option<serde_json::Value> {
+    let sig = corte.assinar(identidade)?;
+    let mut quadro = super::reject(super::RejectCode::Revoked);
+    quadro["stableCode"] = corte.estavel.codigo().into();
+    quadro["prova"] = serde_json::json!({
+        "v": 1, "tipo": "corte", "workspaceEpoch": corte.workspace_epoch,
+        "abertoEm": corte.aberto_em, "sig": crypto::b64(&sig),
+    });
+    Some(quadro)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

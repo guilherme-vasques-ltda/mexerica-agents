@@ -15,13 +15,115 @@ async fn anuncio_selado_vale_apenas_no_canal_que_o_enviou() {
     }
     assert!(anuncia.call(1, "hello", json!({"corte":1})).await["ok"].is_object());
     assert!(legado.call(1, "hello", json!({"corte":"1"})).await["ok"].is_object());
-    crate::fork::workspace::bump(&hub, crate::fork::workspace::Motivo::RoleChanged).unwrap();
-    assert_eq!(anuncia.recv().await.unwrap_err(), (close::TIMEOUT, Value::Null));
+    let aberto_em = hub.workspace.atual();
+    let epoch = crate::fork::workspace::bump(&hub, crate::fork::workspace::Motivo::RoleChanged).unwrap();
+    confere_corte(&hub, &mut anuncia, aberto_em, epoch, "role_changed", 3).await;
     assert_eq!(legado.recv().await.unwrap_err(), (close::REKEY, Value::Null));
     let mut nova = Phone::direct(&hub, key);
-    assert!(matches!(nova.hello(&hub, false).await, Out::Msg(v) if v["t"] == "welcome"));
+    assert!(matches!(nova.hello_with_caps(&hub, false, json!(["corte"])).await, Out::Msg(v) if v["t"] == "welcome"));
     crate::fork::workspace::bump(&hub, crate::fork::workspace::Motivo::RoleChanged).unwrap();
     assert_eq!(nova.recv().await.unwrap_err(), (close::REKEY, Value::Null));
+}
+
+async fn confere_corte(hub: &Hub, phone: &mut Phone, aberto_em: u64, epoch: u64, stable: &str, tag: u8) {
+    let Out::Msg(quadro) = phone.next().await else { panic!("esperava terminal antes do close") };
+    assert_eq!(quadro["t"], "reject");
+    assert_eq!(quadro["code"], "revoked");
+    assert_eq!(quadro["stableCode"], stable);
+    let sig = crypto::unb64_n::<64>(quadro["prova"]["sig"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        quadro["prova"],
+        json!({"v":1,"tipo":"corte","workspaceEpoch":epoch,"abertoEm":aberto_em,
+        "sig":crypto::b64(&sig)})
+    );
+    let mut bytes = b"codync/corte/v1".to_vec();
+    bytes.extend_from_slice(&phone.th);
+    bytes.push(tag);
+    bytes.extend_from_slice(&epoch.to_be_bytes());
+    bytes.extend_from_slice(&aberto_em.to_be_bytes());
+    assert!(crypto::verify(&hub.identity.sign_pub(), &bytes, &sig).is_ok());
+    bytes[15] ^= 1;
+    assert!(crypto::verify(&hub.identity.sign_pub(), &bytes, &sig).is_err());
+    assert!(matches!(phone.next().await, Out::Close(4003, "rejected")));
+    assert!(timeout(Duration::from_secs(5), phone.rx.recv()).await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn mesmo_corte_assina_revogacao_do_aparelho_e_do_workspace() {
+    let hub = temp_hub();
+    let mut sai = Phone::direct(&hub, paired_phone(&hub).await);
+    let mut fica = Phone::direct(&hub, paired_phone(&hub).await);
+    let mut legado = Phone::direct(&hub, sai.key.clone());
+    for phone in [&mut sai, &mut fica, &mut legado] {
+        assert!(matches!(phone.hello(&hub, false).await, Out::Msg(v) if v["t"] == "welcome"));
+    }
+    for phone in [&mut sai, &mut fica] {
+        assert!(phone.call(1, "hello", json!({"corte":1})).await["ok"].is_object());
+    }
+    let aberto_em = hub.workspace.atual();
+    assert!(hub.revoke_device(&sai.dk()).unwrap());
+    let epoch = hub.workspace.atual();
+    confere_corte(&hub, &mut sai, aberto_em, epoch, "device_revoked", 1).await;
+    confere_corte(&hub, &mut fica, aberto_em, epoch, "workspace_revoked", 2).await;
+    let (code, quadro) = legado.recv().await.unwrap_err();
+    assert_eq!(code, 4003);
+    assert_eq!(quadro["stableCode"], "device_revoked");
+    assert!(quadro.get("prova").is_none());
+}
+
+#[tokio::test]
+async fn recheck_sem_epoch_novo_fecha_sem_afirmar_revogacao() {
+    let hub = temp_hub();
+    let key = paired_phone(&hub).await;
+    let mut phone = Phone::direct(&hub, key);
+    assert!(matches!(phone.hello(&hub, false).await, Out::Msg(v) if v["t"] == "welcome"));
+    assert!(phone.call(1, "hello", json!({"corte":1})).await["ok"].is_object());
+    let epoch = hub.workspace.atual();
+    assert!(hub.store.remove_device(&phone.dk()).unwrap());
+    hub.auth_changed();
+    assert_eq!(phone.recv().await.unwrap_err(), (close::TIMEOUT, Value::Null));
+    assert_eq!(hub.workspace.atual(), epoch);
+}
+
+#[tokio::test]
+async fn recheck_encaminha_terminal_assinado_de_revogacao_confirmada() {
+    let hub = temp_hub();
+    let key = crypto::b64(paired_phone(&hub).await.verifying_key().as_bytes());
+    let (_, caller) = autoridade::autenticar(&hub, &key).unwrap();
+    let epoch = hub.workspace.atual();
+    let th = [7; 32];
+    let (tx, mut rx) = mpsc::channel(1);
+    let mut canal = Channel {
+        porta: Porta::armada_com_anuncio(&hub, &key, th),
+        hub: hub.clone(),
+        tx,
+        jobs: Arc::default(),
+        request_slots: Arc::new(tokio::sync::Semaphore::new(MAX_REQUESTS)),
+        key: key.clone(),
+        caller: Arc::new(caller),
+        admissao: None,
+        lease: None,
+        online: None,
+        quadros: false,
+        browser: None,
+        sessao: None,
+        prazo: tokio::sync::watch::channel(None).0,
+        th,
+        epoch,
+        nonces: crate::fork::sessao_clerk::posse::Nonces::default(),
+    };
+    assert!(hub.revoke_device(&key).unwrap());
+    assert_eq!(canal.recheck().await, Err((4003, "rejected")));
+    let Some(ToDevice::Terminal(t)) = rx.try_recv().ok() else { panic!("esperava um terminal") };
+    assert_eq!((t.close, t.reason), (4003, "rejected"));
+    let quadro = t.reject.unwrap();
+    assert_eq!(quadro["stableCode"], "device_revoked");
+    let prova = &quadro["prova"];
+    assert_eq!(prova["workspaceEpoch"], epoch + 1);
+    assert_eq!(prova["abertoEm"], epoch);
+    let sig = crypto::unb64_n(prova["sig"].as_str().unwrap()).unwrap();
+    let bytes = [b"codync/corte/v1".as_slice(), &th, &[1], &(epoch + 1).to_be_bytes(), &epoch.to_be_bytes()].concat();
+    assert!(crypto::verify(&hub.identity.sign_pub(), &bytes, &sig).is_ok());
 }
 
 #[tokio::test]
@@ -31,6 +133,7 @@ async fn geracao_alterada_ou_banco_ilegivel_fecha_sem_prova() {
         let key = paired_phone(&hub).await;
         let mut phone = Phone::direct(&hub, key);
         assert!(matches!(phone.hello(&hub, false).await, Out::Msg(v) if v["t"] == "welcome"));
+        assert!(phone.call(1, "hello", json!({"corte":1})).await["ok"].is_object());
         if leitura_falha {
             hub.store.db.locked().execute_batch("CREATE TEMP TABLE devices(unreadable TEXT)").unwrap();
         } else {
@@ -177,7 +280,8 @@ async fn escritor_com_fila_ocupada_substitui_o_fechamento_antigo() {
     let (out, mut transporte) = mpsc::channel(1);
     let (_, sem_prazo) = tokio::sync::watch::channel(None);
     let (_, caller) = autoridade::autenticar(&hub, &fica).unwrap();
-    let barreira = Barreira::nova(hub.clone(), caller, hub.workspace.assinar(), hub.workspace.atual(), sem_prazo, None);
+    let barreira =
+        Barreira::nova(hub.clone(), caller, hub.workspace.assinar(), hub.workspace.atual(), sem_prazo, None, [0; 32]);
     let escritor = tokio::spawn(write_frames(Sealer::new([7; 32]), rx, out, Some(barreira)));
     // Eventos que já passaram pelo filtro de autoridade, e o transporte parado.
     for n in 0..64 {

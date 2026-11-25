@@ -4,11 +4,15 @@
 //! O terminal confere a autoridade que admitiu o canal, não a captura de uma sessão nova. No fim do prazo da
 //! sessão, o mesmo corte com `auth_invalid` e 4001. Vale no escritor do canal e, pela `Porta`, no
 //! último ponto antes do socket direto ou do relay.
+use super::fork_assinatura_terminal::{
+    corte::{Corte, Estavel},
+    reject_corte,
+};
 use super::{Caller, Hub, Out, RejectCode, close, reject};
 use crate::LockExt;
 use crate::fork::autoridade;
 use crate::fork::sessao_clerk::{self, Limite};
-use crate::fork::workspace::{self, Epoca};
+use crate::fork::workspace::{self, Epoca, Motivo};
 use futures::{Stream, stream};
 use rusqlite::OptionalExtension;
 use serde_json::Value;
@@ -27,11 +31,22 @@ pub(crate) struct Terminal {
     pub(crate) reason: &'static str,
 }
 
+impl Terminal {
+    fn incerto() -> Self {
+        Self { reject: None, close: close::TIMEOUT, reason: "tryAgain" }
+    }
+
+    fn revogado(reject: Value) -> Self {
+        Self { reject: Some(reject), close: RejectCode::Revoked.close_code(), reason: "rejected" }
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct Barreira {
     hub: Arc<Hub>,
     caller: Caller,
     anuncia_corte: Arc<AtomicBool>,
+    th: [u8; 32],
     epoch: u64,
     geracao: Option<i64>,
     aviso: watch::Receiver<Epoca>,
@@ -62,8 +77,9 @@ impl Barreira {
         epoch: u64,
         prazo: watch::Receiver<Option<Limite>>,
         geracao: Option<i64>,
+        th: [u8; 32],
     ) -> Self {
-        Self { hub, caller, anuncia_corte: Arc::default(), epoch, geracao, aviso, prazo }
+        Self { hub, caller, anuncia_corte: Arc::default(), th, epoch, geracao, aviso, prazo }
     }
 
     /// O terminal da sessão: prazo vencido (4001).
@@ -99,38 +115,59 @@ impl Barreira {
     }
 
     fn terminal_do_corte(&self, atual: &Epoca) -> Terminal {
-        let incerto = Terminal { reject: None, close: close::TIMEOUT, reason: "tryAgain" };
+        let anunciou = self.anuncia_corte.load(Ordering::Acquire);
+        let incerto = Terminal::incerto();
         let Caller::Device { key, .. } = &self.caller else { return incerto };
-        let revogado = (|| -> anyhow::Result<bool> {
+        if anunciou && atual.pendente() {
+            return incerto;
+        }
+        let revogado = (|| -> anyhow::Result<Option<Terminal>> {
             let db = self.hub.store.db.locked();
             let grant: Option<Option<String>> =
                 db.query_row("SELECT grant_id FROM devices WHERE key=?1", [key], |r| r.get(0)).optional()?;
-            match grant {
-                None => Ok(true),
-                Some(grant) => workspace::bloqueado_on(&db, key, grant.as_deref()),
+            if let Some(grant) = grant
+                && !workspace::bloqueado_on(&db, key, grant.as_deref())?
+            {
+                return Ok(None);
             }
+            Ok(Some(if anunciou {
+                self.assinar_corte(atual, Estavel::DeviceRevoked).unwrap_or_else(Terminal::incerto)
+            } else {
+                Terminal::revogado(reject(RejectCode::Revoked))
+            }))
         })();
         match revogado {
-            Ok(true) => {
-                return Terminal {
-                    reject: Some(reject(RejectCode::Revoked)),
-                    close: RejectCode::Revoked.close_code(),
-                    reason: "rejected",
-                };
-            }
-            Ok(false) => {}
+            Ok(Some(terminal)) => return terminal,
             Err(_) => return incerto,
+            Ok(None) => {}
         }
-        if !atual.pendente()
-            && self.prazo.borrow().is_none()
-            && !self.anuncia_corte.load(Ordering::Acquire)
-            && autoridade::reconferir_terminal(&self.hub, &self.caller).is_ok()
+        if atual.pendente() || (!anunciou && self.prazo.borrow().is_some()) {
+            return incerto;
+        }
+        if anunciou {
+            let estavel = match atual.motivo() {
+                Motivo::RoleChanged => Estavel::RoleChanged,
+                Motivo::DeviceRevoked | Motivo::OwnerChanged | Motivo::AcessoRetirado => Estavel::WorkspaceRevoked,
+            };
+            autoridade::com_saida_caller(&self.hub, &self.caller, || self.assinar_corte(atual, estavel))
+                .ok()
+                .flatten()
+                .unwrap_or(incerto)
+        } else if autoridade::reconferir_terminal(&self.hub, &self.caller).is_ok()
             && !self.hub.workspace.retrato().pendente()
         {
             Terminal { reject: None, close: close::REKEY, reason: "rekey" }
         } else {
             incerto
         }
+    }
+
+    fn assinar_corte(&self, atual: &Epoca, estavel: Estavel) -> Option<Terminal> {
+        if atual.pendente() || self.hub.workspace.retrato() != *atual {
+            return None;
+        }
+        let corte = Corte { th: self.th, estavel, workspace_epoch: atual.valor, aberto_em: self.epoch };
+        reject_corte(&self.hub.identity, &corte).map(Terminal::revogado)
     }
 
     /// Com um commit de aumento em curso, espera o desfecho: publicado, sai o terminal; desfeito
@@ -198,6 +235,11 @@ impl Porta {
     /// Porta já armada para o aparelho `key` no epoch atual.
     #[cfg(test)]
     pub(crate) fn armada(hub: &Arc<Hub>, key: &str) -> Self {
+        Self::armada_com_th(hub, key, [0; 32])
+    }
+
+    #[cfg(test)]
+    fn armada_com_th(hub: &Arc<Hub>, key: &str, th: [u8; 32]) -> Self {
         let porta = Self::default();
         let (_, prazo) = watch::channel(None);
         porta.armar(Barreira::nova(
@@ -210,13 +252,31 @@ impl Porta {
             hub.workspace.atual(),
             prazo,
             None,
+            th,
         ));
+        porta
+    }
+
+    #[cfg(test)]
+    pub(crate) fn armada_com_anuncio(hub: &Arc<Hub>, key: &str, th: [u8; 32]) -> Self {
+        let porta = Self::armada_com_th(hub, key, th);
+        porta.anunciar_corte();
         porta
     }
 
     /// O terminal devido agora, para quem fecha o transporte fora da fila (o relay).
     pub(crate) fn terminal(&self) -> Option<Terminal> {
         self.0.get().and_then(Barreira::terminal)
+    }
+
+    pub(super) fn terminal_recheck(&self) -> Option<Terminal> {
+        let b = self.0.get().filter(|b| b.anuncia_corte.load(Ordering::Acquire))?;
+        Some(b.terminal().unwrap_or_else(Terminal::incerto))
+    }
+
+    pub(crate) fn terminal_assinado(&self) -> Option<Terminal> {
+        let b = self.0.get().filter(|b| b.anuncia_corte.load(Ordering::Acquire))?;
+        b.terminal().filter(|t| t.reject.as_ref().is_some_and(|r| r.get("prova").is_some()))
     }
 
     /// A fila de saída vista pelo transporte. Depois do bump, o que ainda estiver na fila

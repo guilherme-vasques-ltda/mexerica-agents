@@ -85,7 +85,7 @@ impl Epoca {
         !self.pendentes.is_empty()
     }
 
-    fn motivo(&self) -> Motivo {
+    pub(crate) fn motivo(&self) -> Motivo {
         self.motivo.unwrap_or(Motivo::DeviceRevoked)
     }
 }
