@@ -63,15 +63,19 @@ fn gasto_on(c: &Connection, escopo: &str, periodo: &str) -> Result<i64, Falha> {
 }
 
 /// Reserva aberta e velha não pode ficar só ocupando margem: o desfecho é
-/// desconhecido, e a admissão do período fecha até uso provado. Mesma
-/// transação da reserva nova.
-fn recuperar_abertas(c: &Connection, escopo: &str, periodo: &str, agora: i64) -> Result<(), Falha> {
-    c.execute(
+/// desconhecido, e a admissão do período fecha até uso provado. Transação
+/// própria, que sempre fecha antes de qualquer recusa — uma negação depois não
+/// pode desfazer a recuperação.
+fn recuperar_abertas(store: &Store, escopo: &str, periodo: &str, agora: i64) -> Result<(), Falha> {
+    let db = store.db.locked();
+    let tx = db.unchecked_transaction().map_err(|_| Falha::TetoIndisponivel)?;
+    tx.execute(
         "UPDATE donna_rota_anthropic_reservas SET estado = 'incerta', encerrada = ?1
           WHERE escopo = ?2 AND periodo = ?3 AND estado = 'retida' AND criada < ?4",
         params![agora, escopo, periodo, agora.saturating_sub(VALIDADE_RESERVA_MS)],
     )
     .map_err(|_| Falha::TetoIndisponivel)?;
+    tx.commit().map_err(|_| Falha::TetoIndisponivel)?;
     Ok(())
 }
 
@@ -111,10 +115,10 @@ pub(crate) fn reservar(store: &Store, escopo: &str, micros: i64, agora: i64) -> 
         return Err(Falha::TetoIndisponivel);
     }
     let periodo = periodo(agora)?;
+    recuperar_abertas(store, escopo, &periodo, agora)?;
     let db = store.db.locked();
     let tx = db.unchecked_transaction().map_err(|_| Falha::TetoIndisponivel)?;
     let limite = limite_on(&tx, escopo)?;
-    recuperar_abertas(&tx, escopo, &periodo, agora)?;
     if pendente_on(&tx, escopo, &periodo)? {
         return Err(Falha::UsoIncerto);
     }

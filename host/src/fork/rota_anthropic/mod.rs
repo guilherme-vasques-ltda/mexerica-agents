@@ -15,8 +15,8 @@
 //! superior provado. Tokenizador, enquadramento real da requisição, preços
 //! vigentes e identificadores de modelo só se comprovam contra o contrato do
 //! provedor, com teto imposto pelo provedor, no artefato exato — é o roteiro da
-//! chave de teste. Até lá [`Ativacao`] é `Pendente`, e o turno recusa antes de
-//! qualquer leitura de banco, cofre ou rede.
+//! chave de teste. Até o registro da prova existir, [`Prova::ler`] devolve
+//! `AtivacaoPendente` e o turno recusa antes de tocar no cofre ou na rede.
 #![allow(dead_code)] // Fatia inerte: entrega o ponto de ligação sem ligar chamada real.
 
 pub(crate) mod cofre;
@@ -191,8 +191,9 @@ fn escopo(bot: &str) -> String {
 /// saída é o teto pedido. Não é prova de limite superior — isso é a condição de
 /// ativação descrita no topo do módulo. Modelo sem preço verificado não tem
 /// estimativa.
-fn reserva_conservadora_micros(modelo: &str) -> Option<i64> {
-    let entrada = i64::try_from(MAX_ENTRADA.checked_add(MARGEM_ENVELOPE)?).ok()?;
+fn reserva_conservadora_micros(modelo: &str, entrada_medida: i64) -> Option<i64> {
+    let padrao = i64::try_from(MAX_ENTRADA.checked_add(MARGEM_ENVELOPE)?).ok()?;
+    let entrada = entrada_medida.max(padrao);
     let tokens = crate::fork::custo::Tokens {
         input: Some(entrada),
         output: Some(i64::from(MAX_SAIDA_TOKENS)),
@@ -220,13 +221,47 @@ fn micros(custo: &crate::fork::custo::Cost) -> Option<i64> {
     (0.0..=9_007_199_254_740_992.0).contains(&valor).then(|| valor.round() as i64)
 }
 
-/// Estado de ativação da rota. `Pendente` é o padrão e recusa antes de qualquer
-/// leitura; `Provada` só pode ser passado depois da comprovação registrada da
-/// reserva contra o contrato do provedor.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Ativacao {
-    Pendente,
-    Provada,
+/// Registro privado da comprovação de ativação: o artefato exato, quando a
+/// medida foi feita e o limite de entrada medido no provedor. Sem este registro
+/// a rota não roda, e este tipo não tem construtor público no crate — quem
+/// liga a rota precisa gravar a prova pelo caminho de ativação.
+pub(crate) struct Prova {
+    entrada_tokens: i64,
+}
+
+const REGISTRO_DA_PROVA: &str = "dona.rota-anthropic.prova.v1";
+
+impl Prova {
+    /// Lê o registro persistido. Ausente, ilegível ou incompleto = rota fechada.
+    pub(crate) fn ler(store: &Store) -> Result<Self, Falha> {
+        let Some(bruto) = store.kv_read(REGISTRO_DA_PROVA).map_err(|_| Falha::TetoIndisponivel)? else {
+            return Err(Falha::AtivacaoPendente);
+        };
+        let valor: serde_json::Value = serde_json::from_str(&bruto).map_err(|_| Falha::AtivacaoPendente)?;
+        let artefato = valor["artefato"].as_str().ok_or(Falha::AtivacaoPendente)?;
+        let valido = artefato.len() == 64 && artefato.bytes().all(|b| b.is_ascii_hexdigit());
+        let medido_em = valor["medidoEm"].as_i64().is_some_and(|v| v > 0);
+        let entrada_tokens = valor["entradaTokens"].as_i64().filter(|v| *v > 0);
+        if !valido || !medido_em {
+            return Err(Falha::AtivacaoPendente);
+        }
+        Ok(Self { entrada_tokens: entrada_tokens.ok_or(Falha::AtivacaoPendente)? })
+    }
+}
+
+/// Gravação da prova: pertence ao caminho de ativação, que ainda não existe. Só
+/// o teste a tem, para exercitar o turno real com o gate aberto.
+#[cfg(test)]
+pub(crate) fn registrar_prova_em_teste(store: &Store, entrada_tokens: i64) {
+    let artefato = "0".repeat(64);
+    store
+        .kv_set(
+            REGISTRO_DA_PROVA,
+            &serde_json::json!({"artefato": artefato, "medidoEm": 1_764_000_000_000i64,
+                "entradaTokens": entrada_tokens})
+            .to_string(),
+        )
+        .expect("registro da prova");
 }
 
 /// Executa um turno da rota: teto reservado, cofre do vínculo, uma chamada,
@@ -237,14 +272,13 @@ pub(crate) async fn executar<T, C>(
     cofre: &C,
     vinculo: &Vinculo<'_>,
     pedido: &Pedido<'_>,
-    ativacao: Ativacao,
     agora: i64,
 ) -> Result<Resposta, Falha>
 where
     T: Transporte,
     C: Cofre + ?Sized,
 {
-    let resultado = turno(store, transporte, cofre, vinculo, pedido, ativacao, agora).await;
+    let resultado = turno(store, transporte, cofre, vinculo, pedido, agora).await;
     if let Err(falha) = &resultado {
         tracing::warn!(motivo = falha.codigo(), "rota Anthropic recusada");
     }
@@ -257,19 +291,16 @@ async fn turno<T, C>(
     cofre: &C,
     vinculo: &Vinculo<'_>,
     pedido: &Pedido<'_>,
-    ativacao: Ativacao,
     agora: i64,
 ) -> Result<Resposta, Falha>
 where
     T: Transporte,
     C: Cofre + ?Sized,
 {
-    if ativacao != Ativacao::Provada {
-        return Err(Falha::AtivacaoPendente);
-    }
+    let prova = Prova::ler(store)?;
     vinculo.validar().map_err(|_| Falha::VinculoInvalido)?;
     pedido.validar()?;
-    let estimativa = reserva_conservadora_micros(pedido.modelo).ok_or(Falha::SemPreco)?;
+    let estimativa = reserva_conservadora_micros(pedido.modelo, prova.entrada_tokens).ok_or(Falha::SemPreco)?;
     let reserva = limite::reservar(store, &escopo(vinculo.bot), estimativa, agora)?;
     let chave = match cofre.abrir(vinculo) {
         Ok(chave) => chave,
