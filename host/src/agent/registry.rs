@@ -21,6 +21,9 @@ use tokio::sync::{Mutex as TravaAsync, OwnedMutexGuard};
 
 mod arquivo;
 mod fixados;
+#[path = "registry/fork-versoes.rs"]
+mod versoes;
+pub(crate) use versoes::{Comando, Protecao};
 
 const URL: &str = "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json";
 const MAX_ARCHIVE_BYTES: usize = 128 * 1024 * 1024;
@@ -191,14 +194,14 @@ fn id_instalacao(agente: &Value) -> Result<String> {
     id_normalizado(agente).filter(|id| safe_component(id).is_some()).context("Identificador de agente inválido.")
 }
 
-pub(crate) fn chave_instalacao_binaria(agente: &Value) -> Result<Option<String>> {
+fn chave_instalacao_binaria(agente: &Value) -> Result<Option<String>> {
     if fixados::agente(agente).is_some() || alvo_binario(agente).is_some() {
         return id_instalacao(agente).map(Some);
     }
     Ok(None)
 }
 
-pub(crate) async fn reservar_instalacao_binaria(id: String) -> OwnedMutexGuard<()> {
+async fn reservar_instalacao_binaria(id: String) -> OwnedMutexGuard<()> {
     type Travas = Mutex<HashMap<String, Weak<TravaAsync<()>>>>;
     static TRAVAS: LazyLock<Travas> = LazyLock::new(Mutex::default);
     // Uma publicação pode remover versões antigas do mesmo agente. A trava cobre a pasta
@@ -255,12 +258,21 @@ fn contained(rel: &str) -> Option<&Path> {
 pub struct Cmd {
     pub program: String,
     pub args: String,
+    uso: Option<versoes::Uso>,
 }
 
 impl Cmd {
+    pub(crate) fn new(program: String, args: String) -> Self {
+        Self { program, args, uso: None }
+    }
+
     /// The shell command that starts it over ACP stdio.
-    pub fn acp(&self) -> String {
-        format!("{} {}", self.program, self.args)
+    pub(crate) fn acp(&self) -> Comando {
+        self.com_linha(format!("{} {}", self.program, self.args))
+    }
+
+    pub(crate) fn com_linha(&self, linha: String) -> Comando {
+        Comando { linha, uso: self.uso.clone() }
     }
 }
 
@@ -268,17 +280,86 @@ impl Cmd {
 /// `progress` receives short status lines with their stable code ("Downloading Cursor…", `downloading`).
 pub async fn command(agent: &Value, progress: impl Fn(&str, Option<ActivityKind>)) -> Result<Cmd> {
     ensure!(oferecido(agent), "A instalação pelo catálogo está desativada para este agente.");
-    let fixado = fixados::agente(agent).map(|fixo| fixo.selecionar(agent, platform())).transpose()?;
+    // No modo de motor separado a preservação de versões não se aplica: quem grava a raiz é
+    // o instalador, e o build de release recusa o modo inteiro antes de chegar aqui.
     if motor_install::orchestrating() {
         let item = agent["name"].as_str().unwrap_or("agent").to_owned();
         progress("Instalando adaptador como motor…", Some(ActivityKind::Installing { item }));
+        let _reserva = match chave_instalacao_binaria(agent)? {
+            Some(chave) => Some(reservar_instalacao_binaria(chave).await),
+            None => None,
+        };
         return match motor_install::invoke(Request::Registry { agent: agent.clone() }).await? {
-            Reply::Command { program, args } => Ok(Cmd { program, args }),
+            Reply::Command { program, args } => Ok(Cmd::new(program, args)),
             _ => bail!("resposta inválida ao instalar adaptador"),
         };
     }
+    let mut instalacao = Instalacao { protecao: None, reserva: None, ignorar: None };
+    let uso = if let Some(id) = chave_instalacao_binaria(agent)? {
+        let version = versao_binaria(agent).to_owned();
+        for parte in [&id[..], &version] {
+            arquivo::caminho_relativo(Path::new(parte))?;
+        }
+        let reserva = reservar_instalacao_binaria(id.clone()).await;
+        // A leitura para a recusa antecipada vem antes da própria reserva: a reserva de
+        // quem instala não pode contar como uso contra ele mesmo.
+        let protecao = protegidas_da_versao(&id).await;
+        let uso = reservar_versao(&id, &version).await?;
+        instalacao = Instalacao { protecao, reserva: Some(reserva), ignorar: Some(uso.marcador().to_path_buf()) };
+        Some(uso)
+    } else {
+        None
+    };
+    let mut cmd = comando_instalado(agent, progress, instalacao).await?;
+    cmd.uso = uso;
+    Ok(cmd)
+}
+
+impl Comando {
+    /// Grava a marca de uso da versão antes de entregar o comando ao agente.
+    pub(crate) async fn preparar(&self) -> Result<()> {
+        let Some(uso) = &self.uso else { return Ok(()) };
+        let uso = uso.clone();
+        tokio::task::spawn_blocking(move || uso.marcar_lancamento(versoes::boot())).await?
+    }
+}
+
+/// Lê a proteção das versões na raiz que este processo grava.
+async fn protegidas_da_versao(id: &str) -> Option<Protecao> {
+    let (id, raiz) = (id.to_owned(), motor_install::root());
+    tokio::task::spawn_blocking(move || versoes::protegidas(&raiz, &id)).await.ok().flatten()
+}
+
+/// Reserva a versão na raiz física da instalação.
+async fn reservar_versao(id: &str, versao: &str) -> Result<versoes::Uso> {
+    let (id, versao, raiz) = (id.to_owned(), versao.to_owned(), motor_install::root());
+    tokio::task::spawn_blocking(move || versoes::Uso::registrar(&raiz, &id, &versao)).await?
+}
+
+struct Instalacao {
+    protecao: Option<Protecao>,
+    reserva: Option<OwnedMutexGuard<()>>,
+    /// Reserva de quem instala, que não conta como uso da própria versão.
+    ignorar: Option<PathBuf>,
+}
+
+/// Instalação feita pelo instalador separado: sem preservação de versões, como no legado.
+/// O build de release recusa o modo separado antes de chegar aqui.
+#[cfg(target_os = "linux")]
+pub(crate) async fn comando_motor(agent: &Value) -> Result<Cmd> {
+    ensure!(motor_install::worker(), "instalador do agente exige processo separado");
+    comando_instalado(agent, |_, _| {}, Instalacao { protecao: None, reserva: None, ignorar: None }).await
+}
+
+async fn comando_instalado(
+    agent: &Value,
+    progress: impl Fn(&str, Option<ActivityKind>),
+    instalacao: Instalacao,
+) -> Result<Cmd> {
+    ensure!(oferecido(agent), "A instalação pelo catálogo está desativada para este agente.");
+    let fixado = fixados::agente(agent).map(|fixo| fixo.selecionar(agent, platform())).transpose()?;
     if let Some(pacote) = fixado {
-        return comando_binario(agent, &pacote, "", "acp".into(), &progress).await;
+        return comando_binario(agent, &pacote, "", "acp".into(), &progress, instalacao).await;
     }
     if let Some(target) = alvo_binario(agent) {
         // Para os demais agentes, o catálogo externo ainda fornece o hash e o endereço.
@@ -289,7 +370,8 @@ pub async fn command(agent: &Value, progress: impl Fn(&str, Option<ActivityKind>
             limite_download: MAX_ARCHIVE_BYTES,
             limite_extraido: arquivo::LIMITE_EXTRAIDO,
         };
-        return comando_binario(agent, &pacote, &env_prefix(&target["env"]), args_of(target), &progress).await;
+        return comando_binario(agent, &pacote, &env_prefix(&target["env"]), args_of(target), &progress, instalacao)
+            .await;
     }
     let name = agent["name"].as_str().unwrap_or("agent");
     let d = &agent["distribution"];
@@ -303,10 +385,7 @@ pub async fn command(agent: &Value, progress: impl Fn(&str, Option<ActivityKind>
         Some(Launch::Uvx) => {
             let package = d["uvx"]["package"].as_str().unwrap_or_default();
             pacote_uv_fixo(package)?;
-            Ok(Cmd {
-                program: format!("{}uvx {}", env_prefix(&d["uvx"]["env"]), shell::quote(package)),
-                args: args_of(&d["uvx"]),
-            })
+            Ok(Cmd::new(format!("{}uvx {}", env_prefix(&d["uvx"]["env"]), shell::quote(package)), args_of(&d["uvx"])))
         }
         _ => {
             if let Some(erro) = versao_que_impede(d) {
@@ -334,12 +413,21 @@ async fn comando_binario(
     env: &str,
     args: String,
     progress: &impl Fn(&str, Option<ActivityKind>),
+    instalacao: Instalacao,
 ) -> Result<Cmd> {
     let cmd = contained(pacote.cmd).context("Caminho inválido para o executável do agente.")?;
     let cmd = arquivo::caminho_relativo(cmd)?;
-    let executable = install_binary(agente, pacote, &cmd, progress).await?.join(cmd);
+    let executable = install_binary(agente, pacote, &cmd, progress, instalacao).await?.join(cmd);
     let executable = if motor_install::worker() { motor_install::published_path(&executable)? } else { executable };
-    Ok(Cmd { program: format!("{env}{}", shell::quote(&executable.to_string_lossy())), args })
+    // TOCTOU no lançamento: o hash é conferido na publicação e em `cache_verificado`, mas a linha
+    // abaixo entrega o caminho e o agente é executado reabrindo o nome. No modo local não há
+    // privilégio novo — Hub e agente têm o mesmo UID, e quem escreve ali já é o usuário. No modo
+    // separado a árvore é do UID do motor, que também executa o agente: ficar gravável permite
+    // adulterar o adaptador de uma sessão posterior. A janela só fecha quando a execução usar a
+    // imagem verificada por descritor, o que exige separar o UID que grava a instalação do UID que
+    // executa o agente. Enquanto isso não existir, o modo separado é recusado nos builds de
+    // release (`motor_exec::recusa_modo_separado`).
+    Ok(Cmd::new(format!("{env}{}", shell::quote(&executable.to_string_lossy())), args))
 }
 
 // Fixar a versão evita resolver tags ou faixas móveis. Não fixa as dependências transitivas,
@@ -370,15 +458,15 @@ fn pacote_uv_fixo(pacote: &str) -> Result<()> {
 }
 
 fn npx_cmd(npx: &Value) -> Cmd {
-    Cmd {
-        program: format!(
+    Cmd::new(
+        format!(
             "{}{}npx -y {}",
             env_prefix(&npx["env"]),
             motor_install::npm_prefix(),
             shell::quote(npx["package"].as_str().unwrap_or_default())
         ),
-        args: args_of(npx),
-    }
+        args_of(npx),
+    )
 }
 
 /// npx installs a package into `<npm cache>/_npx/<hash>` and writes its `package.json` last.
@@ -508,25 +596,76 @@ async fn ler_download(mut resposta: reqwest::Response, limite: usize) -> Result<
     Ok(bytes)
 }
 
+fn versao_binaria(agent: &Value) -> &str {
+    agent["version"].as_str().and_then(safe_component).unwrap_or("latest")
+}
+
+/// Recusa tipada: o instalador separado devolve a categoria ao Hub sem repassar texto bruto.
+#[derive(Debug)]
+pub(crate) struct Recusa {
+    pub(crate) operacao: &'static str,
+    pub(crate) categoria: &'static str,
+    agente: String,
+    versao: String,
+}
+
+impl std::fmt::Display for Recusa {
+    fn fmt(&self, destino: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            destino,
+            "Substituição de versão recusada: agente={}, versão={}, categoria={}",
+            self.agente, self.versao, self.categoria
+        )
+    }
+}
+
+impl std::error::Error for Recusa {}
+
+fn recusa(id: &str, versao: &str, categoria: &'static str) -> Result<()> {
+    tracing::warn!(agente = %id, %versao, %categoria, "substituição de versão recusada");
+    Err(Recusa { operacao: "substituicao", categoria, agente: id.into(), versao: versao.into() }.into())
+}
+
+/// Substituir uma versão existente exige prova de que ela foi publicada por este protocolo
+/// e de que ninguém a usa agora. Sem recibo ou sem leitura confiável, a versão fica.
+fn verificar_substituicao(dir: &Path, id: &str, versao: &str, protecao: Option<&Protecao>) -> Result<()> {
+    match std::fs::symlink_metadata(dir) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(_) => return recusa(id, versao, "estado_indeterminado"),
+        Ok(_) => (),
+    }
+    let Some(protecao) = protecao else { return recusa(id, versao, "estado_indeterminado") };
+    if protecao.liberada(versao) {
+        return Ok(());
+    }
+    let categoria = if protecao.em_uso(versao) { "versao_protegida" } else { "sem_recibo" };
+    recusa(id, versao, categoria)
+}
+
 /// Downloads + extracts a binary distribution into `~/.codync/agents/<id>/<version>`.
 async fn install_binary(
     agent: &Value,
     pacote: &PacoteBinario<'_>,
     cmd: &Path,
     progress: &impl Fn(&str, Option<ActivityKind>),
+    instalacao: Instalacao,
 ) -> Result<PathBuf> {
     static CLIENTE: LazyLock<reqwest::Client> =
         LazyLock::new(|| cliente_download_builder().build().expect("cliente HTTPS do catálogo ACP"));
     let id = id_instalacao(agent)?;
-    let version = agent["version"].as_str().and_then(safe_component).unwrap_or("latest").to_owned();
+    let version = versao_binaria(agent).to_owned();
     let hash = pacote.hash.to_owned();
     let cmd = cmd.to_owned();
-    let reserva = reservar_instalacao_binaria(id.clone()).await;
     let (dir, cache_valido) = {
-        let (id, hash, cmd) = (id.clone(), hash.clone(), cmd.clone());
+        let (id, version, hash, cmd) = (id.clone(), version.clone(), hash.clone(), cmd.clone());
+        let protecao = instalacao.protecao.clone();
         tokio::task::spawn_blocking(move || {
             let dir = arquivo::pasta_instalacao(&motor_install::root(), &id, &version)?;
             let cache_valido = arquivo::cache_verificado(&dir, &hash, &cmd)?;
+            // No worker (modo separado) não há preservação de versões: como no legado.
+            if !cache_valido && !motor_install::worker() {
+                verificar_substituicao(&dir, &id, &version, protecao.as_ref())?;
+            }
             Ok::<_, anyhow::Error>((dir, cache_valido))
         })
         .await??
@@ -547,22 +686,35 @@ async fn install_binary(
     let dir2 = dir.clone();
     let limite_extraido = pacote.limite_extraido;
     tokio::task::spawn_blocking(move || -> Result<()> {
-        let _reserva = reserva;
-        arquivo::publicar(&dir2, &file_name, &bytes, &hash, &cmd, limite_extraido)?;
-        remove_other_versions(&dir2);
-        Ok(())
+        let _reserva = instalacao.reserva;
+        // O recibo vai dentro da árvore, gravado antes do rename atômico: transacional
+        // com a instalação e morto junto com ela. Sob a mesma trava, sem readquiri-la.
+        let publicar = |_: &versoes::Trava, protecao: Option<&Protecao>| {
+            verificar_substituicao(&dir2, &id, &version, protecao)?;
+            arquivo::publicar(&dir2, &file_name, &bytes, &hash, &cmd, limite_extraido)?;
+            versoes::limpar_versoes(&dir2, protecao);
+            Ok(())
+        };
+        if motor_install::worker() {
+            // Modo separado: sem preservação de versões, como no legado.
+            arquivo::publicar(&dir2, &file_name, &bytes, &hash, &cmd, limite_extraido)?;
+            manter_apenas_a_instalada(&dir2);
+            Ok(())
+        } else {
+            versoes::com_protecao_atual(&motor_install::root(), &id, instalacao.ignorar.as_deref(), publicar)
+        }
     })
     .await??;
     Ok(dir)
 }
 
-/// Registry builds update often; keep only the version just installed.
-fn remove_other_versions(installed: &Path) {
-    let Some(parent) = installed.parent() else { return };
+/// Limpeza legada do modo separado: mantém apenas a versão recém-instalada.
+fn manter_apenas_a_instalada(instalada: &Path) {
+    let Some(parent) = instalada.parent() else { return };
     let Ok(entries) = std::fs::read_dir(parent) else { return };
     for e in entries.flatten() {
         let p = e.path();
-        if p != installed && !e.file_name().to_string_lossy().starts_with(".agente-") && p.is_dir() {
+        if p != instalada && !e.file_name().to_string_lossy().starts_with(".agente-") && p.is_dir() {
             let _ = std::fs::remove_dir_all(p);
         }
     }
@@ -867,7 +1019,7 @@ mod tests {
         let npx = json!({"package": "@s/x@1.0.0", "args": ["--acp", "a b"], "env": {"K": "v", "BAD;rm": "x"}});
         let expected =
             if cfg!(windows) { "K=v npx -y @s/x@1.0.0 --acp \"a b\"" } else { "env K=v npx -y @s/x@1.0.0 --acp 'a b'" };
-        assert_eq!(npx_cmd(&npx).acp(), expected);
+        assert_eq!(npx_cmd(&npx).acp().linha, expected);
     }
 
     #[test]
@@ -887,13 +1039,195 @@ mod tests {
 
     #[test]
     fn keeps_only_the_installed_version() {
-        let root = std::env::temp_dir().join(format!("codync-ver-{}", uuid::Uuid::new_v4()));
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().canonicalize().unwrap().join("agents/agente");
         for v in ["1.0.0", "1.1.0"] {
             std::fs::create_dir_all(root.join(v)).unwrap();
         }
-        remove_other_versions(&root.join("1.1.0"));
-        assert!(!root.join("1.0.0").exists());
+        let registradas = Protecao { em_uso: Vec::new(), registradas: vec!["1.0.0".into(), "1.1.0".into()] };
+        versoes::limpar_versoes(&root.join("1.1.0"), Some(&registradas));
+        assert_eq!(root.join("1.0.0").exists(), !cfg!(unix));
         assert!(root.join("1.1.0").exists());
+    }
+
+    #[test]
+    fn adia_limpeza_enquanto_existe_referencia_e_remove_na_proxima_atualizacao() {
+        let raiz = tempfile::tempdir().unwrap();
+        let id = "fixture";
+        let antigas = raiz.path().canonicalize().unwrap().join("agents").join(id);
+        let velha = antigas.join("1");
+        let nova = antigas.join("2");
+        let atual = antigas.join("3");
+        for pasta in [&velha, &nova] {
+            std::fs::create_dir_all(pasta).unwrap();
+            std::fs::write(pasta.join("adapter"), "fixture").unwrap();
+        }
+        let uso = versoes::Uso::registrar(raiz.path(), id, "1").unwrap();
+        // Versões publicadas por este protocolo: a árvore carrega o recibo.
+        let bytes = b"fixture";
+        let hash = sha256_hex(bytes);
+        arquivo::publicar(&velha, "adapter", bytes, &hash, Path::new("adapter"), 1024).unwrap();
+        // "2" tem recibo, então pode sair quando livre.
+        drop(versoes::Uso::registrar(raiz.path(), id, "2").unwrap());
+        arquivo::publicar(&nova, "adapter", bytes, &hash, Path::new("adapter"), 1024).unwrap();
+        let linha = Cmd { program: "fixture".into(), args: String::new(), uso: Some(uso) }.acp();
+        let protegidas = versoes::protegidas(raiz.path(), id);
+        versoes::limpar_versoes(&nova, protegidas.as_ref());
+        assert!(velha.join("adapter").is_file());
+        assert!(nova.join("adapter").is_file());
+        drop(linha);
+
+        std::fs::create_dir_all(&atual).unwrap();
+        let protegidas = versoes::protegidas(raiz.path(), id);
+        versoes::limpar_versoes(&atual, protegidas.as_ref());
+        assert_eq!(velha.exists(), !cfg!(unix));
+        assert_eq!(nova.exists(), !cfg!(unix));
+        assert!(atual.is_dir());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn processo_preserva_versao_mesmo_apos_encerrar_no_mesmo_boot() {
+        let raiz = crate::service::data_dir();
+        let id = format!("registry-{}", uuid::Uuid::new_v4());
+        let pai = tempfile::Builder::new()
+            .prefix(&id)
+            .rand_bytes(0)
+            .tempdir_in({
+                let agentes = raiz.join("agents");
+                std::fs::create_dir_all(&agentes).unwrap();
+                agentes
+            })
+            .unwrap();
+        let velha = pai.path().join("1");
+        let nova = pai.path().join("2");
+        std::fs::create_dir_all(&nova).unwrap();
+        let bytes = b"#!/bin/sh\nexec cat\n";
+        let hash = sha256_hex(bytes);
+        arquivo::publicar(&velha, "adapter", bytes, &hash, Path::new("adapter"), 1024).unwrap();
+        let agente = json!({"id": id, "version": "1", "distribution": {"binary": {
+            (platform().unwrap()): {"archive": "https://registry.example.invalid/adapter", "sha256": hash, "cmd": "adapter"}
+        }}});
+        let comando = command(&agente, |_, _| {}).await.unwrap().acp();
+        let (acp, _rx) =
+            crate::agent::acp::Acp::spawn_registered(&comando, pai.path().to_str().unwrap(), &[], false, false)
+                .await
+                .unwrap();
+        drop(comando);
+        let protegidas = versoes::protegidas(&raiz, &id);
+        versoes::limpar_versoes(&nova, protegidas.as_ref());
+        assert!(velha.is_dir());
+        acp.kill_and_wait().await;
+        let protegidas = versoes::protegidas(&raiz, &id);
+        versoes::limpar_versoes(&nova, protegidas.as_ref());
+        assert!(velha.is_dir());
+        assert!(nova.is_dir());
+        std::fs::remove_dir_all(raiz.join("registry-in-use").join(id)).unwrap();
+    }
+
+    #[test]
+    fn mantem_versoes_quando_o_uso_nao_pode_ser_verificado() {
+        let raiz = tempfile::tempdir().unwrap();
+        let pasta = raiz.path().canonicalize().unwrap().join("agents/agente");
+        let velha = pasta.join("1");
+        let atual = pasta.join("2");
+        std::fs::create_dir_all(&velha).unwrap();
+        std::fs::create_dir_all(&atual).unwrap();
+        versoes::limpar_versoes(&atual, None);
+        assert!(velha.is_dir());
+        assert!(atual.is_dir());
+    }
+
+    #[tokio::test]
+    async fn recusa_versao_protegida_antes_de_preparar_download() {
+        let raiz = crate::service::data_dir();
+        let id = format!("registry-{}", uuid::Uuid::new_v4());
+        let pasta = raiz.join("agents").join(&id).join("1");
+        std::fs::create_dir_all(&pasta).unwrap();
+        let uso = versoes::Uso::registrar(&raiz, &id, "1").unwrap();
+        let agente = json!({
+            "id": id, "version": "1",
+            "distribution": {"binary": {(platform().unwrap()): {
+                "archive": "https://registry.example.invalid/adapter", "sha256": "a".repeat(64), "cmd": "adapter"
+            }}}
+        });
+        let pacote = PacoteBinario {
+            url: "endereço inválido que não pode ser avaliado",
+            hash: "hash",
+            cmd: "adapter",
+            limite_download: 1024,
+            limite_extraido: 1024,
+        };
+        let erro = install_binary(
+            &agente,
+            &pacote,
+            Path::new("adapter"),
+            &|_, _| panic!("não deve iniciar download"),
+            Instalacao {
+                protecao: Some(Protecao { em_uso: vec!["1".into()], registradas: vec!["1".into()] }),
+                reserva: Some(reservar_instalacao_binaria(id.clone()).await),
+                ignorar: None,
+            },
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(
+            format!("{erro:#}"),
+            format!("Substituição de versão recusada: agente={id}, versão=1, categoria=versao_protegida")
+        );
+        drop(uso);
+        std::fs::remove_dir_all(pasta.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn reservas_concorrentes_da_mesma_versao_nao_apagam_a_protecao_da_outra() {
+        let id = format!("registry-{}", uuid::Uuid::new_v4());
+        let raiz = tempfile::tempdir().unwrap();
+        // Duas sessões do mesmo Hub reservam a mesma versão: os marcadores são únicos.
+        let primeira = versoes::Uso::registrar(raiz.path(), &id, "7").unwrap();
+        let segunda = versoes::Uso::registrar(raiz.path(), &id, "7").unwrap();
+        assert!(versoes::protegidas(raiz.path(), &id).unwrap().em_uso("7"));
+        // Liberar uma sessão não pode remover a proteção da outra.
+        drop(primeira);
+        assert!(versoes::protegidas(raiz.path(), &id).unwrap().em_uso("7"), "liberar uma apagou a outra");
+        drop(segunda);
+        assert_eq!(versoes::protegidas(raiz.path(), &id).unwrap().em_uso, Vec::<String>::new());
+    }
+
+    #[test]
+    fn auditoria_da_recusa_registra_apenas_identificadores() {
+        use std::io::{self, Write};
+        struct Saida(Arc<Mutex<Vec<u8>>>);
+        impl Write for Saida {
+            fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+                self.0.locked().write(bytes)
+            }
+
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        let buf = Arc::new(Mutex::new(Vec::new()));
+        let writer = buf.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .without_time()
+            .with_ansi(false)
+            .with_writer(move || Saida(writer.clone()))
+            .finish();
+        let raiz = tempfile::tempdir().unwrap();
+        let pasta = raiz.path().join("caminho-privado-sentinela");
+        std::fs::create_dir(&pasta).unwrap();
+        let erro = tracing::subscriber::with_default(subscriber, || {
+            let protegida = Protecao { em_uso: vec!["42".into()], registradas: vec!["42".into()] };
+            verificar_substituicao(&pasta, "adaptador", "42", Some(&protegida)).unwrap_err()
+        });
+        let log = String::from_utf8(buf.locked().clone()).unwrap();
+        for texto in [&log, &format!("{erro:#}")] {
+            for valor in ["agente=adaptador", "versão=42", "categoria=versao_protegida"] {
+                assert!(texto.replace("versao=", "versão=").contains(valor), "{texto}");
+            }
+            assert!(!texto.contains("caminho-privado-sentinela"));
+        }
     }
 
     #[cfg(unix)]

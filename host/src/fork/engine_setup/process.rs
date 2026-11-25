@@ -460,7 +460,7 @@ pub(crate) async fn claude_catalog(
 pub(super) async fn catalog_from_commands(
     executable: &Path,
     directory: &Path,
-    commands: &[String],
+    commands: &[crate::agent::registry::Comando],
 ) -> Result<Vec<crate::fork::engine_accounts::Model>> {
     catalog_from_commands_mode(executable, directory, commands, false).await
 }
@@ -473,14 +473,14 @@ pub(crate) async fn background_claude_catalog(
     crate::fork::background_policy::enforce(false)
         .await
         .map_err(|_| crate::fork::background_notice::Problem::Policy)?;
-    let commands = crate::fork::background_adapter::commands();
+    let commands: Vec<_> = crate::fork::background_adapter::commands().into_iter().map(Into::into).collect();
     catalog_from_commands_mode(executable, directory, &commands, true).await
 }
 
 async fn catalog_from_commands_mode(
     executable: &Path,
     directory: &Path,
-    commands: &[String],
+    commands: &[crate::agent::registry::Comando],
     background: bool,
 ) -> Result<Vec<crate::fork::engine_accounts::Model>> {
     let mut env = Vec::new();
@@ -623,7 +623,8 @@ mod effort_tests {
                 crate::shell::quote(&fixture.to_string_lossy()),
                 crate::shell::quote(&log.to_string_lossy())
             );
-            let result = catalog_from_commands_mode(Path::new("/fixture/claude"), &directory, &[command], true).await;
+            let result =
+                catalog_from_commands_mode(Path::new("/fixture/claude"), &directory, &[command.into()], true).await;
             let requests = std::fs::read_to_string(&log).unwrap();
             if mode == ponte {
                 assert!(result.unwrap().iter().any(|model| model.id == "haiku"));

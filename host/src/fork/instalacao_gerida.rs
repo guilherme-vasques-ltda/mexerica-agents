@@ -2,6 +2,10 @@
 //! etapa administrativa (`donnabot-instalar-atualizacao instalar --hub-novo`), depois que
 //! o wrapper publicou a primeira release autenticada (TUF) e abriu a janela pendente.
 //!
+//! Este fluxo é só do modo local: ele não cria nem exige a configuração do modo
+//! separado (`motor.conf`), e o recusa de forma explícita quando ela está presente
+//! num build de release.
+//!
 //! Não existe Hub legado: a unidade `systemd --user` nasce apontando para
 //! `/opt/donnabot/releases/ativo/donnabot-host`, o Hub cria o próprio DB, a F3 roda dentro
 //! da janela da primeira migração (raízes copiadas e marca `d330` gravada, como no
@@ -134,6 +138,8 @@ enum Dados {
 struct Observado<'a> {
     /// Binário de produção (`CODYNC_ENV=main`): o layout gerido usa nomes fixos de `main`.
     main: bool,
+    /// Configuração de motor separado presente na máquina.
+    motor_configurado: bool,
     fase: &'a str,
     primeira_publicacao: bool,
     unidade: Unidade,
@@ -148,6 +154,15 @@ fn decidir(o: &Observado) -> Result<Passo> {
     ensure!(
         o.main,
         "a instalação gerida exige o binário de produção (compile com CODYNC_ENV=main); nada foi instalado"
+    );
+    // Release recusa o modo separado no lançamento; aceitar instalá-lo criaria um Hub que
+    // não pode iniciar agente algum. Recusado aqui, antes de qualquer serviço ou dado.
+    ensure!(
+        !super::motor_exec::modo_separado_proibido(
+            if o.main { crate::environment::Environment::Main } else { crate::environment::Environment::Dev },
+            o.motor_configurado
+        ),
+        "este build roda em modo local: a configuração de motor separado presente na máquina recusaria o lançamento de agentes; nada foi instalado"
     );
     match o.fase {
         "liberado" => {
@@ -171,7 +186,10 @@ fn decidir(o: &Observado) -> Result<Passo> {
 
 pub(crate) fn executar(porta: u16, saude_segundos: u64) -> Result<()> {
     ensure!(uid() != 0, "a instalação do Hub executa como o usuário do Hub, nunca root");
-    ensure!(super::motor_exec::configured(), "motor.conf ausente: rode antes a etapa administrativa");
+    // Com o modo separado ativo, a instalação gerida recusa de forma explícita antes
+    // de qualquer efeito: este build não o implementa. Sem a configuração, o modo é
+    // o local e a instalação segue sem exigir `motor.conf`.
+    super::motor_exec::exigir_modo_suportado()?;
     exigir_protocolo_wrapper()?;
     let fase = fase_publica()?;
     let primeira_publicacao =
@@ -216,7 +234,8 @@ fn instalar(fase: &str, primeira_publicacao: bool, porta: u16, saude_segundos: u
         (true, false) => Dados::Alheios,
     };
     let main = crate::environment::Environment::current() == crate::environment::Environment::Main;
-    let passo = decidir(&Observado { main, fase, primeira_publicacao, unidade, dados })?;
+    let motor_configurado = super::motor_exec::modo_separado_configurado();
+    let passo = decidir(&Observado { main, motor_configurado, fase, primeira_publicacao, unidade, dados })?;
     if passo == Passo::Conferir {
         ensure!(saudavel(saude_segundos, true)?, "Hub gerido instalado, mas não está saudável");
         println!("instalação: Hub gerido já instalado e saudável");
@@ -247,10 +266,14 @@ fn instalar(fase: &str, primeira_publicacao: bool, porta: u16, saude_segundos: u
     ensure!(saudavel(saude_segundos, true)?, "Hub gerido não ficou saudável na primeira partida");
     conferir_hello(porta, &release.versao)?;
     // F3 na janela da primeira migração, com o serviço parado e a host.lock mantida.
+    // A migração do motor só existe com o modo separado configurado (build de
+    // desenvolvimento); no modo local não há raiz de motor para migrar.
     parar()?;
     let trava = crate::service::lock_host_at(&data.join("host.lock"))?;
     migrar_raizes(&data, &trava)?;
-    super::motor_migration::migrar_com_trava(&data, &trava)?;
+    if super::motor_exec::configured() {
+        super::motor_migration::migrar_com_trava(&data, &trava)?;
+    }
     drop(trava);
     exigir_porta_livre(porta)?;
     conferir_binario_novo(&release)?;
@@ -268,7 +291,14 @@ mod tests {
     use super::*;
 
     fn limpo(fase: &str) -> Observado<'_> {
-        Observado { main: true, fase, primeira_publicacao: true, unidade: Unidade::Ausente, dados: Dados::Ausentes }
+        Observado {
+            main: true,
+            motor_configurado: false,
+            fase,
+            primeira_publicacao: true,
+            unidade: Unidade::Ausente,
+            dados: Dados::Ausentes,
+        }
     }
 
     #[test]
@@ -283,10 +313,32 @@ mod tests {
         // Fora da primeira janela ou com bloqueio.
         assert!(decidir(&Observado { primeira_publicacao: false, ..limpo("pendente") }).is_err());
         assert!(decidir(&limpo("bloqueado")).is_err());
+        // Instalação migrada com motor separado em release: recusa antes de qualquer efeito.
+        assert!(decidir(&Observado { motor_configurado: true, ..limpo("pendente") }).is_err());
+        assert!(decidir(&Observado { motor_configurado: true, ..limpo("liberado") }).is_err());
         // Já aceita: só confere, e exige a unidade gerida.
         assert!(decidir(&limpo("liberado")).is_err());
         let aceita = Observado { unidade: Unidade::Gerida, ..limpo("liberado") };
         assert_eq!(decidir(&aceita).ok(), Some(Passo::Conferir));
+    }
+
+    /// Modo separado ativo recusa a instalação gerida de forma explícita, antes de
+    /// qualquer serviço ou dado; o modo local (sem `motor.conf`) não é recusado por
+    /// falta de configuração.
+    #[test]
+    fn instalacao_gerida_com_modo_separado_recusa_e_modo_local_segue() {
+        for fase in ["pendente", "liberado"] {
+            let separado = Observado { motor_configurado: true, unidade: Unidade::Gerida, ..limpo(fase) };
+            let erro = decidir(&separado).err().map(|e| e.to_string()).unwrap_or_default();
+            assert!(erro.contains("motor separado"), "{fase}: {erro}");
+        }
+        assert_eq!(decidir(&limpo("pendente")).ok(), Some(Passo::Instalar));
+        assert!(
+            crate::fork::motor_exec::exigir_modo_suportado_em(crate::environment::Environment::Main, true).is_err()
+        );
+        assert!(
+            crate::fork::motor_exec::exigir_modo_suportado_em(crate::environment::Environment::Main, false).is_ok()
+        );
     }
 
     /// Build dev: recusa antes de criar unidade, para qualquer fase.

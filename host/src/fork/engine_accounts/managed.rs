@@ -661,13 +661,13 @@ pub(crate) fn recorded_command(store: &Store, bot: &BotConfig) -> Result<Vec<Str
     Ok(vec![words.join(" ")])
 }
 
-pub(crate) async fn adapter_commands(backend: &str) -> Result<Vec<String>> {
+pub(crate) async fn adapter_commands(backend: &str) -> Result<Vec<crate::agent::registry::Comando>> {
     if backend == "claude" && !crate::fork::claude_ponte::legado() {
-        return Ok(vec![crate::fork::claude_ponte::comando(None)?]);
+        return Ok(vec![crate::fork::claude_ponte::comando(None)?.into()]);
     }
     for name in adapter_names(backend) {
         if let Some(path) = crate::agent::backends::which(name) {
-            return Ok(vec![crate::shell::quote(&path.to_string_lossy())]);
+            return Ok(vec![crate::shell::quote(&path.to_string_lossy()).into()]);
         }
     }
     Ok(crate::agent::backends::launch_candidates(backend, |_, _| {})

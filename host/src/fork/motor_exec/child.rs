@@ -103,6 +103,7 @@ impl Child {
 
 pub(crate) fn spawn(command: &mut Command) -> io::Result<Child> {
     crate::open_hub::require_executor()?;
+    super::exigir_modo_suportado().map_err(io::Error::other)?;
     let helper = super::helper_path();
     let separate = command.as_std().get_program() == helper.as_os_str();
     if separate {

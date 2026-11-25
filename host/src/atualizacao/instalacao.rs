@@ -586,6 +586,13 @@ fn texto_motor_conf(hub: &Hub, gid_trabalho: u32) -> String {
     format!("motor_user={MOTOR_USER}\nhub_uid={}\nwork_gid={gid_trabalho}\n", hub.uid)
 }
 
+/// A configuração do modo separado só nasce na preparação privilegiada comum. A
+/// instalação limpa gerida (`--hub-novo`) é só do modo local: criar `motor.conf`
+/// ali faria o Hub de release recusar a própria partida.
+fn criar_motor_conf(hub_novo: Option<u16>, ja_existe: bool) -> bool {
+    hub_novo.is_none() && !ja_existe
+}
+
 /// Mesma instalação ou ausente; qualquer outra configuração recusa sem alterar.
 fn conferir_motor_conf_previo(hub: &Hub) -> Result<()> {
     if let Some(texto) =
@@ -658,8 +665,12 @@ pub fn verificar(login: &str) -> Result<()> {
     conferir_sudo(&hub)?;
     guard_alcanca_gerenciador(&hub)?;
     conferir_canal_motor(&hub)?;
-    let texto = String::from_utf8(ler_limitado(Path::new(MOTOR_CONF), 64 * 1024)?)?;
-    ensure!(texto.lines().any(|l| l == format!("hub_uid={}", hub.uid)), "motor.conf divergente");
+    // Modo local não tem `motor.conf`: a ausência é o estado esperado da instalação
+    // gerida. Presente, a configuração precisa ser desta instalação.
+    if presente(MOTOR_CONF)? {
+        let texto = String::from_utf8(ler_limitado(Path::new(MOTOR_CONF), 64 * 1024)?)?;
+        ensure!(texto.lines().any(|l| l == format!("hub_uid={}", hub.uid)), "motor.conf divergente");
+    }
     ensure!(ler_cgroup("memory.max")? == politica.cgroup_memoria.to_string(), "cgroup divergente da política");
     let guarda = format!("donnabot-guarda-atualizacao@{}.service", hub.uid);
     ensure!(executar("systemctl", &[os("is-active"), os(&guarda)])?.trim() == "active", "guard inativo");
@@ -914,7 +925,7 @@ pub fn instalar(
     let resultado = (|| -> Result<()> {
         let gid_trabalho = contas(&hub)?;
         diretorio("/etc/donnabot", 0, 0, 0o755)?;
-        if !existe(MOTOR_CONF) {
+        if criar_motor_conf(hub_novo, existe(MOTOR_CONF)) {
             gravar_arquivo(MOTOR_CONF, texto_motor_conf(&hub, gid_trabalho).as_bytes(), 0o644)?;
         }
         diretorio("/opt/donnabot", 0, 0, 0o755)?;
@@ -1285,6 +1296,16 @@ pub fn revogar(login: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn instalacao_gerida_nao_cria_motor_conf_e_preparacao_comum_cria() {
+        // Fluxo gerido (`--hub-novo`) é só local: nunca cria a configuração.
+        assert!(!criar_motor_conf(Some(8080), false));
+        assert!(!criar_motor_conf(Some(8080), true));
+        // Preparação comum cria quando falta e não recria quando já existe.
+        assert!(criar_motor_conf(None, false));
+        assert!(!criar_motor_conf(None, true));
+    }
 
     #[test]
     fn revogacao_aceita_parada_comprovada_apesar_de_falha_na_solicitacao() {

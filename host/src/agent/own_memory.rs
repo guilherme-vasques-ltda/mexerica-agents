@@ -4,7 +4,7 @@
 //! ([design](docs/reference/memoria/bot-memory.md#instructions-in-every-harness)). Claude Code also gets its settings
 //! through `_meta` (see `agent::bot`).
 
-use crate::store::BotConfig;
+use crate::{agent::registry::Comando, store::BotConfig};
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
 use std::path::Path;
@@ -47,7 +47,7 @@ pub fn settle(cfg: &mut BotConfig, before: &BotConfig, patch: &Value) {
 }
 
 /// Sets the harness's own memory for one launch of the bot's agent: off, unless the user kept it on.
-pub async fn apply(cfg: &BotConfig, env: &mut Vec<(String, String)>, commands: &mut [String]) {
+pub async fn apply(cfg: &BotConfig, env: &mut Vec<(String, String)>, commands: &mut [Comando]) {
     let on = kept(cfg);
     if !on {
         switch_off(&cfg.backend, env, commands);
@@ -59,15 +59,15 @@ pub async fn apply(cfg: &BotConfig, env: &mut Vec<(String, String)>, commands: &
 
 /// Turns the harness's own memory off for one launch in `workspace`, a folder of Codync's own: its environment,
 /// its command, and the settings it reads from the folder.
-pub async fn turn_off(backend: &str, workspace: &str, env: &mut Vec<(String, String)>, commands: &mut [String]) {
+pub async fn turn_off(backend: &str, workspace: &str, env: &mut Vec<(String, String)>, commands: &mut [Comando]) {
     switch_off(backend, env, commands);
     write_settings(backend, workspace, false).await;
 }
 
-fn switch_off(backend: &str, env: &mut Vec<(String, String)>, commands: &mut [String]) {
+fn switch_off(backend: &str, env: &mut Vec<(String, String)>, commands: &mut [Comando]) {
     env.extend(ENV.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())));
     for command in commands {
-        command.push_str(args(backend));
+        command.linha.push_str(args(backend));
     }
 }
 

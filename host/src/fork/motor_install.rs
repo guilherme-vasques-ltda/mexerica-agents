@@ -21,9 +21,21 @@ pub(crate) enum Request {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "result", rename_all = "snake_case", deny_unknown_fields)]
 pub(crate) enum Reply {
-    Command { program: String, args: String },
-    Path { path: Option<PathBuf> },
-    Status { code: i32 },
+    /// Recusa tipada do instalador separado: operação e categoria, nunca texto bruto.
+    Recusa {
+        operacao: String,
+        categoria: String,
+    },
+    Command {
+        program: String,
+        args: String,
+    },
+    Path {
+        path: Option<PathBuf>,
+    },
+    Status {
+        code: i32,
+    },
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -39,6 +51,7 @@ use std::{
     sync::OnceLock,
 };
 static WORKER: OnceLock<bool> = OnceLock::new();
+static INSTALL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 pub(crate) fn worker() -> bool {
     *WORKER.get_or_init(|| {
@@ -116,17 +129,7 @@ fn command() -> Result<tokio::process::Command> {
     Ok(command)
 }
 pub(crate) async fn invoke(request: Request) -> Result<Reply> {
-    static INSTALL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-    if let Request::Registry { agent } = &request
-        && let Some(chave) = crate::agent::registry::chave_instalacao_binaria(agent)?
-    {
-        let reserva = crate::agent::registry::reservar_instalacao_binaria(chave).await;
-        return tokio::spawn(async move {
-            let _reserva = reserva;
-            trocar_pedido(&request).await
-        })
-        .await?;
-    }
+    super::motor_exec::exigir_modo_suportado()?;
     let _install = match &request {
         Request::Engine { action: EngineAction::Existing, .. } => None,
         _ => Some(INSTALL.lock().await),
@@ -263,6 +266,8 @@ pub(crate) async fn run() -> Result<()> {
         use super::motor_exec::fd::{self, Directory};
         use std::io::Write;
         ensure!(super::motor_exec::configured(), "instalador exige modo separado");
+        // Release recusa o modo separado antes de qualquer efeito do instalador.
+        super::motor_exec::exigir_modo_suportado()?;
         let dir = Directory::open(Path::new(super::motor_roots::MOTOR))?;
         fd::own(&dir.0)?;
         // SAFETY: getter e umask do processo instalador, antes de executar terceiros.
@@ -273,7 +278,8 @@ pub(crate) async fn run() -> Result<()> {
         }
         ensure!(worker(), "UID do Hub recusado no instalador");
         let mut response = transport::response_pipe()?;
-        let request: Request = transport::request()?;
+        let mut entrada = transport::request_pipe()?;
+        let request: Request = transport::request(&mut entrada)?;
         if let Request::Locate { name } = &request {
             let reply = Reply::Path { path: local_executable(Path::new(name)) };
             serde_json::to_writer(&mut response, &reply)?;
@@ -289,7 +295,18 @@ pub(crate) async fn run() -> Result<()> {
             Request::Locate { name } => Reply::Path { path: local_executable(Path::new(&name)) },
             Request::Published { path } => Reply::Path { path: published_path(&path).ok() },
             Request::Registry { agent } => {
-                let cmd = Box::pin(crate::agent::registry::command(&agent, |_, _| {})).await?;
+                let cmd = match crate::agent::registry::comando_motor(&agent).await {
+                    Ok(cmd) => cmd,
+                    Err(erro) => {
+                        // A recusa detalhada nasce aqui; o Hub precisa da categoria, não do texto.
+                        let recusa = erro.downcast_ref::<crate::agent::registry::Recusa>();
+                        let (operacao, categoria) =
+                            recusa.map_or(("instalar_adaptador", "falha"), |r| (r.operacao, r.categoria));
+                        let reply = Reply::Recusa { operacao: operacao.into(), categoria: categoria.into() };
+                        serde_json::to_writer(&mut response, &reply)?;
+                        return Err(erro);
+                    }
+                };
                 Reply::Command { program: cmd.program, args: cmd.args }
             }
             Request::Node => {

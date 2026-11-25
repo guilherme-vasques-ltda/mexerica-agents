@@ -505,7 +505,7 @@ async fn mesmo_deadline_cancela_handshake_e_catalogo_posterior_com_grupo_inteiro
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&adapter, std::fs::Permissions::from_mode(0o700)).unwrap();
     }
-    let commands = vec![crate::shell::quote(&adapter.to_string_lossy())];
+    let commands = vec![crate::shell::quote(&adapter.to_string_lossy()).into()];
     for stage in ["initialize", "session"] {
         std::fs::write(directory.join("fixture-hang-stage"), stage).unwrap();
         let (_tx, cancel) = watch::channel(false);

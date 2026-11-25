@@ -240,9 +240,14 @@ mod tests {
         let script = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/instructions_agent.py");
         let command = format!("python3 -u '{}' claude", script.display());
         actor.conn = Some(
-            super::super::launch::start_agent_protected(&command, dir.to_str().unwrap(), &[], Duration::from_secs(5))
-                .await
-                .unwrap(),
+            super::super::launch::start_agent_protected(
+                &command.into(),
+                dir.to_str().unwrap(),
+                &[],
+                Duration::from_secs(5),
+            )
+            .await
+            .unwrap(),
         );
         actor.conn.as_mut().unwrap().loaded.insert("sid".into(), Instant::now());
         actor.turn_session = Some("sid".into());
@@ -333,9 +338,14 @@ mod tests {
         let script = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/instructions_agent.py");
         let command = format!("python3 -u '{}' claude", script.display());
         actor.conn = Some(
-            super::super::launch::start_agent_protected(&command, dir.to_str().unwrap(), &[], Duration::from_secs(5))
-                .await
-                .unwrap(),
+            super::super::launch::start_agent_protected(
+                &command.into(),
+                dir.to_str().unwrap(),
+                &[],
+                Duration::from_secs(5),
+            )
+            .await
+            .unwrap(),
         );
         actor.conn.as_mut().unwrap().loaded.insert("acp-c".into(), Instant::now());
         let read: contexto::Read =

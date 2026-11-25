@@ -36,7 +36,7 @@ pub(crate) fn codex_job_config(env: &[(String, String)], system: &str) -> Result
 }
 
 pub(crate) struct PreparedJob {
-    pub(crate) commands: Vec<String>,
+    pub(crate) commands: Vec<crate::agent::registry::Comando>,
     pub(crate) env: Vec<(String, String)>,
     isolation: Isolation,
 }
@@ -78,7 +78,7 @@ pub(crate) async fn prepare_job(
     }
     let mut commands = if cfg.backend == "claude" {
         crate::agent::launcher::check(cfg)?;
-        crate::fork::background_adapter::commands()
+        crate::fork::background_adapter::commands().into_iter().map(Into::into).collect()
     } else {
         crate::agent::bot::launch_commands(&hub.store, cfg, |_, _| {}).await?
     };

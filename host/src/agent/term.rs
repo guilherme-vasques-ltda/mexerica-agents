@@ -7,6 +7,7 @@
 mod login_pty;
 
 use crate::agent::backends;
+use crate::agent::registry::Comando;
 use crate::fork::autoridade::Autoridade;
 use crate::hub::Hub;
 use crate::{LockExt, api::devices::Caller};
@@ -62,10 +63,25 @@ impl Input {
 
 /// A linha que o PTY executa (`comando`) e o que o cabeçalho do terminal mostra (`cabecalho`):
 /// iguais, exceto no script de fornecedor, que só roda embrulhado na confirmação (GUI-145).
+#[derive(Clone)]
 struct Linha {
-    comando: String,
+    comando: Comando,
     cabecalho: String,
 }
+
+/// Quem responde pelo terminal devolvido: só quem criou pode encerrá-lo na coleta,
+/// e só enquanto nenhum outro pedido o reutilizou. O número é o selo da criação:
+/// a coleta confere selo e reusos sob a mesma trava do mapa, então a corrida entre
+/// cancelar o criador e reutilizar o terminal não existe — um dos dois ganha a trava
+/// e o outro vê o resultado.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Posse {
+    Criado(u64),
+    Reutilizado,
+}
+
+/// Selo único de cada criação de terminal.
+static SELO_CRIACAO: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 struct Output {
     scrollback: Vec<u8>,
@@ -75,6 +91,10 @@ struct Output {
 pub struct Term {
     key: (String, Step),
     owner: Option<String>,
+    /// Selo da criação e quantos pedidos reutilizaram este terminal: a coleta do
+    /// criador só encerra com o selo certo e nenhum reuso registrado.
+    criacao: u64,
+    reusos: std::sync::atomic::AtomicUsize,
     pub(crate) login: Option<Arc<crate::fork::terminal_login::Login>>,
     input: mpsc::UnboundedSender<Input>,
     output: Mutex<Output>,
@@ -176,6 +196,8 @@ impl Terms {
             Arc::new(Term {
                 key: ("fixture-backend".into(), Step::Login),
                 owner: owner.map(str::to_owned),
+                criacao: 0,
+                reusos: std::sync::atomic::AtomicUsize::new(0),
                 login: None,
                 input: mpsc::unbounded_channel().0,
                 output: Mutex::new(Output { scrollback: Vec::new(), exit: None }),
@@ -220,7 +242,7 @@ impl Terms {
             Step::Node => {
                 let command =
                     format!("{} node", crate::shell::quote(&crate::service::current_exe()?.to_string_lossy()));
-                Linha { comando: command.clone(), cabecalho: command }
+                Linha { comando: command.clone().into(), cabecalho: command }
             }
             Step::Install => {
                 let h = h.ok_or_else(|| anyhow!("Mexerica downloads {name} by itself"))?;
@@ -230,7 +252,7 @@ impl Terms {
                 } else {
                     command.clone()
                 };
-                Linha { comando: linha, cabecalho: command }
+                Linha { comando: linha.into(), cabecalho: command }
             }
             // Some CLIs (codex) delete the current credentials the moment a new sign-in starts.
             Step::Login if backends::signed_in(backend) == Some(true) => bail!("{name} is already signed in"),
@@ -241,10 +263,26 @@ impl Terms {
                 } else {
                     backends::login_command(backend).await?
                 };
-                Linha { comando: command.clone(), cabecalho: command }
+                Linha { cabecalho: command.linha.clone(), comando: command }
             }
         };
-        self.spawn((backend.to_owned(), step), owner, &linha, cols, rows)
+        // Grava a marca fora da fila de criação, para uma trava por agente não parar
+        // lançamentos de outros agentes.
+        linha.comando.preparar().await?;
+        let terms_para_recolher = self.clone();
+        let (terms, key, linha_para_tarefa) = (self.clone(), (backend.to_owned(), step), linha.clone());
+        crate::fork::motor_exec::criador::criar(
+            move || terms.spawn(key, owner, &linha_para_tarefa, cols, rows),
+            move |resultado| {
+                // Chamador sumiu depois do spawn: a coleta só encerra o terminal que ele
+                // criou se nenhum outro pedido o reutilizou até a decisão.
+                if let Ok((id, Posse::Criado(numero_criacao))) = resultado {
+                    terms_para_recolher.recolher_criado(&id, numero_criacao);
+                }
+            },
+        )
+        .await?
+        .map(|(id, _posse)| id)
     }
 
     fn spawn(
@@ -254,8 +292,23 @@ impl Terms {
         linha: &Linha,
         cols: u16,
         rows: u16,
-    ) -> Result<String> {
+    ) -> Result<(String, Posse)> {
         self.spawn_with(key, owner, linha, cols, rows, None)
+    }
+    fn existente(
+        &self,
+        key: &(String, Step),
+        owner: Option<&str>,
+        login: Option<&crate::fork::terminal_login::Login>,
+    ) -> Option<String> {
+        // Sob a trava do mapa: quem acha o terminal registra o reuso na mesma seção
+        // crítica em que a coleta do criador decide encerrar. Não há janela entre
+        // "achou" e "marcou".
+        let map = self.0.locked();
+        map.iter().find(|(_, term)| mesmo_terminal(term, key, owner, login)).map(|(id, term)| {
+            term.reusos.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            id.clone()
+        })
     }
     fn spawn_with(
         self: &Arc<Self>,
@@ -265,20 +318,13 @@ impl Terms {
         cols: u16,
         rows: u16,
         login: Option<Arc<crate::fork::terminal_login::Login>>,
-    ) -> Result<String> {
-        let mut map = self.0.locked();
-        if let Some((id, _)) = map.iter().find(|(_, t)| {
-            t.key == key
-                && t.owner == owner
-                && t.output.locked().exit.is_none()
-                && match (&t.login, &login) {
-                    (Some(a), Some(b)) => a.authority == b.authority && a.space == b.space,
-                    (None, None) => true,
-                    _ => false,
-                }
-        }) {
-            return Ok(id.clone());
+    ) -> Result<(String, Posse)> {
+        if let Some(id) = self.existente(&key, owner.as_deref(), login.as_deref()) {
+            // Reuso: o terminal pré-existente não é deste chamador, e cancelá-lo não pode fechá-lo.
+            return Ok((id, Posse::Reutilizado));
         }
+        // Criar o processo e publicar a versão levam tempo: o mapa de terminais só é
+        // travado para decidir e registrar, nunca durante a inicialização.
         let PtyPair { master, slave } = native_pty_system().openpty(size(cols, rows))?;
         let builder = if let Some(login) = &login {
             let hub = login.hub.upgrade().ok_or_else(|| anyhow!("Login encerrado."))?;
@@ -312,17 +358,23 @@ impl Terms {
             builder.cwd(crate::fork::motor_exec::hub_cwd(&cwd));
             builder
         };
-        let child = if let Some(login) = &login {
+        let mut child = if let Some(login) = &login {
             login.deliver(|| slave.spawn_command(builder))??
         } else {
-            slave.spawn_command(builder)?
+            slave.spawn_command(builder).map_err(|e| {
+                let categoria = e.downcast_ref::<std::io::Error>().map(std::io::Error::kind);
+                anyhow!("Inicialização do terminal do agente falhou: categoria={categoria:?}")
+            })?
         };
         // Only the child may hold the terminal side, or the output never ends.
         drop(slave);
         let (tx, rx) = mpsc::unbounded_channel();
+        let numero_criacao = SELO_CRIACAO.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let term = Arc::new(Term {
             key,
             owner,
+            criacao: numero_criacao,
+            reusos: std::sync::atomic::AtomicUsize::new(0),
             login,
             input: tx,
             output: Mutex::new(Output { scrollback: vec![], exit: None }),
@@ -332,14 +384,30 @@ impl Terms {
             term.push(format!("\x1b[2m$ {}\x1b[0m\r\n", linha.cabecalho).as_bytes());
         }
         let id = uuid::Uuid::new_v4().to_string();
-        map.insert(id.clone(), term.clone());
+        {
+            let mut map = self.0.locked();
+            if let Some((existente, vivo)) =
+                map.iter().find(|(_, t)| mesmo_terminal(t, &term.key, term.owner.as_deref(), term.login.as_deref()))
+            {
+                let existente = existente.clone();
+                // Reuso registrado ainda sob a trava, antes de qualquer coleta decidir.
+                vivo.reusos.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                drop(map);
+                let _ = child.kill();
+                // Colhe o duplicado: descartar sem esperar deixaria um zumbi.
+                let _ = child.wait();
+                // Perdeu a corrida: o terminal vivo é o pré-existente, não deste chamador.
+                return Ok((existente, Posse::Reutilizado));
+            }
+            map.insert(id.clone(), term.clone());
+        }
         tracing::info!(backend = term.key.0, step = ?term.key.1, term = %id, "setup terminal started");
         if term.login.is_some() {
             tokio::spawn(login_pty::run(self.clone(), id.clone(), term, master, child, rx));
         } else {
             tokio::spawn(run(self.clone(), id.clone(), term, master, child, rx));
         }
-        Ok(id)
+        Ok((id, Posse::Criado(numero_criacao)))
     }
 
     #[cfg(test)]
@@ -395,6 +463,26 @@ impl Terms {
         }
     }
 
+    /// Coleta do criador cancelado: encerra só se o terminal ainda é o que ele criou
+    /// (selo confere) e nenhum pedido o reutilizou. Conferir e remover acontecem sob
+    /// a mesma trava em que o reuso se registra, então cancelar o criador nunca
+    /// encerra um terminal já entregue a outro pedido.
+    fn recolher_criado(&self, id: &str, numero_criacao: u64) {
+        let mut map = self.0.locked();
+        let livre = map
+            .get(id)
+            .is_some_and(|t| t.criacao == numero_criacao && t.reusos.load(std::sync::atomic::Ordering::SeqCst) == 0);
+        if !livre {
+            return;
+        }
+        if let Some(t) = map.remove(id) {
+            if let Some(login) = &t.login {
+                login.stop();
+            }
+            let _ = t.input.send(Input::Kill);
+        }
+    }
+
     #[cfg(test)]
     fn send(&self, id: &str, input: Input) -> Result<()> {
         let t = self.get(id).ok_or_else(|| anyhow!("that terminal is gone"))?;
@@ -416,6 +504,22 @@ fn without_cursor_query(chunk: &[u8]) -> Option<Vec<u8>> {
     Some([&chunk[..at], &chunk[at + CURSOR_QUERY.len()..]].concat())
 }
 
+fn mesmo_terminal(
+    term: &Term,
+    key: &(String, Step),
+    owner: Option<&str>,
+    login: Option<&crate::fork::terminal_login::Login>,
+) -> bool {
+    term.key == *key
+        && term.owner.as_deref() == owner
+        && term.output.locked().exit.is_none()
+        && match (&term.login, login) {
+            (Some(a), Some(b)) => a.authority == b.authority && a.space == b.space,
+            (None, None) => true,
+            _ => false,
+        }
+}
+
 fn size(cols: u16, rows: u16) -> PtySize {
     PtySize { rows: rows.max(4), cols: cols.max(20), pixel_width: 0, pixel_height: 0 }
 }
@@ -429,7 +533,8 @@ async fn run(
     mut rx: mpsc::UnboundedReceiver<Input>,
 ) {
     let mut killer = child.clone_killer();
-    let group = crate::fork::motor_exec::Group::pty(child.process_id());
+    let pid = child.process_id();
+    let group = crate::fork::motor_exec::Group::pty(pid);
     let streams = master.try_clone_reader().and_then(|reader| Ok((reader, master.take_writer()?)));
     let (mut reader, mut writer) = match streams {
         Ok(streams) => streams,
@@ -514,6 +619,48 @@ mod tests {
     use super::*;
 
     #[test]
+    fn cancelamento_do_criador_nunca_encerra_terminal_reutilizado() {
+        // Sem reuso, a coleta do criador (selo certo) encerra; selo errado, não.
+        let terms = Terms::default();
+        terms.fixture("so-criador", None);
+        terms.recolher_criado("so-criador", 999);
+        assert!(terms.get("so-criador").is_some());
+        terms.recolher_criado("so-criador", 0);
+        assert!(terms.get("so-criador").is_none());
+
+        // Com reuso registrado, a coleta do criador não encerra.
+        terms.fixture("reutilizado", None);
+        let chave = ("fixture-backend".to_string(), Step::Login);
+        assert_eq!(terms.existente(&chave, None, None).as_deref(), Some("reutilizado"));
+        terms.recolher_criado("reutilizado", 0);
+        assert!(terms.get("reutilizado").is_some(), "terminal de outro pedido segue vivo");
+    }
+
+    #[test]
+    fn corrida_entre_reuso_e_coleta_sempre_tem_um_so_desfecho() {
+        // Os dois lados disputam a mesma trava: ou o reuso se registra e o terminal
+        // fica, ou a coleta remove e o reuso não acha nada. Nunca os dois.
+        for _ in 0..50 {
+            let terms = Arc::new(Terms::default());
+            terms.fixture("disputado", None);
+            let barreira = Arc::new(std::sync::Barrier::new(2));
+            let (t1, b1) = (terms.clone(), barreira.clone());
+            let reuso = std::thread::spawn(move || {
+                b1.wait();
+                t1.existente(&("fixture-backend".to_string(), Step::Login), None, None)
+            });
+            let (t2, b2) = (terms.clone(), barreira.clone());
+            let coleta = std::thread::spawn(move || {
+                b2.wait();
+                t2.recolher_criado("disputado", 0);
+            });
+            let achou = reuso.join().unwrap();
+            coleta.join().unwrap();
+            assert_eq!(achou.is_some(), terms.get("disputado").is_some());
+        }
+    }
+
+    #[test]
     fn takes_out_the_cursor_query() {
         assert_eq!(without_cursor_query(b"a\x1b[6nb").as_deref(), Some(&b"ab"[..]));
         assert_eq!(without_cursor_query(b"plain"), None);
@@ -534,12 +681,13 @@ mod tests {
                     ("confirm".into(), Step::Login),
                     None,
                     &Linha {
-                        comando: crate::fork::instalacao_script::linha_com_confirmacao(comando),
+                        comando: crate::fork::instalacao_script::linha_com_confirmacao(comando).into(),
                         cabecalho: comando.to_owned(),
                     },
                     80,
                     24,
                 )
+                .map(|(id, _posse)| id)
                 .unwrap();
             let term = terms.get(&id).unwrap();
             let (_, mut rx) = term.attach();
@@ -576,8 +724,8 @@ mod tests {
         } else {
             ("[ -t 0 ] && echo tty; read x; echo got-$x", "\n")
         };
-        let linha = Linha { comando: command.into(), cabecalho: command.into() };
-        let id = terms.spawn(("test".into(), Step::Login), None, &linha, 80, 24).unwrap();
+        let linha = Linha { comando: command.to_owned().into(), cabecalho: command.into() };
+        let id = terms.spawn(("test".into(), Step::Login), None, &linha, 80, 24).map(|(id, _posse)| id).unwrap();
         let term = terms.get(&id).unwrap();
         let (_, mut rx) = term.attach();
         terms.write(&id, &B64.encode(format!("hi{enter}"))).unwrap();
@@ -619,6 +767,8 @@ mod authority_tests {
             Arc::new(Term {
                 key: (backend.into(), Step::Login),
                 owner: owner.map(str::to_owned),
+                criacao: 0,
+                reusos: std::sync::atomic::AtomicUsize::new(0),
                 login: None,
                 input,
                 output: Mutex::new(Output { scrollback: b"fixture-private-output".to_vec(), exit: None }),
@@ -818,10 +968,11 @@ mod cancellation_tests {
             .spawn(
                 ("terminal-auth".into(), Step::Login),
                 None,
-                &Linha { comando: citado.clone(), cabecalho: citado.clone() },
+                &Linha { comando: citado.clone().into(), cabecalho: citado.clone() },
                 80,
                 24,
             )
+            .map(|(id, _posse)| id)
             .unwrap();
         let term = terms.get(&id).unwrap();
         let (_, mut rx) = term.attach();
@@ -858,10 +1009,11 @@ mod linger_tests {
             .spawn(
                 ("linger".into(), Step::Login),
                 None,
-                &Linha { comando: citado.clone(), cabecalho: citado.clone() },
+                &Linha { comando: citado.clone().into(), cabecalho: citado.clone() },
                 80,
                 24,
             )
+            .map(|(id, _posse)| id)
             .unwrap();
         let term = terms.get(&id).unwrap();
         let (_, mut rx) = term.attach();
