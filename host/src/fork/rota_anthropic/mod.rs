@@ -2,8 +2,8 @@
 //! transporte falso.
 //!
 //! Esta fatia é inerte: nenhum caminho de produção constrói [`TransporteHttps`]
-//! nem chama [`executar`]. A recusa da automação por chave continua valendo até
-//! a ligação autorizada (cerca de efeito própria e cofre novo).
+//! nem liga a rota. A recusa da automação por chave continua valendo até a
+//! ligação autorizada (cerca de efeito própria e cofre novo).
 //!
 //! Fronteira garantida aqui: o Hub reserva uma estimativa de gasto ANTES do
 //! envio, lê a chave só do registro cifrado do próprio vínculo, faz uma única
@@ -11,12 +11,14 @@
 //! para outro provedor, retentativa, ferramenta, catálogo ou sessão de chat. A
 //! credencial não entra no corpo, no resultado, no log nem no erro.
 //!
-//! Condição de ativação: a reserva é uma estimativa conservadora, NÃO um limite
-//! superior provado. Tokenizador, enquadramento real da requisição, preços
-//! vigentes e identificadores de modelo só se comprovam contra o contrato do
-//! provedor, com teto imposto pelo provedor, no artefato exato — é o roteiro da
-//! chave de teste. Até o registro da prova existir, [`Prova::ler`] devolve
-//! `AtivacaoPendente` e o turno recusa antes de tocar no cofre ou na rede.
+//! Ativação: a reserva é uma estimativa conservadora, não um limite superior
+//! provado. Tokenizador, enquadramento real da requisição, preços vigentes e
+//! identificadores de modelo só se comprovam contra o contrato do provedor, com
+//! teto imposto por ele, no artefato exato — é o roteiro da chave de teste. Nesta
+//! fatia [`ATIVACAO_ABERTA`] é `false`: [`executar`] recusa sempre, antes de
+//! banco, cofre ou rede, e não existe parâmetro nem caminho que a abra. A fatia
+//! de ativação substitui esta constante por uma prova verificável, ligada a
+//! origem, artefato em execução, modelo e preços.
 #![allow(dead_code)] // Fatia inerte: entrega o ponto de ligação sem ligar chamada real.
 
 pub(crate) mod cofre;
@@ -38,6 +40,10 @@ const MAX_ENTRADA: usize = 128_000;
 const MAX_SAIDA_TOKENS: u32 = 4096;
 /// Envelope JSON do pedido (papéis, chaves, delimitadores) contado como token.
 const MARGEM_ENVELOPE: usize = 4096;
+
+/// Rota fechada por construção nesta fatia: sem prova verificável de ativação
+/// não há como ligá-la. Trocar por uma verificação de prova é a fatia seguinte.
+const ATIVACAO_ABERTA: bool = false;
 
 /// Pedido tipado: sem ferramenta, sem histórico e sem escolha de provedor.
 pub(crate) struct Pedido<'a> {
@@ -113,7 +119,7 @@ pub(crate) enum Falha {
     SemPreco,
     /// O uso medido passou da reserva: a estimativa não cobriu o turno.
     TetoExcedido,
-    /// A prova do limite superior ainda não foi feita; a rota não roda.
+    /// A prova verificável de ativação ainda não existe; a rota não roda.
     AtivacaoPendente,
     Cofre(RecusaCofre),
     Transporte,
@@ -165,7 +171,7 @@ impl std::fmt::Display for Falha {
             Self::UsoIncerto => "Há envio anterior sem uso confirmado; a rota fica fechada até a prova.",
             Self::SemPreco => "O modelo não tem preço verificado; o teto não é conferível.",
             Self::TetoExcedido => "O uso medido passou da reserva; a chamada não vira sucesso.",
-            Self::AtivacaoPendente => "A rota ainda não tem o limite de gasto comprovado; ela não roda.",
+            Self::AtivacaoPendente => "A rota ainda não tem a ativação comprovada; ela não roda.",
             Self::Cofre(recusa) => return recusa.fmt(f),
             Self::Transporte => "Não foi possível enviar a chamada.",
             Self::Provedor { .. } => "O provedor recusou a chamada.",
@@ -188,12 +194,10 @@ fn escopo(bot: &str) -> String {
 /// Estimativa conservadora em micro-USD: cada byte do texto conta como um
 /// token, mais a margem do envelope; uma gravação de cache relatada pelo
 /// provedor sem `cache_control` no pedido entra limitada ao mesmo tamanho; a
-/// saída é o teto pedido. Não é prova de limite superior — isso é a condição de
-/// ativação descrita no topo do módulo. Modelo sem preço verificado não tem
-/// estimativa.
-fn reserva_conservadora_micros(modelo: &str, entrada_medida: i64) -> Option<i64> {
-    let padrao = i64::try_from(MAX_ENTRADA.checked_add(MARGEM_ENVELOPE)?).ok()?;
-    let entrada = entrada_medida.max(padrao);
+/// saída é o teto pedido. Não é prova de limite superior — isso é a fatia de
+/// ativação. Modelo sem preço verificado não tem estimativa.
+fn reserva_conservadora_micros(modelo: &str) -> Option<i64> {
+    let entrada = i64::try_from(MAX_ENTRADA.checked_add(MARGEM_ENVELOPE)?).ok()?;
     let tokens = crate::fork::custo::Tokens {
         input: Some(entrada),
         output: Some(i64::from(MAX_SAIDA_TOKENS)),
@@ -221,51 +225,8 @@ fn micros(custo: &crate::fork::custo::Cost) -> Option<i64> {
     (0.0..=9_007_199_254_740_992.0).contains(&valor).then(|| valor.round() as i64)
 }
 
-/// Registro privado da comprovação de ativação: o artefato exato, quando a
-/// medida foi feita e o limite de entrada medido no provedor. Sem este registro
-/// a rota não roda, e este tipo não tem construtor público no crate — quem
-/// liga a rota precisa gravar a prova pelo caminho de ativação.
-pub(crate) struct Prova {
-    entrada_tokens: i64,
-}
-
-const REGISTRO_DA_PROVA: &str = "dona.rota-anthropic.prova.v1";
-
-impl Prova {
-    /// Lê o registro persistido. Ausente, ilegível ou incompleto = rota fechada.
-    pub(crate) fn ler(store: &Store) -> Result<Self, Falha> {
-        let Some(bruto) = store.kv_read(REGISTRO_DA_PROVA).map_err(|_| Falha::TetoIndisponivel)? else {
-            return Err(Falha::AtivacaoPendente);
-        };
-        let valor: serde_json::Value = serde_json::from_str(&bruto).map_err(|_| Falha::AtivacaoPendente)?;
-        let artefato = valor["artefato"].as_str().ok_or(Falha::AtivacaoPendente)?;
-        let valido = artefato.len() == 64 && artefato.bytes().all(|b| b.is_ascii_hexdigit());
-        let medido_em = valor["medidoEm"].as_i64().is_some_and(|v| v > 0);
-        let entrada_tokens = valor["entradaTokens"].as_i64().filter(|v| *v > 0);
-        if !valido || !medido_em {
-            return Err(Falha::AtivacaoPendente);
-        }
-        Ok(Self { entrada_tokens: entrada_tokens.ok_or(Falha::AtivacaoPendente)? })
-    }
-}
-
-/// Gravação da prova: pertence ao caminho de ativação, que ainda não existe. Só
-/// o teste a tem, para exercitar o turno real com o gate aberto.
-#[cfg(test)]
-pub(crate) fn registrar_prova_em_teste(store: &Store, entrada_tokens: i64) {
-    let artefato = "0".repeat(64);
-    store
-        .kv_set(
-            REGISTRO_DA_PROVA,
-            &serde_json::json!({"artefato": artefato, "medidoEm": 1_764_000_000_000i64,
-                "entradaTokens": entrada_tokens})
-            .to_string(),
-        )
-        .expect("registro da prova");
-}
-
-/// Executa um turno da rota: teto reservado, cofre do vínculo, uma chamada,
-/// texto tipado e liquidação pelo uso medido. Qualquer dúvida fecha a rota.
+/// Executa um turno da rota. Nesta fatia sempre recusa: a rota é fechada por
+/// construção e não há parâmetro que a abra.
 pub(crate) async fn executar<T, C>(
     store: &Store,
     transporte: &T,
@@ -278,6 +239,9 @@ where
     T: Transporte,
     C: Cofre + ?Sized,
 {
+    if !ATIVACAO_ABERTA {
+        return Err(Falha::AtivacaoPendente);
+    }
     let resultado = turno(store, transporte, cofre, vinculo, pedido, agora).await;
     if let Err(falha) = &resultado {
         tracing::warn!(motivo = falha.codigo(), "rota Anthropic recusada");
@@ -285,6 +249,9 @@ where
     resultado
 }
 
+/// Caminho aberto do turno: teto reservado, cofre do vínculo, uma chamada,
+/// texto tipado e liquidação pelo uso medido. Só o teste o alcança, porque
+/// [`executar`] fecha a porta antes.
 async fn turno<T, C>(
     store: &Store,
     transporte: &T,
@@ -297,10 +264,9 @@ where
     T: Transporte,
     C: Cofre + ?Sized,
 {
-    let prova = Prova::ler(store)?;
     vinculo.validar().map_err(|_| Falha::VinculoInvalido)?;
     pedido.validar()?;
-    let estimativa = reserva_conservadora_micros(pedido.modelo, prova.entrada_tokens).ok_or(Falha::SemPreco)?;
+    let estimativa = reserva_conservadora_micros(pedido.modelo).ok_or(Falha::SemPreco)?;
     let reserva = limite::reservar(store, &escopo(vinculo.bot), estimativa, agora)?;
     let chave = match cofre.abrir(vinculo) {
         Ok(chave) => chave,
