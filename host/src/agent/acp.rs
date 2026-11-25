@@ -1058,7 +1058,9 @@ while not pathlib.Path(sys.argv[1]).exists():
             .await
             .unwrap();
         });
-        assert_eq!(unsafe { libc::kill(pid, 0) }, -1);
+        // SAFETY: pid veio do filho de teste; o sinal zero só consulta sua existência.
+        let estado = unsafe { libc::kill(pid, 0) };
+        assert_eq!(estado, -1);
         assert_eq!(std::io::Error::last_os_error().raw_os_error(), Some(libc::ESRCH));
     }
 
