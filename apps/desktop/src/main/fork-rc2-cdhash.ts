@@ -24,6 +24,16 @@ const sha256 = (bytes: Buffer) => createHash('sha256').update(bytes).digest()
 // bytes, como o kernel) e o confronta com o pin do manifesto. Fail-closed: qualquer
 // estrutura fora do contrato da candidata interna recusa antes de comparar o pin.
 export function verifyRc2AdHocSignature(bytes: Buffer, cdhash: string): void {
+  // Contrato fechado: leitura fora do buffer ou estrutura fora dos limites vira a recusa estável
+  // aqui, sem depender do chamador converter RangeError.
+  try {
+    verifySignature(bytes, cdhash)
+  } catch {
+    throw invalid()
+  }
+}
+
+function verifySignature(bytes: Buffer, cdhash: string): void {
   if (bytes.length < 32 || bytes.readUInt32LE(0) !== MH_MAGIC_64 || bytes.readUInt32LE(4) !== CPU_TYPE_ARM64) throw invalid()
   const sizeofcmds = bytes.readUInt32LE(20)
   if (sizeofcmds === 0 || sizeofcmds > bytes.length - 32) throw invalid()

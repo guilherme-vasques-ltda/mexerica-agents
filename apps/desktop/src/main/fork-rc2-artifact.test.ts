@@ -144,6 +144,22 @@ test('troca na janela entre inspeção e abertura é detectada pela divergência
   verifyIgual(root, components).close()
 })
 
+test('divergência isolada de dev no fstat é recusada com ino e size iguais', t => {
+  const { root, components } = fixture(t)
+  const hubPath = join(root, components[0].path)
+  const real = fs.lstatSync(hubPath)
+  const fstat = (fd: number) => Object.assign(Object.create(Object.getPrototypeOf(real)), fs.fstatSync(fd))
+  const verify = loadMainModule<{ verifyRc2Artifact: typeof verifyRc2Artifact }>('fork-rc2-artifact', {
+    'node:fs': { ...fs, fstatSync: (fd: number) => Object.assign(fstat(fd), { dev: real.dev + 1 }) },
+    'node:path': path, 'node:crypto': crypto,
+  }, { Buffer }).verifyRc2Artifact
+  assert.throws(() => verify(root, components), /invalid_rc2_artifact/)
+  const verifyIgual = loadMainModule<{ verifyRc2Artifact: typeof verifyRc2Artifact }>('fork-rc2-artifact', {
+    'node:fs': { ...fs, fstatSync: fstat }, 'node:path': path, 'node:crypto': crypto,
+  }, { Buffer }).verifyRc2Artifact
+  verifyIgual(root, components).close()
+})
+
 test('tamanho divergente entre inspeção e descritor é recusado mesmo com inode igual', t => {
   const { root, components } = fixture(t)
   const hubPath = join(root, components[0].path)

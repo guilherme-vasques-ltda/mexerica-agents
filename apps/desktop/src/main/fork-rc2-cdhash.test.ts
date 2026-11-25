@@ -145,6 +145,7 @@ test('tabela de recusas do CodeDirectory: um focal por linha com o pin recalcula
   recusa(bytes => { bytes.writeUInt32BE(0x58, fixture.cd + 16); bytes.writeUInt32BE(3, fixture.cd + 24) }, 'slots especiais acima do hashOffset')
   recusa(bytes => bytes.writeUInt32BE(0, fixture.cd + 20), 'identificador ausente')
   recusa(bytes => bytes.writeUInt32BE(fixture.bytes.length, fixture.cd + 20), 'identificador fora do CodeDirectory')
+  recusa(bytes => { bytes[bytes.readUInt32BE(fixture.cd + 4) + fixture.cd - 1] = 0x58 }, 'identificador sem terminador NUL')
   recusa(bytes => bytes.writeBigUInt64BE(0xffffn, fixture.cd + 56), 'codeLimit64 divergente')
   recusa(bytes => { bytes[fixture.cd + fixture.hashOffset + 3] ^= 0xff }, 'hash de página divergente no slot')
   assert.throws(() => verifyRc2AdHocSignature(fixture.bytes, '00'.repeat(20)), /invalid_rc2_artifact/, 'pin divergente com bytes intactos')
@@ -160,6 +161,18 @@ test('nCodeSlots além do corpo recusa só pela guarda de contagem, com pin coer
   const fixture = assinarArm64('corpo com slot de pagina alem do fim', { codeSlotsOverride: 2 })
   const bytes = fixture.bytes
   assert.throws(() => verifyRc2AdHocSignature(bytes, pinDe(bytes, fixture.cd)), /invalid_rc2_artifact/)
+})
+
+test('CMS no limite: blob válido começando na emenda do SuperBlob recusa pelo limite', () => {
+  const fixture = assinarArm64(corpo, { formatoReal: true })
+  const bytes = Buffer.concat([fixture.bytes, Buffer.alloc(16)])
+  const superLength = bytes.readUInt32BE(fixture.dataoff + 4)
+  // a entrada do CMS passa a apontar para os últimos 4 bytes do SuperBlob, com um BlobWrapper
+  // válido na emenda: sem a guarda de limite, o parser aceitaria o blob fora do SuperBlob.
+  bytes.writeUInt32BE(superLength - 4, fixture.dataoff + 12 + 2 * 8 + 4)
+  bytes.writeUInt32BE(0xfade0b01, fixture.dataoff + superLength - 4)
+  bytes.writeUInt32BE(8, fixture.dataoff + superLength)
+  assert.throws(() => verifyRc2AdHocSignature(bytes, fixture.cdhash), /invalid_rc2_artifact/)
 })
 
 test('CD enxertado de outro binário com pin correto é recusado pelos hashes de página', () => {

@@ -726,7 +726,7 @@ test('prazos ausentes, nulos, negativos ou de tipo errado são recusados na cons
     {}, { open: 0, hello: 1, close: 1, eof: 1, sigterm: 1, sigkill: 1, probe: 1 },
     { open: -1, hello: 1, close: 1, eof: 1, sigterm: 1, sigkill: 1, probe: 1 },
     { open: 1, hello: 1, close: 1, eof: 1, sigterm: 1, probe: 1 },
-    { open: 1, hello: 0, close: 1, eof: 1, sigterm: 1, sigkill: 1 },
+    { open: 1, hello: 0, close: 1, eof: 1, sigterm: 1, sigkill: 1, probe: 1 },
     { open: 1, hello: 1, close: 1, eof: 1, sigterm: 1, sigkill: 1 },
     { open: 1, hello: 1, close: 1, eof: 1, sigterm: 1, sigkill: 2, probe: 3 },
     { open: 1, hello: 1, close: 1, eof: 2, sigterm: 1, sigkill: 1, probe: 2 },
