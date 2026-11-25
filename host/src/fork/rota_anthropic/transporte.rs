@@ -67,7 +67,7 @@ pub(crate) trait Transporte {
 }
 
 /// Transporte real. Inerte nesta fatia: nenhum caminho de produção o constrói.
-pub(crate) struct TransporteHttps;
+struct TransporteHttps;
 
 impl TransporteHttps {
     fn cliente() -> Result<reqwest::Client, FalhaTransporte> {
