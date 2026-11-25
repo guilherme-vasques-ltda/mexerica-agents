@@ -14,6 +14,8 @@ const MAX_MODELO: usize = 128;
 /// fecharem.
 #[derive(Default)]
 struct Acumulado {
+    iniciou: bool,
+    bloco: Option<u64>,
     modelo: Option<String>,
     entrada: Option<u64>,
     cache_lido: Option<u64>,
@@ -67,8 +69,18 @@ fn aplicar(estado: &mut Acumulado, valor: &Value, nome: Option<&str>) -> Result<
     if nome.is_some_and(|declarado| declarado != tipo) {
         return Err(Falha::RespostaInvalida);
     }
+    if estado.terminou {
+        return Err(Falha::RespostaInvalida);
+    }
+    if tipo != "message_start" && !estado.iniciou {
+        return Err(Falha::RespostaInvalida);
+    }
     match tipo {
         "message_start" => {
+            if estado.iniciou {
+                return Err(Falha::RespostaInvalida);
+            }
+            estado.iniciou = true;
             let mensagem = &valor["message"];
             let modelo = mensagem["model"].as_str().ok_or(Falha::RespostaInvalida)?;
             let valido = modelo.starts_with("claude-")
@@ -87,11 +99,19 @@ fn aplicar(estado: &mut Acumulado, valor: &Value, nome: Option<&str>) -> Result<
             if valor["content_block"]["type"].as_str() != Some("text") {
                 return Err(Falha::ConteudoNaoTexto);
             }
+            let indice = valor["index"].as_u64().ok_or(Falha::RespostaInvalida)?;
+            if estado.bloco.is_some() {
+                return Err(Falha::RespostaInvalida);
+            }
+            estado.bloco = Some(indice);
         }
         "content_block_delta" => {
             let delta = &valor["delta"];
             if delta["type"] != "text_delta" {
                 return Err(Falha::ConteudoNaoTexto);
+            }
+            if estado.bloco != valor["index"].as_u64() {
+                return Err(Falha::RespostaInvalida);
             }
             let pedaco = delta["text"].as_str().ok_or(Falha::RespostaInvalida)?;
             estado.texto.push_str(pedaco);
@@ -99,8 +119,17 @@ fn aplicar(estado: &mut Acumulado, valor: &Value, nome: Option<&str>) -> Result<
                 return Err(Falha::Limite);
             }
         }
-        "content_block_stop" | "ping" => {}
+        "content_block_stop" => {
+            if estado.bloco != valor["index"].as_u64() {
+                return Err(Falha::RespostaInvalida);
+            }
+            estado.bloco = None;
+        }
+        "ping" => {}
         "message_delta" => {
+            if estado.parada.is_some() {
+                return Err(Falha::RespostaInvalida);
+            }
             estado.parada = valor["delta"]["stop_reason"].as_str().map(str::to_owned);
             estado.saida = Some(contagem(&valor["usage"], "output_tokens")?);
         }

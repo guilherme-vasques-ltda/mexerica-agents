@@ -29,6 +29,8 @@ use crate::store::Store;
 const MAX_ENTRADA: usize = 128_000;
 /// Teto de saída pedido ao provedor.
 const MAX_SAIDA_TOKENS: u32 = 4096;
+/// Envelope JSON do pedido (papéis, chaves, delimitadores) contado como token.
+const MARGEM_ENVELOPE: usize = 4096;
 
 /// Pedido tipado: sem ferramenta, sem histórico e sem escolha de provedor.
 pub(crate) struct Pedido<'a> {
@@ -102,6 +104,8 @@ pub(crate) enum Falha {
     UsoIncerto,
     /// Modelo sem preço verificado: o teto não é conferível.
     SemPreco,
+    /// O uso medido passou da reserva: a estimativa não era limite superior.
+    TetoExcedido,
     Cofre(RecusaCofre),
     Transporte,
     Provedor {
@@ -126,6 +130,7 @@ impl Falha {
             Self::TetoEsgotado => "teto_esgotado",
             Self::UsoIncerto => "uso_incerto",
             Self::SemPreco => "sem_preco",
+            Self::TetoExcedido => "teto_excedido",
             Self::Cofre(recusa) => recusa.codigo(),
             Self::Transporte => "transporte",
             Self::Provedor { .. } => "provedor",
@@ -149,6 +154,7 @@ impl std::fmt::Display for Falha {
             Self::TetoEsgotado => "O teto de gasto da rota foi atingido.",
             Self::UsoIncerto => "Há envio anterior sem uso confirmado; a rota fica fechada até a prova.",
             Self::SemPreco => "O modelo não tem preço verificado; o teto não é conferível.",
+            Self::TetoExcedido => "O uso medido passou da reserva; a chamada não vira sucesso.",
             Self::Cofre(recusa) => return recusa.fmt(f),
             Self::Transporte => "Não foi possível enviar a chamada.",
             Self::Provedor { .. } => "O provedor recusou a chamada.",
@@ -168,15 +174,18 @@ fn escopo(bot: &str) -> String {
     format!("bot:{bot}")
 }
 
-/// Reserva conservadora em micro-USD: entrada no teto de caracteres contada
-/// como token (limite superior real) mais a saída máxima pedida. Modelo sem
-/// preço verificado não tem estimativa.
+/// Reserva conservadora em micro-USD e limite superior do que o pedido pode
+/// custar: cada byte do texto conta como um token (um token tem ao menos um
+/// byte), mais a margem do envelope; uma gravação de cache relatada pelo
+/// provedor sem `cache_control` no pedido é limitada ao mesmo tamanho; a saída
+/// é o teto pedido. Modelo sem preço verificado não tem estimativa.
 fn estimativa_micros(modelo: &str) -> Option<i64> {
+    let entrada = i64::try_from(MAX_ENTRADA.checked_add(MARGEM_ENVELOPE)?).ok()?;
     let tokens = crate::fork::custo::Tokens {
-        input: i64::try_from(MAX_ENTRADA).ok(),
+        input: Some(entrada),
         output: Some(i64::from(MAX_SAIDA_TOKENS)),
         read: Some(0),
-        write: Some(0),
+        write: Some(entrada),
         invalid: false,
     };
     micros(&crate::fork::custo::estimar(modelo, &tokens, crate::fork::custo::PoliticaCache::default())?)
@@ -239,12 +248,12 @@ where
     let chave = match cofre.abrir(vinculo) {
         Ok(chave) => chave,
         Err(recusa) => {
-            limite::liberar(store, &reserva)?;
+            limite::liberar_sem_envio(store, &reserva)?;
             return Err(Falha::Cofre(recusa));
         }
     };
     if let Err(falha) = limite::revalidar(store, &escopo(vinculo.bot), agora) {
-        limite::liberar(store, &reserva)?;
+        limite::liberar_sem_envio(store, &reserva)?;
         return Err(falha);
     }
     let corpo = match transporte.enviar(pedido, &chave).await {
@@ -265,6 +274,8 @@ where
         limite::incerta(store, &reserva, agora)?;
         return Err(Falha::UsoNaoConfirmado);
     };
-    limite::liquidar(store, &reserva, uso, agora)?;
+    if limite::liquidar(store, &reserva, uso, agora)? {
+        return Err(Falha::TetoExcedido);
+    }
     Ok(resposta)
 }
