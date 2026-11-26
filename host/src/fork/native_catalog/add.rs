@@ -6,6 +6,13 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{fmt::Write as _, sync::Arc};
 
+/// Na Open só a conta Codex gerenciada conversa; outra criaria um bot que falha no primeiro turno.
+pub(super) fn conta_permitida(registry: &super::super::engine_accounts::Registry, id: &str, open: bool) -> Result<()> {
+    let account = registry.account(id)?;
+    ensure!(!open || crate::fork::engine_setup::is_open_account(account), "open_codex_unavailable");
+    Ok(())
+}
+
 pub(crate) async fn add(hub: &Arc<Hub>, caller: &Caller, body: Value) -> Result<Value> {
     with_backend_check(hub, caller, body, crate::agent::backends::is_known).await
 }
@@ -47,6 +54,12 @@ pub(super) async fn with_backend_check(
             request.engine_account_id.as_deref().is_some_and(|id| !id.trim().is_empty()),
             "space_account_selection_required"
         );
+        let registry = super::super::engine_accounts::Registry::load(&hub.store)?;
+        conta_permitida(
+            &registry,
+            request.engine_account_id.as_deref().unwrap_or_default(),
+            crate::environment::Environment::is_open(),
+        )?;
     }
     crate::chat::manage::recover_live(hub);
     let existing = authority.with_db(hub, |db| store::apply(db, &hub.host_id, &request, &digest, None))?;
@@ -72,7 +85,7 @@ pub(super) async fn with_backend_check(
     // Defesa explícita contra alterações futuras de defaults (sem fingir escolha humana).
     cfg.permission = Permission::Ask;
     cfg.permission_chosen_by_user = false;
-    // Mesma conferência da criação manual (prepare_new_bot): conta conectada, do motor e ligável neste Space.
+    // Mesma conferência da criação manual (prepare_new_bot): conta existente, conectada e do mesmo motor.
     cfg.fork_editor.engine_account_id.clone_from(&request.engine_account_id);
     let hub = hub.clone();
     let answer = tokio::task::spawn_blocking(move || -> Result<Value> {

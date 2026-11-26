@@ -523,3 +523,26 @@ async fn falha_de_preparacao_limpa_so_diretorios_novos_vazios_e_preserva_conteud
     std::fs::remove_dir(owner).unwrap();
     f.hub.shutdown().await;
 }
+
+#[test]
+fn open_so_aceita_conta_codex_gerenciada() {
+    use crate::fork::engine_accounts::Registry;
+    let f = Fixture::new();
+    let api = f.connected_account();
+    let registry = Registry::load(&f.hub.store).unwrap();
+    super::add::conta_permitida(&registry, &api, false).unwrap();
+    let erro = super::add::conta_permitida(&registry, &api, true).unwrap_err();
+    assert!(erro.to_string().contains("open_codex_unavailable"));
+    let gerida = format!("ac_{}", "6".repeat(64));
+    let launch = json!({"kind":"cli_profile","executable":f.dir.join("cli-inexistente"),"directory":f.dir.join("perfil-gerido")});
+    let conta = json!({"salt":uuid::Uuid::new_v4().to_string(),"accounts":[{
+        "id":gerida,"backend":"codex","billing":"subscription","state":"connected","launch":launch,
+        "scope":"owner","quotaIdentity":null,"verifiedAt":null,"subscriptionProof":null,"models":[],
+        "managed":{"label":"Conta","revision":1,"generation":0,"enabled":true,"requestId":"f","principal":"f",
+            "profile":null,"setupRequest":null,"catalog":null}
+    }]});
+    f.hub.store.kv_set(crate::fork::engine_accounts::SLOT, &conta.to_string()).unwrap();
+    let registry = Registry::load(&f.hub.store).unwrap();
+    super::add::conta_permitida(&registry, &gerida, true).unwrap();
+    assert!(super::add::conta_permitida(&registry, &api, true).is_err(), "conta desconhecida");
+}
