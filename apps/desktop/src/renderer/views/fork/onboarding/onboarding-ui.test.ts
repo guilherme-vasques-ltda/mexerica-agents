@@ -103,7 +103,7 @@ test('Instalação direta informa a recusa no Desktop Linux e preserva as outras
     return items
   }
   const wizard = (platform: 'linux' | 'darwin' | 'win32', hostState: Parameters<typeof Step3Wizard>[0]['hostState']) => renderToStaticMarkup(createElement(Step3Wizard, {
-    client: null, spaceId: 'pessoal', hostState, localHubSupported: true, platform, status: null, where: 'local',
+    client: null, spaceId: 'pessoal', etapaInicial: 'onde', hostState, localHubSupported: true, platform, status: null, where: 'local',
     onSelectWhere: noop, onOpenComputers: noop, onSkip: noop, onContinue: noop,
   }))
   try {
@@ -168,6 +168,7 @@ test('Step3Wizard exige consentimento local, mostra bloqueio honesto e respeita 
       createElement(Step3Wizard, {
         client: null,
         spaceId: 'pessoal',
+      etapaInicial: 'onde',
       hostState: { kind: 'disabled' },
       platform: 'darwin',
       status: macStatus,
@@ -186,6 +187,7 @@ test('Step3Wizard exige consentimento local, mostra bloqueio honesto e respeita 
     createElement(Step3Wizard, {
       client: {} as never,
       spaceId: 'pessoal',
+      etapaInicial: 'onde',
       hostState: { kind: 'running' },
       platform: 'linux',
       status: {

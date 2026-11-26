@@ -220,6 +220,7 @@ function ChatShell() {
             onboarding.dismissForComputers()
             settingsScreen.show('computers')
           }}
+          onConnectAi={onboarding.controller.connectAi}
           onSkip={onboarding.closeStep3}
           onContinue={onboarding.closeStep3}
         />

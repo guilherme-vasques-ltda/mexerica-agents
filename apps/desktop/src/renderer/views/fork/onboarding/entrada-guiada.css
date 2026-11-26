@@ -1,0 +1,285 @@
+/* Entrada guiada (primeiro uso): fundo ilustrado de mexericas + cartão com uma decisão por tela.
+   Cores escopadas aqui, nos dois temas; o resto do app segue os tokens globais. */
+.entrada-guiada {
+  --eg-ceu-1: #fff8ee;
+  --eg-ceu-2: #ffe4bf;
+  --eg-sol: rgba(255, 186, 84, 0.55);
+  --eg-morro-longe: #f1dcae;
+  --eg-morro: #d9e5a8;
+  --eg-chao: #bcd68a;
+  --eg-grama: #8fb85a;
+  --eg-tronco: #8b5e3c;
+  --eg-copa: #4f8f32;
+  --eg-copa-luz: #86bf52;
+  --eg-copa-fundo: #3d7628;
+  --eg-sombra: rgba(70, 40, 10, 0.16);
+  --eg-cesto: #b7834f;
+  --eg-cesto-linha: #8e5f33;
+  --eg-cartao: rgba(255, 255, 255, 0.84);
+  --eg-cartao-linha: rgba(42, 28, 20, 0.08);
+  --eg-tinta: #2a1c14;
+  --eg-tinta-2: #6b5a4c;
+  --eg-acao: #f58a1f;
+  --eg-acao-tinta: #2a1c14;
+  --eg-acao-hover: #dd7d1e;
+  --eg-passo: #c2620a;
+  --eg-trilho: rgba(42, 28, 20, 0.14);
+  --eg-ok: #2f8a3c;
+  --entrada-chao: #fff8ee;
+  --entrada-cartao: #ffffff;
+  --entrada-acao: #f58a1f;
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+  color: var(--eg-tinta);
+  background: linear-gradient(180deg, var(--eg-ceu-1) 0%, var(--eg-ceu-2) 100%);
+}
+[data-theme='dark'] .entrada-guiada {
+  --eg-ceu-1: #140f0c;
+  --eg-ceu-2: #2a1c14;
+  --eg-sol: rgba(245, 138, 31, 0.2);
+  --eg-morro-longe: #2b2018;
+  --eg-morro: #24301d;
+  --eg-chao: #1d2a18;
+  --eg-grama: #3b5a2a;
+  --eg-tronco: #5f4029;
+  --eg-copa: #1f4522;
+  --eg-copa-luz: #3f7a37;
+  --eg-copa-fundo: #163319;
+  --eg-sombra: rgba(0, 0, 0, 0.35);
+  --eg-cesto: #8a6038;
+  --eg-cesto-linha: #5e3f22;
+  --eg-cartao: rgba(32, 23, 17, 0.84);
+  --eg-cartao-linha: rgba(255, 236, 210, 0.1);
+  --eg-tinta: #fff8ee;
+  --eg-tinta-2: #c9b8a6;
+  --eg-passo: #f58a1f;
+  --eg-trilho: rgba(255, 236, 210, 0.16);
+  --eg-ok: #6fcf7c;
+  --entrada-chao: #1b1511;
+  --entrada-cartao: #2a1c14;
+}
+
+/* ---------- Fundo ---------- */
+.eg-fundo { position: absolute; inset: 0; pointer-events: none; }
+.eg-sol {
+  position: absolute;
+  inset-inline-end: 8%;
+  top: 6%;
+  width: min(46vw, 520px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, var(--eg-sol), transparent);
+}
+.eg-cena { position: absolute; inset: 0; width: 100%; height: 100%; }
+.eg-arvore-esquerda, .eg-arvore-esquerda .eg-balanco { transform-origin: 228px 800px; }
+.eg-arvore-direita, .eg-arvore-direita .eg-balanco { transform-origin: 1334px 790px; }
+.eg-fruta, .eg-bot, .eg-bot-corpo { transform-box: fill-box; transform-origin: 50% 100%; }
+.eg-bot-acena { transform-box: fill-box; transform-origin: 20% 90%; }
+.eg-folha-cai { opacity: 0; }
+
+/* ---------- Cartão ---------- */
+.eg-palco {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  overflow-y: auto;
+  display: grid;
+  place-items: center;
+  padding: 48px 20px 40px;
+}
+.eg-cartao {
+  width: min(560px, 100%);
+  display: grid;
+  gap: 22px;
+  padding: 26px 30px 24px;
+  border-radius: 24px;
+  background: var(--eg-cartao);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  backdrop-filter: blur(14px) saturate(1.2);
+  box-shadow: inset 0 0 0 1px var(--eg-cartao-linha), 0 24px 60px -28px rgba(80, 40, 10, 0.45);
+}
+
+.eg-etapas {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+.eg-etapas li { display: grid; gap: 6px; justify-items: start; color: var(--eg-tinta-2); font-size: 12px; }
+.eg-etapas li::before {
+  content: '';
+  grid-row: 1;
+  width: 100%;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--eg-trilho);
+}
+.eg-etapas li.is-feita::before, .eg-etapas li.is-agora::before { background: var(--eg-passo); }
+.eg-etapas li > span { grid-row: 2; }
+.eg-etapas li { grid-template-columns: auto 1fr; align-items: center; column-gap: 6px; }
+.eg-etapas li::before { grid-column: 1 / -1; }
+.eg-etapa-num {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1.5px var(--eg-trilho);
+}
+.eg-etapas li.is-agora { color: var(--eg-tinta); font-weight: 600; }
+.eg-etapas li.is-agora .eg-etapa-num { background: var(--eg-acao); color: var(--eg-acao-tinta); box-shadow: none; }
+.eg-etapas li.is-feita .eg-etapa-num { background: var(--eg-passo); color: #fff; box-shadow: none; }
+.eg-etapa-nome { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.eg-etapa { display: grid; gap: 12px; }
+.eg-etapa h1 { margin: 0; font-size: 26px; line-height: 1.2; letter-spacing: -0.01em; color: var(--eg-tinta); }
+.eg-texto { margin: 0; font-size: 15px; line-height: 1.5; color: var(--eg-tinta-2); }
+.eg-boas-vindas, .eg-pronto { justify-items: center; text-align: center; }
+.eg-mascote { width: 112px; height: 112px; object-fit: contain; filter: drop-shadow(0 10px 14px rgba(150, 70, 0, 0.25)); }
+.eg-ola { margin: 0; font-size: 14px; font-weight: 600; color: var(--eg-passo); }
+
+.eg-opcao {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 16px;
+  border-radius: 16px;
+  background: var(--entrada-cartao);
+  box-shadow: inset 0 0 0 1px var(--eg-cartao-linha);
+}
+.eg-opcao.is-pronta { box-shadow: inset 0 0 0 2px var(--eg-acao); }
+.eg-opcao-icone {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--eg-acao) 18%, transparent);
+  color: var(--eg-passo);
+}
+.eg-opcao-corpo { display: grid; gap: 6px; min-width: 0; }
+.eg-opcao-titulo { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.eg-opcao-corpo strong { font-size: 15px; }
+.eg-opcao-desc { font-size: 13.5px; color: var(--eg-tinta-2); line-height: 1.45; }
+.eg-opcao-estado:empty { display: none; }
+.eg-opcao-estado .onboarding-status-row.is-ok { color: var(--eg-ok); }
+.eg-selo {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--eg-acao) 22%, transparent);
+  color: var(--eg-passo);
+}
+
+.eg-link {
+  justify-self: start;
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--eg-tinta-2);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.eg-link:hover { color: var(--eg-tinta); }
+.eg-pular { justify-self: center; margin-top: -10px; }
+
+.eg-mais { border-radius: 14px; box-shadow: inset 0 0 0 1px var(--eg-cartao-linha); }
+.eg-mais summary { padding: 10px 14px; font-size: 13.5px; color: var(--eg-tinta-2); cursor: pointer; }
+.eg-mais-corpo { display: grid; gap: 12px; padding: 0 14px 14px; }
+
+.eg-resumo { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 8px; width: min(340px, 100%); }
+.eg-resumo li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--entrada-cartao);
+  box-shadow: inset 0 0 0 1px var(--eg-cartao-linha);
+  color: var(--eg-tinta-2);
+  font-size: 14px;
+}
+.eg-resumo li span { flex: 1; text-align: start; color: var(--eg-tinta); }
+.eg-resumo li em { font-style: normal; font-size: 12.5px; }
+.eg-resumo li.is-ok { color: var(--eg-ok); }
+
+.eg-rodape { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.entrada-guiada .styled-button { display: inline-flex; align-items: center; gap: 6px; }
+.entrada-guiada .styled-button.primary { background: var(--eg-acao); color: var(--eg-acao-tinta); }
+.entrada-guiada .styled-button.primary:hover:not(:disabled) { background: var(--eg-acao-hover); }
+.entrada-guiada :focus-visible { outline: 2px solid var(--eg-passo); outline-offset: 2px; }
+[dir='rtl'] .entrada-guiada .styled-button svg { transform: scaleX(-1); }
+
+/* ---------- Janela pequena ---------- */
+@media (max-width: 640px) {
+  .eg-palco { padding: 36px 12px 24px; place-items: start center; }
+  .eg-cartao { padding: 20px 18px; gap: 18px; border-radius: 20px; }
+  .eg-etapa-nome { display: none; }
+  .eg-etapas li.is-agora .eg-etapa-nome { display: inline; }
+  .eg-etapas li.is-agora { grid-column: span 1; }
+  .eg-etapa h1 { font-size: 22px; }
+  .eg-mascote { width: 84px; height: 84px; }
+}
+@media (max-height: 620px) {
+  .eg-palco { place-items: start center; padding-top: 32px; }
+  .eg-mascote { width: 72px; height: 72px; }
+}
+
+/* ---------- Movimento ----------
+   Abertura de ~4 s: morros (0–0,9 s), árvores crescem (0,2–1,6 s), mexericas brotam uma a uma (1,2–3,4 s), os
+   bots-mexerica pulam para a cena (2,8–4,2 s). Depois só laços leves: brisa nas árvores, bots respirando, folha caindo.
+   Com "reduzir movimento", nada se mexe e a cena aparece pronta. */
+@media (prefers-reduced-motion: no-preference) {
+  .eg-morros { animation: eg-sobe 0.9s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+  .eg-arvore { animation: eg-cresce 1.4s cubic-bezier(0.2, 0.8, 0.3, 1.1) 0.2s both; }
+  .eg-arvore-direita { animation-delay: 0.5s; }
+  .eg-balanco { animation: eg-brisa 7.5s ease-in-out 1.6s infinite; }
+  .eg-balanco-lento { animation-duration: 9.3s; animation-delay: 2.1s; }
+  .eg-fruta { animation: eg-brota 0.55s cubic-bezier(0.3, 1.6, 0.5, 1) calc(1.2s + var(--ordem) * 0.17s) both; }
+  .eg-bot { animation: eg-pula-entra 0.9s cubic-bezier(0.3, 1.4, 0.5, 1) 2.8s both; }
+  .eg-bot-2 { animation-delay: 3.3s; }
+  .eg-bot-corpo { animation: eg-respira 2.6s ease-in-out 3.8s infinite alternate; }
+  .eg-bot-2 .eg-bot-corpo { animation-duration: 3.1s; animation-delay: 4.2s; }
+  .eg-bot-acena { animation: eg-acena 1.6s ease-in-out 4.2s infinite alternate; }
+  .eg-folha-cai { animation: eg-cai var(--duracao) linear calc(4s + var(--atraso)) infinite; }
+  .eg-sol { animation: eg-surge 1.6s ease-out both; }
+
+  .eg-cartao { animation: eg-cartao 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) 0.4s both; }
+  .eg-conteudo { animation: eg-troca 0.35s ease-out both; }
+  .eg-mascote-entra { animation: eg-mascote-cai 1.3s cubic-bezier(0.3, 1.5, 0.5, 1) 0.8s both; }
+  .eg-mascote-comemora { animation: eg-comemora 0.9s cubic-bezier(0.3, 1.6, 0.5, 1) 0.1s both; }
+}
+
+@keyframes eg-sobe { from { opacity: 0; transform: translateY(40px); } }
+@keyframes eg-surge { from { opacity: 0; transform: scale(0.8); } }
+@keyframes eg-cresce { from { opacity: 0; transform: scale(0.82); } }
+@keyframes eg-brisa { 0%, 100% { transform: rotate(0deg); } 50% { transform: rotate(0.9deg); } }
+@keyframes eg-brota { from { opacity: 0; transform: scale(0); } }
+@keyframes eg-pula-entra { 0% { opacity: 0; transform: translateY(60px) scale(0.6); } 60% { opacity: 1; } }
+@keyframes eg-respira { to { transform: translateY(-3px) scale(1.02, 0.98); } }
+@keyframes eg-acena { from { transform: rotate(-10deg); } to { transform: rotate(16deg); } }
+@keyframes eg-cai {
+  0% { opacity: 0; transform: translate(0, 0) rotate(0deg); }
+  8% { opacity: 1; }
+  50% { transform: translate(40px, 200px) rotate(160deg); }
+  85% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-20px, 420px) rotate(320deg); }
+}
+@keyframes eg-cartao { from { opacity: 0; transform: translateY(18px) scale(0.98); } }
+@keyframes eg-troca { from { opacity: 0; transform: translateY(8px); } }
+@keyframes eg-mascote-cai {
+  0% { opacity: 0; transform: translateY(-60px) scale(0.9); }
+  55% { opacity: 1; transform: translateY(0) scale(1.08, 0.92); }
+  75% { transform: translateY(-8px) scale(0.98, 1.02); }
+}
+@keyframes eg-comemora { 0% { transform: scale(0.6) rotate(-8deg); } 60% { transform: scale(1.1) rotate(4deg); } }
