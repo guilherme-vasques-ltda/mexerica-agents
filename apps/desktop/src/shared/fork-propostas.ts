@@ -17,6 +17,8 @@ export type ProposalStartState = (typeof PROPOSAL_START_STATES)[number]
 
 export const PROPOSALS_EVENT = 'donnaProjectsChanged'
 
+export const offersBergaProposals = (bridge?: { appScheme?: string }) => bridge?.appScheme !== 'mexerica-open'
+
 export interface ProposalLimits {
   perBot: number
   total: number

@@ -61,6 +61,7 @@ import { bloqueioSenha, destinoSenha } from '../../store/fork-senha-bloqueio'
 import { TelaGrande, useTelaGrande } from '../fork/whatsapp/TelaGrande'
 import { SuperficieAVista } from '../fork/whatsapp/superficie'
 import { PropostasDoBerga } from '../fork/propostas/PropostasDoBerga'
+import { offersBergaProposals } from '@shared/fork-propostas'
 import { shouldShowFirstChatOnboarding } from '../../../shared/fork-onboarding'
 import { ComposerSpotlight } from '../fork/onboarding/ComposerSpotlight'
 import { FirstChatOnboarding } from '../fork/onboarding/FirstChatOnboarding'
@@ -368,7 +369,7 @@ export const ThreadView = memo(function ThreadView({ botId, panelScope }: { botI
         <div className="composer-dock" ref={dock}>
           <div className="composer-fade" />
           {encerrar.aviso}
-          <PropostasDoBerga store={store} botId={botId} openSession={openSession} />
+          {offersBergaProposals(window.codync) && <PropostasDoBerga store={store} botId={botId} openSession={openSession} />}
           <ComposerSpotlight open={starterTour.spotlightOpen} onDismiss={dismissSpotlight} onSkipTour={handleSkipTour} />
           {store.mismatch ? (
             <div className="composer-update-needed">
