@@ -104,11 +104,16 @@ struct Montagem {
     cliente: reqwest::Client,
 }
 
+/// Abre uma sessão de prova com o retrato que a abertura real usa (revisão e chave lidas dentro da trava).
+fn conceder(repasse: &Arc<Repasse>, chave: &str) -> Concessao {
+    repasse.conceder(&PLANOS[0], || Ok((0, Zeroizing::new(chave.to_owned())))).map(|(concessao, _)| concessao).unwrap()
+}
+
 async fn montar(up: &Upstream) -> Montagem {
     let hub = hub_de_prova();
     let repasse = repasse_do_hub(&hub).await.unwrap();
     *repasse.base_de_prova.locked() = Some(up.base.clone());
-    let concessao = repasse.conceder(&PLANOS[0], Zeroizing::new(CHAVE.into())).unwrap();
+    let concessao = conceder(&repasse, CHAVE);
     let cliente = reqwest::Client::builder().no_proxy().build().unwrap();
     Montagem { _hub: hub, repasse, concessao, cliente }
 }
@@ -581,13 +586,51 @@ async fn uma_revogacao_sem_ninguem_escutando_continua_marcada_para_quem_chega_de
 }
 
 #[tokio::test]
+async fn a_troca_e_recusada_com_sessao_viva_e_passa_quando_a_concessao_sai() {
+    let up = upstream(|mut conexao, _| async move {
+        let _ = conexao.write_all(&json_ok("{}")).await;
+    })
+    .await;
+    let m = montar(&up).await;
+    let erro = m.repasse.reservar_troca(&PLANOS[0]).err().expect("recusada com sessão viva").to_string();
+    assert!(erro.starts_with("plano_em_uso"), "{erro}");
+    drop(m.concessao);
+    // Sem concessão viva a troca é aceita, e largar a guarda devolve o plano ao normal.
+    let troca = m.repasse.reservar_troca(&PLANOS[0]).unwrap();
+    let erro = m.repasse.reservar_troca(&PLANOS[0]).err().expect("recusada com troca em curso").to_string();
+    assert!(erro.starts_with("plano_em_uso"), "uma segunda troca em curso também é recusada: {erro}");
+    drop(troca);
+    let outra = conceder(&m.repasse, CHAVE);
+    drop(outra);
+    assert_eq!(m.repasse.usos_do_plano(&PLANOS[0]), 0, "largar a concessão tira o uso do plano");
+}
+
+#[tokio::test]
+async fn abrir_sessao_e_recusado_enquanto_a_troca_esta_em_curso() {
+    let up = upstream(|mut conexao, _| async move {
+        let _ = conexao.write_all(&json_ok("{}")).await;
+    })
+    .await;
+    let m = montar(&up).await;
+    drop(m.concessao);
+    let troca = m.repasse.reservar_troca(&PLANOS[0]).unwrap();
+    let erro =
+        m.repasse.conceder(&PLANOS[0], || Ok((0, Zeroizing::new(CHAVE.into())))).err().expect("recusada").to_string();
+    assert!(erro.starts_with("plano_em_troca"), "abrir sessão no meio da troca é recusado: {erro}");
+    drop(troca);
+    let outra = conceder(&m.repasse, CHAVE);
+    drop(outra);
+    assert_eq!(m.repasse.sessoes_vivas(), 0);
+}
+
+#[tokio::test]
 async fn o_codigo_de_sessao_e_aleatorio_e_so_o_hash_fica_no_estado() {
     let up = upstream(|mut conexao, _| async move {
         let _ = conexao.write_all(&json_ok("{}")).await;
     })
     .await;
     let m = montar(&up).await;
-    let outra = m.repasse.conceder(&PLANOS[0], Zeroizing::new(CHAVE.into())).unwrap();
+    let outra = conceder(&m.repasse, CHAVE);
     assert_ne!(m.concessao.codigo(), outra.codigo());
     assert!(m.concessao.codigo().len() >= 68 && m.concessao.codigo().starts_with("mxs_"));
     assert!(!m.concessao.codigo().contains(CHAVE));

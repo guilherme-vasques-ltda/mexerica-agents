@@ -280,7 +280,6 @@ pub(crate) async fn start_mexerica(
         let (acp, rx) = Acp::spawn_link(link);
         Ok(Conn {
             ponte: None,
-            plano: None,
             curated: crate::fork::conectores::Pool::default(),
             acp,
             rx,
@@ -306,8 +305,10 @@ pub(crate) async fn start_agent(
     cwd: &str,
     env: &[(String, String)],
     budget: Duration,
+    plano: Option<Arc<crate::fork::planos_codigo::Concessao>>,
 ) -> Result<Conn> {
-    start_agent_mode(command, cwd, env, budget, false, false).await
+    let (acp, rx) = Acp::spawn_registered_plan(command, cwd, env, false, false, plano).await?;
+    finish_launch(acp, rx, env, budget, false).await
 }
 
 pub(crate) async fn start_agent_protected(
@@ -431,7 +432,6 @@ async fn finish_launch(
     };
     Ok(Conn {
         ponte: None,
-        plano: None,
         curated: crate::fork::conectores::Pool::default(),
         acp,
         rx,
@@ -644,4 +644,49 @@ mod tests {
         let own = [("mode", "auto"), ("effort", "high")].map(|(k, v)| (k.to_owned(), v.to_owned())).into();
         assert_eq!(model_choice(&res, "opus[mode=acceptEdits]", &own), ("opus", vec![("effort", "high")]));
     }
+}
+#[cfg(unix)]
+#[tokio::test]
+async fn plano_com_handshake_recusado_espera_o_processo_sair() {
+    use crate::fork::planos_codigo::{Repasse, plano_do_modelo};
+
+    let dir = tempfile::tempdir().unwrap();
+    let repasse = Repasse::iniciar().await.unwrap();
+    let plano = plano_do_modelo("opencode-go/deepseek-v4-flash").unwrap();
+    let (concessao, _) = repasse.conceder(plano, || Ok((0, "fixture".to_owned().into()))).unwrap();
+    let script = dir.path().join("agent.py");
+    std::fs::write(
+        &script,
+        r"import json, pathlib, sys, time
+frame = json.loads(sys.stdin.readline())
+print(json.dumps({'jsonrpc': '2.0', 'id': frame['id'], 'error': {'code': -32000, 'message': 'recusado'}}), flush=True)
+sys.stdin.read()
+pathlib.Path('stdin-fechado').touch()
+while not pathlib.Path('sair').exists():
+    time.sleep(0.01)
+pathlib.Path('saiu').touch()
+",
+    )
+    .unwrap();
+    let command = crate::shell::python(&script).into();
+    let mut inicio = std::pin::pin!(start_agent(
+        &command,
+        dir.path().to_str().unwrap(),
+        &[],
+        Duration::from_secs(5),
+        Some(Arc::new(concessao)),
+    ));
+    tokio::select! {
+        _ = &mut inicio => panic!("a inicialização retornou antes de o processo sair"),
+        chegada = tokio::time::timeout(Duration::from_secs(2), async {
+            while !dir.path().join("stdin-fechado").exists() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        }) => chegada.unwrap(),
+    }
+    assert!(repasse.reservar_troca(plano).is_err());
+    std::fs::write(dir.path().join("sair"), []).unwrap();
+    assert!(inicio.await.is_err());
+    assert!(dir.path().join("saiu").exists());
+    assert!(repasse.reservar_troca(plano).is_ok());
 }

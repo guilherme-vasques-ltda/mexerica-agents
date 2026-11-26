@@ -282,7 +282,6 @@ async fn recusa_de_uso_automatico_nao_mata_a_sessao_viva_do_dono() {
     let pid = acp.pid();
     actor.conn = Some(Conn {
         ponte: None,
-        plano: None,
         curated: crate::fork::conectores::Pool::default(),
         acp,
         rx,

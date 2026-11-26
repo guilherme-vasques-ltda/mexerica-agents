@@ -7,7 +7,7 @@
 mod fork_skill_io;
 
 use crate::LockExt;
-use crate::fork::motor_exec::Child;
+use crate::fork::{motor_exec::Child, planos_codigo::Concessao};
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -17,7 +17,7 @@ use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{ChildStdin, Command};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::Instant;
 
 /// stderr lines kept to explain a crash.
@@ -219,7 +219,7 @@ pub struct Acp {
     stdin: tokio::sync::Mutex<Option<Writer>>,
     /// Adaptador interno (Motor Mexerica): `kill`/`kill_and_wait` o derrubam.
     link: Option<Arc<MotorLink>>,
-    scoped_cancel: tokio::sync::watch::Sender<()>,
+    scoped_cancel: watch::Sender<()>,
     #[cfg(test)]
     scoped_entered: tokio::sync::Notify,
     #[cfg(test)]
@@ -228,10 +228,61 @@ pub struct Acp {
     stopped: tokio::sync::Notify,
     next_id: AtomicI64,
     pending: Pending,
-    /// `None` once stopped (handed to [`reap`]).
-    child: tokio::sync::Mutex<Option<Child>>,
+    process: std::sync::Mutex<Process>,
     /// The process (and, on Unix, process group) leader.
     pid: Option<u32>,
+}
+
+#[derive(Default)]
+struct Process {
+    child: Option<Child>,
+    plano: Option<Arc<Concessao>>,
+    stopped: Option<(watch::Receiver<()>, bool)>,
+}
+
+struct Reaping {
+    child: Option<Child>,
+    group: Option<u32>,
+    plano: Option<Arc<Concessao>>,
+    done: watch::Sender<()>,
+}
+
+impl Reaping {
+    fn spawn(mut self, runtime: &tokio::runtime::Handle) {
+        let mut stopping = STOPPING.locked();
+        stopping.retain(|task| !task.is_finished());
+        stopping.push(runtime.spawn(async move {
+            if let Some(child) = self.child.as_mut() {
+                reap(child, self.group).await;
+                if child.id().is_none() {
+                    self.group = None;
+                }
+            }
+            drop(self);
+        }));
+    }
+}
+
+impl Drop for Reaping {
+    fn drop(&mut self) {
+        let Some(mut child) = self.child.take() else { return };
+        crate::fork::engine_setup::kill_setup_group(self.group);
+        let Some(plano) = self.plano.take() else {
+            return;
+        };
+        if child.id().is_none() {
+            return;
+        }
+        let done = self.done.clone();
+        std::thread::spawn(move || {
+            while !matches!(child.try_wait(), Ok(Some(_))) {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            drop(child);
+            drop(plano);
+            drop(done);
+        });
+    }
 }
 
 impl Acp {
@@ -242,7 +293,16 @@ impl Acp {
         cwd: &str,
         env: &[(String, String)],
     ) -> Result<(Arc<Self>, mpsc::UnboundedReceiver<Incoming>)> {
-        Self::spawn_mode(command, cwd, env, false, false)
+        Self::spawn_plan(command, cwd, env, None)
+    }
+
+    fn spawn_plan(
+        command: &str,
+        cwd: &str,
+        env: &[(String, String)],
+        plano: Option<Arc<Concessao>>,
+    ) -> Result<(Arc<Self>, mpsc::UnboundedReceiver<Incoming>)> {
+        Self::spawn_mode(command, cwd, env, false, false, plano)
     }
 
     /// Descoberta de setup: saída nativa não vai a logs nem à cauda de erro.
@@ -251,7 +311,7 @@ impl Acp {
         cwd: &str,
         env: &[(String, String)],
     ) -> Result<(Arc<Self>, mpsc::UnboundedReceiver<Incoming>)> {
-        Self::spawn_mode(command, cwd, env, true, false)
+        Self::spawn_mode(command, cwd, env, true, false, None)
     }
 
     pub(crate) fn spawn_background(
@@ -259,7 +319,7 @@ impl Acp {
         cwd: &str,
         env: &[(String, String)],
     ) -> Result<(Arc<Self>, mpsc::UnboundedReceiver<Incoming>)> {
-        Self::spawn_mode(command, cwd, env, false, true)
+        Self::spawn_mode(command, cwd, env, false, true, None)
     }
 
     pub(crate) async fn spawn_registered(
@@ -269,7 +329,21 @@ impl Acp {
         protected: bool,
         background: bool,
     ) -> Result<(Arc<Self>, mpsc::UnboundedReceiver<Incoming>)> {
+        Self::spawn_registered_plan(command, cwd, env, protected, background, None).await
+    }
+
+    pub(crate) async fn spawn_registered_plan(
+        command: &super::registry::Comando,
+        cwd: &str,
+        env: &[(String, String)],
+        protected: bool,
+        background: bool,
+        plano: Option<Arc<Concessao>>,
+    ) -> Result<(Arc<Self>, mpsc::UnboundedReceiver<Incoming>)> {
         if command.uso.is_none() {
+            if plano.is_some() {
+                return Self::spawn_mode(command, cwd, env, protected, background, plano);
+            }
             return match (protected, background) {
                 (true, _) => Self::spawn_protected(command, cwd, env),
                 (false, true) => Self::spawn_background(command, cwd, env),
@@ -282,7 +356,7 @@ impl Acp {
         let (command, cwd, env) = (command.clone(), cwd.to_owned(), env.to_vec());
         let runtime = tokio::runtime::Handle::current();
         crate::fork::motor_exec::criador::criar(
-            move || Self::spawn_mode(&command, &cwd, &env, protected, background),
+            move || Self::spawn_mode(&command, &cwd, &env, protected, background, plano),
             move |resultado| {
                 // Chamador sumiu depois do spawn: encerra o processo criado, sem órfão.
                 if let Ok((acp, _rx)) = resultado {
@@ -301,6 +375,7 @@ impl Acp {
         env: &[(String, String)],
         protected: bool,
         background: bool,
+        plano: Option<Arc<Concessao>>,
     ) -> Result<(Arc<Self>, mpsc::UnboundedReceiver<Incoming>)> {
         let shell = crate::shell::exec(command);
         let mut process = if crate::fork::motor_exec::configured() {
@@ -315,7 +390,7 @@ impl Acp {
             .envs(super::environment::inherited(std::env::vars_os()))
             .envs(shell.env)
             .envs(env.iter().map(|(k, v)| (k, v)));
-        Self::spawn_process(process, cwd, protected, background, false)
+        Self::spawn_process(process, cwd, protected, background, false, plano)
     }
 
     pub(crate) fn spawn_antigravity(
@@ -341,7 +416,7 @@ impl Acp {
                 .any(|key| name.eq_ignore_ascii_case(key))
             })
         }));
-        Self::spawn_process(process, cwd, true, false, true)
+        Self::spawn_process(process, cwd, true, false, true, None)
     }
 
     fn spawn_process(
@@ -350,6 +425,7 @@ impl Acp {
         protected: bool,
         background: bool,
         antigravity: bool,
+        plano: Option<Arc<Concessao>>,
     ) -> Result<(Arc<Self>, mpsc::UnboundedReceiver<Incoming>)> {
         process
             .current_dir(crate::fork::motor_exec::hub_cwd(std::path::Path::new(cwd)))
@@ -451,7 +527,7 @@ impl Acp {
             background,
             stdin: tokio::sync::Mutex::new(Some(stdin)),
             link: None,
-            scoped_cancel: tokio::sync::watch::channel(()).0,
+            scoped_cancel: watch::channel(()).0,
             #[cfg(test)]
             scoped_entered: tokio::sync::Notify::new(),
             #[cfg(test)]
@@ -460,7 +536,7 @@ impl Acp {
             stopped: tokio::sync::Notify::new(),
             next_id: AtomicI64::new(1),
             pending,
-            child: tokio::sync::Mutex::new(Some(child)),
+            process: std::sync::Mutex::new(Process { child: Some(child), plano, stopped: None }),
             pid,
         });
         Ok((acp, rx))
@@ -481,7 +557,7 @@ impl Acp {
             background: false,
             stdin: tokio::sync::Mutex::new(Some(Writer::Link(bot_side))),
             link: Some(link),
-            scoped_cancel: tokio::sync::watch::channel(()).0,
+            scoped_cancel: watch::channel(()).0,
             #[cfg(test)]
             scoped_entered: tokio::sync::Notify::new(),
             #[cfg(test)]
@@ -490,10 +566,15 @@ impl Acp {
             stopped: tokio::sync::Notify::new(),
             next_id: AtomicI64::new(1),
             pending,
-            child: tokio::sync::Mutex::new(None),
+            process: std::sync::Mutex::default(),
             pid: None,
         });
         (acp, rx)
+    }
+
+    /// Este processo usa um plano de código?
+    pub(crate) fn tem_plano(&self) -> bool {
+        self.process.locked().plano.is_some()
     }
 
     pub fn pid(&self) -> Option<u32> {
@@ -644,15 +725,12 @@ impl Acp {
         if let Some(link) = &self.link {
             link.shutdown().await;
         }
-        if let Some(child) = self.child.lock().await.take() {
-            if self.protected {
-                crate::fork::engine_setup::kill_setup_group(child.id());
-            }
-            reap(child).await;
+        if let Some((mut stopped, _)) = self.stop_process() {
+            let _ = stopped.changed().await;
         }
     }
 
-    /// Stops the agent and everything it started, without waiting for it. Closing its stdin
+    /// Stops the agent and everything it started, waiting only when it holds a plan grant. Closing its stdin
     /// lets it exit by itself first: Claude Code killed during an OAuth refresh loses the new
     /// refresh token, and the user's login with it.
     pub async fn kill(&self) {
@@ -663,35 +741,48 @@ impl Acp {
                 link.shutdown().await;
             });
         }
-        if let Some(child) = self.child.lock().await.take() {
+        if let Some((mut stopped, true)) = self.stop_process() {
+            let _ = stopped.changed().await;
+        }
+    }
+
+    fn stop_process(&self) -> Option<(watch::Receiver<()>, bool)> {
+        let mut process = self.process.locked();
+        if let Some(child) = process.child.take() {
             #[cfg(test)]
             self.stopped.notify_one();
             if self.protected {
                 crate::fork::engine_setup::kill_setup_group(child.id());
             }
-            let mut stopping = STOPPING.locked();
-            stopping.retain(|task| !task.is_finished());
-            stopping.push(tokio::spawn(reap(child)));
+            let (done, stopped) = watch::channel(());
+            let plano = process.plano.take();
+            process.stopped = Some((stopped, plano.is_some()));
+            Reaping { child: Some(child), group: self.pid, plano, done }.spawn(&tokio::runtime::Handle::current());
         }
+        process.stopped.clone()
     }
 }
 
 impl Drop for Acp {
     fn drop(&mut self) {
+        let process = self.process.get_mut().unwrap_or_else(std::sync::PoisonError::into_inner);
         if self.protected
-            && let Some(child) = self.child.get_mut().as_ref()
+            && let Some(child) = process.child.as_ref()
         {
             crate::fork::engine_setup::kill_setup_group(child.id());
-        } else if self.background
-            && let Some(child) = self.child.get_mut().take()
+        }
+        if ((!self.protected && self.background) || process.plano.is_some())
+            && let Some(child) = process.child.take()
         {
             self.stdin.get_mut().take();
+            let reaping = Reaping {
+                child: Some(child),
+                group: self.pid,
+                plano: process.plano.take(),
+                done: watch::channel(()).0,
+            };
             if let Ok(runtime) = tokio::runtime::Handle::try_current() {
-                let mut stopping = STOPPING.locked();
-                stopping.retain(|task| !task.is_finished());
-                stopping.push(runtime.spawn(reap(child)));
-            } else {
-                crate::fork::engine_setup::kill_setup_group(child.id());
+                reaping.spawn(&runtime);
             }
         }
     }
@@ -705,8 +796,8 @@ pub async fn stopped() {
 
 /// Gives the agent [`EXIT_GRACE`] to exit with everything it started (ACP adapters spawn
 /// CLIs, MCP servers and tools), then kills its process group (Windows: process tree).
-async fn reap(mut child: Child) {
-    let Some(pid) = child.id() else { return };
+async fn reap(child: &mut Child, group: Option<u32>) {
+    let Some(pid) = group else { return };
     let deadline = Instant::now() + EXIT_GRACE;
     let exited = matches!(tokio::time::timeout_at(deadline, child.wait()).await, Ok(Ok(_)));
     if !exited || outlived(pid, deadline).await {
@@ -801,7 +892,7 @@ mod tests {
             let script = r#"if IFS= read -r line; then printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"stopReason":"end_turn"}}'; fi"#;
             let mut process = Command::new("/bin/sh");
             process.args(["-c", script]);
-            let (acp, _updates) = Acp::spawn_process(process, "/tmp", true, false, false).unwrap();
+            let (acp, _updates) = Acp::spawn_process(process, "/tmp", true, false, false, None).unwrap();
             let calls = Cell::new(0);
             let result = acp
                 .send_guarded_prompt(json!({"sessionId":"fixture","prompt":[]}), |effect| {
@@ -839,7 +930,7 @@ mod tests {
         let script = r#"printf '%s\n' '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"fixture","update":{"sessionUpdate":"current_mode_update","currentModeId":"auto"}}}'; cat"#;
         let mut process = Command::new("/bin/sh");
         process.args(["-c", script]);
-        let (acp, mut updates) = Acp::spawn_process(process, "/tmp", true, false, true).unwrap();
+        let (acp, mut updates) = Acp::spawn_process(process, "/tmp", true, false, true, None).unwrap();
         let notification = tokio::time::timeout(Duration::from_secs(5), updates.recv()).await.unwrap();
         assert!(matches!(notification, Some(Incoming::Notification { .. })));
         let result = acp
@@ -911,6 +1002,97 @@ open(os.environ['TEST_MARKER'], 'w').write('encerrado')
         acp.kill_and_wait().await;
         assert_eq!(std::fs::read_to_string(marker).unwrap(), "encerrado");
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn cancelar_espera_de_encerramento_nao_libera_nem_vaza_concessao() {
+        use crate::fork::planos_codigo::{Repasse, plano_do_modelo};
+
+        let dir = tempfile::tempdir().unwrap();
+        let repasse = Repasse::iniciar().await.unwrap();
+        let plano = plano_do_modelo("opencode-go/deepseek-v4-flash").unwrap();
+        let script = dir.path().join("agent.py");
+        std::fs::write(
+            &script,
+            r"import pathlib, sys, time
+sys.stdin.read()
+while not pathlib.Path(sys.argv[1]).exists():
+    time.sleep(0.01)
+",
+        )
+        .unwrap();
+        for esperar in [false, true] {
+            let saida = dir.path().join(format!("{esperar}.exit"));
+            let (concessao, _) = repasse.conceder(plano, || Ok((0, "fixture".to_owned().into()))).unwrap();
+            let command = format!("{} {}", crate::shell::python(&script), crate::shell::quote(saida.to_str().unwrap()));
+            let (acp, _rx) =
+                Acp::spawn_plan(&command, dir.path().to_str().unwrap(), &[], Some(Arc::new(concessao))).unwrap();
+            {
+                let mut wait =
+                    std::pin::pin!(async { if esperar { acp.kill_and_wait().await } else { acp.kill().await } });
+                assert!(futures::poll!(&mut wait).is_pending());
+            }
+            assert!(repasse.reservar_troca(plano).is_err());
+            std::fs::write(saida, []).unwrap();
+            tokio::time::timeout(Duration::from_secs(5), acp.kill_and_wait()).await.unwrap();
+            assert!(repasse.reservar_troca(plano).is_ok());
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn descarte_da_coleta_encerra_grupo_depois_de_colher_o_lider() {
+        use std::os::unix::process::ExitStatusExt as _;
+
+        let mut comando = Command::new("sh");
+        comando.args(["-c", "read -r linha"]).stdin(Stdio::piped()).process_group(0).kill_on_drop(true);
+        let mut lider = crate::fork::motor_exec::spawn(&mut comando).unwrap();
+        let group = lider.id();
+        let mut membro = Command::new("sleep")
+            .arg("30")
+            .process_group(group.unwrap().try_into().unwrap())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        lider.stdin.take();
+        lider.wait().await.unwrap();
+        assert!(lider.id().is_none());
+        drop(Reaping { child: Some(lider), group, plano: None, done: watch::channel(()).0 });
+        let status = tokio::time::timeout(Duration::from_secs(5), membro.wait()).await.unwrap().unwrap();
+        assert_eq!(status.signal(), Some(libc::SIGKILL));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn queda_fora_do_runtime_recolhe_processo_e_libera_concessao() {
+        use crate::fork::planos_codigo::{Repasse, plano_do_modelo};
+
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let plano = plano_do_modelo("opencode-go/deepseek-v4-flash").unwrap();
+        let (acp, repasse) = runtime.block_on(async {
+            let repasse = Repasse::iniciar().await.unwrap();
+            let (concessao, _) = repasse.conceder(plano, || Ok((0, "fixture".to_owned().into()))).unwrap();
+            let (acp, _rx) =
+                Acp::spawn_plan("sleep 30", dir.path().to_str().unwrap(), &[], Some(Arc::new(concessao))).unwrap();
+            (acp, repasse)
+        });
+        let pid = i32::try_from(acp.pid().unwrap()).unwrap();
+        drop(acp);
+        runtime.block_on(async {
+            tokio::time::timeout(Duration::from_secs(5), async {
+                while repasse.reservar_troca(plano).is_err() {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .unwrap();
+        });
+        // SAFETY: pid veio do filho de teste; o sinal zero só consulta sua existência.
+        let estado = unsafe { libc::kill(pid, 0) };
+        assert_eq!(estado, -1);
+        assert_eq!(std::io::Error::last_os_error().raw_os_error(), Some(libc::ESRCH));
     }
 
     #[cfg(unix)]

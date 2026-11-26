@@ -588,7 +588,6 @@ async fn pedido_de_permissao_com_parada_pedida_e_cancelado_sem_cartao() {
     actor.turn_session = Some("sessao-parando".into());
     actor.conn = Some(Conn {
         ponte: None,
-        plano: None,
         curated: crate::fork::conectores::Pool::default(),
         acp,
         rx,
