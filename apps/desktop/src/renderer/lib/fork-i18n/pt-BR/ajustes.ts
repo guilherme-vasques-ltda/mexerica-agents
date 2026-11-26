@@ -71,6 +71,8 @@ export const textos = {
   'ajustes.atualizacoes.dispensar': 'Dispensar',
   'ajustes.atualizacoes.atualizado': 'Você já está na versão mais recente.',
   'ajustes.atualizacoes.erro': 'Não foi possível verificar atualizações agora.',
+  'ajustes.atualizacoes.buscar': "Procurar novas versões no GitHub",
+  'ajustes.atualizacoes.buscarDetalhe': "Desligado, o app não faz nenhuma consulta de versão.",
   'ajustes.estado.precisaAtualizar': 'Precisa atualizar',
   'ajustes.estado.conectado': 'Conectado',
   'ajustes.estado.conectando': 'Conectando…',

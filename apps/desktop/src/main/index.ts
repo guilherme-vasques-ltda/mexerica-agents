@@ -241,6 +241,8 @@ function menu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
+let avisoDeVersao: { refresh(): void } | undefined
+
 function registerIPC(tray: Tray) {
   registerHostProxy()
   registerMexeriquinhaProtocol(host)
@@ -285,7 +287,11 @@ function registerIPC(tray: Tray) {
     return onboardingDismissal(prefs, [identity.environment, app.getPath('userData'), dataDir, port, accountRealm], confirmed?.userId, userId, action)
   })
   ipcMain.handle('app:escolhaEntrada', (event) => pedidoDoChat(event) ? lerEscolhaEntrada(arquivoEscolhaEntrada(app.getPath('userData'))) : null)
-  ipcMain.handle('app:gravarEscolhaEntrada', (event, escolha: unknown) => !!pedidoDoChat(event) && gravarEscolhaEntrada(arquivoEscolhaEntrada(app.getPath('userData')), escolha))
+  ipcMain.handle('app:gravarEscolhaEntrada', (event, escolha: unknown) => {
+    const gravou = !!pedidoDoChat(event) && gravarEscolhaEntrada(arquivoEscolhaEntrada(app.getPath('userData')), escolha)
+    if (gravou) avisoDeVersao?.refresh()
+    return gravou
+  })
   ipcMain.on('app:openExternal', (_e, url: string) => {
     void openExternalURL(url)
   })
@@ -449,7 +455,7 @@ if (yieldsToInstall()) {
     updates.register(generalWindows)
     // Nível 1 de atualizações: aviso discreto de nova versão (sem download automático, forkFeatures.updates segue false).
     if (isRc) ipcMain.handle('releaseNotice:state', () => null)
-    else registerReleaseNotice({ windows: generalWindows, userDataDir: app.getPath('userData'), currentVersion: app.getVersion() })
+    else avisoDeVersao = registerReleaseNotice({ windows: generalWindows, userDataDir: app.getPath('userData'), currentVersion: app.getVersion() })
     menu()
     aoMudarIdiomaDoApp(() => { menu(); tray.hostChanged() })
     host.on('change', () => {

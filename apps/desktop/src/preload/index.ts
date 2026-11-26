@@ -167,6 +167,7 @@ const bridge: CodyncBridge = {
     check: () => ipcRenderer.invoke('releaseNotice:check') as Promise<ReleaseNoticeState>,
     dismiss: () => ipcRenderer.invoke('releaseNotice:dismiss') as Promise<ReleaseNoticeState>,
     openDownload: () => ipcRenderer.invoke('releaseNotice:openDownload') as Promise<boolean>,
+    setCheckEnabled: (on) => ipcRenderer.invoke('releaseNotice:setCheckEnabled', on) as Promise<ReleaseNoticeState>,
     onChange: (cb) => listen('releaseNotice:change', cb),
   },
   files: {

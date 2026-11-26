@@ -16,6 +16,8 @@ export type ReleaseNoticeStatus = 'idle' | 'checking' | 'available' | 'up-to-dat
 
 export interface ReleaseNoticeState {
   supported: boolean
+  /** A busca de nova versão no GitHub está ligada. Desligada, nenhuma requisição de versão sai do app. */
+  checkEnabled: boolean
   currentVersion: string
   status: ReleaseNoticeStatus
   availableVersion: string | null

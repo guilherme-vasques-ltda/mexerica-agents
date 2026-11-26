@@ -84,14 +84,18 @@ if (!app.requestSingleInstanceLock()) {
     // própria janela do chat (a mesma guarda do hub), e o estado em `userData` segue 0600/regular.
     const daJanela = (event: IpcMainInvokeEvent | IpcMainEvent) => event.sender === window?.webContents &&
       event.senderFrame !== null && event.senderFrame === event.sender.mainFrame && event.senderFrame.url === chatURL
-    registerReleaseNotice({
+    const avisoDeVersao = registerReleaseNotice({
       windows: () => (window && !window.isDestroyed() && window.webContents.getURL() === chatURL ? [window] : []),
       userDataDir: userData,
       currentVersion: app.getVersion(),
       allowed: daJanela,
     })
     ipcMain.handle('app:escolhaEntrada', (event) => daJanela(event) ? lerEscolhaEntrada(arquivoEscolhaEntrada(userData)) : null)
-    ipcMain.handle('app:gravarEscolhaEntrada', (event, escolha: unknown) => daJanela(event) && gravarEscolhaEntrada(arquivoEscolhaEntrada(userData), escolha))
+    ipcMain.handle('app:gravarEscolhaEntrada', (event, escolha: unknown) => {
+      const gravou = daJanela(event) && gravarEscolhaEntrada(arquivoEscolhaEntrada(userData), escolha)
+      if (gravou) avisoDeVersao?.refresh()
+      return gravou
+    })
     Menu.setApplicationMenu(Menu.buildFromTemplate([
       { label: open.name, submenu: [{ label: traduzir(SOURCE_LANGUAGE, 'marca.menu.ajustes'), accelerator: 'Cmd+,', click: () => window?.webContents.send('app:command', { kind: 'openSettings' }) }, { role: 'quit' }] },
       { role: 'editMenu', submenu: [{ role: 'undo' }, { role: 'redo' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },

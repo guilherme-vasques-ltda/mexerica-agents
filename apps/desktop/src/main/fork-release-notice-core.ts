@@ -140,6 +140,8 @@ export interface CachedRelease {
 }
 
 export interface ReleaseNoticeStoreData {
+  /** Escolha explícita da pessoa em Ajustes; `null` segue o padrão do modo de uso. */
+  checkEnabled: boolean | null
   dismissedVersion: string | null
   lastCheckAt: number | null
   cachedRelease: CachedRelease | null
@@ -150,7 +152,7 @@ export interface ReleaseNoticeStore {
   save(data: ReleaseNoticeStoreData): void
 }
 
-const EMPTY_STORE: ReleaseNoticeStoreData = { dismissedVersion: null, lastCheckAt: null, cachedRelease: null }
+const EMPTY_STORE: ReleaseNoticeStoreData = { checkEnabled: null, dismissedVersion: null, lastCheckAt: null, cachedRelease: null }
 
 function readCachedRelease(raw: unknown): CachedRelease | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
@@ -183,7 +185,8 @@ export function createFileReleaseNoticeStore(filePath: string): ReleaseNoticeSto
           const record = parsed as Record<string, unknown>
           const dismissed = typeof record.dismissedVersion === 'string' ? parseStableSemver(record.dismissedVersion) : null
           const lastCheckAt = typeof record.lastCheckAt === 'number' && Number.isFinite(record.lastCheckAt) && record.lastCheckAt >= 0 ? record.lastCheckAt : null
-          return { dismissedVersion: dismissed ? dismissed.canonical : null, lastCheckAt, cachedRelease: readCachedRelease(record.cachedRelease) }
+          const checkEnabled = typeof record.checkEnabled === 'boolean' ? record.checkEnabled : null
+          return { checkEnabled, dismissedVersion: dismissed ? dismissed.canonical : null, lastCheckAt, cachedRelease: readCachedRelease(record.cachedRelease) }
         } finally {
           closeSync(fd)
         }
@@ -213,6 +216,8 @@ export function createFileReleaseNoticeStore(filePath: string): ReleaseNoticeSto
 export interface ReleaseNoticeControllerDeps {
   currentVersion: string
   store: ReleaseNoticeStore
+  /** Padrão da busca quando a pessoa não escolheu em Ajustes (o adaptador liga só no modo "com conta"). */
+  defaultCheckEnabled?: () => boolean
   fetcher?: typeof fetch
   openExternal: (url: string) => Promise<boolean>
   now?: () => number
@@ -233,6 +238,9 @@ export interface ReleaseNoticeController {
   check(options?: { manual?: boolean }): Promise<ReleaseNoticeState>
   dismiss(): ReleaseNoticeState
   openDownload(): Promise<boolean>
+  setCheckEnabled(on: boolean): ReleaseNoticeState
+  /** Reavalia o padrão (o modo de uso mudou): agenda a busca se ligou, cancela se desligou. */
+  refresh(): void
 }
 
 /**
@@ -256,8 +264,18 @@ export function createReleaseNoticeController(deps: ReleaseNoticeControllerDeps)
   }
   const cached = persisted.cachedRelease
   const restored = cached !== null && isNewerRelease(deps.currentVersion, cached.version) && validateReleaseUrl(cached.url) !== null
+  let checkPreference = persisted.checkEnabled
+  const checkEnabled = () => {
+    if (checkPreference !== null) return checkPreference
+    try {
+      return deps.defaultCheckEnabled?.() ?? true
+    } catch {
+      return false
+    }
+  }
   let state: ReleaseNoticeState = {
     supported: true,
+    checkEnabled: checkEnabled(),
     currentVersion: deps.currentVersion,
     status: restored ? 'available' : 'idle',
     availableVersion: restored ? cached!.version : null,
@@ -276,12 +294,12 @@ export function createReleaseNoticeController(deps: ReleaseNoticeControllerDeps)
     return elapsed >= 0 && elapsed < cooldownMs
   }
   const setState = (change: Partial<ReleaseNoticeState>) => {
-    state = { ...state, ...change }
+    state = { ...state, ...change, checkEnabled: checkEnabled() }
     deps.onChange?.(state)
   }
   const persist = (cachedRelease: CachedRelease | null) => {
     try {
-      deps.store.save({ dismissedVersion: state.dismissedVersion, lastCheckAt: state.lastCheckAt, cachedRelease })
+      deps.store.save({ checkEnabled: checkPreference, dismissedVersion: state.dismissedVersion, lastCheckAt: state.lastCheckAt, cachedRelease })
     } catch {}
   }
   const cachedFromState = (): CachedRelease | null =>
@@ -290,9 +308,9 @@ export function createReleaseNoticeController(deps: ReleaseNoticeControllerDeps)
       : null
 
   return {
-    getState: () => ({ ...state }),
+    getState: () => ({ ...state, checkEnabled: checkEnabled() }),
     start() {
-      if (pendingTimer !== null || withinCooldown(autoCooldownMs)) return
+      if (pendingTimer !== null || !checkEnabled() || withinCooldown(autoCooldownMs)) return
       pendingTimer = setTimer(() => {
         pendingTimer = null
         void this.check({ manual: false })
@@ -305,6 +323,7 @@ export function createReleaseNoticeController(deps: ReleaseNoticeControllerDeps)
     },
     async check(options?: { manual?: boolean }) {
       const manual = options?.manual === true
+      if (!checkEnabled()) return { ...state, checkEnabled: false }
       if (inFlight) {
         if (manual) {
           inFlightManual = true
@@ -365,6 +384,17 @@ export function createReleaseNoticeController(deps: ReleaseNoticeControllerDeps)
       setState({ dismissedVersion: state.availableVersion })
       persist(cachedFromState())
       return { ...state }
+    },
+    setCheckEnabled(on: boolean) {
+      checkPreference = on
+      persist(cachedFromState())
+      this.refresh()
+      return { ...state }
+    },
+    refresh() {
+      if (checkEnabled()) this.start()
+      else this.stop()
+      setState({})
     },
     async openDownload() {
       const url = validateReleaseUrl(state.releaseUrl)

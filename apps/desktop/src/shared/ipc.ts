@@ -309,6 +309,8 @@ export interface CodyncBridge {
     check(): Promise<ReleaseNoticeState>
     dismiss(): Promise<ReleaseNoticeState>
     openDownload(): Promise<boolean>
+    /** Liga ou desliga a busca de nova versão; desligada, nenhuma requisição de versão sai do app. */
+    setCheckEnabled(on: boolean): Promise<ReleaseNoticeState>
     onChange(cb: (s: ReleaseNoticeState) => void): () => void
   }
   files: {

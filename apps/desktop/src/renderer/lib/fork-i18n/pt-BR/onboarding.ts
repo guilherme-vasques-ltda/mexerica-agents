@@ -113,7 +113,7 @@ export const textos = {
   'onboarding.guia.modo.titulo': 'Como você quer usar a Mexerica?',
   'onboarding.guia.modo.texto': 'Você escolhe uma vez. Dá para mudar depois em Ajustes.',
   'onboarding.guia.modo.local.titulo': '100% local',
-  'onboarding.guia.modo.local.desc': 'Tudo fica neste computador, sem conta e sem telemetria. Pode ligar um servidor seu, mas não tem a versão web nem o app no celular.',
+  'onboarding.guia.modo.local.desc': "Nada sai deste computador, a não ser o que vai para o provedor de IA que você conectar. Sem conta e sem telemetria. Pode ligar um servidor seu, mas não tem a versão web nem o app no celular.",
   'onboarding.guia.modo.conta.titulo': 'Com conta',
   'onboarding.guia.modo.conta.desc': 'Tudo do 100% local, mais a versão web e o app no celular.',
   'onboarding.guia.emBreve': 'Em breve',

@@ -140,7 +140,7 @@ test('fetch: erro de rede, status inesperado e payload ilegível falham fechado'
 })
 
 /** Store em memória para os testes do controlador. */
-const storeDeMemoria = (inicial: ReleaseNoticeStoreData = { dismissedVersion: null, lastCheckAt: null, cachedRelease: null }): ReleaseNoticeStore => {
+const storeDeMemoria = (inicial: ReleaseNoticeStoreData = { checkEnabled: null, dismissedVersion: null, lastCheckAt: null, cachedRelease: null }): ReleaseNoticeStore => {
   let atual = inicial
   return { load: () => atual, save: (dados) => { atual = { ...dados } } }
 }
@@ -170,7 +170,7 @@ test('checagem automática falha em silêncio: sem cache fica idle, com cache ma
 
   const comCache = controlador({
     fetcher: fetchQueFalha,
-    store: storeDeMemoria({ dismissedVersion: null, lastCheckAt: null, cachedRelease: { version: '0.2.0', tag: 'v0.2.0', url: TAG_URL } }),
+    store: storeDeMemoria({ checkEnabled: null, dismissedVersion: null, lastCheckAt: null, cachedRelease: { version: '0.2.0', tag: 'v0.2.0', url: TAG_URL } }),
   })
   assert.equal(comCache.getState().status, 'available')
   await comCache.check({ manual: false })
@@ -204,7 +204,7 @@ test('cooldown: automático respeita 6 h e manual 60 s, mas manual com erro rete
   const agoraFn = () => agora
   const falhas = fetchDe([PAYLOAD_NOVO])
 
-  const automático = controlador({ fetcher: falhas.fetcher, now: agoraFn, store: storeDeMemoria({ dismissedVersion: null, lastCheckAt: agora - 1000, cachedRelease: null }) })
+  const automático = controlador({ fetcher: falhas.fetcher, now: agoraFn, store: storeDeMemoria({ checkEnabled: null, dismissedVersion: null, lastCheckAt: agora - 1000, cachedRelease: null }) })
   await automático.check({ manual: false })
   assert.equal(falhas.chamadas(), 0, 'última checagem há 1 s: não bate na rede')
 
@@ -247,7 +247,7 @@ test('relógio do sistema recuado não prende o cooldown: automática e manual v
   }) as typeof fetch
   const aviso = controlador({
     fetcher, now: agoraFn,
-    store: storeDeMemoria({ dismissedVersion: null, lastCheckAt: agora + 500_000, cachedRelease: null }),
+    store: storeDeMemoria({ checkEnabled: null, dismissedVersion: null, lastCheckAt: agora + 500_000, cachedRelease: null }),
   })
   await aviso.check({ manual: false })
   assert.equal(chamadas, 1, 'lastCheckAt no futuro não bloqueia a checagem automática')
@@ -314,7 +314,7 @@ test('arquivo de estado corrompido, com URL inválida ou substituído por symlin
   const arquivo = join(dir, 'release-notice.json')
   try {
     writeFileSync(arquivo, 'não é json')
-    assert.deepEqual(createFileReleaseNoticeStore(arquivo).load(), { dismissedVersion: null, lastCheckAt: null, cachedRelease: null })
+    assert.deepEqual(createFileReleaseNoticeStore(arquivo).load(), { checkEnabled: null, dismissedVersion: null, lastCheckAt: null, cachedRelease: null })
 
     writeFileSync(arquivo, JSON.stringify({ dismissedVersion: '0.2.0', lastCheckAt: 12, cachedRelease: { version: '0.2.0', tag: 'v0.2.0', url: 'https://evil.example.invalid/v0.2.0' } }))
     const lido = createFileReleaseNoticeStore(arquivo).load()
@@ -327,8 +327,8 @@ test('arquivo de estado corrompido, com URL inválida ou substituído por symlin
       writeFileSync(alvo, '{}')
       rmSync(arquivo)
       symlinkSync(alvo, arquivo)
-      assert.deepEqual(createFileReleaseNoticeStore(arquivo).load(), { dismissedVersion: null, lastCheckAt: null, cachedRelease: null }, 'leitura não segue symlink')
-      assert.throws(() => createFileReleaseNoticeStore(arquivo).save({ dismissedVersion: null, lastCheckAt: null, cachedRelease: null }), 'escrita não segue symlink')
+      assert.deepEqual(createFileReleaseNoticeStore(arquivo).load(), { checkEnabled: null, dismissedVersion: null, lastCheckAt: null, cachedRelease: null }, 'leitura não segue symlink')
+      assert.throws(() => createFileReleaseNoticeStore(arquivo).save({ checkEnabled: null, dismissedVersion: null, lastCheckAt: null, cachedRelease: null }), 'escrita não segue symlink')
     }
   } finally {
     rmSync(dir, { recursive: true, force: true })
@@ -338,7 +338,7 @@ test('arquivo de estado corrompido, com URL inválida ou substituído por symlin
 test('cache do disco só conta se ainda for mais novo que a versão atual', () => {
   const antigo = controlador({
     fetcher: fetchQueFalha,
-    store: storeDeMemoria({ dismissedVersion: null, lastCheckAt: null, cachedRelease: { version: '0.0.9', tag: 'v0.0.9', url: `${RELEASE_TAG_URL_PREFIX}v0.0.9` } }),
+    store: storeDeMemoria({ checkEnabled: null, dismissedVersion: null, lastCheckAt: null, cachedRelease: { version: '0.0.9', tag: 'v0.0.9', url: `${RELEASE_TAG_URL_PREFIX}v0.0.9` } }),
   })
   assert.equal(antigo.getState().availableVersion, null)
   assert.equal(antigo.getState().status, 'idle')
@@ -358,7 +358,7 @@ test('openDownload: abre só URL revalidada; sem URL ou inválida, não chama o 
   const semRelease = controlador({ openExternal: abre })
   assert.equal(await semRelease.openDownload(), false)
   const quebrado = controlador({
-    store: storeDeMemoria({ dismissedVersion: null, lastCheckAt: null, cachedRelease: { version: '0.2.0', tag: 'v0.2.0', url: 'https://evil.example.invalid/v0.2.0' } }),
+    store: storeDeMemoria({ checkEnabled: null, dismissedVersion: null, lastCheckAt: null, cachedRelease: { version: '0.2.0', tag: 'v0.2.0', url: 'https://evil.example.invalid/v0.2.0' } }),
     openExternal: abre,
   })
   assert.equal(await quebrado.openDownload(), false)
@@ -383,7 +383,7 @@ test('start agenda a checagem automática e stop cancela; dentro do cooldown nã
 
   const recente = controlador({
     fetcher: rede.fetcher, setTimer, clearTimer,
-    store: storeDeMemoria({ dismissedVersion: null, lastCheckAt: Date.now() - 1000, cachedRelease: null }),
+    store: storeDeMemoria({ checkEnabled: null, dismissedVersion: null, lastCheckAt: Date.now() - 1000, cachedRelease: null }),
   })
   recente.start()
   assert.equal(agendadas.length, 0, 'checado há 1 s: nada a agendar')
@@ -394,7 +394,7 @@ test('cache do disco rejeita versão/tag adulteradas e normaliza a dispensa para
   const arquivo = join(dir, 'release-notice.json')
   try {
     const comCache = (mudanca: Record<string, unknown>) =>
-      JSON.stringify({ dismissedVersion: null, lastCheckAt: 12, cachedRelease: { version: '0.2.0', tag: 'v0.2.0', url: TAG_URL, ...mudanca } })
+      JSON.stringify({ checkEnabled: null, dismissedVersion: null, lastCheckAt: 12, cachedRelease: { version: '0.2.0', tag: 'v0.2.0', url: TAG_URL, ...mudanca } })
     writeFileSync(arquivo, comCache({ tag: 'v9.9.9' }))
     assert.equal(createFileReleaseNoticeStore(arquivo).load().cachedRelease, null, 'tag que não casa com a versão')
     writeFileSync(arquivo, comCache({ version: 'v0.2.0' }))
@@ -412,7 +412,7 @@ test('cache do disco rejeita versão/tag adulteradas e normaliza a dispensa para
 test('adaptador: remetente negado não recebe o estado real e nenhum handler age', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'release-notice-'))
   try {
-    writeFileSync(join(dir, 'release-notice.json'), JSON.stringify({ dismissedVersion: null, lastCheckAt: null, cachedRelease: { version: '0.2.0', tag: 'v0.2.0', url: TAG_URL } }))
+    writeFileSync(join(dir, 'release-notice.json'), JSON.stringify({ checkEnabled: null, dismissedVersion: null, lastCheckAt: null, cachedRelease: { version: '0.2.0', tag: 'v0.2.0', url: TAG_URL } }))
     const handlers = new Map<string, (event: unknown) => unknown>()
     const ouvidas: string[] = []
     const abertas: string[] = []
@@ -428,7 +428,7 @@ test('adaptador: remetente negado não recebe o estado real e nenhum handler age
       'node:fs': fs, 'node:path': path,
     }, { process: { platform: 'linux' }, setTimeout: () => 0, clearTimeout: () => {}, URL, console: { log() {}, error() {}, warn: (...args: unknown[]) => { avisos.push(args) } } })
     modulo.registerReleaseNotice({ windows: () => [janela], userDataDir: dir, currentVersion: 'v0.1.0', allowed: (event) => (event as { ok: boolean }).ok })
-    assert.deepEqual([...handlers.keys()].sort(), ['releaseNotice:check', 'releaseNotice:dismiss', 'releaseNotice:openDownload', 'releaseNotice:state'])
+    assert.deepEqual([...handlers.keys()].sort(), ['releaseNotice:check', 'releaseNotice:dismiss', 'releaseNotice:openDownload', 'releaseNotice:setCheckEnabled', 'releaseNotice:state'])
     assert.deepEqual(ouvidas, ['before-quit'])
 
     const negado = { ok: false }
@@ -468,3 +468,92 @@ test('adaptador: remetente negado não recebe o estado real e nenhum handler age
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+
+test('busca desligada: nenhuma requisição de versão sai, nem automática nem manual', async () => {
+  const rede = fetchDe([PAYLOAD_NOVO])
+  const timers: unknown[] = []
+  const aviso = controlador({ fetcher: rede.fetcher, defaultCheckEnabled: () => false, setTimer: (cb) => { timers.push(cb); return cb } })
+  aviso.start()
+  assert.equal(timers.length, 0, 'nenhuma busca agendada')
+  await aviso.check({ manual: false })
+  const manual = await aviso.check({ manual: true })
+  assert.equal(rede.chamadas(), 0, 'nenhuma requisição')
+  assert.equal(manual.checkEnabled, false)
+  assert.equal(manual.status, 'idle')
+  assert.equal(aviso.getState().checkEnabled, false)
+})
+
+test('a escolha de Ajustes vence o padrão, fica gravada e desligar cancela a busca agendada', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'release-notice-'))
+  const arquivo = join(dir, 'release-notice.json')
+  try {
+    const rede = fetchDe([PAYLOAD_NOVO])
+    const agendadas: unknown[] = []
+    const canceladas: unknown[] = []
+    const relogio = { setTimer: (cb: () => void) => { agendadas.push(cb); return cb }, clearTimer: (h: unknown) => { canceladas.push(h) } }
+    const aviso = controlador({ fetcher: rede.fetcher, store: createFileReleaseNoticeStore(arquivo), defaultCheckEnabled: () => true, ...relogio })
+    aviso.start()
+    assert.equal(agendadas.length, 1)
+    assert.equal(aviso.setCheckEnabled(false).checkEnabled, false)
+    assert.deepEqual(canceladas, agendadas, 'a busca agendada foi cancelada')
+    assert.equal((JSON.parse(readFileSync(arquivo, 'utf8')) as ReleaseNoticeStoreData).checkEnabled, false)
+    await aviso.check({ manual: true })
+
+    const reaberto = controlador({ fetcher: rede.fetcher, store: createFileReleaseNoticeStore(arquivo), defaultCheckEnabled: () => true, ...relogio })
+    reaberto.start()
+    await reaberto.check({ manual: true })
+    assert.equal(agendadas.length, 1, 'reaberto desligado não agenda')
+    assert.equal(rede.chamadas(), 0, 'desligado, nada saiu mesmo com o padrão ligado')
+
+    const local = controlador({ fetcher: rede.fetcher, store: createFileReleaseNoticeStore(arquivo), defaultCheckEnabled: () => false, ...relogio })
+    assert.equal(local.setCheckEnabled(true).checkEnabled, true)
+    await local.check({ manual: true })
+    assert.equal(rede.chamadas(), 1, 'ligada de volta, a busca manual sai')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('adaptador: no 100% local ou sem escolha a busca nasce desligada; com conta liga; o IPC só aceita booleano autorizado', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'release-notice-'))
+  try {
+    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>()
+    let chamadas = 0
+    const fetchContado = (async () => { chamadas += 1; return resposta(404).resposta }) as typeof fetch
+    const modulo = loadMainModule<{ registerReleaseNotice: (options: { windows: () => unknown[]; userDataDir: string; currentVersion: string; allowed: (event: unknown) => boolean }) => { refresh(): void } }>('fork-release-notice', {
+      electron: {
+        app: { on: () => {} },
+        ipcMain: { handle: (canal: string, handler: (event: unknown, ...args: unknown[]) => unknown) => { handlers.set(canal, handler) } },
+        shell: { openExternal: async () => {} },
+      },
+      'node:fs': fs, 'node:path': path,
+    }, { process: { platform: 'linux' }, setTimeout: () => 0, clearTimeout: () => {}, URL, fetch: fetchContado, console: { log() {}, error() {}, warn() {} } })
+    const controlador = modulo.registerReleaseNotice({ windows: () => [], userDataDir: dir, currentVersion: 'v0.1.0', allowed: (event) => (event as { ok: boolean }).ok })
+    const permitido = { ok: true }
+    const estado = () => handlers.get('releaseNotice:state')!(permitido) as ReleaseNoticeState
+
+    assert.equal(estado().checkEnabled, false, 'sem escolha gravada, desligada')
+    await handlers.get('releaseNotice:check')!(permitido)
+    writeFileSync(join(dir, 'escolha-entrada.json'), JSON.stringify({ modo: 'local', infraestrutura: null }))
+    controlador.refresh()
+    assert.equal(estado().checkEnabled, false, '100% local nasce desligada')
+    await handlers.get('releaseNotice:check')!(permitido)
+    assert.equal(chamadas, 0, 'nada saiu no caminho local')
+
+    writeFileSync(join(dir, 'escolha-entrada.json'), JSON.stringify({ modo: 'conta', infraestrutura: 'propria' }))
+    controlador.refresh()
+    assert.equal(estado().checkEnabled, true, 'com conta nasce ligada')
+
+    assert.equal((handlers.get('releaseNotice:setCheckEnabled')!({ ok: false }, false) as ReleaseNoticeState).supported, false, 'remetente negado não muda nada')
+    assert.equal((handlers.get('releaseNotice:setCheckEnabled')!(permitido, 'false') as ReleaseNoticeState).supported, false, 'valor que não é booleano é recusado')
+    assert.equal(estado().checkEnabled, true)
+    assert.equal((handlers.get('releaseNotice:setCheckEnabled')!(permitido, false) as ReleaseNoticeState).checkEnabled, false)
+    await handlers.get('releaseNotice:check')!(permitido)
+    assert.equal(chamadas, 0, 'desligada em Ajustes, nada saiu')
+    assert.equal((JSON.parse(readFileSync(join(dir, 'release-notice.json'), 'utf8')) as ReleaseNoticeStoreData).checkEnabled, false)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+

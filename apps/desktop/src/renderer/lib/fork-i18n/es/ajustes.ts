@@ -74,6 +74,8 @@ export const textos: Traducao<typeof fonte> = {
   'ajustes.atualizacoes.dispensar': 'Descartar',
   'ajustes.atualizacoes.atualizado': 'Ya tienes la versión más reciente.',
   'ajustes.atualizacoes.erro': 'No se pudo comprobar si hay actualizaciones ahora.',
+  'ajustes.atualizacoes.buscar': "Buscar nuevas versiones en GitHub",
+  'ajustes.atualizacoes.buscarDetalhe': "Si está desactivado, la app no hace ninguna consulta de versión.",
   'ajustes.estado.precisaAtualizar': 'Necesita actualizarse',
   'ajustes.estado.conectado': 'Conectado',
   'ajustes.estado.conectando': 'Conectando…',

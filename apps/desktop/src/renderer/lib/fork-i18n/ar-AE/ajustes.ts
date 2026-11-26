@@ -74,6 +74,8 @@ export const textos: Traducao<typeof fonte> = {
   'ajustes.atualizacoes.dispensar': 'تجاهل',
   'ajustes.atualizacoes.atualizado': 'أنت على أحدث إصدار.',
   'ajustes.atualizacoes.erro': 'تعذر التحقق من التحديثات الآن.',
+  'ajustes.atualizacoes.buscar': "البحث عن إصدارات جديدة على GitHub",
+  'ajustes.atualizacoes.buscarDetalhe': "عند الإيقاف، لا يرسل التطبيق أي طلب للتحقق من الإصدار.",
   'ajustes.estado.precisaAtualizar': 'يحتاج إلى تحديث',
   'ajustes.estado.conectado': 'متصل',
   'ajustes.estado.conectando': 'جارٍ الاتصال…',

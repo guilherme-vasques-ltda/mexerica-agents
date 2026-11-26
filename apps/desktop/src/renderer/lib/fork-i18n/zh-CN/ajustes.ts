@@ -74,6 +74,8 @@ export const textos: Traducao<typeof fonte> = {
   'ajustes.atualizacoes.dispensar': '忽略',
   'ajustes.atualizacoes.atualizado': '你已经是最新版本。',
   'ajustes.atualizacoes.erro': '暂时无法检查更新。',
+  'ajustes.atualizacoes.buscar': "在 GitHub 上检查新版本",
+  'ajustes.atualizacoes.buscarDetalhe': "关闭后，应用不会发出任何版本查询。",
   'ajustes.estado.precisaAtualizar': '需要更新',
   'ajustes.estado.conectado': '已连接',
   'ajustes.estado.conectando': '正在连接…',

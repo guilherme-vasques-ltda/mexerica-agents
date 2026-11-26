@@ -275,7 +275,8 @@ test('Entrada guiada pergunta 100% local ou com conta; sem login na versão, "Co
   assert.match(modo, /Passo 2 de 5/)
   assert.match(modo, /<button[^>]*role="radio" aria-checked="true"[^>]*>(?:(?!<\/button>).)*100% local/)
   assert.match(modo, /<button[^>]*role="radio" aria-checked="false" disabled=""[^>]*>(?:(?!<\/button>).)*Com conta(?:(?!<\/button>).)*Em breve/)
-  assert.match(modo, /sem conta e sem telemetria/)
+  assert.match(modo, /Nada sai deste computador, a não ser o que vai para o provedor de IA que você conectar/)
+  assert.match(modo, /Sem conta e sem telemetria/)
 
   const nuvem = tela('nuvem')
   assert.match(nuvem, /Passo 3 de 6/)

@@ -50,7 +50,7 @@ runInNewContext(bundle.outputFiles[0]!.text, {
 })
 const m = module.exports as {
   AvisoAtualizacaoView: import('react').ComponentType<{ state: ReleaseNoticeState | null; onOpenDownload: () => void; onDismiss: () => void }>
-  AtualizacaoAjusteView: import('react').ComponentType<{ state: ReleaseNoticeState; onCheck: () => void; onOpenDownload: () => void }>
+  AtualizacaoAjusteView: import('react').ComponentType<{ state: ReleaseNoticeState; onCheck: () => void; onOpenDownload: () => void; onCheckEnabled: (on: boolean) => void }>
   createElement: typeof import('react').createElement
   renderToStaticMarkup: typeof import('react-dom/server').renderToStaticMarkup
 }
@@ -58,13 +58,13 @@ const t = tradutor('pt-BR')
 
 const TAG_URL = `${RELEASE_TAG_URL_PREFIX}v0.2.0`
 const estado = (mudanca: Partial<ReleaseNoticeState> = {}): ReleaseNoticeState => ({
-  supported: true, currentVersion: '0.1.0', status: 'available', availableVersion: '0.2.0', availableTag: 'v0.2.0',
+  supported: true, checkEnabled: true, currentVersion: '0.1.0', status: 'available', availableVersion: '0.2.0', availableTag: 'v0.2.0',
   releaseUrl: TAG_URL, dismissedVersion: null, lastCheckAt: null, ...mudanca,
 })
 const aviso = (state: ReleaseNoticeState | null) =>
   m.renderToStaticMarkup(m.createElement(m.AvisoAtualizacaoView, { state, onOpenDownload: () => {}, onDismiss: () => {} }))
 const ajuste = (state: ReleaseNoticeState) =>
-  m.renderToStaticMarkup(m.createElement(m.AtualizacaoAjusteView, { state, onCheck: () => {}, onOpenDownload: () => {} }))
+  m.renderToStaticMarkup(m.createElement(m.AtualizacaoAjusteView, { state, onCheck: () => {}, onOpenDownload: () => {}, onCheckEnabled: () => {} }))
 
 // Texto que a pessoa lê: sem tags, com as entidades que o React escapa.
 const textoVisivel = (html: string) => html.replace(/<[^>]+>/g, ' ')
