@@ -142,21 +142,26 @@ fn launch_passes_only_the_selected_binary_and_its_private_environment() {
 }
 
 #[test]
-fn chat_turns_off_codex_tools_and_admin_policy_must_belong_to_root() {
+fn chat_uses_cached_web_search_without_enabling_local_tools() {
     for tool in ["shell_tool", "unified_exec", "view_image", "multi_agent", "apps", "plugins", "image_generation"] {
         assert!(CHAT_OVERRIDES.contains(&format!("features.{tool}=false").as_str()), "{tool}");
     }
-    assert!(CHAT_OVERRIDES.contains(&"web_search=\"disabled\""));
+    assert!(CHAT_OVERRIDES.contains(&"web_search=\"cached\""));
     for setting in [
         "sandbox_mode=\"read-only\"",
         "approval_policy=\"never\"",
         "features.hooks=false",
         "features.sleep_tool=false",
+        "features.standalone_web_search=false",
         "tools.experimental_request_user_input.enabled=false",
         "mcp_oauth_credentials_store=\"file\"",
     ] {
         assert!(CHAT_OVERRIDES.contains(&setting), "{setting}");
     }
+}
+
+#[test]
+fn admin_policy_must_belong_to_root() {
     let fixture = Fixture::new();
     assert!(admin_policy_safe(&fixture.scope.join("absent")));
     let owned_by_user = fixture.scope.join("codex");
