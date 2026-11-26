@@ -1,4 +1,4 @@
-use crate::{Cli, Sub, environment::Environment};
+use crate::{Cli, Sub, api::devices::Caller, environment::Environment};
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use serde_json::Value;
@@ -37,16 +37,20 @@ pub(crate) fn require_executor() -> std::io::Result<()> {
     Ok(())
 }
 
-pub(crate) fn check_request(method: &str, body: &Value) -> Result<()> {
-    if !Environment::is_open() || open_allows(method, body) {
+pub(crate) fn check_request(caller: &Caller, method: &str, body: &Value) -> Result<()> {
+    if !Environment::is_open() || open_allows(caller, method, body) {
         return Ok(());
     }
     Err(crate::api::devices::Forbidden.into())
 }
 
 /// Lista fechada do que a Open aceita: todo método fora dela, inclusive os de conexões de IA, é recusado.
-pub(crate) fn open_allows(method: &str, body: &Value) -> bool {
+pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
     match method {
+        "donnaTaskProposals" | "donnaTimes" | crate::fork::native_catalog::METHOD => matches!(caller, Caller::Local),
+        crate::fork::native_catalog::ADD_METHOD => {
+            matches!(caller, Caller::Local) && body["spaceId"].as_str() == Some(crate::fork::spaces::PERSONAL)
+        }
         "hello"
         | crate::fork::workspace::METHOD
         | "refreshBackends"
@@ -82,7 +86,40 @@ pub(crate) fn open_allows(method: &str, body: &Value) -> bool {
 #[cfg(test)]
 mod tests {
     use super::open_allows;
+    use crate::{api::devices::Caller, store::Scope};
     use serde_json::json;
+
+    #[test]
+    fn open_libera_propostas_equipes_e_biblioteca_so_ao_dono_local() {
+        let device = Caller::Device { key: "device".into(), scopes: vec![Scope::Control], autoridade: None };
+        for method in ["donnaTaskProposals", "donnaTimes", "donnaNativeCatalog"] {
+            assert!(open_allows(&Caller::Local, method, &json!({})), "{method}");
+            assert!(!open_allows(&device, method, &json!({})), "{method}");
+        }
+        let personal = json!({"spaceId": crate::fork::spaces::PERSONAL});
+        assert!(open_allows(&Caller::Local, "donnaNativeCatalogAdd", &personal));
+        assert!(!open_allows(&device, "donnaNativeCatalogAdd", &personal));
+        for body in [json!({}), json!({"spaceId": "outro-space"})] {
+            assert!(!open_allows(&Caller::Local, "donnaNativeCatalogAdd", &body));
+        }
+        for method in [
+            "donnaTaskProposalDecide",
+            "donnaTimesPreview",
+            "donnaTimesSave",
+            "functionModels",
+            "backgroundSpaceSelections",
+            "routines",
+            "routinesOverview",
+            "skills",
+            "installSkill",
+            "donnaMailManager",
+            "credentialLogins",
+            "readUpload",
+            "unknownMethod",
+        ] {
+            assert!(!open_allows(&Caller::Local, method, &json!({})), "{method}");
+        }
+    }
 
     #[test]
     fn open_recusa_os_metodos_de_planos_de_codigo_e_de_chaves() {
@@ -91,18 +128,18 @@ mod tests {
             "setAgentEnv",
             "agentAuthenticate",
         ]) {
-            assert!(!open_allows(method, &json!({})), "{method} não pode existir na Open");
+            assert!(!open_allows(&Caller::Local, method, &json!({})), "{method} não pode existir na Open");
         }
-        assert!(open_allows("hello", &json!({})));
-        assert!(open_allows("donnaOnboardingStatus", &json!({})));
-        assert!(open_allows("donnaOnboardingDetect", &json!({})));
-        assert!(!open_allows("donnaOnboardingSave", &json!({})));
-        assert!(open_allows("createBot", &json!({})));
-        assert!(!open_allows("createBot", &json!({"cwd": "/tmp"})));
-        assert!(open_allows("send", &json!({"text": "oi"})));
-        assert!(open_allows("send", &json!({"attachments": null, "sessionId": null})));
-        assert!(!open_allows("send", &json!({"attachments": ["arquivo"]})));
-        assert!(!open_allows("send", &json!({"sessionId": "extra"})));
+        assert!(open_allows(&Caller::Local, "hello", &json!({})));
+        assert!(open_allows(&Caller::Local, "donnaOnboardingStatus", &json!({})));
+        assert!(open_allows(&Caller::Local, "donnaOnboardingDetect", &json!({})));
+        assert!(!open_allows(&Caller::Local, "donnaOnboardingSave", &json!({})));
+        assert!(open_allows(&Caller::Local, "createBot", &json!({})));
+        assert!(!open_allows(&Caller::Local, "createBot", &json!({"cwd": "/tmp"})));
+        assert!(open_allows(&Caller::Local, "send", &json!({"text": "oi"})));
+        assert!(open_allows(&Caller::Local, "send", &json!({"attachments": null, "sessionId": null})));
+        assert!(!open_allows(&Caller::Local, "send", &json!({"attachments": ["arquivo"]})));
+        assert!(!open_allows(&Caller::Local, "send", &json!({"sessionId": "extra"})));
     }
 }
 
