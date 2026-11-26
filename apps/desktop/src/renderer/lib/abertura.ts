@@ -2,7 +2,8 @@
 // primeira tela monta por baixo e a abertura sai do DOM sem fade (medido no Electron, o fade de 180 ms atrasava a
 // primeira pintura em ~30–50 ms; o fundo é o mesmo --canvas).
 // Decisão de UX do dono (16/11/2026): a abertura fica visível por pelo menos MIN_SPLASH_MS, mesmo que o app esteja
-// pronto antes (com movimento reduzido, a cena estática fica pelo mesmo tempo). Isso só vale para o que se VÊ: o tempo
+// pronto antes (com movimento reduzido, a cena estática fica pelo mesmo tempo). Em 26/11/2026 o dono pediu mais ~2 s:
+// o mínimo passou de 2000 para 4000 ms. Isso só vale para o que se VÊ: o tempo
 // real de pronto (meta MEX-1209, "abrir em até 700 ms") segue medido à parte, na marca MARCA_PRIMEIRA_TELA.
 
 /** Marcas de desempenho da primeira tela (MX-94: régua de abertura): montada (commit) e pintada (quadro seguinte). */
@@ -12,7 +13,7 @@ export const MARCA_PRIMEIRA_TELA_PINTADA = 'mexerica:primeira-tela-pintada'
 export const MARCA_ABERTURA_REMOVIDA = 'mexerica:abertura-removida'
 
 /** Tempo mínimo, em ms desde o início da navegação, em que a abertura fica na tela. */
-export const MIN_SPLASH_MS = 2000
+export const MIN_SPLASH_MS = 4000
 
 /** Sai da hora (sem esperar o mínimo): é o caminho do erro de carga, que nunca fica preso atrás da abertura. */
 export function sairDaAbertura(doc: Document = document) {
