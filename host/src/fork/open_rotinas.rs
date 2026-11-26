@@ -1,0 +1,117 @@
+//! Rotinas na Open: recusa de gatilhos de rede no salvamento e execução das pendentes pelo turno só de texto.
+use crate::LockExt;
+use crate::fork::open_chat;
+use crate::fork::rotina_resultado::{End, Observed, Reason};
+use crate::hub::Hub;
+use anyhow::{Result, ensure};
+use serde_json::Value;
+use std::{
+    collections::HashSet,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
+
+/// A Open só agenda por relógio: gatilho de webhook ou de evento depende de entrada externa.
+pub(crate) fn check_save(body: &Value) -> Result<()> {
+    let Some(triggers) = body.get("triggers") else { return Ok(()) };
+    let Some(triggers) = triggers.as_array() else { anyhow::bail!("open_routine_trigger_invalid") };
+    for trigger in triggers {
+        ensure!(
+            matches!(trigger.get("type").and_then(Value::as_str), Some(kind) if kind != "webhook" && kind != "event"),
+            "open_routine_trigger_unavailable"
+        );
+    }
+    Ok(())
+}
+
+pub(crate) fn start(hub: &Arc<Hub>) {
+    let weak = Arc::downgrade(hub);
+    tokio::spawn(async move {
+        let running = Arc::new(Mutex::new(HashSet::<String>::new()));
+        let mut clock = tokio::time::interval(Duration::from_secs(1));
+        clock.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            clock.tick().await;
+            let Some(hub) = weak.upgrade() else { break };
+            if hub.routines.stopping() {
+                break;
+            }
+            for (bot, run) in hub.routines.pending_open_runs() {
+                if !open_chat::open_busy(&[bot.as_str()]).is_empty() || !running.locked().insert(run.clone()) {
+                    continue;
+                }
+                let (hub, running) = (hub.clone(), running.clone());
+                tokio::spawn(async move {
+                    execute(&hub, &bot, &run).await;
+                    running.locked().remove(&run);
+                });
+            }
+        }
+    });
+}
+
+async fn execute(hub: &Arc<Hub>, bot: &str, run: &str) {
+    let claim = {
+        let (hub, bot, run) = (hub.clone(), bot.to_owned(), run.to_owned());
+        tokio::task::spawn_blocking(move || hub.routines.begin(&hub, &bot, &run)).await
+    };
+    let prepared = match claim {
+        Ok(Ok(Some(prepared))) => prepared,
+        Ok(Ok(None)) => return,
+        Ok(Err(error)) => return tracing::error!(error = format!("{error:#}"), run, "rotina da Open não reservada"),
+        Err(error) => return tracing::error!(%error, run, "reserva da rotina da Open falhou"),
+    };
+    let outcome = async {
+        let cfg = hub
+            .store
+            .bot(bot)?
+            .filter(|row| !row.deleted)
+            .ok_or_else(|| anyhow::anyhow!("open_chat_cancelled"))?
+            .config;
+        let ticket = open_chat::begin(hub, &cfg)?;
+        open_chat::routine_turn(hub, ticket, &cfg, prepared.lane, prepared.prompt, prepared.timeout).await
+    }
+    .await;
+    let (observed, detail, text) = match outcome {
+        Ok(text) => (
+            Observed {
+                end: End::Finished(Some("end_turn".into())),
+                visible_reply: !text.trim().is_empty(),
+                terminal: false,
+            },
+            None,
+            Some(text),
+        ),
+        Err(error) => {
+            let detail = error.to_string().chars().take(200).collect::<String>();
+            (Observed::failed(Reason::AgentError), Some(detail), None)
+        }
+    };
+    let hub = hub.clone();
+    let id = run.to_owned();
+    let saved = tokio::task::spawn_blocking(move || hub.routines.complete(&hub, &id, &observed, detail, text)).await;
+    if !matches!(saved, Ok(Ok(()))) {
+        tracing::error!(run, "resultado da rotina da Open não gravado");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::check_save;
+    use serde_json::json;
+
+    #[test]
+    fn salvar_recusa_gatilho_de_rede_e_aceita_relogio() {
+        assert!(check_save(&json!({})).is_ok());
+        assert!(
+            check_save(&json!({"triggers": [{"type": "interval", "seconds": 60}, {"type": "once", "at": 1}]})).is_ok()
+        );
+        assert!(
+            check_save(&json!({"triggers": [{"type": "cron", "expression": "0 9 * * *", "timeZone": "UTC"}]})).is_ok()
+        );
+        assert!(check_save(&json!({"triggers": [{"type": "webhook"}]})).is_err());
+        assert!(check_save(&json!({"triggers": [{"type": "interval", "seconds": 60}, {"type": "event", "source": "s", "event": "e"}]})).is_err());
+        assert!(check_save(&json!({"triggers": [{}]})).is_err());
+        assert!(check_save(&json!({"triggers": "webhook"})).is_err());
+    }
+}

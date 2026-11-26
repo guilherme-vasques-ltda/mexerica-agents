@@ -260,6 +260,9 @@ impl Routines {
             .filter(|b| !b.deleted && !b.config.is_group())
             .context("routine requires an existing agent bot")?;
         after_lookup();
+        if crate::environment::Environment::is_open() {
+            crate::fork::open_rotinas::check_save(body)?;
+        }
         if let Some(origin) = origin.filter(|origin| origin.is_creation()) {
             return self.save_bot_created(hub, &row.config, body, origin);
         }

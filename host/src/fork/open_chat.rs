@@ -296,6 +296,52 @@ pub(crate) fn run(
     });
 }
 
+/// Roda o turno de uma rotina da Open e devolve o texto da resposta; passado o prazo, interrompe o turno e falha.
+pub(crate) async fn routine_turn(
+    hub: &Arc<Hub>,
+    ticket: Ticket,
+    cfg: &BotConfig,
+    lane: Lane,
+    prompt: String,
+    timeout: Duration,
+) -> Result<String> {
+    let Ticket { bot, account, directory, model, mut cancel, done } = ticket;
+    let instructions = format!("{}\n\n{INSTRUCTIONS}", cfg.description.trim());
+    let outcome = async {
+        let turn = hub.store.alloc_turn(&cfg.id)?;
+        let mut reply = Stream::new(hub, &lane, turn, &bot);
+        let result = {
+            let mut turn_run = std::pin::pin!(turn_in_profile(
+                hub,
+                &directory,
+                &account,
+                &lane,
+                (&instructions, model.as_deref()),
+                &prompt,
+                ("", None),
+                &mut cancel,
+                &mut reply,
+            ));
+            tokio::select! {
+                result = &mut turn_run => result,
+                () = tokio::time::sleep(timeout) => {
+                    stop(&bot);
+                    let _ = turn_run.await;
+                    Err(anyhow!("open_chat_timeout"))
+                }
+            }
+        };
+        reply.close();
+        result.map(|()| reply.text)
+    }
+    .await;
+    if let Some(running) = RUNNING.locked().as_mut() {
+        running.remove(&bot);
+    }
+    drop(done);
+    outcome
+}
+
 #[cfg(unix)]
 #[allow(clippy::too_many_arguments)]
 async fn turn_in_profile(

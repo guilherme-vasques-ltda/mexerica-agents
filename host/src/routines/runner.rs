@@ -45,6 +45,20 @@ impl Routines {
         self.stopping.load(Ordering::Acquire)
     }
 
+    /// Execuções prontas para sair da fila, como (bot, execução); vazio com as rotinas pausadas.
+    pub fn pending_open_runs(&self) -> Vec<(String, String)> {
+        let s = self.state.locked();
+        let now = now_ms();
+        if s.paused {
+            return Vec::new();
+        }
+        s.runs
+            .iter()
+            .filter(|r| r.status == Status::Pending && r.retry_not_before_ms.is_none_or(|at| at <= now))
+            .map(|r| (r.bot_id.clone(), r.id.clone()))
+            .collect()
+    }
+
     pub fn release(&self, bot: &str) {
         self.active.locked().remove(bot);
     }

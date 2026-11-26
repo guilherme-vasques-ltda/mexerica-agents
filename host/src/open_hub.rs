@@ -1,4 +1,4 @@
-use crate::{Cli, Sub, environment::Environment};
+use crate::{Cli, Sub, api::devices::Caller, environment::Environment};
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use serde_json::Value;
@@ -37,16 +37,18 @@ pub(crate) fn require_executor() -> std::io::Result<()> {
     Ok(())
 }
 
-pub(crate) fn check_request(method: &str, body: &Value) -> Result<()> {
-    if !Environment::is_open() || open_allows(method, body) {
+pub(crate) fn check_request(caller: &Caller, method: &str, body: &Value) -> Result<()> {
+    if !Environment::is_open() || open_allows(caller, method, body) {
         return Ok(());
     }
     Err(crate::api::devices::Forbidden.into())
 }
 
 /// Lista fechada do que a Open aceita: todo método fora dela, inclusive os de conexões de IA, é recusado.
-pub(crate) fn open_allows(method: &str, body: &Value) -> bool {
+pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
     match method {
+        "routines" | "routinesOverview" | "routineSchedule" | "routinesPause" | "saveRoutine" | "setRoutineEnabled"
+        | "deleteRoutine" | "setRoutinesPaused" | "runRoutine" => matches!(caller, Caller::Local),
         "hello"
         | crate::fork::workspace::METHOD
         | "refreshBackends"
@@ -83,7 +85,7 @@ pub(crate) fn open_allows(method: &str, body: &Value) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::open_allows;
+    use super::{Caller, open_allows};
     use serde_json::json;
 
     #[test]
@@ -93,12 +95,12 @@ mod tests {
             "setAgentEnv",
             "agentAuthenticate",
         ]) {
-            assert!(!open_allows(method, &json!({})), "{method} não pode existir na Open");
+            assert!(!open_allows(&Caller::Local, method, &json!({})), "{method} não pode existir na Open");
         }
-        assert!(open_allows("hello", &json!({})));
-        assert!(open_allows("donnaOnboardingStatus", &json!({})));
-        assert!(open_allows("donnaOnboardingDetect", &json!({})));
-        assert!(open_allows("marketCatalogo", &json!({})));
+        assert!(open_allows(&Caller::Local, "hello", &json!({})));
+        assert!(open_allows(&Caller::Local, "donnaOnboardingStatus", &json!({})));
+        assert!(open_allows(&Caller::Local, "donnaOnboardingDetect", &json!({})));
+        assert!(open_allows(&Caller::Local, "marketCatalogo", &json!({})));
         for method in [
             "marketServico",
             "marketContas",
@@ -108,15 +110,40 @@ mod tests {
             "donnaWhatsapp",
             "credentialStatus",
         ] {
-            assert!(!open_allows(method, &json!({})));
+            assert!(!open_allows(&Caller::Local, method, &json!({})));
         }
-        assert!(!open_allows("donnaOnboardingSave", &json!({})));
-        assert!(open_allows("createBot", &json!({})));
-        assert!(!open_allows("createBot", &json!({"cwd": "/tmp"})));
-        assert!(open_allows("send", &json!({"text": "oi"})));
-        assert!(open_allows("send", &json!({"attachments": null, "sessionId": null})));
-        assert!(!open_allows("send", &json!({"attachments": ["arquivo"]})));
-        assert!(!open_allows("send", &json!({"sessionId": "extra"})));
+        assert!(!open_allows(&Caller::Local, "donnaOnboardingSave", &json!({})));
+        assert!(open_allows(&Caller::Local, "createBot", &json!({})));
+        assert!(!open_allows(&Caller::Local, "createBot", &json!({"cwd": "/tmp"})));
+        assert!(open_allows(&Caller::Local, "send", &json!({"text": "oi"})));
+        assert!(open_allows(&Caller::Local, "send", &json!({"attachments": null, "sessionId": null})));
+        assert!(!open_allows(&Caller::Local, "send", &json!({"attachments": ["arquivo"]})));
+        assert!(!open_allows(&Caller::Local, "send", &json!({"sessionId": "extra"})));
+    }
+
+    const ROTINAS: [&str; 9] = [
+        "routines",
+        "routinesOverview",
+        "routineSchedule",
+        "routinesPause",
+        "saveRoutine",
+        "setRoutineEnabled",
+        "deleteRoutine",
+        "setRoutinesPaused",
+        "runRoutine",
+    ];
+
+    #[test]
+    fn open_so_deixa_este_computador_gerir_rotinas() {
+        let device =
+            Caller::Device { key: "aparelho".into(), scopes: vec![crate::store::Scope::Control], autoridade: None };
+        for method in ROTINAS {
+            assert!(open_allows(&Caller::Local, method, &json!({})), "{method} é do computador");
+            assert!(!open_allows(&device, method, &json!({})), "{method} não é de aparelho");
+        }
+        for method in ["routineWebhook", "routineCall", "duplicateRoutine"] {
+            assert!(!open_allows(&Caller::Local, method, &json!({})), "{method} não existe na Open");
+        }
     }
 }
 
