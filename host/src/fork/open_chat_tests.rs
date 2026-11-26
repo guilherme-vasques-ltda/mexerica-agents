@@ -71,6 +71,14 @@ async fn turn_keeping(
     mode: &str,
     thread: Option<&str>,
 ) -> (anyhow::Result<String>, String, Vec<Value>, Option<String>) {
+    turn_with_model(mode, thread, None).await
+}
+
+async fn turn_with_model(
+    mode: &str,
+    thread: Option<&str>,
+    model: Option<&str>,
+) -> (anyhow::Result<String>, String, Vec<Value>, Option<String>) {
     let dir = std::env::temp_dir().join(format!("open-chat-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
     let log = dir.join("log");
@@ -90,7 +98,7 @@ async fn turn_keeping(
     let result = drive(
         &mut rpc,
         thread,
-        "Fixture instructions",
+        ("Fixture instructions", model),
         "Oi",
         &mut cancel,
         |id| {
@@ -132,6 +140,18 @@ async fn text_turn_streams_reply_without_tools_or_approvals() {
     let input = &find(&sent, "turn/start").unwrap()["params"];
     assert_eq!(input["threadId"], "thread-1");
     assert_eq!(input["input"][0]["text"], "Oi");
+}
+
+#[tokio::test]
+async fn verified_model_goes_with_thread_start_and_resume_and_none_keeps_codex_default() {
+    let (result, _, sent, _) = turn_with_model("ok", None, Some("gpt-test-model")).await;
+    assert_eq!(result.unwrap(), "thread-1");
+    assert_eq!(find(&sent, "thread/start").unwrap()["params"]["model"], "gpt-test-model");
+    let (result, _, sent, _) = turn_with_model("resume", Some("thread-9"), Some("gpt-test-model")).await;
+    assert_eq!(result.unwrap(), "thread-9");
+    assert_eq!(find(&sent, "thread/resume").unwrap()["params"]["model"], "gpt-test-model");
+    let (_, _, sent) = turn("ok", None).await;
+    assert!(find(&sent, "thread/start").unwrap()["params"].get("model").is_none());
 }
 
 #[tokio::test]
@@ -241,7 +261,7 @@ async fn a_completed_only_reply_past_the_limit_stops_the_turn() {
     let result = drive(
         &mut rpc,
         None,
-        "Fixture instructions",
+        ("Fixture instructions", None),
         "Oi",
         &mut cancel,
         |_| Ok(()),
@@ -282,7 +302,7 @@ async fn the_message_is_marked_sent_only_after_the_codex_accepts_the_turn() {
         let result = drive(
             &mut rpc,
             None,
-            "Fixture instructions",
+            ("Fixture instructions", None),
             "Oi",
             &mut cancel,
             |_| Ok(()),
@@ -352,7 +372,7 @@ async fn a_reply_past_the_limit_stops_the_turn_instead_of_dropping_pieces() {
     let result = drive(
         &mut rpc,
         None,
-        "Fixture instructions",
+        ("Fixture instructions", None),
         "Oi",
         &mut cancel,
         |_| Ok(()),
@@ -415,7 +435,7 @@ async fn text_is_not_delivered_when_authority_ends_after_thread_start() {
     let result = drive(
         &mut rpc,
         None,
-        "Fixture instructions",
+        ("Fixture instructions", None),
         "texto que não pode chegar",
         &mut cancel,
         |_| workspace::bump(&hub, workspace::Motivo::RoleChanged).map(|_| ()),

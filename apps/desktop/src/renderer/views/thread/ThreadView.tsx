@@ -2,6 +2,7 @@
 import { focoBerga } from '../fork/atalho-berga/foco'
 import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { isGroup, isWorkingIn, type Bot, type Entry } from '@shared/models'
+import { isOpenDesktop } from '@shared/fork-capacidades'
 import { BotAvatar, GroupAvatar } from '../../components/Avatar'
 import { Spinner } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
@@ -317,6 +318,7 @@ export const ThreadView = memo(function ThreadView({ botId, panelScope }: { botI
   const openTrace = useCallback(() => setShowTrace(true), [])
 
   const presentRoutine = useCallback((id: string | null) => {
+    if (isOpenDesktop(window.codync)) return
     setRoutineId(id)
     setRoutineRequest((r) => r + 1)
     setDetailsTab('routines')
@@ -365,7 +367,7 @@ export const ThreadView = memo(function ThreadView({ botId, panelScope }: { botI
           {!calling ? <RotuloModelo store={store} chat={bot} sessionId={openSession} /> : null}
         </div>
         {/* An update card takes the composer's place, so there's nothing to reply with. */}
-        <Transcript key={markKey(botId, openSession)} botId={botId} sessionId={openSession} sessions={sessions} openTrace={openTrace} onReply={store.mismatch ? undefined : setReplyTo} openRoutine={presentRoutine} openBotChat={setBotChat} firstChatOnboarding={showFirstChat && bot ? <FirstChatOnboarding bot={bot} hasReadyAi={onboarding.hasReadyAi} onPickTask={starterTour.pick} onConnectAi={onboarding.connectAi} /> : undefined} />
+        <Transcript key={markKey(botId, openSession)} botId={botId} sessionId={openSession} sessions={sessions} openTrace={openTrace} onReply={store.mismatch ? undefined : setReplyTo} openRoutine={presentRoutine} openBotChat={setBotChat} hideOpenSetup={sameOnboardingHub && !store.mismatch && onboarding.hasReadyAi} firstChatOnboarding={showFirstChat && bot ? <FirstChatOnboarding bot={bot} hasReadyAi={onboarding.hasReadyAi} onPickTask={starterTour.pick} onConnectAi={onboarding.connectAi} /> : undefined} />
         <div className="composer-dock" ref={dock}>
           <div className="composer-fade" />
           {encerrar.aviso}
@@ -458,7 +460,9 @@ function ConnectionSubtitle() {
 /** The messages: every loaded message, brought to the newest as it changes while the reader is at the bottom. */
 const PAGE = 40
 
-const Transcript = memo(function Transcript({ botId, sessionId, sessions, openTrace, onReply, openRoutine, openBotChat, firstChatOnboarding }: { botId: string; sessionId: string | null; sessions: ChatSessions; openTrace: () => void; onReply?: (e: Entry) => void; openRoutine: (id: string | null) => void; openBotChat: (peerId: string) => void; firstChatOnboarding?: ReactNode }) {
+const withoutOpenSetup = (entries: Entry[]) => entries.filter((e) => e.kind !== 'notice' || e.data.code !== 'open_setup')
+
+const Transcript = memo(function Transcript({ botId, sessionId, sessions, openTrace, onReply, openRoutine, openBotChat, hideOpenSetup, firstChatOnboarding }: { botId: string; sessionId: string | null; sessions: ChatSessions; openTrace: () => void; onReply?: (e: Entry) => void; openRoutine: (id: string | null) => void; openBotChat: (peerId: string) => void; hideOpenSetup: boolean; firstChatOnboarding?: ReactNode }) {
   const store = useStoreRef()
   // MX-4 (C9): a fatia do transcript — esta conversa, o bot, a conexão e os autores das linhas.
   useSelector(store, (s) => [
@@ -480,7 +484,7 @@ const Transcript = memo(function Transcript({ botId, sessionId, sessions, openTr
   // MX-4 (C10): sessão, fila, itens, passos e recibos vêm do cache por lista (chatView) — a remontagem da
   // troca de conversa não refaz o pipeline. DON-907: as que esperam na fila ficam na bandeja, fora da conversa.
   const hasOlderHistory = store.canLoadOlder(botId)
-  const view = useMemo(() => chatView(chatEntries, botId, sessionId, sessions.known, hasOlderHistory), [chatEntries, botId, sessionId, sessions.known, hasOlderHistory])
+  const view = useMemo(() => chatView(hideOpenSetup ? withoutOpenSetup(chatEntries) : chatEntries, botId, sessionId, sessions.known, hasOlderHistory), [chatEntries, botId, sessionId, sessions.known, hasOlderHistory, hideOpenSetup])
   const activeChanges = changesReplyId ? view.changes.get(changesReplyId) ?? null : null
   const all = view.items
   const steps = view.steps
@@ -544,7 +548,8 @@ const Transcript = memo(function Transcript({ botId, sessionId, sessions, openTr
     if (at === 0) {
       const anchor = list[0]?.id
       await store.loadOlder(botId)
-      list = chatView(store.allEntries(botId), botId, sessionId, sessions.known).items
+      const refreshed = store.allEntries(botId)
+      list = chatView(hideOpenSetup ? withoutOpenSetup(refreshed) : refreshed, botId, sessionId, sessions.known).items
       at = anchor ? Math.max(0, list.findIndex((i) => i.id === anchor)) : 0
     }
     if (at > 0) setFirstShown(list[Math.max(0, at - PAGE)]!.id)
@@ -647,6 +652,7 @@ const Row = memo(function Row({ item, chat, openTrace, onReply, openRoutine, ope
   if (item.kind === 'exchanges') return <BotMessageRow exchanges={item.exchanges} open={openBotChat} />
   const e = item.entry
   if (e.kind === 'notice' && e.data.routineId) {
+    if (isOpenDesktop(window.codync)) return <ChatRow entry={e} groupStart={item.groupStart} chat={chat} openTrace={openTrace} />
     return (
       <button className="chat-routine-notice" onClick={() => openRoutine(e.data.routineId!)}>
         <Icon name="clock.arrow.circlepath" size={10} />

@@ -15,6 +15,7 @@ import { fetchOnboardingStatus } from './adapter'
 import { officialDesktop } from '@shared/fork-features'
 import type { OnboardingControllerValue } from './OnboardingContext'
 import { aoMudarChaves } from '../contas-ia/api-direta'
+import { aoMudarContaOpen } from '../contas-ia/fork-open-modelo'
 import { settingsScreen } from '../ajustes/tela'
 import { esquecerModelos } from '../seletor-modelo/catalogo'
 
@@ -139,7 +140,8 @@ export function useOnboardingSession(
       wasOpen = settingsScreen.open
       if (closed) onChange()
     })
-    return () => { stopKeys(); stopSettings() }
+    const stopOpen = aoMudarContaOpen(onChange)
+    return () => { stopKeys(); stopSettings(); stopOpen() }
   }, [activeStore, localClient, isPersonalContext, loadScope, reload])
 
   const dismissalLoaded = !accountUserId || !bridge || marker !== null

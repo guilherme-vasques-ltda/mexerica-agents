@@ -675,6 +675,29 @@ fn texto_externo_nao_troca_de_conta_e_o_turno_recusa_conta_nao_autorizada() {
 // MARK: API
 
 #[tokio::test]
+async fn catalogo_da_open_e_local_e_nao_expoe_contas_do_cofre() {
+    if !crate::environment::Environment::is_open() {
+        return;
+    }
+    let hub = hub();
+    contas::conectar(&hub.store, &pedido(PERSONAL, None, Some("Sentinela do cofre"))).unwrap();
+    let cat = crate::api::dispatch(&hub, &Caller::Local, "marketCatalogo", json!({})).await.unwrap();
+    assert_eq!(cat["spaceId"], PERSONAL);
+    let servicos = cat["servicos"].as_array().unwrap();
+    assert!(servicos.iter().any(|s| s["id"] == "linear"));
+    assert!(servicos.iter().all(|s| s["contas"] == json!([])));
+    assert_eq!(cat["appsProprios"]["google"], Value::Null);
+    let device =
+        Caller::Device { key: "fixture-device".into(), scopes: vec![crate::store::Scope::Control], autoridade: None };
+    for (caller, method) in
+        [(&device, "marketCatalogo"), (&Caller::Local, "marketContas"), (&Caller::Local, "marketConectar")]
+    {
+        let err = crate::api::dispatch(&hub, caller, method, json!({})).await.unwrap_err();
+        assert!(err.is::<crate::api::devices::Forbidden>());
+    }
+}
+
+#[tokio::test]
 async fn api_do_marketplace_catalogo_ficha_contas_e_renomear() {
     let hub = hub();
     let trabalho = novo_space(&hub, "Trabalho").await;

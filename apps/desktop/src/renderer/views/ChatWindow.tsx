@@ -79,6 +79,7 @@ import { useForkCloud, useForkCloudAttachments } from './fork/cloud/use-fork-clo
 import { noConfiguredRemote } from './fork/onboarding/remote-entry'
 import { WithRoutinesScreen } from './rotinas-central/camada'
 import { routinesScreen } from './rotinas-central/navigation'
+import { isOpenDesktop } from '@shared/fork-capacidades'
 import { settingsScreen, type SettingsPage } from './fork/ajustes/tela'
 import { WithTimesScreen } from './fork/times/camada'
 import { timesScreen } from './fork/times/navigation'
@@ -692,7 +693,7 @@ function ChatSplitView() {
   const botActions = (bot: Bot, store: BotStore, reorder = true): MenuItem[] => [
     ...(bot.id !== store.principal.protectedId ? [
       ...(!isGroup(bot) ? [
-        { title: t('navegacao.janela.menu.organizar'), disabled: !spaceAllows(store.spaceId, 'teams'), detail: store.spaceId ? t('spaces.selector.unavailable') : undefined, icon: 'person.2', action: () => timesScreen.show(null, store.computer.id) },
+        ...(!isOpenDesktop(window.codync) ? [{ title: t('navegacao.janela.menu.organizar'), disabled: !spaceAllows(store.spaceId, 'teams'), detail: store.spaceId ? t('spaces.selector.unavailable') : undefined, icon: 'person.2', action: () => timesScreen.show(null, store.computer.id) }] : []),
         ...(reorder ? [
           { title: t('navegacao.janela.menu.subir'), detail: '⌥↑', action: () => roster.moveBot({ computerId: store.computer.id, botId: bot.id }, -1) },
           { title: t('navegacao.janela.menu.descer'), detail: '⌥↓', action: () => roster.moveBot({ computerId: store.computer.id, botId: bot.id }, 1) },

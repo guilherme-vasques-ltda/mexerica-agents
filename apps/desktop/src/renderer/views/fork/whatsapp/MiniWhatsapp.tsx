@@ -8,6 +8,7 @@ import { useModel } from '../../../lib/observable'
 import type { BotStore } from '../../../store/bot-store'
 import { useStore } from '../../../store/context'
 import { useOpenBotSettings } from '../bot-settings/bot-settings-entry'
+import { extensoesSomenteCatalogo } from '../extensoes/tela'
 import { caixaDe, SEM_CONEXAO, type CaixaWhatsapp } from './caixa-estado'
 import { TextoDaMensagem, useWhatsapp } from './partes'
 import {
@@ -30,10 +31,11 @@ import './mini-whatsapp.css'
 export function useCaixa(store: BotStore): CaixaWhatsapp {
   // D350: a leitura do plugin e do número é a compartilhada (useWhatsapp): ligar ou desligar em Ajustes → Plugins
   // mostra ou tira a aba na hora; ela relê ao conectar, a cada aviso e enquanto o wacli baixa.
-  useWhatsapp(store)
-  const caixa = caixaDe(store, () => spaceAllows(store.spaceId, 'connectors') ? store.connectedClient : null)
+  const enabled = !extensoesSomenteCatalogo() && spaceAllows(store.spaceId, 'connectors')
+  useWhatsapp(store, enabled)
+  const caixa = caixaDe(store, () => !extensoesSomenteCatalogo() && spaceAllows(store.spaceId, 'connectors') ? store.connectedClient : null)
   useModel(caixa)
-  useEffect(() => { if (spaceAllows(store.spaceId, 'connectors')) caixa.sincronizar({ seq: store.whatsappEpoch, botId: store.whatsappBot }) }, [caixa, store.whatsappEpoch, store.whatsappBot])
+  useEffect(() => { if (enabled) caixa.sincronizar({ seq: store.whatsappEpoch, botId: store.whatsappBot }) }, [enabled, caixa, store.whatsappEpoch, store.whatsappBot])
   return caixa
 }
 
