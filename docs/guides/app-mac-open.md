@@ -59,12 +59,16 @@ Com a conta conectada, escreva na conversa principal de um bot, como o Berga
 no Pessoal. Se houver mais de uma conta conectada, a Open usa a mais recente.
 Sem conta conectada, a mensagem fica como não enviada, com o motivo ao lado;
 conecte a conta em Ajustes → Contas de IA e use Reenviar.
-Cada resposta roda o Codex no mesmo isolamento do login, com as ferramentas
-desligadas: ele não executa comandos, não pesquisa na internet, não abre outros
-programas e, fora do perfil da Open, só lê a política do administrador em
-`/etc/codex` e o arquivo público de certificados do macOS. Se o Codex tentar
-usar uma ferramenta, a resposta é encerrada com um aviso. Anexos e conversas
-extras não estão disponíveis. Se existir `/etc/codex`, a pasta e seus arquivos
+Cada resposta roda o Codex no mesmo isolamento do login. Ele pode pesquisar no
+índice do provedor, quando disponível para o modelo e a conta, sem abrir páginas
+no computador. Para pesquisar, o Codex pode enviar as mensagens mais recentes e
+trechos das respostas ao serviço de busca do mesmo provedor. Os resultados podem
+estar desatualizados e vir de fontes não confiáveis. O Codex não executa comandos
+nem abre outros programas e, fora do perfil da Open, só lê a política do
+administrador em `/etc/codex` e o arquivo público de certificados do macOS. Se
+tentar usar uma ferramenta não permitida, a
+resposta é encerrada com um aviso. Geração de imagens, anexos e conversas extras
+não estão disponíveis. Se existir `/etc/codex`, a pasta e seus arquivos
 precisam ter o `root` como dono e não podem aceitar escrita do grupo nem de
 outros usuários; caso contrário, a Open não abre o Codex. Para a conexão
 segura, o Codex isolado usa os certificados públicos do macOS em
