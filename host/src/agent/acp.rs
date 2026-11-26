@@ -242,6 +242,7 @@ struct Process {
 
 struct Reaping {
     child: Option<Child>,
+    group: Option<u32>,
     plano: Option<Arc<Concessao>>,
     done: watch::Sender<()>,
 }
@@ -252,7 +253,10 @@ impl Reaping {
         stopping.retain(|task| !task.is_finished());
         stopping.push(runtime.spawn(async move {
             if let Some(child) = self.child.as_mut() {
-                reap(child).await;
+                reap(child, self.group).await;
+                if child.id().is_none() {
+                    self.group = None;
+                }
             }
             drop(self);
         }));
@@ -262,14 +266,13 @@ impl Reaping {
 impl Drop for Reaping {
     fn drop(&mut self) {
         let Some(mut child) = self.child.take() else { return };
+        crate::fork::engine_setup::kill_setup_group(self.group);
         let Some(plano) = self.plano.take() else {
-            crate::fork::engine_setup::kill_setup_group(child.id());
             return;
         };
         if child.id().is_none() {
             return;
         }
-        crate::fork::engine_setup::kill_setup_group(child.id());
         let done = self.done.clone();
         std::thread::spawn(move || {
             while !matches!(child.try_wait(), Ok(Some(_))) {
@@ -754,7 +757,7 @@ impl Acp {
             let (done, stopped) = watch::channel(());
             let plano = process.plano.take();
             process.stopped = Some((stopped, plano.is_some()));
-            Reaping { child: Some(child), plano, done }.spawn(&tokio::runtime::Handle::current());
+            Reaping { child: Some(child), group: self.pid, plano, done }.spawn(&tokio::runtime::Handle::current());
         }
         process.stopped.clone()
     }
@@ -772,7 +775,12 @@ impl Drop for Acp {
             && let Some(child) = process.child.take()
         {
             self.stdin.get_mut().take();
-            let reaping = Reaping { child: Some(child), plano: process.plano.take(), done: watch::channel(()).0 };
+            let reaping = Reaping {
+                child: Some(child),
+                group: self.pid,
+                plano: process.plano.take(),
+                done: watch::channel(()).0,
+            };
             if let Ok(runtime) = tokio::runtime::Handle::try_current() {
                 reaping.spawn(&runtime);
             }
@@ -788,8 +796,8 @@ pub async fn stopped() {
 
 /// Gives the agent [`EXIT_GRACE`] to exit with everything it started (ACP adapters spawn
 /// CLIs, MCP servers and tools), then kills its process group (Windows: process tree).
-async fn reap(child: &mut Child) {
-    let Some(pid) = child.id() else { return };
+async fn reap(child: &mut Child, group: Option<u32>) {
+    let Some(pid) = group else { return };
     let deadline = Instant::now() + EXIT_GRACE;
     let exited = matches!(tokio::time::timeout_at(deadline, child.wait()).await, Ok(Ok(_)));
     if !exited || outlived(pid, deadline).await {
@@ -1030,6 +1038,29 @@ while not pathlib.Path(sys.argv[1]).exists():
             tokio::time::timeout(Duration::from_secs(5), acp.kill_and_wait()).await.unwrap();
             assert!(repasse.reservar_troca(plano).is_ok());
         }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn descarte_da_coleta_encerra_grupo_depois_de_colher_o_lider() {
+        use std::os::unix::process::ExitStatusExt as _;
+
+        let mut comando = Command::new("sh");
+        comando.args(["-c", "read -r linha"]).stdin(Stdio::piped()).process_group(0).kill_on_drop(true);
+        let mut lider = crate::fork::motor_exec::spawn(&mut comando).unwrap();
+        let group = lider.id();
+        let mut membro = Command::new("sleep")
+            .arg("30")
+            .process_group(group.unwrap().try_into().unwrap())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        lider.stdin.take();
+        lider.wait().await.unwrap();
+        assert!(lider.id().is_none());
+        drop(Reaping { child: Some(lider), group, plano: None, done: watch::channel(()).0 });
+        let status = tokio::time::timeout(Duration::from_secs(5), membro.wait()).await.unwrap().unwrap();
+        assert_eq!(status.signal(), Some(libc::SIGKILL));
     }
 
     #[cfg(unix)]
