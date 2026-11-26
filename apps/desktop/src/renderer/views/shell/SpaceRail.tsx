@@ -86,7 +86,7 @@ export function SpaceRail(props: RailActions) {
     { title: t('navegacao.janela.conta.uso'), icon: 'gauge.with.dots.needle.33percent', action: props.onUsage },
     // Times abre no Hub do contexto: o do space aberto; no Pessoal, o do bot selecionado (TimesView decide).
     ...(!isOpenDesktop(window.codync) && spaceAllows(active, 'teams') ? [{ title: t('navegacao.barra.secao.equipes'), icon: 'person.2', action: () => { routinesScreen.close(false); settingsScreen.close(false); timesScreen.show(active, active ? spaces?.computerId ?? null : null, spaces?.computerId ?? null) } }] : []),
-    ...(!isOpenDesktop(window.codync) && active && spaceAllows(active, 'routines') ? [{ title: t('navegacao.barra.faixa.rotinas'), icon: 'calendar', action: () => routinesScreen.show() }] : []),
+    ...(active && spaceAllows(active, 'routines') ? [{ title: t('navegacao.barra.faixa.rotinas'), icon: 'calendar', action: () => routinesScreen.show() }] : []),
     ...(active && spaceAllows(active, 'projects') ? [{ title: t('projetos.entrada'), icon: 'folder', action: () => torreScreen.show(null, spaces?.computerId ?? null) }] : []),
     ...(props.extensionsAvailable ? [
       ...(!isOpenDesktop(window.codync) && spaceAllows(active, 'skills') ? [{ title: t('navegacao.barra.faixa.skills'), icon: 'lightbulb', action: props.onSkills }] : []),
@@ -121,7 +121,7 @@ export function SpaceRail(props: RailActions) {
       {spaceAllows(active, 'projects')
         ? <TorreRailButton store={props.torreStore ?? null} spaceId={active} active={torreOpen} onOpen={() => torreScreen.show(active, spaces?.computerId ?? null)} /> : null}
       {/* `rc-open`: closing Rotinas brings focus back here (rotinas-central/navigation.ts). */}
-      {!isOpenDesktop(window.codync) && spaceAllows(active, 'routines') ? <button className="space-rail-button rc-open" title={t('navegacao.barra.faixa.rotinas')} aria-label={t('navegacao.barra.faixa.rotinas')} aria-current={routinesOpen && !timesOpen && !torreOpen ? 'page' : undefined} onClick={() => { timesScreen.close(false); settingsScreen.close(false); routinesScreen.show() }}>
+      {spaceAllows(active, 'routines') ? <button className="space-rail-button rc-open" title={t('navegacao.barra.faixa.rotinas')} aria-label={t('navegacao.barra.faixa.rotinas')} aria-current={routinesOpen && !timesOpen && !torreOpen ? 'page' : undefined} onClick={() => { timesScreen.close(false); settingsScreen.close(false); routinesScreen.show() }}>
         <Icon name="calendar" size={RAIL_ICON} weight="light" />
       </button> : null}
       <button className="space-rail-button" title={t('navegacao.barra.faixa.conectores')} aria-label={t('navegacao.barra.faixa.conectores')} aria-current={extensions.open && extensions.page === 'connectors' ? 'page' : undefined} disabled={!props.extensionsAvailable} onClick={props.onConnectors}>

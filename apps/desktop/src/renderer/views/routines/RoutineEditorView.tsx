@@ -10,6 +10,7 @@ import { AvisoInstalacaoLocal } from '../fork/aviso-instalacao-local/AvisoInstal
 import { emptyDraft, errorText, isManual, rawError, repeatChoice, type Routine, type RoutineScheduleDraft, type RoutineSchedulePreview, type RoutineTrigger } from './routine'
 import { Field } from '../bots/parts'
 import { LabeledRow, RoutineScheduleFields } from './RoutineScheduleFields'
+import { isOpenDesktop } from '@shared/fork-capacidades'
 import { RoutineWebhookPanel } from './RoutineWebhookPanel'
 import { canDuplicate, duplicateRoutine, hasPendingEdit } from './routine-duplicate'
 import { currentZone } from './time-zones'
@@ -191,7 +192,7 @@ export function RoutineEditorView({ botId, routine, saved, duplicated, initialTr
       case 'cron':
         return <RoutineScheduleFields schedule={schedule} update={update} preview={shownPreview} error={previewError} times={times} setTimes={setTimes} />
       case 'webhook':
-        return routine && routine.triggers.some((t) => t.type === 'webhook' || t.type === 'event') ? (
+        return !isOpenDesktop(window.codync) && routine && routine.triggers.some((t) => t.type === 'webhook' || t.type === 'event') ? (
           <RoutineWebhookPanel botId={botId} routineId={routine.id} />
         ) : (
           <Note icon="link" title={t('rotinas.editor.webhookRoda')} detail={t('rotinas.editor.salveUrl')} />
@@ -286,7 +287,7 @@ export function RoutineEditorView({ botId, routine, saved, duplicated, initialTr
           {routine ? (
             <>
               <IconButton title={t('rotinas.editor.apagar')} icon="trash" onClick={() => setConfirmDelete(true)} />
-              {canDuplicate(routine, store.isOffline) ? (
+              {!isOpenDesktop(window.codync) && canDuplicate(routine, store.isOffline) ? (
                 <IconButton
                   title={duplicating ? t('rotinas.editor.duplicando') : pendingEdit ? t('rotinas.editor.duplicarSalveAntes') : t('rotinas.editor.duplicar')}
                   icon="doc.on.doc"
