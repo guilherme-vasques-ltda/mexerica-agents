@@ -34,6 +34,7 @@ import { abaDoUso } from '../fork/custo/modelo'
 import type { BotStore, TeamSettings } from '../../store/bot-store'
 import { abasDe, nomeDoSpaceAtivo, type SettingsPage } from '../fork/ajustes/tela'
 import { RodapeCurto } from '../fork/ajustes/RodapeCurto'
+import { ModoUsoAjuste } from '../fork/ajustes/ModoUsoAjuste'
 import { AUTONOMIA_COMPLETO, AUTONOMIA_RESUMO } from '../fork/ajustes/textos'
 import { ArmazenamentoPage } from '../fork/armazenamento/ArmazenamentoPage'
 import { DelegacaoPage } from '../fork/delegacao/DelegacaoPage'
@@ -226,6 +227,7 @@ export function GeneralSettings() {
     <CardForm>
       {/* D171 (Clerk 6): conta e saída não confirmada em views/fork/account. */}
       {showsAccountControls() && <AccountSettingsCard />}
+      <ModoUsoAjuste />
       {app.managedStores.map((store) => <TeamAutonomy key={store.computer.id} store={store} />)}
       <IdiomaAjuste />
       <Superficie>

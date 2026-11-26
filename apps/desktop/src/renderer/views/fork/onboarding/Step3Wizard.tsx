@@ -4,7 +4,8 @@ import { Icon } from '../../../components/Icon'
 import { useT } from '../../../lib/fork-i18n/estado'
 import type { HostClient } from '../../../client/host-client'
 import type { HostState } from '../../../../shared/ipc'
-import { forkFeatures } from '../../../../shared/fork-features.ts'
+import { forkFeatures, showsAccountControls } from '../../../../shared/fork-features.ts'
+import type { EscolhaEntrada, ModoEntrada } from '../../../../shared/fork-modo-entrada.ts'
 import {
   resolveLocalInstallStage,
   type OnboardingDetectPayload,
@@ -26,9 +27,11 @@ import '../idioma/entrada-marca.css'
 import './onboarding.css'
 import './entrada-guiada.css'
 
-/** As quatro telas da entrada guiada, uma decisão por tela. */
-export type EtapaEntrada = 'boasVindas' | 'onde' | 'ia' | 'pronto'
-const ETAPAS: EtapaEntrada[] = ['boasVindas', 'onde', 'ia', 'pronto']
+/**
+ * As telas da entrada guiada, uma decisão por tela. "Como usar" (100% local ou com conta) só aparece enquanto
+ * a escolha não foi gravada; "Infraestrutura" só no caminho com conta.
+ */
+export type EtapaEntrada = 'boasVindas' | 'modo' | 'nuvem' | 'onde' | 'ia' | 'pronto'
 
 // A etapa sobrevive à ida a Ajustes ("Conectar conta de IA" desmonta o assistente): volta onde a pessoa estava.
 let etapaLembrada: { spaceId: string; etapa: EtapaEntrada } | null = null
@@ -70,6 +73,17 @@ export function Step3Wizard({
   const [etapa, setEtapa] = useState<EtapaEntrada>(
     () => etapaInicial ?? (etapaLembrada?.spaceId === spaceId ? etapaLembrada.etapa : 'boasVindas'),
   )
+  const contaDisponivel = showsAccountControls()
+  const [perguntaModo, setPerguntaModo] = useState(etapa === 'modo' || etapa === 'nuvem')
+  const [modo, setModo] = useState<ModoEntrada>(etapa === 'nuvem' ? 'conta' : 'local')
+  useEffect(() => {
+    let ativo = true
+    window.codync.app.escolhaEntrada?.().then((escolha) => { if (ativo && escolha === null) setPerguntaModo(true) }, () => {})
+    return () => { ativo = false }
+  }, [])
+  const gravarEscolha = (escolha: EscolhaEntrada) => {
+    void window.codync.app.gravarEscolhaEntrada?.(escolha).catch(() => {})
+  }
   const [consentGiven, setConsentGiven] = useState(false)
   const [detecting, setDetecting] = useState(false)
   const [detected, setDetected] = useState<OnboardingDetectPayload | null>(null)
@@ -178,7 +192,46 @@ export function Step3Wizard({
     setAiBusy(null)
   }, [client, spaceId])
 
-  const indice = ETAPAS.indexOf(etapa)
+  const etapas: EtapaEntrada[] = [
+    'boasVindas',
+    ...(perguntaModo ? (modo === 'conta' ? ['modo', 'nuvem'] as const : ['modo'] as const) : []),
+    'onde', 'ia', 'pronto',
+  ]
+  const indice = etapas.indexOf(etapa)
+  const avancar = () => {
+    if (etapa === 'modo' && modo === 'local') gravarEscolha({ modo: 'local', infraestrutura: null })
+    if (etapa === 'nuvem') gravarEscolha({ modo: 'conta', infraestrutura: 'propria' })
+    irPara(etapas[indice + 1]!)
+  }
+  const escolha = ({ selecionada, emBreve = false, icone, titulo, desc, onEscolher }: {
+    selecionada: boolean
+    emBreve?: boolean
+    icone: string
+    titulo: string
+    desc: string
+    onEscolher?: () => void
+  }) => (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={selecionada}
+      disabled={emBreve}
+      className={`eg-opcao eg-escolha${selecionada ? ' is-escolhida' : ''}`}
+      onClick={onEscolher}
+    >
+      <span className="eg-opcao-icone" aria-hidden="true"><Icon name={icone} size={20} /></span>
+      <span className="eg-opcao-corpo">
+        <span className="eg-opcao-titulo">
+          <strong>{titulo}</strong>
+          {emBreve ? <span className="eg-selo">{t('onboarding.guia.emBreve')}</span> : null}
+        </span>
+        <span className="eg-opcao-desc">{desc}</span>
+      </span>
+      <span className="eg-escolha-marca" aria-hidden="true">
+        <Icon name={selecionada ? 'checkmark.circle.fill' : 'circle'} size={20} />
+      </span>
+    </button>
+  )
   const irPara = (proxima: EtapaEntrada) => {
     etapaLembrada = { spaceId, etapa: proxima }
     setEtapa(proxima)
@@ -243,6 +296,48 @@ export function Step3Wizard({
       <p className="eg-ola">{t('onboarding.guia.boasVindas.ola')}</p>
       <h1 id="eg-titulo">{t('onboarding.guia.boasVindas.titulo')}</h1>
       <p className="eg-texto">{t('onboarding.guia.boasVindas.texto')}</p>
+    </section>
+  ) : etapa === 'modo' ? (
+    <section className="eg-etapa" aria-labelledby="eg-titulo">
+      <h1 id="eg-titulo">{t('onboarding.guia.modo.titulo')}</h1>
+      <p className="eg-texto">{t('onboarding.guia.modo.texto')}</p>
+      <div className="eg-escolhas" role="radiogroup" aria-labelledby="eg-titulo">
+        {escolha({
+          selecionada: modo === 'local',
+          icone: 'lock.shield',
+          titulo: t('onboarding.guia.modo.local.titulo'),
+          desc: t('onboarding.guia.modo.local.desc'),
+          onEscolher: () => setModo('local'),
+        })}
+        {escolha({
+          selecionada: modo === 'conta',
+          emBreve: !contaDisponivel,
+          icone: 'person.crop.circle',
+          titulo: t('onboarding.guia.modo.conta.titulo'),
+          desc: t('onboarding.guia.modo.conta.desc'),
+          onEscolher: () => setModo('conta'),
+        })}
+      </div>
+    </section>
+  ) : etapa === 'nuvem' ? (
+    <section className="eg-etapa" aria-labelledby="eg-titulo">
+      <h1 id="eg-titulo">{t('onboarding.guia.nuvem.titulo')}</h1>
+      <p className="eg-texto">{t('onboarding.guia.nuvem.texto')}</p>
+      <div className="eg-escolhas" role="radiogroup" aria-labelledby="eg-titulo">
+        {escolha({
+          selecionada: true,
+          icone: 'server.rack',
+          titulo: t('onboarding.guia.nuvem.propria.titulo'),
+          desc: t('onboarding.guia.nuvem.propria.desc'),
+        })}
+        {escolha({
+          selecionada: false,
+          emBreve: true,
+          icone: 'cloud',
+          titulo: t('onboarding.guia.nuvem.nossa.titulo'),
+          desc: t('onboarding.guia.nuvem.nossa.desc'),
+        })}
+      </div>
     </section>
   ) : etapa === 'onde' ? (
     <section className="eg-etapa" aria-labelledby="eg-titulo">
@@ -410,8 +505,8 @@ export function Step3Wizard({
       <FundoMexericas />
       <div className="eg-palco">
         <div className="eg-cartao">
-          <ol className="eg-etapas" aria-label={t('onboarding.etapa', { atual: indice + 1, total: ETAPAS.length })}>
-            {ETAPAS.map((nome, i) => (
+          <ol className="eg-etapas" aria-label={t('onboarding.etapa', { atual: indice + 1, total: etapas.length })}>
+            {etapas.map((nome, i) => (
               <li key={nome} className={i < indice ? 'is-feita' : i === indice ? 'is-agora' : undefined} aria-current={i === indice ? 'step' : undefined}>
                 <span className="eg-etapa-num" aria-hidden="true">
                   {i < indice ? <Icon name="checkmark" size={11} /> : i + 1}
@@ -425,7 +520,7 @@ export function Step3Wizard({
 
           <footer className="eg-rodape">
             {indice > 0 ? (
-              <Button kind="secondary" onClick={() => irPara(ETAPAS[indice - 1]!)}>
+              <Button kind="secondary" onClick={() => irPara(etapas[indice - 1]!)}>
                 <Icon name="arrow.left" size={14} />
                 {t('onboarding.voltar')}
               </Button>
@@ -438,7 +533,7 @@ export function Step3Wizard({
                 {t('onboarding.guia.pronto.conversar')}
               </Button>
             ) : (
-              <Button kind="primary" onClick={() => irPara(ETAPAS[indice + 1]!)}>
+              <Button kind="primary" onClick={avancar}>
                 {t(etapa === 'boasVindas' ? 'onboarding.guia.boasVindas.comecar' : 'onboarding.continuar')}
                 <Icon name="arrow.right" size={14} />
               </Button>

@@ -263,3 +263,22 @@ test('FirstChatOnboarding, ComposerSpotlight e ReadinessCard renderizam 6 tarefa
   assert.match(readinessHtml, /Pronta para trabalhar · 2 de 4/)
   assert.match(readinessHtml, /Configurar permissões/)
 })
+
+test('Entrada guiada pergunta 100% local ou com conta; sem login na versão, "Com conta" e "nossa nuvem" ficam em breve', async () => {
+  const { Step3Wizard } = await import('./Step3Wizard.tsx')
+  const tela = (etapaInicial: 'modo' | 'nuvem') => renderToStaticMarkup(createElement(Step3Wizard, {
+    client: null, spaceId: 'pessoal', etapaInicial, hostState: { kind: 'running' }, platform: 'linux', status: null, where: 'local',
+    onSelectWhere() {}, onOpenComputers() {}, onSkip() {}, onContinue() {},
+  }))
+  const modo = tela('modo')
+  assert.match(modo, /Como você quer usar a Mexerica\?/)
+  assert.match(modo, /Passo 2 de 5/)
+  assert.match(modo, /<button[^>]*role="radio" aria-checked="true"[^>]*>(?:(?!<\/button>).)*100% local/)
+  assert.match(modo, /<button[^>]*role="radio" aria-checked="false" disabled=""[^>]*>(?:(?!<\/button>).)*Com conta(?:(?!<\/button>).)*Em breve/)
+  assert.match(modo, /sem conta e sem telemetria/)
+
+  const nuvem = tela('nuvem')
+  assert.match(nuvem, /Passo 3 de 6/)
+  assert.match(nuvem, /<button[^>]*role="radio" aria-checked="true"[^>]*>(?:(?!<\/button>).)*Na sua infraestrutura/)
+  assert.match(nuvem, /<button[^>]*role="radio" aria-checked="false" disabled=""[^>]*>(?:(?!<\/button>).)*Na nossa nuvem(?:(?!<\/button>).)*Em breve/)
+})

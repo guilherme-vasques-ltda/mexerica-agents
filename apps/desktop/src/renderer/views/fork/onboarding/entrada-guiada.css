@@ -105,7 +105,8 @@
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
   gap: 6px;
 }
 .eg-etapas li { display: grid; gap: 6px; justify-items: start; color: var(--eg-tinta-2); font-size: 12px; }
@@ -119,7 +120,7 @@
 }
 .eg-etapas li.is-feita::before, .eg-etapas li.is-agora::before { background: var(--eg-passo); }
 .eg-etapas li > span { grid-row: 2; }
-.eg-etapas li { grid-template-columns: auto 1fr; align-items: center; column-gap: 6px; }
+.eg-etapas li { grid-template-columns: auto minmax(0, 1fr); align-items: center; column-gap: 6px; }
 .eg-etapas li::before { grid-column: 1 / -1; }
 .eg-etapa-num {
   display: inline-grid;
@@ -134,7 +135,7 @@
 .eg-etapas li.is-agora { color: var(--eg-tinta); font-weight: 600; }
 .eg-etapas li.is-agora .eg-etapa-num { background: var(--eg-acao); color: var(--eg-acao-tinta); box-shadow: none; }
 .eg-etapas li.is-feita .eg-etapa-num { background: var(--eg-passo); color: #fff; box-shadow: none; }
-.eg-etapa-nome { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.eg-etapa-nome { justify-self: stretch; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .eg-etapa { display: grid; gap: 12px; }
 .eg-etapa h1 { margin: 0; font-size: 26px; line-height: 1.2; letter-spacing: -0.01em; color: var(--eg-tinta); }
@@ -177,6 +178,22 @@
   background: color-mix(in srgb, var(--eg-acao) 22%, transparent);
   color: var(--eg-passo);
 }
+
+.eg-escolhas { display: grid; gap: 10px; }
+.eg-escolha {
+  width: 100%;
+  border: 0;
+  font: inherit;
+  color: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.eg-escolha:hover:not(:disabled) { box-shadow: inset 0 0 0 1px var(--eg-passo); }
+.eg-escolha.is-escolhida { box-shadow: inset 0 0 0 2px var(--eg-acao); }
+.eg-escolha:disabled { cursor: default; opacity: 0.62; }
+.eg-escolha .eg-opcao-corpo { flex: 1; }
+.eg-escolha-marca { flex: none; margin-inline-start: auto; color: var(--eg-trilho); }
+.eg-escolha.is-escolhida .eg-escolha-marca { color: var(--eg-acao); }
 
 .eg-link {
   justify-self: start;

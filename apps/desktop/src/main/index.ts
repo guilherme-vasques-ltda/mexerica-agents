@@ -45,6 +45,7 @@ import { launchAtLogin, openedAtLogin, setLaunchAtLogin, updateLoginItem } from 
 import { openExternalURL, openSystemSettingsURL, registerWindowNavigation } from './navigation'
 import { origemDoChat, permiteNoChat } from './seguranca-renderer'
 import { onboardingDismissal } from './fork-onboarding-dismissal'
+import { arquivoEscolhaEntrada, gravarEscolhaEntrada, lerEscolhaEntrada } from './fork-modo-entrada'
 
 /** macOS's user-facing computer name, else the host name. */
 function computerName() {
@@ -283,6 +284,8 @@ function registerIPC(tray: Tray) {
     if (accountRealm === null) return null
     return onboardingDismissal(prefs, [identity.environment, app.getPath('userData'), dataDir, port, accountRealm], confirmed?.userId, userId, action)
   })
+  ipcMain.handle('app:escolhaEntrada', (event) => pedidoDoChat(event) ? lerEscolhaEntrada(arquivoEscolhaEntrada(app.getPath('userData'))) : null)
+  ipcMain.handle('app:gravarEscolhaEntrada', (event, escolha: unknown) => !!pedidoDoChat(event) && gravarEscolhaEntrada(arquivoEscolhaEntrada(app.getPath('userData')), escolha))
   ipcMain.on('app:openExternal', (_e, url: string) => {
     void openExternalURL(url)
   })

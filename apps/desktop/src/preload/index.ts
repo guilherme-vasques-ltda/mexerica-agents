@@ -186,6 +186,8 @@ const bridge: CodyncBridge = {
     copy: (text) => ipcRenderer.send('app:copy', text),
     pickFiles: () => ipcRenderer.invoke('app:pickFiles'),
     readClipboardFiles: () => ipcRenderer.invoke('app:clipboardFiles'),
+    escolhaEntrada: () => ipcRenderer.invoke('app:escolhaEntrada'),
+    gravarEscolhaEntrada: (escolha) => ipcRenderer.invoke('app:gravarEscolhaEntrada', escolha),
     setTraySummary: (summary: TraySummary) => ipcRenderer.send('app:traySummary', summary),
     setLanguage: (idioma) => ipcRenderer.send('app:setLanguage', idioma),
     onCommand: (cb: (c: WindowCommand) => void) => listen('app:command', cb),
