@@ -403,7 +403,7 @@ export const textos: Traducao<typeof fonte> = {
   "contas.apiDireta.estado.recusada": "رُفض المفتاح",
   "contas.apiDireta.catalogoNaoProva": "قائمة النماذج لا تثبت الرصيد ولا الإذن لكل نموذج. لا يتأكد الوصول إلا في أول محادثة.",
   "contas.openModelo.titulo": "نموذج Codex",
-  "contas.openModelo.explica": "ينطبق على Berga وعلى البوتات التي لم تختر نموذجًا بعد. يمكنك تغييره لاحقًا أسفل مربع الرسالة.",
+  "contas.openModelo.explica": "ينطبق على Berga وعلى البوتات التي لم يُختر لها محرك بعد. يمكنك تغييره لاحقًا أسفل مربع الرسالة.",
   "contas.openModelo.padrao": "{modelo} (الافتراضي)",
   "contas.openModelo.usar": "استخدام هذا النموذج",
   "contas.openModelo.aplicando": "جارٍ التطبيق…",

@@ -391,7 +391,7 @@ export const textos = {
   "contas.apiDireta.estado.recusada": "Chave recusada",
   "contas.apiDireta.catalogoNaoProva": "A lista de modelos não prova saldo nem permissão de cada modelo. O acesso só se confirma na primeira conversa.",
   "contas.openModelo.titulo": "Modelo do Codex",
-  "contas.openModelo.explica": "Vale para o Berga e para os bots que ainda não escolheram um modelo. Dá para trocar depois, embaixo da caixa de mensagem.",
+  "contas.openModelo.explica": "Vale para o Berga e para os bots que ainda não têm motor escolhido. Dá para trocar depois, embaixo da caixa de mensagem.",
   "contas.openModelo.padrao": "{modelo} (padrão)",
   "contas.openModelo.usar": "Usar este modelo",
   "contas.openModelo.aplicando": "Aplicando…",

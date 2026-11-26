@@ -78,7 +78,7 @@ export function ConectarConta({ contas, account, reconnect, forBot, onKey, onClo
   const open = window.codync.appScheme === 'mexerica-open'
   const modelos = open && phase === 'connected' && session.step !== 'install' && live.state === 'connected' ? modelosDaConta(live) : []
   const escolhido = modeloOpen && modelos.includes(modeloOpen) ? modeloOpen : modelos[0] ?? null
-  const aplicar = escolhido ? {
+  const aplicar = escolhido && !forBot ? {
     label: aplicando ? tradutor(idioma)('contas.openModelo.aplicando') : tradutor(idioma)('contas.openModelo.usar'),
     disabled: aplicando,
     run: () => {

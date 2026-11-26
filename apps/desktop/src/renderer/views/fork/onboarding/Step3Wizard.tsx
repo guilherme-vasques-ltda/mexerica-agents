@@ -6,6 +6,7 @@ import { AvisoInstalacaoLocal } from '../aviso-instalacao-local/AvisoInstalacaoL
 import type { HostClient } from '../../../client/host-client'
 import type { HostState } from '../../../../shared/ipc'
 import { forkFeatures } from '../../../../shared/fork-features.ts'
+import { isOpenDesktop } from '../../../../shared/fork-capacidades.ts'
 import {
   resolveLocalInstallStage,
   type OnboardingDetectPayload,
@@ -177,7 +178,7 @@ export function Step3Wizard({
           {status && where === 'local' ? (
             <div className="onboarding-step3-summary">
               <Icon name={hasReadyAi ? 'checkmark.circle.fill' : 'circle.dotted'} size={16} />
-              <span>{t(hasReadyAi ? 'onboarding.ia.pronta' : 'onboarding.ia.pendente')}</span>
+              <span>{t(hasReadyAi ? 'onboarding.ia.pronta' : isOpenDesktop(window.codync) ? 'onboarding.ia.pendenteOpen' : 'onboarding.ia.pendente')}</span>
             </div>
           ) : null}
         </aside>
