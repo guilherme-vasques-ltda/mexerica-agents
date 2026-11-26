@@ -522,6 +522,6 @@ async fn enderecos_invalidos_duplicados_campos_desconhecidos_e_ids_vazios_sao_re
 #[test]
 fn open_hub_continua_recusando_os_cinco_metodos_na_open() {
     for method in METHODS {
-        assert!(!crate::open_hub::open_allows(method, &json!({})), "{method} não pode existir na Open");
+        assert!(!crate::open_hub::open_allows(&Caller::Local, method, &json!({})), "{method} não pode existir na Open");
     }
 }
