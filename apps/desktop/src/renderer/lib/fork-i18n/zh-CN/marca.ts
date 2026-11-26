@@ -70,6 +70,8 @@ export const textos: Traducao<typeof fonte> = {
   'marca.acesso.segundoPlano': '允许 Mexerica 在后台运行（系统设置 → 登录项）。',
   'marca.biblioteca.perfilPronto': 'Mexerica 现成档案 · 版本',
   'marca.biblioteca.faixa': '现成档案，由 Mexerica 制作。',
+  'marca.biblioteca.escolhaConta': '添加前请先选择 AI 账户。',
+  'marca.biblioteca.soConta': '只使用所选的 AI 账户；没有连接器、技能或电脑',
   'marca.skills.adaptada': 'Mexerica 改编的版本。',
   'marca.motores.node': '基于 Node.js 运行；Mexerica 会添加自己的副本。',
   'marca.node.copia': '有些引擎需要它才能运行。Mexerica 可以只为它们添加一份副本。',

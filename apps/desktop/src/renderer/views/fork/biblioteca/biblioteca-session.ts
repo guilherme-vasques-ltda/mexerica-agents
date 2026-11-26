@@ -106,12 +106,12 @@ export class LibrarySession extends Observable {
   }
 
   /** Um gesto novo: chave nova, corpo a partir do vínculo da prévia atual. Só o Hub decide o efeito. */
-  async add(catalogKey: string, backend: string | null): Promise<NativeAdded | null> {
+  async add(catalogKey: string, backend: string | null, account: string | null = null): Promise<NativeAdded | null> {
     const origin = this.origin
     if (!this.canAdd || !origin || !this.catalog) return null
     let body: NativeAddBody
     try {
-      body = nativeAddBody(this.catalog, catalogKey, { personal: this.personal, backend, key: this.uuid() })
+      body = nativeAddBody(this.catalog, catalogKey, { personal: this.personal, backend, account, key: this.uuid() })
     } catch (e) {
       this.op = { kind: 'refused', catalogKey, message: nativeFailureText(e) }
       this.changed()

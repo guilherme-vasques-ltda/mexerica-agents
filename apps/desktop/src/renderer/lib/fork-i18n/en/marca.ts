@@ -70,6 +70,8 @@ export const textos: Traducao<typeof fonte> = {
   'marca.acesso.segundoPlano': 'Allow Mexerica to run in the background (System Settings → Login Items).',
   'marca.biblioteca.perfilPronto': 'Ready-made Mexerica profile · version',
   'marca.biblioteca.faixa': 'Ready-made profiles, made by Mexerica.',
+  'marca.biblioteca.escolhaConta': 'Pick the AI account before adding.',
+  'marca.biblioteca.soConta': 'Uses only the chosen AI account; no connectors, skills or computer',
   'marca.skills.adaptada': 'Version adapted by Mexerica.',
   'marca.motores.node': 'Runs on Node.js; Mexerica adds its own copy.',
   'marca.node.copia': 'Some engines need it to run. Mexerica can add a copy just for them.',

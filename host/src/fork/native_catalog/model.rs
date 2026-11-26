@@ -52,6 +52,8 @@ pub(super) struct Add {
     pub expected_generation: i64,
     pub expected_revision: i64,
     pub backend: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub engine_account_id: Option<String>,
 }
 
 #[derive(Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]

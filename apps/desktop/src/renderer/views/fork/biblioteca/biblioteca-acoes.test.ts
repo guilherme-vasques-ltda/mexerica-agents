@@ -57,7 +57,7 @@ test('R1-02: retry A → recibo removed/bot1 com releitura active/bot2 não ofer
   session.open(source)
   link.last('donnaNativeCatalog').answer.resolve(catalog('available', null, 0, 0))
   await settle()
-  void session.add('pesquisador', 'codex')
+  void session.add('pesquisador', 'codex', 'conta-1')
   await settle()
   link.last('donnaNativeCatalogAdd').answer.reject(Object.assign(new Error('offline'), { status: 0 }))
   await settle()

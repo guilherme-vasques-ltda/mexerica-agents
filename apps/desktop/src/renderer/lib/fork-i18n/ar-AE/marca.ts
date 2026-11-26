@@ -70,6 +70,8 @@ export const textos: Traducao<typeof fonte> = {
   'marca.acesso.segundoPlano': 'اسمح لـ Mexerica بالعمل في الخلفية (إعدادات النظام ← عناصر تسجيل الدخول).',
   'marca.biblioteca.perfilPronto': 'ملف جاهز من Mexerica · الإصدار',
   'marca.biblioteca.faixa': 'ملفات جاهزة، من إعداد Mexerica.',
+  'marca.biblioteca.escolhaConta': 'اختر حساب الذكاء الاصطناعي قبل الإضافة.',
+  'marca.biblioteca.soConta': 'يستخدم حساب الذكاء الاصطناعي المختار فقط؛ بلا موصلات أو مهارات أو حاسوب',
   'marca.skills.adaptada': 'نسخة كيّفتها Mexerica.',
   'marca.motores.node': 'يعمل على Node.js؛ وتضيف Mexerica نسخة خاصة بها.',
   'marca.node.copia': 'تحتاجه بعض المحركات لتعمل. يمكن لـ Mexerica إضافة نسخة لها وحدها.',

@@ -1,5 +1,10 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import type { Backend } from '@shared/models'
+import { contaPadraoDoHub, escolhaDeConta } from '@shared/fork-criar-bot-destino'
+import type { ManagedAccount } from '@shared/fork-engine-accounts'
+import type { HostClient } from '../../../client/host-client'
+import { engineSetup } from '../../../store/fork-engine-setup'
+import { ContaDaIa } from '../../criar-bot/Destino'
 import { avatarDoBot, normalizarAvatarDoBot } from '@shared/fork-avatar-config'
 import type { NativeLink, NativeProfile } from '@shared/fork-native-catalog'
 import { Button, ChoicePicker, IconButton, Spinner } from '../../../components/Controls'
@@ -28,6 +33,8 @@ export interface LibraryStore extends LibrarySource {
   readonly bots: ReadonlyMap<string, unknown>
   /** A versão da store (Observable): um bot que chega ou a conexão que cai redesenham a folha. */
   readonly getVersion: () => number
+  /** Fora do Pessoal: lê as contas de IA do Hub para a escolha (a mesma leitura da criação manual). */
+  ready(): Promise<HostClient>
 }
 
 export interface LibraryTarget { store: LibraryStore; spaceId: string; personal: boolean; spaceName: string }
@@ -54,6 +61,18 @@ export function BibliotecaView({ target, session: given, onEditor, onConversatio
   }, [session, store, given])
   const [open, setOpen] = useState<string | null>(null)
   const [backend, setBackend] = useState('')
+  const [conta, setConta] = useState<string | null>(null)
+  const [contas, setContas] = useState<{ estado: 'carregando' | 'pronto' | 'falhou'; lista: ManagedAccount[] }>({ estado: 'carregando', lista: [] })
+  const podeConta = store.canManageEngineAccounts
+  useEffect(() => {
+    if (personal || !podeConta) return
+    let live = true
+    void store.ready().then((client) => engineSetup.accounts(client)).then(
+      (r) => { if (live) setContas({ estado: 'pronto', lista: r.accounts }) },
+      () => { if (live) setContas({ estado: 'falhou', lista: [] }) },
+    )
+    return () => { live = false }
+  }, [store, personal, podeConta])
   const [readd, setReadd] = useState(false)
   const lastCard = useRef<string | null>(null)
   const body = useRef<HTMLDivElement>(null)
@@ -63,6 +82,12 @@ export function BibliotecaView({ target, session: given, onEditor, onConversatio
   const live = session.link === 'live'
   const linkOf = (key: string) => catalog?.links.find((l) => l.catalogKey === key) ?? null
   const profile = open ? catalog?.profiles.find((p) => p.catalogKey === open) ?? null : null
+  // Fora do Pessoal, a conta de IA como na criação manual num Space: uma conectada do motor ou o padrão legado do Hub.
+  const escolhaConta = escolhaDeConta(podeConta, backend)
+  const contasDoBackend = contas.lista.filter((c) => c.backend === backend).map((c) => ({ conta: c, escolhivel: c.state === 'connected' }))
+  const contaPadrao = contaPadraoDoHub(contas.lista, backend)
+  const contaEscolhida = personal || escolhaConta !== 'escolher' ? null
+    : conta ? contasDoBackend.find((c) => c.conta.id === conta && c.escolhivel)?.conta ?? null : contaPadrao
   const opKey = op.kind === 'sending' || op.kind === 'unknown' ? op.intent.body.catalogKey : op.kind === 'refused' ? op.catalogKey : op.kind === 'done' ? op.added.catalogKey : null
 
   // Sucesso provado no Pessoal: quando o bot chega ao app, abre o Bot por dentro normal.
@@ -84,6 +109,7 @@ export function BibliotecaView({ target, session: given, onEditor, onConversatio
     if (key) lastCard.current = key
     setOpen(key)
     setBackend('')
+    setConta(null)
   }
 
   // Esc na prévia volta à grade; na grade, a folha fecha (Sheet).
@@ -91,7 +117,7 @@ export function BibliotecaView({ target, session: given, onEditor, onConversatio
 
   const add = () => {
     if (!profile) return
-    void session.add(profile.catalogKey, personal ? null : backend || null)
+    void session.add(profile.catalogKey, personal ? null : backend || null, contaEscolhida?.id ?? null)
   }
 
   const actionsOf = (key: string, preview: boolean) => libraryActions(key, { personal, link: linkOf(key), op, preview })
@@ -101,6 +127,7 @@ export function BibliotecaView({ target, session: given, onEditor, onConversatio
     canAdd: session.canAdd,
     canRetry: live && session.authorized,
     motorMissing: !personal && !backend,
+    contaMissing: !personal && !!backend && !contaEscolhida,
     sending: op.kind === 'sending',
     waiting,
     onShow: () => show(key),
@@ -129,7 +156,10 @@ export function BibliotecaView({ target, session: given, onEditor, onConversatio
             <Button kind="secondary" onClick={() => session.reread()} disabled={!live}>Tentar de novo</Button>
           </div>
             : catalog && profile ? <Previa profile={profile} actions={actionsOf(profile.catalogKey, true)} ctx={ctxFor(profile.catalogKey, false)} target={target} session={session}
-              backend={backend} onBackend={setBackend} onBack={() => show(null)}
+              backend={backend} onBackend={(b) => { setBackend(b); setConta(null) }} onBack={() => show(null)}
+              contaSlot={personal || !backend ? null : <ContaDaIa escolha={escolhaConta} contas={contasDoBackend} carregando={contas.estado === 'carregando'}
+                falhou={contas.estado === 'falhou'} conta={conta} padraoDisponivel={!!contaPadrao}
+                disabled={op.kind === 'sending' || !live} onConta={setConta} />}
               message={opKey === profile.catalogKey ? opMessage(session, personal, spaceName) : null} />
               : catalog ? <>
                 <p className="bib-faixa"><Icon name="checkmark.shield" size={15} /><span><strong>{traduzir('pt-BR', 'marca.biblioteca.faixa')}</strong> Nada é criado até você abrir a prévia e escolher Adicionar. Cada um vira um bot normal deste space.</span></p>
@@ -183,6 +213,7 @@ interface ActionContext {
   canAdd: boolean
   canRetry: boolean
   motorMissing: boolean
+  contaMissing: boolean
   sending: boolean
   waiting: string | null
   onShow: () => void
@@ -212,9 +243,9 @@ function Acoes({ actions, ctx }: { actions: LibraryAction[]; ctx: ActionContext 
       case 'show':
         return <span key={a.kind} {...data} className="bib-acao"><Button {...common} onClick={ctx.onShow}><Icon name="magnifyingglass" size={12} /> {a.again ? 'Ver e adicionar de novo' : 'Ver e adicionar'}</Button></span>
       case 'add':
-        return <span key={a.kind} {...data} className="bib-acao"><Button {...common} onClick={ctx.onAdd} disabled={!ctx.canAdd || ctx.motorMissing}>{ctx.sending ? <Spinner /> : `Adicionar a ${ctx.spaceName}`}</Button></span>
+        return <span key={a.kind} {...data} className="bib-acao"><Button {...common} onClick={ctx.onAdd} disabled={!ctx.canAdd || ctx.motorMissing || ctx.contaMissing}>{ctx.sending ? <Spinner /> : `Adicionar a ${ctx.spaceName}`}</Button></span>
       case 'readd':
-        return <span key={a.kind} {...data} className="bib-acao"><Button {...common} onClick={ctx.onReadd} disabled={!ctx.canAdd || ctx.motorMissing}>{ctx.sending ? <Spinner /> : 'Adicionar de novo…'}</Button></span>
+        return <span key={a.kind} {...data} className="bib-acao"><Button {...common} onClick={ctx.onReadd} disabled={!ctx.canAdd || ctx.motorMissing || ctx.contaMissing}>{ctx.sending ? <Spinner /> : 'Adicionar de novo…'}</Button></span>
       case 'retry':
         return <span key={a.kind} {...data} className="bib-acao"><Button {...common} onClick={ctx.onRetry} disabled={!ctx.canRetry}>Conferir resultado</Button></span>
       case 'current':
@@ -248,7 +279,7 @@ function Cartao({ profile, link, actions, ctx }: { profile: NativeProfile; link:
   </li>
 }
 
-function Previa({ profile, actions, ctx, target, session, backend, onBackend, onBack, message }: {
+function Previa({ profile, actions, ctx, target, session, backend, onBackend, onBack, contaSlot, message }: {
   profile: NativeProfile
   actions: LibraryAction[]
   ctx: ActionContext
@@ -257,6 +288,7 @@ function Previa({ profile, actions, ctx, target, session, backend, onBackend, on
   backend: string
   onBackend: (id: string) => void
   onBack: () => void
+  contaSlot: ReactNode
   message: string | null
 }) {
   const { personal, spaceName, store } = target
@@ -265,7 +297,7 @@ function Previa({ profile, actions, ctx, target, session, backend, onBackend, on
   const backends = store.hello?.backends ?? []
   const titleId = `bib-previa-${profile.catalogKey}`
   const note = kinds.includes('current') ? RECIBO_REMOVIDO
-    : message ?? (opens(actions) && !personal ? FORA_DO_PESSOAL : !settled && ctx.motorMissing ? 'Escolha o motor antes de adicionar.' : !session.authorized ? 'Este aparelho não pode adicionar bots neste computador agora.' : '')
+    : message ?? (opens(actions) && !personal ? FORA_DO_PESSOAL : !settled && ctx.motorMissing ? 'Escolha o motor antes de adicionar.' : !settled && ctx.contaMissing ? traduzir('pt-BR', 'marca.biblioteca.escolhaConta') : !session.authorized ? 'Este aparelho não pode adicionar bots neste computador agora.' : '')
 
   return <section className="bib-previa" aria-labelledby={titleId}>
     <div className="bib-previa-topo">
@@ -296,14 +328,15 @@ function Previa({ profile, actions, ctx, target, session, backend, onBackend, on
               disabled={settled || ctx.sending || session.link !== 'live'} />
           </div>
           {backend ? <AvisoDoMotor backend={backend} /> : null}
+          {contaSlot && !settled ? <><h4>{traduzir('pt-BR', 'botCreate.contaDeIa')}</h4>{contaSlot}</> : null}
         </>}
-        <p className="bib-nota">Contas de IA não são ligadas ao adicionar.</p>
+        {personal ? <p className="bib-nota">Contas de IA não são ligadas ao adicionar.</p> : null}
         <h4>Ao adicionar</h4>
         <ul className="bib-lista">
           <li>Entra em {spaceName}, no {store.hostName}</li>
           <li>Conversa e memória próprias, começando vazias</li>
           <li>Começa em Pedir aprovação</li>
-          <li>Sem contas, conectores, skills ou computador</li>
+          {personal ? <li>Sem contas, conectores, skills ou computador</li> : <li>{traduzir('pt-BR', 'marca.biblioteca.soConta')}</li>}
           <li>Não começa nenhum trabalho</li>
           {personal ? null : <li>Em outro space seria outro bot, sem memória nem acessos deste</li>}
         </ul>

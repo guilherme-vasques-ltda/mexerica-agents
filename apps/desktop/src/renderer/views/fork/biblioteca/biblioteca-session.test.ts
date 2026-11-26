@@ -74,18 +74,28 @@ test('Pessoal: corpo fechado sem motor, chave do gesto e geração/revisão da p
   })
 })
 
-test('Fora do Pessoal: sem motor nada é enviado; com motor, readd usa o vínculo removido', async () => {
+test('Fora do Pessoal: sem motor ou sem conta nada é enviado; com os dois, readd usa o vínculo removido', async () => {
   const { session, link: hub } = await opened(LOJA, false)
-  assert.equal(await session.add('pesquisador', null), null)
+  assert.equal(await session.add('pesquisador', null, 'conta-1'), null)
+  assert.equal(await session.add('pesquisador', 'codex'), null)
+  assert.equal(await session.add('pesquisador', 'codex', ''), null)
   assert.equal(hub.calls.filter((c) => c.method === 'donnaNativeCatalogAdd').length, 0)
   assert.equal(session.op.kind, 'refused')
-  void session.add('operador', 'codex')
+  void session.add('operador', 'codex', 'conta-1')
   await settle()
   const body = hub.last('donnaNativeCatalogAdd').body
   assert.equal(body.intent, 'readd')
   assert.equal(body.expectedGeneration, 1)
   assert.equal(body.expectedRevision, 7)
   assert.equal(body.backend, 'codex')
+  assert.equal(body.engineAccountId, 'conta-1')
+})
+
+test('Pessoal: a conta de IA nunca vai no corpo', async () => {
+  const { session, link: hub } = await opened(PESSOAL, true)
+  void session.add('pesquisador', null, 'conta-1')
+  await settle()
+  assert.equal('engineAccountId' in hub.last('donnaNativeCatalogAdd').body, false)
 })
 
 test('Sem resposta: Conferir resultado reenvia a mesma chave e corpo, inclusive depois de fechar e reabrir', async () => {
@@ -147,7 +157,7 @@ test('Prévia atrasada de antes da troca de Hub não pinta; outro Hub esquece tu
 
 test('Recibo histórico removido não vira sucesso ativo; sem autoridade de gestão nada é enviado', async () => {
   const { source, session, link: hub } = await opened(LOJA, false)
-  void session.add('pesquisador', 'codex')
+  void session.add('pesquisador', 'codex', 'conta-1')
   await settle()
   hub.last('donnaNativeCatalogAdd').answer.resolve({ hubId: HUB, spaceId: LOJA, catalogKey: 'pesquisador', clientRequestKey: 'chave-1', generation: 1, botId: 'bot-1', state: 'removed' })
   await settle()
@@ -156,6 +166,6 @@ test('Recibo histórico removido não vira sucesso ativo; sem autoridade de gest
   source.canManageEngineAccounts = false
   source.emit()
   assert.equal(session.canAdd, false)
-  assert.equal(await session.add('pesquisador', 'codex'), null)
+  assert.equal(await session.add('pesquisador', 'codex', 'conta-1'), null)
   assert.equal(hub.calls.filter((c) => c.method === 'donnaNativeCatalogAdd').length, 1, 'nenhum envio sem a capacidade do Hub')
 })

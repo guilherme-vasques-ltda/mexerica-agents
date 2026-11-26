@@ -39,10 +39,15 @@ pub(super) async fn with_backend_check(
     if let Some(backend) = &request.backend {
         ensure!(backend_known(backend), "invalid_field: motor desconhecido.");
     }
-    ensure!(
-        request.space_id == super::super::spaces::PERSONAL || request.backend.is_some(),
-        "space_backend_selection_required"
-    );
+    if request.space_id == super::super::spaces::PERSONAL {
+        ensure!(request.engine_account_id.is_none(), "invalid_field: o Pessoal segue a conta padrão.");
+    } else {
+        ensure!(request.backend.is_some(), "space_backend_selection_required");
+        ensure!(
+            request.engine_account_id.as_deref().is_some_and(|id| !id.trim().is_empty()),
+            "space_account_selection_required"
+        );
+    }
     crate::chat::manage::recover_live(hub);
     let existing = authority.with_db(hub, |db| store::apply(db, &hub.host_id, &request, &digest, None))?;
     if let Some(answer) = existing {
@@ -67,6 +72,8 @@ pub(super) async fn with_backend_check(
     // Defesa explícita contra alterações futuras de defaults (sem fingir escolha humana).
     cfg.permission = Permission::Ask;
     cfg.permission_chosen_by_user = false;
+    // Mesma conferência da criação manual (prepare_new_bot): conta conectada, do motor e ligável neste Space.
+    cfg.fork_editor.engine_account_id.clone_from(&request.engine_account_id);
     let hub = hub.clone();
     let answer = tokio::task::spawn_blocking(move || -> Result<Value> {
         let _guard = guard;
