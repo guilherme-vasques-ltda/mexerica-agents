@@ -235,6 +235,7 @@ export const textos: Traducao<typeof fonte> = {
   'ajustes.ssh.passo.tunel': '正在打开隧道…',
   'ajustes.ssh.erro.iniciar': '无法启动 ssh。',
   'ajustes.ssh.erro.tunelOutro': '通往 {host} 的隧道连接到了意外的另一台电脑。',
+  'ajustes.hub.erro.semProva': '有程序在主机端口上响应，但无法证明它是本应用的主机。旧版本的主机不认识此证明：请安装新版本进行更新。如果不是主机，请关闭占用该端口的程序。未附加任何内容：没有证明的身份永远不会被接受。',
   'ajustes.ssh.erro.portaOcupada': '另一个程序占用了隧道的本地端口。',
   'ajustes.ssh.erro.abrirTunel': '无法打开通往 {host} 的隧道。{detalhe}',
   'ajustes.ssh.erro.caiu': 'SSH 连接已断开。{detalhe}',

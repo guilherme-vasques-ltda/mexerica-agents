@@ -232,6 +232,7 @@ export const textos = {
   'ajustes.ssh.passo.tunel': 'Abrindo o túnel…',
   'ajustes.ssh.erro.iniciar': 'Não deu para iniciar o ssh.',
   'ajustes.ssh.erro.tunelOutro': 'O túnel para {host} chegou a um computador diferente do esperado.',
+  'ajustes.hub.erro.semProva': 'Um programa responde na porta do Hub, mas não provou ser o Hub deste app. Um Hub de versão antiga não conhece esta prova: instale a versão nova para atualizá-lo. Se não for o Hub, feche o que está usando a porta. Nada foi anexado: uma identidade sem prova nunca é aceita.',
   'ajustes.ssh.erro.portaOcupada': 'Outro programa respondeu na porta local do túnel.',
   'ajustes.ssh.erro.abrirTunel': 'Não deu para abrir o túnel para {host}. {detalhe}',
   'ajustes.ssh.erro.caiu': 'A conexão SSH caiu. {detalhe}',

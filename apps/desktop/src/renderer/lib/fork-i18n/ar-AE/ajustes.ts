@@ -235,6 +235,7 @@ export const textos: Traducao<typeof fonte> = {
   'ajustes.ssh.passo.tunel': 'جارٍ فتح النفق…',
   'ajustes.ssh.erro.iniciar': 'تعذّر تشغيل ssh.',
   'ajustes.ssh.erro.tunelOutro': 'وصل النفق إلى {host} إلى حاسوب مختلف عن المتوقع.',
+  'ajustes.hub.erro.semProva': 'برنامج يستجيب على منفذ المضيف، لكنه لم يستطع إثبات أنه مضيف هذا التطبيق. المضيف من إصدار أقدم لا يعرف هذا الإثبات: ثبّت الإصدار الجديد لتحديثه. إن لم يكن المضيف، أغلق ما يستخدم المنفذ. لم يُرفق شيء: الهوية بلا إثبات لا تُقبل أبداً.',
   'ajustes.ssh.erro.portaOcupada': 'استجاب برنامج آخر على المنفذ المحلي للنفق.',
   'ajustes.ssh.erro.abrirTunel': 'تعذّر فتح النفق إلى {host}. {detalhe}',
   'ajustes.ssh.erro.caiu': 'انقطع اتصال SSH. {detalhe}',

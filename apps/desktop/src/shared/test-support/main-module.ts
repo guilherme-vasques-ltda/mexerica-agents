@@ -1,5 +1,6 @@
 // Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { readFileSync } from 'node:fs'
+import * as realHttp from 'node:http'
 import { createContext, Script } from 'node:vm'
 import ts from 'typescript'
 
@@ -51,6 +52,9 @@ export function loadMainModule<T>(file: string, dependencies: Record<string, unk
       const local = name.startsWith('.') ? sourceURL(name, source) : null
       const key = local?.href ?? name
       if (mocks.has(key)) return mocks.get(key)
+      // `node:http` é rede de verdade, sem tocar o sistema: o teste que quiser controlar as
+      // requisições passa o mock dele; os demais deixam o loopback de mentira responder.
+      if (name === 'node:http') return realHttp
       // Follow the real fork hook; every external/OS dependency must still be explicit.
       if (local?.href.startsWith(root.href) || local?.href.startsWith(catalogos.href) || local?.href.startsWith(shared.href) && !local.href.includes('/test-support/')) return evaluate(local)
       throw new Error(`Unmocked main-process dependency: ${name}`)

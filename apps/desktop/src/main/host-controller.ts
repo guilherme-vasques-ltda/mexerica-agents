@@ -13,6 +13,10 @@ import { hostEnvironmentError, isCodyncDataDir, isCodyncPort } from '../shared/e
 import { forkFeatures, officialDesktop } from '../shared/fork-features'
 import { launchdServiceAbsent, localHostOff as localHostOffFor, macPlistValid, uninstallArgs, type UninstallLevel } from '../shared/fork-mac-local-hub'
 import { envAlias } from '../shared/env-alias'
+import { localHealth, provarIdentidade } from './fork-local-health'
+import { postProvado } from './fork-proved-loopback'
+import { idiomaDoApp } from './fork-idioma'
+import { traduzir } from '../renderer/lib/fork-i18n/index.ts'
 import type { HostSetupStage } from './analytics'
 
 /** `MEXERICA_PORT` (antiga `DONNABOT_PORT`, ainda aceita) / `MEXERICA_HOME` point the app at a dev host started with `donnabot-host serve`. */
@@ -36,25 +40,6 @@ const localHostOff = () => isRc || (
 )
 /** Modo "Neste Mac" ativo: o serviço só vale com o plist do modo só-loopback (`--bind 127.0.0.1 --only-this-mac`). */
 const macLocalMode = () => forkFeatures.macLocalHub && platform() === 'darwin' && prefs.get('hubLocation') === 'mac' && devPort === null
-
-interface Health {
-  environment?: string
-  ok?: boolean
-  computerId?: string
-  binaryPath?: string
-  binaryHash?: string
-  busy?: boolean
-}
-
-export async function fetchHealth(url = baseURL, timeoutMs = 2000): Promise<Health | null> {
-  try {
-    const res = await fetch(`${url}/health`, { signal: AbortSignal.timeout(timeoutMs) })
-    if (!res.ok) return null
-    return (await res.json()) as Health
-  } catch {
-    return null
-  }
-}
 
 export function run(bin: string, args: string[]): Promise<{ status: number; output: string }> {
   return new Promise((resolve) => {
@@ -312,14 +297,19 @@ export class HostController extends EventEmitter {
     if (!this.canUseHost()) throw new Error('account_required')
     const local = this.local
     if (!local) throw new Error('The host isn’t running')
-    const res = await fetch(`${local.baseURL}/api/${method}`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${local.token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(params),
-      signal: AbortSignal.timeout(timeoutMs),
+    // A prova do token e a credencial passam pela mesma conexão, uma atrás da outra: não há
+    // janela para outro listener ocupar a porta entre uma e outra.
+    const res = await postProvado(local.baseURL, `/api/${method}`, local.token, JSON.stringify(params), timeoutMs, {
+      atual: () => this.canUseHost() && this.local === local,
     })
-    if (!res.ok) throw new Error(`${method}: HTTP ${res.status}`)
-    return (await res.json()) as T
+    if (res.statusCode !== 200) {
+      res.destroy()
+      throw new Error(`${method}: HTTP ${res.statusCode}`)
+    }
+    let text = ''
+    res.setEncoding('utf8')
+    for await (const chunk of res) text += chunk as string
+    return JSON.parse(text) as T
   }
 
   async uninstall(level: UninstallLevel = 1): Promise<boolean> {
@@ -383,7 +373,8 @@ export class HostController extends EventEmitter {
     if (isRc) return false
     if (this.installing || this.preparingForUpdate || devPort !== null) return false
     if (!serviceInstalled()) return true
-    const health = await fetchHealth()
+    // `busy` é anônimo: a vigia da atualização não precisa do token.
+    const health = await localHealth(baseURL, 2000)
     return health?.busy === false
   }
 
@@ -434,12 +425,29 @@ export class HostController extends EventEmitter {
   /** Attaches the local host once it answers, and again when its token or identity changed; else says why not. */
   private async attachLocal(): Promise<SetupError | null> {
     // 4 s, not 2: a host that is merely slow still answers inside one try instead of never.
-    const health = await fetchHealth(baseURL, 4000)
-    if (!health?.computerId) return new SetupError('not_responding', "The host isn't responding. See the log for details.")
+    // A identidade do `/health` só vem com a prova do token local; sem o token, o anônimo ainda diz
+    // se o Hub está de pé.
+    const noAnswer = new SetupError('not_responding', "The host isn't responding. See the log for details.")
+    const token = await readToken()
+    if (!token) {
+      const alive = await localHealth(baseURL, 4000)
+      return alive
+        ? new SetupError('not_responding', `The host is running, but its token (${join(dataDir, 'token')}) can't be read.`)
+        : noAnswer
+    }
+    // A porta responder mas recusar a prova do token é outra falha, não ausência de resposta: um
+    // Hub antigo não conhece a prova (a instalação de uma versão nova é o caminho), e um listener
+    // que não é o Hub não consegue respondê-la. Nos dois casos a identidade não é aceita — sem
+    // recibo válido, nada de anexar — e mexer em token local não destrava nada disso.
+    const identity = await provarIdentidade(baseURL, 4000, token)
+    if (identity.kind === 'refused') {
+      return new SetupError('not_responding', traduzir(idiomaDoApp(), 'ajustes.hub.erro.semProva'))
+    }
+    if (identity.kind !== 'identified') return noAnswer
+    const health = identity.health
+    if (!health.computerId) return noAnswer
     const mismatch = hostEnvironmentError(localIdentity.environment, health.environment)
     if (mismatch) return new SetupError('environment', mismatch)
-    const token = await readToken()
-    if (!token) return new SetupError('not_responding', `The host is running, but its token (${join(dataDir, 'token')}) can't be read.`)
     if (devPort === null) {
       // A rebuild can change the host without changing the release version.
       const bin = this.binary

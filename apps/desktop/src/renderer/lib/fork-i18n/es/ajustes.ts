@@ -235,6 +235,7 @@ export const textos: Traducao<typeof fonte> = {
   'ajustes.ssh.passo.tunel': 'Abriendo el túnel…',
   'ajustes.ssh.erro.iniciar': 'No se pudo iniciar ssh.',
   'ajustes.ssh.erro.tunelOutro': 'El túnel a {host} llegó a un ordenador distinto del esperado.',
+  'ajustes.hub.erro.semProva': 'Un programa responde en el puerto del host, pero no pudo probar que es el host de esta app. Un host de una versión antigua no conoce esta prueba: instala la versión nueva para actualizarlo. Si no es el host, cierra lo que está usando el puerto. No se adjuntó nada: una identidad sin prueba nunca se acepta.',
   'ajustes.ssh.erro.portaOcupada': 'Otro programa respondió en el puerto local del túnel.',
   'ajustes.ssh.erro.abrirTunel': 'No se pudo abrir el túnel a {host}. {detalhe}',
   'ajustes.ssh.erro.caiu': 'La conexión SSH se cayó. {detalhe}',

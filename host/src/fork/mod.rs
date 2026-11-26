@@ -108,6 +108,7 @@ pub(crate) mod plugins;
 pub(crate) mod private_fs;
 pub(crate) mod projetos;
 pub(crate) mod propostas;
+pub(crate) mod prova_health;
 #[cfg(target_os = "linux")]
 pub(crate) mod publicacao_atualizacao;
 pub(crate) mod push_textos;

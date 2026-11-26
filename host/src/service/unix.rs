@@ -43,6 +43,24 @@ pub fn started_by_service() -> bool {
     }
 }
 
+/// O processo principal da unidade executa `exe` e é dono do socket que escuta em `port`
+/// (`/proc`), sem perguntar nada a quem atende na porta. Leitura que falha ou consulta ao
+/// systemd que passa do prazo conta como não.
+#[cfg(target_os = "linux")]
+pub async fn serves(port: u16, exe: &Path, deadline: tokio::time::Instant) -> bool {
+    let query = tokio::process::Command::new("systemctl")
+        .args(["--user", "show", "--property=MainPID", "--value", UNIT])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .output();
+    let Ok(Ok(out)) = tokio::time::timeout_at(deadline, query).await else { return false };
+    String::from_utf8(out.stdout)
+        .ok()
+        .and_then(|pid| pid.trim().parse().ok())
+        .is_some_and(|pid| crate::fork::linux_installer::process_serves(pid, port, exe).unwrap_or(false))
+}
+
 /// Refuse to replace one installation while restarting a service owned by another.
 pub fn require_executable(expected: &Path) -> Result<()> {
     let configured = if cfg!(target_os = "macos") {

@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
-import test from 'node:test'
+import test, { type TestContext } from 'node:test'
 import { loadMainModule } from './test-support/main-module.ts'
 import * as crypto from 'node:crypto'
 import * as path from 'node:path'
 import type { LocalCloudIntent } from './fork-cloud-local.ts'
+import { hubProva, TOKEN_PROVA } from './test-support/hub-prova.ts'
 
 const { createLocalCloudCapture, LocalCloudCallError } = loadMainModule<typeof import('../main/ssh.ts')>('ssh', {
   './fork-desktop-profile': {},
@@ -11,37 +12,37 @@ const { createLocalCloudCapture, LocalCloudCallError } = loadMainModule<typeof i
   'node:fs': { existsSync: () => false, promises: {}, readFileSync: () => '', statSync: () => ({ isFile: () => false }) },
   'node:net': {}, 'node:os': { homedir: () => '/fixture', platform: () => 'darwin' }, 'node:path': path,
   electron: {}, '../shared/ssh': {}, './host-controller': { dataDir: '/fixture' }, './ssh-command': {},
-}, { Buffer, Object, process, fetch })
+}, { Buffer, Object, process, URL })
 
-// O mock testa somente a fábrica; não representa autoridade Local de produção.
-const setup = () => {
+const setup = async (t: TestContext) => {
   let alive = true
   let owns = true
-  let sends = 0
   let body = ''
   let sent!: () => void
   const started = new Promise<void>((resolve) => { sent = resolve })
   let release!: () => void
   const blocked = new Promise<void>((resolve) => { release = resolve })
   let wait = false
-  const capture = createLocalCloudCapture({ profileId: 'fixture', computerId: 'cid', signKey: 'key',
-    baseURL: 'http://127.0.0.1:1234', token: 'fixture', current: () => alive,
-    listener: async () => owns,
-    send: (async (_url, init) => {
-      sends++
-      body = String(init?.body)
+  const hub = await hubProva((req, res) => {
+    req.setEncoding('utf8').on('data', (parte) => { body += parte })
+    req.on('end', async () => {
       sent()
       if (wait) await blocked
-      return { ok: true, json: async () => ({ result: 'approved' }) } as Response
-    }) as typeof fetch,
+      res.end(JSON.stringify({ result: 'approved' }))
+    })
+    return true
   })
-  return { capture, release, started, count: () => sends, body: () => body,
+  t.after(() => hub.close())
+  const capture = createLocalCloudCapture({ profileId: 'fixture', computerId: 'cid', signKey: 'key',
+    baseURL: hub.url(), token: TOKEN_PROVA, current: () => alive, listener: async () => owns,
+  })
+  return { capture, release, started, count: () => hub.seen.filter((r) => r.url.startsWith('/api/')).length, seen: hub.seen, body: () => body,
     stop: () => { alive = false }, loseListener: () => { owns = false }, block: () => { wait = true } }
 }
 const expected = () => ({ deviceKey: 'A'.repeat(43), code: '123456', transcript: 'A'.repeat(43) })
 
-test('rejeita formas forjadas e listener indisponível antes do envio', async () => {
-  const x = setup()
+test('rejeita formas forjadas e listener indisponível antes do envio', async (t) => {
+  const x = await setup(t)
   for (const bad of [
     { kind: 'hello', extra: true }, Object.assign(Object.create({ forged: true }), { kind: 'hello' }),
     { kind: 'decideAccessRequest', requestId: 'req_1', expect: { ...expected(), code: '12345' } },
@@ -49,11 +50,11 @@ test('rejeita formas forjadas e listener indisponível antes do envio', async ()
   ]) await assert.rejects(x.capture.execute(bad as LocalCloudIntent), (e: unknown) => e instanceof LocalCloudCallError && e.kind === 'notSent')
   x.loseListener()
   await assert.rejects(x.capture.execute({ kind: 'hello' }), (e: unknown) => e instanceof LocalCloudCallError && e.kind === 'notSent')
-  assert.equal(x.count(), 0)
+  assert.deepEqual(x.seen, [])
 })
 
-test('captura body antes da espera e descarta resposta de geração invalidada', { timeout: 2000 }, async () => {
-  const x = setup()
+test('captura body antes da espera e descarta resposta de geração invalidada', { timeout: 2000 }, async (t) => {
+  const x = await setup(t)
   x.block()
   const intent: LocalCloudIntent = { kind: 'decideAccessRequest', requestId: 'req_1', expect: expected() }
   const pending = x.capture.execute(intent)
@@ -67,18 +68,18 @@ test('captura body antes da espera e descarta resposta de geração invalidada',
   assert.equal(x.count(), 1)
 })
 
-test('claim é enumerado, valida nonce e não envia depois da troca durante a verificação', async () => {
+test('claim é enumerado, valida nonce e não envia depois da troca durante a verificação', async (t) => {
   let current = true
   let release!: (value: boolean) => void
   const waiting = new Promise<boolean>((resolve) => { release = resolve })
-  let sends = 0
+  const hub = await hubProva(() => false)
+  t.after(() => hub.close())
   const capture = createLocalCloudCapture({ profileId: 'fixture', computerId: 'cid', signKey: 'key',
-    baseURL: 'http://127.0.0.1:1234', token: 'fixture', current: () => current,
-    listener: () => waiting, send: (async () => { sends++; throw new Error('unexpected') }) as typeof fetch })
+    baseURL: hub.url(), token: TOKEN_PROVA, current: () => current, listener: () => waiting })
   await assert.rejects(capture.execute({ kind: 'claimSign', claimId: 'clm_1', nonce: 'invalid', userId: 'user_1' }),
     (e: unknown) => e instanceof LocalCloudCallError && e.kind === 'notSent')
   const pending = capture.execute({ kind: 'claimSign', claimId: 'clm_1', nonce: 'A'.repeat(22), userId: 'user_1' })
   current = false; release(true)
   await assert.rejects(pending, (e: unknown) => e instanceof LocalCloudCallError && e.kind === 'notSent')
-  assert.equal(sends, 0)
+  assert.deepEqual(hub.seen, [])
 })

@@ -12,6 +12,8 @@ import { join } from 'node:path'
 import { app, dialog, ipcMain, type BrowserWindow } from 'electron'
 import { SSH_STORAGE_STATUS, type SSHAttachment, type SSHMotivo, type SSHProfile, type SSHState, type SSHStatus } from '../shared/ssh'
 import { dataDir } from './host-controller'
+import { localHealth, provarIdentidade } from './fork-local-health'
+import { postProvado } from './fork-proved-loopback'
 import { hubSSHAlias } from './fork-ssh-semente/hub-alias'
 import { seedProfiles, sshAliasExists } from './fork-ssh-semente/semente'
 import { infoArguments, knownHostsFiles, orphanTunnelPattern, resolveArguments, tunnelArguments } from './ssh-command'
@@ -189,15 +191,6 @@ async function sshListens(pid: number, port: number): Promise<boolean> {
   return false
 }
 
-async function healthOf(baseURL: string): Promise<{ computerId?: string } | null> {
-  try {
-    const res = await fetch(`${baseURL}/health`, { signal: AbortSignal.timeout(1000) })
-    return res.ok ? ((await res.json()) as { computerId?: string }) : null
-  } catch {
-    return null
-  }
-}
-
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 /** What `donnabot-host info --json` prints. */
@@ -283,10 +276,10 @@ export class LocalCloudCallError extends Error {
 
 type LocalCaptureDeps = {
   profileId: string; computerId: string; signKey: string; baseURL: string; token: string
-  current: () => boolean; listener: () => Promise<boolean>; send: typeof fetch
+  current: () => boolean; listener: () => Promise<boolean>
 }
 
-/** Fábrica interna do Main. Injeção existe para testar a guarda, não é um ingresso IPC. */
+/** Fábrica interna do Main; não é um ingresso IPC. */
 export function createLocalCloudCapture(deps: LocalCaptureDeps): CapturedSSHLocal {
   const current = () => { try { return deps.current() === true } catch { return false } }
   return Object.freeze({
@@ -300,20 +293,23 @@ export function createLocalCloudCapture(deps: LocalCaptureDeps): CapturedSSHLoca
       if (!current() || !ownsListener) throw new LocalCloudCallError('notSent')
       const payload = JSON.stringify(route.body)
       if (!current()) throw new LocalCloudCallError('notSent')
+      let res: Awaited<ReturnType<typeof postProvado>> | undefined
       try {
-        const response = await deps.send(`${deps.baseURL}/api/${route.method}`, {
-          method: 'POST', headers: { Authorization: `Bearer ${deps.token}`, 'Content-Type': 'application/json' },
-          body: payload, redirect: 'error', signal: AbortSignal.timeout(20_000),
-        })
-        if (!current() || !response.ok) throw new LocalCloudCallError('unknown')
+        res = await postProvado(deps.baseURL, `/api/${route.method}`, deps.token, payload, 20_000, { atual: current })
+        if (!current() || res.statusCode !== 200) throw new LocalCloudCallError('unknown')
         const stillListening = await deps.listener()
         if (!current() || !stillListening) throw new LocalCloudCallError('unknown')
-        const value: unknown = await response.json()
+        res.setEncoding('utf8')
+        let text = ''
+        for await (const chunk of res) text += chunk as string
+        const value: unknown = JSON.parse(text)
         if (!current()) throw new LocalCloudCallError('unknown')
         const listenerAtDelivery = await deps.listener()
         if (!current() || !listenerAtDelivery) throw new LocalCloudCallError('unknown')
         return value
-      } catch { throw new LocalCloudCallError('unknown') }
+      } catch { throw new LocalCloudCallError('unknown') } finally {
+        res?.destroy()
+      }
     },
   })
 }
@@ -402,7 +398,7 @@ class SSHComputers {
     const { attachment, current, listener } = raw
     const captured = createLocalCloudCapture({ profileId, computerId: attachment.computer.id, signKey: attachment.computer.signKey,
       baseURL: attachment.baseURL, token: attachment.token, current,
-      listener, send: fetch })
+      listener })
     return captured.current() ? captured : null
   }
 
@@ -617,27 +613,25 @@ class SSHComputers {
       const { child, tail } = tunnel
       const alive = () => child.exitCode === null && child.signalCode === null
       const baseURL = `http://127.0.0.1:${port}`
-      let health: { computerId?: string } | null = null
+      // Anônimo: só a prova de que a porta responde, sem identidade e sem token.
+      let answers = false
       for (let i = 0; i < 60 && alive() && !token.cancelled; i++) {
-        health = await healthOf(baseURL)
-        if (health) break
+        answers = (await localHealth(baseURL, 1000)) !== null
+        if (answers) break
         await sleep(250)
       }
       if (token.cancelled) {
         child.kill()
         return idle
       }
-      if (!health) {
+      if (!answers) {
         if (alive()) child.kill()
         else lastProblem = await tail.lastLine()
         continue
       }
-      if (health.computerId !== info.computerId) {
-        child.kill()
-        return stop({ kind: 'failed', ...falha('ajustes.ssh.erro.tunelOutro', { host: profile.host }) })
-      }
-      // /health is public, so the answer alone doesn't prove it came through ssh: another
-      // local user could have taken the port. Only a listener ssh owns gets the token.
+      // O /health anônimo não prova que a resposta veio pelo ssh: outro usuário local pode ter
+      // tomado a porta. A identidade vem da prova do token do Hub remoto, que um impostor não tem;
+      // o dono do listener continua conferido antes, como sinal de que o túnel está de pé.
       const listens = child.pid !== undefined && (await sshListens(child.pid, port))
       // Disconnected, removed or edited meanwhile: this attempt must not register its tunnel.
       if (token.cancelled) {
@@ -650,6 +644,28 @@ class SSHComputers {
         // O detalhe entra no motivo `abrirTunel`; como a saída do ssh, vai no inglês do catálogo.
         lastProblem = motivoSSH('ajustes.ssh.erro.portaOcupada').texto
         continue
+      }
+      const identity = await provarIdentidade(baseURL, 1000, info.token)
+      if (token.cancelled) {
+        child.kill()
+        return idle
+      }
+      // O túnel pode cair durante a espera; sem o ssh vivo, nada é registrado e a tentativa se repete.
+      if (!alive()) {
+        lastProblem = await tail.lastLine()
+        continue
+      }
+      // Sem resposta é falha de passagem, que a próxima tentativa resolve com um ssh novo: este
+      // processo é encerrado aqui, nunca fica rodando junto do substituto. Prova recusada ou outro
+      // `computerId` é o túnel indo para um Hub que não é este computador.
+      if (identity.kind === 'unreachable') {
+        child.kill()
+        lastProblem = motivoSSH('ajustes.ssh.erro.portaOcupada').texto
+        continue
+      }
+      if (identity.kind === 'refused' || identity.health.computerId !== info.computerId) {
+        child.kill()
+        return stop({ kind: 'failed', ...falha('ajustes.ssh.erro.tunelOutro', { host: profile.host }) })
       }
       this.watch(child, id, tail)
       this.tunnels.set(id, child)

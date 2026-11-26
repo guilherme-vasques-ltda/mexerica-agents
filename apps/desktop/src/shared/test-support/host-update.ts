@@ -16,6 +16,7 @@ export function hostUpdateFixture(options: { environment?: 'main' | 'dev'; rc?: 
   const persisted: Record<string, unknown> = { hostRestartAfterAppUpdate: options.restartMarker ?? false, ...(options.hubLocation ? { hubLocation: options.hubLocation } : {}) }
   const calls: string[][] = []
   const reads: string[] = []
+  const fetched: string[] = []
   const probes: string[][] = []
   const warnings: string[] = []
   const removed: string[] = []
@@ -24,6 +25,10 @@ export function hostUpdateFixture(options: { environment?: 'main' | 'dev'; rc?: 
   let timerId = 0
   const behavior = {
     stopStatus: 0,
+    /** O token que o app lê do Hub (`null`: arquivo ilegível). O `/health` só mostra identidade com ele. */
+    token: 'fixture-token' as string | null,
+    /** Um listener que devolve os campos públicos do Hub mas não tem o token: sem recibo. */
+    impostor: false,
     installStatus: 0,
     installed: options.installed ?? true,
     busy: false,
@@ -54,7 +59,11 @@ export function hostUpdateFixture(options: { environment?: 'main' | 'dev'; rc?: 
     mkdirSync: () => {},
     writeFileSync: (_name: string, value: string) => { Object.assign(persisted, JSON.parse(value)) },
     promises: {
-      readFile: async (name: string) => name.endsWith('/token') ? 'fixture-token' : binaryBytes,
+      readFile: async (name: string) => {
+        if (!name.endsWith('/token')) return binaryBytes
+        if (behavior.token === null) throw new Error('token ausente')
+        return behavior.token
+      },
       rm: async (name: string) => { if (behavior.rmFails) throw new Error('permission denied'); removed.push(name); behavior.installed = false },
     },
   }
@@ -98,13 +107,24 @@ export function hostUpdateFixture(options: { environment?: 'main' | 'dev'; rc?: 
   }, {
     __dirname: '/app/out/main',
     console: { warn: (message: string) => warnings.push(message), log: () => {}, error: () => {} },
+    Buffer,
     process: { env: { ...(options.devPort ? { [options.devPortVar ?? 'DONNABOT_PORT']: options.devPort } : {}), ...options.env }, resourcesPath: '/bundle', getuid: () => 501 },
     setTimeout: (callback: () => void, ms: number) => { const id = ++timerId; timers.set(id, { callback, ms }); return id },
     clearTimeout: (id: number) => timers.delete(id),
-    fetch: async () => {
+    fetch: async (url: string) => {
       reads.push('health')
+      fetched.push(url)
       if (!behavior.reachable) throw new Error('Host offline')
-      return { ok: true, json: async () => ({ environment: behavior.runningEnvironment, computerId: 'fixture-computer', busy: behavior.busy, binaryPath: binary, binaryHash: behavior.wrongBinary ? 'stale' : crypto.createHash('sha256').update(binaryBytes).digest('hex') }) }
+      // Como o Hub: a identidade só vem com a prova do token local; sem ela, só o anônimo.
+      const query = new URL(url, 'http://127.0.0.1').searchParams
+      const nonce = query.get('nonce') ?? ''
+      const proved = behavior.token !== null &&
+        query.get('proof') === crypto.createHmac('sha256', behavior.token).update('mexerica/health-proof/v1').update(Buffer.from(nonce, 'base64url')).digest('hex')
+      const anonymous = { ok: true, environment: behavior.runningEnvironment, busy: behavior.busy }
+      const identity = { computerId: 'fixture-computer', binaryPath: binary, binaryHash: behavior.wrongBinary ? 'stale' : crypto.createHash('sha256').update(binaryBytes).digest('hex') }
+      const receipt = crypto.createHmac('sha256', behavior.token ?? '').update('mexerica/health-receipt/v1').update(Buffer.from(nonce, 'base64url')).update(['', identity.computerId, identity.binaryPath, identity.binaryHash].join('\n')).digest('hex')
+      if (behavior.impostor) return { ok: true, json: async () => ({ ...anonymous, computerId: identity.computerId }) }
+      return { ok: true, json: async () => proved ? { ...anonymous, ...identity, receipt } : anonymous }
     },
   })
   const host = new module.HostController(() => options.canUseHost ?? true)
@@ -116,5 +136,5 @@ export function hostUpdateFixture(options: { environment?: 'main' | 'dev'; rc?: 
     }
     await settle()
   }
-  return { host, probes, warnings, devPort: module.devPort, prefs: module.prefs, persisted, calls, order, behavior, tick, removed, reads }
+  return { host, probes, warnings, devPort: module.devPort, prefs: module.prefs, persisted, calls, order, behavior, tick, removed, reads, fetched }
 }

@@ -4,6 +4,7 @@ import type { CallError } from '../shared/ipc'
 import { hostCallError } from '../shared/host-call-error'
 import { noteAnalyticsSetting } from './analytics'
 import { isGeneralContext } from './fork-secret-box/contexts'
+import { postProvado, streamProvado } from './fork-proved-loopback'
 
 // Loopback HTTP + SSE for the renderer. The host has no CORS (it's a loopback API for local
 // apps), so requests leave from the main process.
@@ -26,19 +27,18 @@ function isLoopback(url: string) {
 
 async function call(baseURL: string, token: string, method: string, body: unknown, timeoutMs: number): Promise<unknown> {
   if (!isLoopback(baseURL)) throw { status: 0, message: 'Not a loopback host.' } satisfies CallError
-  let res: Response
+  // A prova do token e a credencial passam pela mesma conexão, uma atrás da outra (ver
+  // fork-proved-loopback): a troca de listener entre as duas não existe.
+  let res
   try {
-    res = await fetch(`${baseURL}/api/${method}`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body ?? {}),
-      signal: AbortSignal.timeout(timeoutMs),
-    })
+    res = await postProvado(baseURL, `/api/${method}`, token, JSON.stringify(body ?? {}), timeoutMs)
   } catch {
     throw { status: 0, message: "Can't reach your computer. Is it on and connected to the internet?" } satisfies CallError
   }
-  const text = await res.text()
-  if (!res.ok) throw hostCallError(res.status, text)
+  res.setEncoding('utf8')
+  let text = ''
+  for await (const chunk of res) text += chunk as string
+  if (res.statusCode !== 200) throw hostCallError(res.statusCode ?? 0, text)
   const value: unknown = text ? JSON.parse(text) : {}
   // The main process keeps the analytics setting for when there's no host (`host_setup_failed`).
   noteAnalyticsSetting(baseURL, method, value)
@@ -68,19 +68,16 @@ function stream(sender: WebContents, id: string, url: string, token: string) {
     try {
       if (!isLoopback(url)) throw { status: 0, message: 'Not a loopback host.' }
       arm()
-      const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${token}`, Accept: 'text/event-stream' },
-        signal: controller.signal,
-      })
-      if (res.status !== 200 || !res.body) throw { status: res.status, message: `Host error ${res.status}` }
-      const reader = res.body.getReader()
+      const origem = new URL(url)
+      const res = await streamProvado(`${origem.protocol}//${origem.host}`, `${origem.pathname}${origem.search}`, token, controller.signal, 45_000)
+      if (res.statusCode !== 200) throw { status: res.statusCode ?? 0, message: `Host error ${res.statusCode}` }
+      const onAbort = () => res.destroy()
+      controller.signal.addEventListener('abort', onAbort, { once: true })
       const decoder = new TextDecoder()
       let buffer = ''
-      for (;;) {
-        const { value, done } = await reader.read()
-        if (done) break
+      for await (const value of res) {
         arm()
-        buffer += decoder.decode(value, { stream: true })
+        buffer += decoder.decode(value as Buffer, { stream: true })
         let nl: number
         while ((nl = buffer.indexOf('\n')) >= 0) {
           const line = buffer.slice(0, nl).replace(/\r$/, '')
@@ -88,15 +85,21 @@ function stream(sender: WebContents, id: string, url: string, token: string) {
           if (line.startsWith('data:')) pending.push(line.slice(5).trimStart())
         }
         flush()
+        if (controller.signal.aborted) break
       }
       flush()
       send('host:stream:end', null)
     } catch (error) {
       flush()
-      const e = error as Partial<CallError>
-      send('host:stream:end', controller.signal.aborted && streams.has(id)
-        ? { status: 0, message: "Can't reach your computer." }
-        : { status: e.status ?? 0, message: e.message ?? "Can't reach your computer." })
+      // O aborto com o stream fora do mapa é o `host:stream:close` da janela: a inscrição dela
+      // já morreu e um "Premature close" de brinde só polui. O aborto com o stream no mapa é o
+      // timeout de silêncio — erro de verdade, que a janela usa para se reerguer.
+      if (!(controller.signal.aborted && !streams.has(id))) {
+        const e = error as Partial<CallError>
+        send('host:stream:end', controller.signal.aborted
+          ? { status: 0, message: "Can't reach your computer." }
+          : { status: e.status ?? 0, message: e.message ?? "Can't reach your computer." })
+      }
     } finally {
       if (idle) clearTimeout(idle)
       streams.delete(id)

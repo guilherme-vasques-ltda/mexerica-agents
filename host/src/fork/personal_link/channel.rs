@@ -392,6 +392,14 @@ pub(super) async fn sessao<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
 }
 
 /// Composição própria: nenhum router comum/hub.start. Unqualified não abre TCP.
+/// Sem log configurado no perfil isolado: o aviso fixo, sem o endereço, vai para `saida`
+/// (o stderr do serviço) quando o endereço efetivo do listener sai do loopback.
+pub(super) fn avisar_escuta_externa(endereco: std::net::SocketAddr, saida: &mut impl std::io::Write) {
+    if crate::service::mac_local::listens_beyond_loopback([endereco]) {
+        let _ = writeln!(saida, "warning: {}", crate::service::mac_local::EXTERNAL_LISTEN_WARNING);
+    }
+}
+
 pub(super) async fn servir(p: Arc<Procedimento>, bind: &str, port: u16, mut stop: watch::Receiver<bool>) -> Result<()> {
     if !p.relogio.qualificada() {
         let _ = stop.changed().await;
@@ -426,10 +434,7 @@ pub(super) async fn servir(p: Arc<Procedimento>, bind: &str, port: u16, mut stop
     }
     let (aviso, parada) = watch::channel(false);
     let listener = tokio::net::TcpListener::bind((bind, port)).await?;
-    // Sem log configurado neste caminho: o aviso fixo, sem o endereço, vai para o stderr do serviço.
-    if crate::service::mac_local::listens_beyond_loopback([listener.local_addr()?]) {
-        eprintln!("warning: {}", crate::service::mac_local::EXTERNAL_LISTEN_WARNING);
-    }
+    avisar_escuta_externa(listener.local_addr()?, &mut std::io::stderr());
     let connections = Arc::new(Semaphore::new(CONEXOES));
     let handshakes = Arc::new(Semaphore::new(HANDSHAKES));
     let sessions = Arc::new(Semaphore::new(SESSOES));

@@ -134,10 +134,66 @@ impl Host {
     }
 }
 
+/// `/health` provado: um nonce novo e o HMAC-SHA256 do token local sobre ele, sem o token na URL.
+/// Devolve o endereço e o nonce, que o recibo da resposta precisa conferir.
+fn proved(base: &str, token: &str, nonce: [u8; 32]) -> (String, String) {
+    use base64::Engine as _;
+    use hmac::{Hmac, KeyInit as _, Mac as _};
+    let mut mac = Hmac::<sha2::Sha256>::new_from_slice(token.as_bytes()).unwrap();
+    mac.update(b"mexerica/health-proof/v1");
+    mac.update(&nonce);
+    let mut proof = String::with_capacity(64);
+    for byte in mac.finalize().into_bytes() {
+        use std::fmt::Write as _;
+        let _ = write!(proof, "{byte:02x}");
+    }
+    let nonce = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(nonce);
+    (format!("{base}/health?nonce={nonce}&proof={proof}"), nonce)
+}
+
+/// O recibo que o Hub devolve: HMAC do token sobre o nonce e a identidade que saiu.
+fn recibo(token: &str, nonce: &str, health: &Value) -> String {
+    use base64::Engine as _;
+    use hmac::{Hmac, KeyInit as _, Mac as _};
+    let texto = |field: &str| health[field].as_str().unwrap_or_default().to_owned();
+    let identidade =
+        format!("{}\n{}\n{}\n{}", texto("hostId"), texto("computerId"), texto("binaryPath"), texto("binaryHash"));
+    let mut mac = Hmac::<sha2::Sha256>::new_from_slice(token.as_bytes()).unwrap();
+    mac.update(b"mexerica/health-receipt/v1");
+    mac.update(&base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(nonce).unwrap());
+    mac.update(identidade.as_bytes());
+    let mut out = String::with_capacity(64);
+    for byte in mac.finalize().into_bytes() {
+        use std::fmt::Write as _;
+        let _ = write!(out, "{byte:02x}");
+    }
+    out
+}
+
 #[tokio::test]
 async fn health_names_this_binary() {
     let host = start_host().await;
-    let health: Value = reqwest::get(format!("{}/health", host.base)).await.unwrap().json().await.unwrap();
+    let anonymous: Value = reqwest::get(format!("{}/health", host.base)).await.unwrap().json().await.unwrap();
+    assert_eq!(anonymous["ok"], true);
+    assert_eq!(anonymous["busy"], false);
+    for field in ["hostId", "computerId", "binaryPath", "binaryHash"] {
+        assert!(anonymous.get(field).is_none(), "{field}: {anonymous}");
+    }
+    let client = reqwest::Client::new();
+    let (errado, _) = proved(&host.base, "token-ficticio", [3u8; 32]);
+    assert_eq!(client.get(errado).send().await.unwrap().status(), 401);
+    let (certo, nonce) = proved(&host.base, &host.token, [4u8; 32]);
+    let health: Value = client.get(certo).send().await.unwrap().json().await.unwrap();
+    assert_eq!(health["receipt"], recibo(&host.token, &nonce, &health), "o recibo prova a resposta");
+    let (outro, _) = proved(&host.base, &host.token, [4u8; 32]);
+    assert_eq!(client.get(outro).send().await.unwrap().status(), 401, "o mesmo nonce não abre duas vezes");
+    // A repetição em sequência não cobre a janela da disputa: duas requisições com a MESMA prova
+    // ao mesmo tempo — uma só registra o nonce, a outra encontra ele já consumido.
+    let (corrida, _) = proved(&host.base, &host.token, [5u8; 32]);
+    let (primeira, segunda) = tokio::join!(client.get(&corrida).send(), client.get(&corrida).send());
+    let mut status = [primeira.unwrap().status().as_u16(), segunda.unwrap().status().as_u16()];
+    status.sort_unstable();
+    assert_eq!(status, [200, 401], "na disputa pelo mesmo nonce, só uma prova passa");
     assert!(health["binaryHash"].as_str().is_some_and(|hash| hash.len() == 64));
     // The apps compare it with the path they resolve, which on Windows has no `\\?\` prefix.
     let exe = std::fs::canonicalize(env!("CARGO_BIN_EXE_donnabot-host")).unwrap();

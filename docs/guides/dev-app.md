@@ -98,7 +98,7 @@ Observed on 2026-10-09: a MacBook development host was online in development, wh
 Before resetting keys or pairing again:
 
 1. Run the relevant bundled `codync-host cloud` on each computer. Compare `url`, `registered`, `connected` and `last error`.
-2. Read `/health` on that host's port for `environment`, `computerId`, binary path and version.
+2. Read `/health` on that host's port for `environment` and version; `computerId`, the binary path and the `receipt` come only with the proof of the host's local token (`?nonce=` and `?proof=`: an HMAC of the token over a fresh nonce, from the same computer; on this call the token itself never travels, and the `receipt` is the HMAC of the same token over that nonce and the identity returned).
 3. Confirm the desktop app, its host and the iPhone app participating in the test use the same environment. An identical version number or Apple login does not establish this.
 4. Refresh the account list. Working SSH or local access does not prove the clouds match.
 

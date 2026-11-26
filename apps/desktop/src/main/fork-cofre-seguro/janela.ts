@@ -30,7 +30,6 @@ interface Dependencias {
   hubs: FontesDeHub
   /** URL da página da janela segura (o preload dela tem caminho fixo, ao lado do geral). */
   url: string
-  http?: typeof fetch
 }
 
 /** O que o Hub devolve em `connectorRequestGet`: a entrada, nunca o valor. */
@@ -131,13 +130,13 @@ function mesmoPedido(h: PedidoHub, pedido: PedidoVisivel): boolean {
       : texto(h.field, 128) === pedido.campo && texto(h.location, 16) === pedido.local)
 }
 
-async function lerPedido(captura: CapturaHub, alvo: AbrirCofre, http: typeof fetch): Promise<{ pedido: PedidoVisivel; contexto: { spaceId?: string; conversationId?: string }; cru: PedidoHub }> {
+async function lerPedido(captura: CapturaHub, alvo: AbrirCofre): Promise<{ pedido: PedidoVisivel; contexto: { spaceId?: string; conversationId?: string }; cru: PedidoHub }> {
   const bruto = await chamarHub(captura, METODO_GET, {
     entryId: alvo.entryId,
     ...(alvo.spaceId ? { spaceId: alvo.spaceId } : {}),
     ...(alvo.conversationId ? { conversationId: alvo.conversationId } : {}),
     ...(alvo.hubId ? { hubId: alvo.hubId } : {}),
-  }, http, 20_000)
+  }, 20_000)
   const lido = pedidoDoHub(bruto, alvo)
   if (!lido) throw { status: 400 } satisfies FalhaHub
   return { ...lido, cru: bruto as PedidoHub }
@@ -209,7 +208,7 @@ async function abrirNovoAoVivo(dep: Dependencias, chave: string, alvo: AbrirCofr
   if (!captura) return { ok: false, motivo: 'semSuporte' }
   try {
     // Sem valor e sem pedido: só confere que esta captura chega ao Hub antes de a pessoa digitar.
-    await chamarHub(captura, METODO_ESTADO, {}, dep.http ?? fetch, 20_000)
+    await chamarHub(captura, METODO_ESTADO, {}, 20_000)
   } catch (erro) {
     vida.viva = false
     return { ok: false, motivo: (erro as FalhaHub).status === 0 || (erro as FalhaHub).status >= 500 ? 'semConexao' : 'invalido' }
@@ -229,7 +228,7 @@ async function abrirAoVivo(dep: Dependencias, chave: string, alvo: AbrirCofre): 
   if (!captura) return { ok: false, motivo: 'semSuporte' }
   let lido: Awaited<ReturnType<typeof lerPedido>>
   try {
-    lido = await lerPedido(captura, alvo, dep.http ?? fetch)
+    lido = await lerPedido(captura, alvo)
   } catch (erro) {
     vida.viva = false
     const status = (erro as FalhaHub).status
@@ -300,12 +299,12 @@ async function aoSalvar(event: IpcMainInvokeEvent, nonce: unknown, bruto: unknow
   const envio = lerEnvio(bruto, i.pedido.tipo)
   if (!envio) return { ok: false, erro: 'vazio' }
   if (i.salvando) return { ok: false, erro: 'fechada' }
-  if (i.pedido.tipo === 'loginNovo') return salvarLoginNovo(dep, i, envio)
+  if (i.pedido.tipo === 'loginNovo') return salvarLoginNovo(i, envio)
   // Reconferir a MESMA entrada e a MESMA captura imediatamente antes de enviar o valor:
   // o pedido precisa continuar pendente e com os mesmos textos que a janela mostrou.
   let deNovo: Awaited<ReturnType<typeof lerPedido>>
   try {
-    deNovo = await lerPedido(i.captura, i.alvo, dep.http ?? fetch)
+    deNovo = await lerPedido(i.captura, i.alvo)
   } catch (erro) {
     const status = (erro as FalhaHub).status
     return { ok: false, erro: status === 0 || status >= 500 ? 'conexao' : 'recusado' }
@@ -323,7 +322,7 @@ async function aoSalvar(event: IpcMainInvokeEvent, nonce: unknown, bruto: unknow
       ...(deNovo.contexto.spaceId ? { spaceId: deNovo.contexto.spaceId } : {}),
       ...(i.alvo.hubId ? { hubId: i.alvo.hubId } : {}),
       ...(deNovo.contexto.conversationId ? { conversationId: deNovo.contexto.conversationId } : {}),
-    }, dep.http ?? fetch)
+    })
   } catch (erro) {
     i.salvando = false
     // Só o status decide a mensagem; o corpo e o erro do Hub nunca seguem adiante.
@@ -337,16 +336,16 @@ async function aoSalvar(event: IpcMainInvokeEvent, nonce: unknown, bruto: unknow
 /**
  * MX-277: guarda o login novo pelo caminho que o Hub já tem (`credentialSaveLogin`), chamado AQUI no main com a captura
  * da abertura. Não há pedido do bot a reconferir; valem as guardas do `chamarHub` (posse e validade antes e depois,
- * `redirect: 'error'`, só o status volta). `createOnly`: nunca substitui um login existente (o Hub recusa com 409). O valor existe só na fila do fetch e nunca vai ao chat, ao log nem a broadcast.
+ * conexão provada sem redirecionamento, só o status volta). `createOnly`: nunca substitui um login existente (o Hub recusa com 409). O valor nunca vai ao chat, ao log nem a broadcast.
  */
-async function salvarLoginNovo(dep: Dependencias, i: Instancia, envio: NonNullable<ReturnType<typeof lerEnvio>>): Promise<RespostaSalvar> {
+async function salvarLoginNovo(i: Instancia, envio: NonNullable<ReturnType<typeof lerEnvio>>): Promise<RespostaSalvar> {
   i.salvando = true
   try {
     await chamarHub(i.captura, METODO_SALVAR_LOGIN, {
       site: envio.site ?? '', username: envio.usuario, password: envio.valor, label: envio.rotulo,
       // Criação exclusiva, conferida e gravada pelo Hub sob a mesma exclusão: nunca substitui um login existente.
       createOnly: true,
-    }, dep.http ?? fetch)
+    })
   } catch (erro) {
     i.salvando = false
     const status = (erro as FalhaHub).status
