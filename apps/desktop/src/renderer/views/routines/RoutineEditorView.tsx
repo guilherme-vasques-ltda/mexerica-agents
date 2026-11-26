@@ -71,7 +71,7 @@ export function RoutineEditorView({ botId, routine, saved, duplicated, initialTr
   const options = [
     ...(keepsOriginal ? [{ id: 'keep', label: t('rotinas.editor.definidaPeloBot') }] : []),
     { id: 'cron', label: t('rotinas.editor.agenda') },
-    { id: 'webhook', label: t('rotinas.editor.webhook') },
+    ...(isOpenDesktop(window.codync) ? [] : [{ id: 'webhook', label: t('rotinas.editor.webhook') }]),
     { id: 'manual', label: t('rotinas.editor.manual') },
   ]
   const pendingEdit = routine ? hasPendingEdit(routine, { name, instruction, timeout, scheduleKey: key }, savedKey) : false
