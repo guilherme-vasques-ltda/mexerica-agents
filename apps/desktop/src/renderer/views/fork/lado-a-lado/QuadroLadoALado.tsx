@@ -270,7 +270,6 @@ export function QuadroLadoALado({
 
       <header className="lado-a-lado-barra no-drag">
         <div className="lado-a-lado-barra-inicio" title={t('conversa.ladoALado.atalhoPainel')}>
-          <Icon name="donna.ladoalado" size={14} weight="medium" className="lado-a-lado-barra-icone" />
           <Text as="span" size="callout" weight="semibold" truncate>
             {t('conversa.ladoALado.titulo')}
           </Text>
