@@ -75,6 +75,30 @@ pub(crate) fn finish(hub: &Arc<Hub>, bot: &str) {
     }
 }
 
+/// A fila vive na memória: na partida, o que ficou `queued` de uma execução anterior nunca será entregue. Marca como
+/// não enviada com o motivo, em vez de deixar a mensagem presa e contando no limite da fila.
+pub(crate) fn recover(store: &crate::store::Store) {
+    let ids: Vec<String> = {
+        let db = store.db.locked();
+        let Ok(mut stmt) = db.prepare(
+            "SELECT id FROM entries WHERE kind = 'user'
+                AND (CASE WHEN json_valid(data) THEN json_extract(data, '$.status') END) = 'queued'",
+        ) else {
+            return;
+        };
+        let Ok(rows) = stmt.query_map([], |row| row.get(0)) else { return };
+        rows.flatten().collect()
+    };
+    for id in ids {
+        let Some(mut data) = store.entry(&id).map(|entry| entry.data) else { continue };
+        data["status"] = serde_json::json!("failed");
+        data["reason"] = serde_json::json!({"code": "open_chat_failed", "accountId": ""});
+        if let Err(error) = store.update_entry(&id, &data) {
+            tracing::warn!(%error, "mensagem da fila da Open não foi marcada na partida");
+        }
+    }
+}
+
 /// `stop` interrompe a resposta e também as mensagens que esperavam depois dela.
 pub(crate) fn cancel_pending(bot: &str) {
     let _running = RUNNING.locked();

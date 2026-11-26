@@ -68,6 +68,19 @@ fn ao_terminar_a_resposta_a_fila_segue_em_ordem_e_uma_recusa_nao_trava_as_outras
 }
 
 #[test]
+fn na_partida_a_mensagem_que_ficou_na_fila_de_uma_execucao_anterior_vira_falha() {
+    let bot = "bot-fila-boot";
+    let hub = hub_de_teste(bot);
+    let (a, _) = mensagem(&hub, bot, 1);
+    let enviada =
+        hub.add_entry(&Lane::main(bot), EntryKind::User, 2, &json!({"text": "ok", "status": "sent"})).unwrap();
+    super::recover(&hub.store);
+    assert_eq!(status(&hub, &a), "failed");
+    assert_eq!(hub.store.entry(&a).unwrap().data["reason"]["code"], "open_chat_failed");
+    assert_eq!(status(&hub, &enviada.id), "sent", "o que já foi aceito não muda");
+}
+
+#[test]
 fn stop_cancela_as_mensagens_que_esperavam_a_resposta() {
     let bot = "bot-fila-stop";
     let hub = hub_de_teste(bot);

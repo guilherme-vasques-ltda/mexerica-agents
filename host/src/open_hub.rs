@@ -374,6 +374,7 @@ mod unix {
         let store = profile.open_store()?;
         let host_id = crate::store_host_id(&store)?;
         crate::chat::manage::recover(&store);
+        crate::fork::open_chat_fila::recover(&store);
         let identity = crate::remote::identity::Identity::load_or_create(&profile.data)?;
         let token = crate::new_token();
         let hub = Hub::new(store, host_id, identity, token, port);
