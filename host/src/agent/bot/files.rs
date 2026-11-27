@@ -94,12 +94,11 @@ impl Actor {
         let root = files::root(&chat);
         let cwd = PathBuf::from(&self.cfg.cwd);
         let hub = self.hub.clone();
-        let logins = self.cfg.logins.clone();
         let tx = self.files.tx.clone();
         tokio::spawn(async move {
             let flag = cancelled.clone();
             let result = tokio::task::spawn_blocking(move || {
-                files::snapshot_for_share(&root, &cwd, &source, name.as_deref(), &flag, &hub.store, &logins)
+                files::snapshot_for_share(&root, &cwd, &source, name.as_deref(), &flag, &hub.store)
             })
             .await;
             let result = result.map_err(anyhow::Error::from).and_then(std::convert::identity);

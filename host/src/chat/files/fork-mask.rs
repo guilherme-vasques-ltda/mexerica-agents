@@ -6,31 +6,22 @@ use zeroize::Zeroizing;
 
 pub(super) struct Mask {
     search: AhoCorasick,
-    labels: Vec<String>,
 }
 
 impl Mask {
-    pub(super) fn from_store(store: &crate::store::Store, visible: &[String]) -> Result<Option<Self>> {
-        let (values, mut labels): (Vec<_>, Vec<_>) = crate::market::logins::all(store)?
+    pub(super) fn from_store(store: &crate::store::Store) -> Result<Option<Self>> {
+        let values: Vec<_> = crate::market::logins::all(store)?
             .into_iter()
             .filter(|login| !login.password.is_empty())
-            .map(|login| {
-                let label = if visible.contains(&login.id) { login.title() } else { "ITEM".into() };
-                (Zeroizing::new(login.password), label)
-            })
-            .unzip();
+            .map(|login| Zeroizing::new(login.password))
+            .collect();
         if values.is_empty() {
             return Ok(None);
         }
         let search = AhoCorasick::builder()
             .match_kind(MatchKind::LeftmostLongest)
             .build(values.iter().map(|value| value.as_bytes()))?;
-        for label in &mut labels {
-            if label.contains(['[', ']']) || label.chars().any(char::is_control) || search.is_match(label.as_bytes()) {
-                *label = "ITEM".into();
-            }
-        }
-        Ok(Some(Self { search, labels }))
+        Ok(Some(Self { search }))
     }
 
     pub(super) fn name(&self, name: String) -> Result<String> {
@@ -71,11 +62,11 @@ impl Mask {
         let mut end = 0;
         for found in self.search.find_iter(&raw[..]) {
             ensure!(!cancelled.load(Ordering::Acquire), "file sharing cancelled");
-            let marker = format!("[cofre:{}]", self.labels[found.pattern().as_usize()]);
+            let marker = b"[cofre:ITEM]";
             let preceding = &raw[end..found.start()];
             ensure!((clean.len() + preceding.len() + marker.len()) as u64 <= super::MAX_FILE, "file exceeds 100 MiB");
             clean.extend_from_slice(preceding);
-            clean.extend_from_slice(marker.as_bytes());
+            clean.extend_from_slice(marker);
             end = found.end();
         }
         ensure!((clean.len() + raw.len() - end) as u64 <= super::MAX_FILE, "file exceeds 100 MiB");

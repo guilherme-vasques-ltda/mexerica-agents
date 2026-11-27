@@ -43,7 +43,8 @@ Directories and special files are refused. Group, routine and delegated turns ca
 publish files.
 
 Before sharing, the host masks exact matches of values saved in local vault logins
-in plain UTF-8 text and replaces a matching display filename. A binary with a
+in plain UTF-8 text with a fixed marker that does not identify any login, and
+replaces a matching display filename. A binary with a
 matching value is refused. This does not resolve values from external vaults or
 detect transformed values.
 

@@ -122,9 +122,8 @@ pub(crate) fn snapshot_for_share(
     display: Option<&str>,
     cancelled: &AtomicBool,
     store: &crate::store::Store,
-    visible_logins: &[String],
 ) -> Result<Snapshot> {
-    let mask = fork_mask::Mask::from_store(store, visible_logins)?;
+    let mask = fork_mask::Mask::from_store(store)?;
     snapshot_with_mask(root, cwd, source, display, cancelled, mask.as_ref())
 }
 

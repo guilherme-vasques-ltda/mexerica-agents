@@ -131,14 +131,13 @@ fn snapshot_com_mascara_publica_so_os_bytes_transformados() {
     let root = temp.0.join("snapshots");
     let store = crate::store::Store::open(Path::new(":memory:")).unwrap();
     let valor = "valor-ficticio-de-teste";
-    let login = crate::market::logins::save(&store, "login.example.invalid", "", valor, "Relatório").unwrap();
+    crate::market::logins::save(&store, "login.example.invalid", "conta-ficticia", valor, "Relatório").unwrap();
     let source = temp.0.join("report");
     let mut original = vec![b'x'; CHUNK_SIZE - 2];
     original.extend_from_slice(valor.as_bytes());
     std::fs::write(&source, &original).unwrap();
-    let saved = snapshot_for_share(&root, &temp.0, "report", Some(valor), &AtomicBool::new(false), &store, &[login.id])
-        .unwrap();
-    let esperado = [&original[..CHUNK_SIZE - 2], b"[cofre:Relat\xc3\xb3rio]"].concat();
+    let saved = snapshot_for_share(&root, &temp.0, "report", Some(valor), &AtomicBool::new(false), &store).unwrap();
+    let esperado = [&original[..CHUNK_SIZE - 2], b"[cofre:ITEM]"].concat();
     assert_eq!(saved.meta.name, "arquivo");
     assert_eq!(saved.meta.size, esperado.len() as u64);
     assert_eq!(saved.meta.sha256, digest_hex(&Sha256::digest(&esperado)));
@@ -147,6 +146,6 @@ fn snapshot_com_mascara_publica_so_os_bytes_transformados() {
     drop(saved);
     original.push(0);
     std::fs::write(&source, original).unwrap();
-    assert!(snapshot_for_share(&root, &temp.0, "report", None, &AtomicBool::new(false), &store, &[]).is_err());
+    assert!(snapshot_for_share(&root, &temp.0, "report", None, &AtomicBool::new(false), &store).is_err());
     assert_eq!(std::fs::read_dir(root).unwrap().count(), 0);
 }
