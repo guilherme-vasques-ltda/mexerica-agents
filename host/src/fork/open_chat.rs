@@ -256,11 +256,7 @@ pub(crate) fn run(
     text: String,
 ) {
     let hub = hub.clone();
-    let instructions = format!("{}\n\n{INSTRUCTIONS}", cfg.description.trim());
-    let instructions = match crate::fork::skill_catalog::open_texto_para_bot(&hub.store, &cfg.skills) {
-        Some(skills) => format!("{instructions}\n\n{skills}"),
-        None => instructions,
-    };
+    let instructions = instructions(&hub, cfg);
     tokio::spawn(async move {
         let (entry_id, authority) = entry;
         let Ticket { bot, account, directory, model, mut cancel, done } = ticket;
@@ -327,6 +323,15 @@ pub(crate) fn run(
     });
 }
 
+/// Instruções do turno só texto: descrição do bot, regras da conversa e o texto das skills selecionadas.
+fn instructions(hub: &Hub, cfg: &BotConfig) -> String {
+    let instructions = format!("{}\n\n{INSTRUCTIONS}", cfg.description.trim());
+    match crate::fork::skill_catalog::open_texto_para_bot(&hub.store, &cfg.skills) {
+        Some(skills) => format!("{instructions}\n\n{skills}"),
+        None => instructions,
+    }
+}
+
 /// Roda o turno de uma rotina da Open e devolve o texto da resposta; passado o prazo, interrompe o turno e falha.
 pub(crate) async fn routine_turn(
     hub: &Arc<Hub>,
@@ -337,7 +342,7 @@ pub(crate) async fn routine_turn(
     timeout: Duration,
 ) -> Result<String> {
     let Ticket { bot, account, directory, model, mut cancel, done } = ticket;
-    let instructions = format!("{}\n\n{INSTRUCTIONS}", cfg.description.trim());
+    let instructions = instructions(hub, cfg);
     let outcome = async {
         let turn = hub.store.alloc_turn(&cfg.id)?;
         let mut reply = Stream::new(hub, &lane, turn, &bot);
