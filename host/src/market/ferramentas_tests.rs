@@ -646,8 +646,15 @@ async fn novas_fichas_de_leitura_isolam_contas_e_nao_ligam_ferramentas_sozinhas(
         let ficha = catalogo_servicos::servico(servico).unwrap();
         let conferida = chrono::NaiveDate::parse_from_str(ficha.conferida_em, "%Y-%m-%d").unwrap();
         let tipo = format!("{servico}.oficial_oauth");
-        let mut pedido =
-            contas::Pedido { servico, tipo: &tipo, space: PERSONAL, nome: None, nome_primeira: None, liberacoes: None };
+        let mut pedido = contas::Pedido {
+            servico,
+            tipo: &tipo,
+            space: PERSONAL,
+            nome: None,
+            nome_primeira: None,
+            liberacoes: None,
+            aceita_credencial_com_escrita: false,
+        };
         contas::conectar_em(&hub.store, ficha, &pedido, conferida).unwrap();
         pedido.nome = Some("Conta secundária");
         pedido.nome_primeira = Some("Conta primária");
