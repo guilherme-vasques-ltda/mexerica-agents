@@ -120,6 +120,8 @@ export const textos: Traducao<typeof fonte> = {
   "botSettings.open.motor.padrao": "{modelo} (predeterminado)",
   "botSettings.open.motor.usar": "Usar",
   "botSettings.open.motor.erro": "No se pudo cambiar el modelo. Inténtalo de nuevo.",
+  "botSettings.open.motor.erroLeitura": "No se pudieron leer las cuentas conectadas.",
+  "botSettings.open.motor.tentar": "Intentar de nuevo",
   "botSettings.open.memoria.aviso": "Los manuales y notas de esta pestaña se añaden como contexto a las conversaciones de este bot, como texto: no dan herramientas ni acceso.",
   "botSettings.open.fluxo.pasta": "Carpeta de trabajo: en Mexerica Open el bot no accede a carpetas del equipo. Depende del control de comandos, que corresponde al trabajo de shell.",
   "botSettings.open.fluxo.computador": "Usar el equipo: Open conversa solo en texto y no controla el equipo. Ese flujo corresponde al trabajo de control del equipo.",

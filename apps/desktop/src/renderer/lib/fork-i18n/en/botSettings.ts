@@ -120,6 +120,8 @@ export const textos: Traducao<typeof fonte> = {
   "botSettings.open.motor.padrao": "{modelo} (default)",
   "botSettings.open.motor.usar": "Use",
   "botSettings.open.motor.erro": "Couldn't change the model. Try again.",
+  "botSettings.open.motor.erroLeitura": "Couldn't read the connected accounts.",
+  "botSettings.open.motor.tentar": "Try again",
   "botSettings.open.memoria.aviso": "Manuals and notes in this tab are added as context to this bot's conversations, as text: they grant no tools or access.",
   "botSettings.open.fluxo.pasta": "Working folder: in Mexerica Open the bot can't reach folders on this computer. That depends on command control, which belongs to the shell work.",
   "botSettings.open.fluxo.computador": "Use the computer: Open chats in text only and doesn't control the computer. That flow belongs to the computer-control work.",

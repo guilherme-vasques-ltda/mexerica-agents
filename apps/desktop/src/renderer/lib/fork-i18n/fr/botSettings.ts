@@ -120,6 +120,8 @@ export const textos: Traducao<typeof fonte> = {
   "botSettings.open.motor.padrao": "{modelo} (par défaut)",
   "botSettings.open.motor.usar": "Utiliser",
   "botSettings.open.motor.erro": "Impossible de changer le modèle. Réessayez.",
+  "botSettings.open.motor.erroLeitura": "Impossible de lire les comptes connectés.",
+  "botSettings.open.motor.tentar": "Réessayer",
   "botSettings.open.memoria.aviso": "Les manuels et notes de cet onglet sont ajoutés comme contexte aux conversations de ce bot, sous forme de texte : ils ne donnent ni outils ni accès.",
   "botSettings.open.fluxo.pasta": "Dossier de travail : dans Mexerica Open, le bot n'accède pas aux dossiers de l'ordinateur. Cela dépend du contrôle des commandes, qui relève du chantier shell.",
   "botSettings.open.fluxo.computador": "Utiliser l'ordinateur : Open converse en texte seulement et ne contrôle pas l'ordinateur. Ce flux relève du chantier de contrôle de l'ordinateur.",

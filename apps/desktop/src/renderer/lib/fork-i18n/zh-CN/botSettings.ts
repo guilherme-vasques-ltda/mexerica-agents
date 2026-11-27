@@ -120,6 +120,8 @@ export const textos: Traducao<typeof fonte> = {
   "botSettings.open.motor.padrao": "{modelo}（默认）",
   "botSettings.open.motor.usar": "使用",
   "botSettings.open.motor.erro": "无法更换模型，请重试。",
+  "botSettings.open.motor.erroLeitura": "无法读取已连接的账号。",
+  "botSettings.open.motor.tentar": "重试",
   "botSettings.open.memoria.aviso": "此标签页中的手册和笔记会作为文本上下文加入该机器人的对话：它们不提供工具或访问权限。",
   "botSettings.open.fluxo.pasta": "工作文件夹：在 Mexerica Open 中，机器人无法访问这台电脑上的文件夹。这依赖命令控制，由 shell 工作线负责。",
   "botSettings.open.fluxo.computador": "使用电脑：Open 仅以文字对话，不控制电脑。该流程由电脑控制工作线负责。",

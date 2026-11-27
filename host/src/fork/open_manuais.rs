@@ -17,10 +17,10 @@ pub(crate) fn texto_para_bot(store: &Store, cfg: &BotConfig) -> Option<String> {
     let mut blocos = Vec::new();
     let mut total = CABECALHO.len();
     let mut cabe = |bloco: String| {
-        if total + bloco.len() > MAX_TOTAL {
+        if total + 2 + bloco.len() > MAX_TOTAL {
             return;
         }
-        total += bloco.len();
+        total += 2 + bloco.len();
         blocos.push(bloco);
     };
     let lido = store.memory_read(|c| {
@@ -35,11 +35,15 @@ pub(crate) fn texto_para_bot(store: &Store, cfg: &BotConfig) -> Option<String> {
                 }
             }
         }
-        let lembrancas = mem::layer(c, proprio)?
-            .into_iter()
-            .filter(|e| e.state == mem::State::Active)
-            .map(|e| format!("- {}", e.text.trim()))
-            .collect::<Vec<_>>();
+        let mut lembrancas = Vec::new();
+        for camada in std::iter::once(proprio).chain(compartilhado) {
+            lembrancas.extend(
+                mem::layer(c, camada)?
+                    .into_iter()
+                    .filter(|e| e.state == mem::State::Active)
+                    .map(|e| format!("- {}", e.text.trim())),
+            );
+        }
         Ok((notas, lembrancas))
     });
     let (notas, lembrancas) = match lido {

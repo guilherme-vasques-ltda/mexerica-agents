@@ -117,6 +117,8 @@ export const textos = {
   "botSettings.open.motor.padrao": "{modelo} (padrão)",
   "botSettings.open.motor.usar": "Usar",
   "botSettings.open.motor.erro": "Não foi possível trocar o modelo. Tente de novo.",
+  "botSettings.open.motor.erroLeitura": "Não foi possível ler as contas conectadas.",
+  "botSettings.open.motor.tentar": "Tentar de novo",
   "botSettings.open.memoria.aviso": "Manuais e notas desta aba entram como contexto nas conversas deste bot, como texto: não dão ferramentas nem acesso.",
   "botSettings.open.fluxo.pasta": "Pasta de trabalho: na Mexerica Open o bot não acessa pastas do computador. Isso depende do controle de comandos, que fica com a frente de shell.",
   "botSettings.open.fluxo.computador": "Usar o computador: a Open conversa só em texto e não controla o computador. Esse fluxo fica com a frente de controle do computador.",

@@ -120,6 +120,8 @@ export const textos: Traducao<typeof fonte> = {
   "botSettings.open.motor.padrao": "{modelo} (الافتراضي)",
   "botSettings.open.motor.usar": "استخدام",
   "botSettings.open.motor.erro": "تعذّر تغيير النموذج. حاول مرة أخرى.",
+  "botSettings.open.motor.erroLeitura": "تعذّرت قراءة الحسابات المتصلة.",
+  "botSettings.open.motor.tentar": "أعد المحاولة",
   "botSettings.open.memoria.aviso": "تُضاف الأدلة والملاحظات في هذا التبويب سياقًا نصيًا إلى محادثات هذا البوت: لا تمنح أدوات ولا صلاحيات وصول.",
   "botSettings.open.fluxo.pasta": "مجلد العمل: في Mexerica Open لا يصل البوت إلى مجلدات هذا الكمبيوتر. هذا يعتمد على التحكم بالأوامر الذي يتبع مسار الـ shell.",
   "botSettings.open.fluxo.computador": "استخدام الكمبيوتر: يتحدث Open نصًا فقط ولا يتحكم بالكمبيوتر. هذا المسار يتبع عمل التحكم بالكمبيوتر.",

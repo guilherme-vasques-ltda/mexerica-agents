@@ -19,16 +19,18 @@ export function MotorDaOpen({ bot, disabled }: { bot: Bot; disabled: boolean }) 
   const [contas, setContas] = useState<ManagedAccount[]>([])
   const [gravando, setGravando] = useState(false)
   const [erro, setErro] = useState(false)
+  const [falhaLeitura, setFalhaLeitura] = useState(false)
+  const [tentativa, setTentativa] = useState(0)
 
   useEffect(() => {
     const client = store.client ? clientePessoal(store.client) : null
     if (!client) { setContas([]); return }
     let vivo = true
-    const ler = () => { void engineSetup.accounts(client).then((r) => { if (vivo) setContas(contasEscolhiveis(r.accounts)) }, () => {}) }
+    const ler = () => { void engineSetup.accounts(client).then((r) => { if (vivo) { setFalhaLeitura(false); setContas(contasEscolhiveis(r.accounts)) } }, () => { if (vivo) setFalhaLeitura(true) }) }
     ler()
     const parar = aoMudarContaOpen(ler)
     return () => { vivo = false; parar() }
-  }, [store, store.client])
+  }, [store, store.client, tentativa])
 
   const escolher = async (accountId: string, model: string) => {
     if (!store.client) { setErro(true); return }
@@ -40,7 +42,8 @@ export function MotorDaOpen({ bot, disabled }: { bot: Bot; disabled: boolean }) 
   const contaId = bot.forkEditor?.engineAccountId ?? null
   return <div className="idioma-superficie" {...idioma}>
     <p>{t('botSettings.open.motor.intro')}</p>
-    {contas.length === 0 ? <p role="status">{t('botSettings.open.motor.semConta')}</p> : contas.map((conta) => <CardSection key={conta.id} title={conta.label}>
+    {falhaLeitura && contas.length === 0 ? <div role="alert"><p>{t('botSettings.open.motor.erroLeitura')}</p><Button kind="secondary" onClick={() => setTentativa((n) => n + 1)}>{t('botSettings.open.motor.tentar')}</Button></div>
+      : contas.length === 0 ? <p role="status">{t('botSettings.open.motor.semConta')}</p> : contas.map((conta) => <CardSection key={conta.id} title={conta.label}>
       {modelosDaConta(conta).map((model) => {
         const marcado = conta.id === contaId && model === bot.model
         const rotulo = model === padraoDaConta(conta) ? t('botSettings.open.motor.padrao', { modelo: model }) : model
