@@ -56,7 +56,7 @@ fn start_or_queue(guard: &mut Option<HashMap<String, Running>>, queued: Queued) 
     let Queued { hub, cfg, lane, turn, entry, text } = queued;
     mark_sending(&hub, &entry.0);
     match admit_locked(guard, &hub, &cfg) {
-        Ok(ticket) => run(&hub, ticket, &cfg, lane, turn, entry, text),
+        Ok(ticket) => run(&hub, ticket, &cfg, lane, turn, entry, &text),
         Err(error) => {
             let message = error.to_string();
             let code = message.split(':').next().unwrap_or_default();

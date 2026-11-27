@@ -253,12 +253,12 @@ pub(crate) fn run(
     lane: Lane,
     turn: i64,
     entry: (String, Option<Autoridade>),
-    text: String,
+    text: &str,
 ) {
     let hub = hub.clone();
     let instructions = instructions(&hub, cfg);
     let attachments = hub.store.entry(&entry.0).map(|e| e.data["attachments"].clone()).unwrap_or_default();
-    let (text, images) = crate::fork::open_chat_anexos::prepare(cfg, &attachments, &text);
+    let (text, images) = crate::fork::open_chat_anexos::prepare(cfg, &attachments, text);
     tokio::spawn(async move {
         let (entry_id, authority) = entry;
         let Ticket { bot, account, directory, model, mut cancel, done } = ticket;

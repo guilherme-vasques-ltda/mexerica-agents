@@ -529,7 +529,7 @@ async fn open_cortada_antes_do_inicio_marca_falha_sem_iniciar_motor() {
             assert_eq!(started.unwrap(), "spawned");
         }
         if cut {
-            super::run(&hub, ticket, &cfg, lane.clone(), e.turn, (e.id.clone(), Some(proof)), "Fixture".into());
+            super::run(&hub, ticket, &cfg, lane.clone(), e.turn, (e.id.clone(), Some(proof)), "Fixture");
             let mut done = done;
             assert!(tokio::time::timeout(Duration::from_secs(5), done.changed()).await.unwrap().is_err());
             assert_eq!(hub.store.entry(&e.id).unwrap().data["status"], "failed");
