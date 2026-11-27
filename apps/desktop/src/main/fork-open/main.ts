@@ -9,6 +9,7 @@ import type { SSHState } from '../../shared/ssh'
 import { privateDirectory } from '../../shared/fork-private-files'
 import { bringToFront, isOpenAsset, open, openPaths } from './isolation'
 import { registerOpenHub } from './hub'
+import { registerOpenTray } from './bandeja'
 import { registerReleaseNotice } from '../fork-release-notice'
 import { arquivoEscolhaEntrada, gravarEscolhaEntrada, lerEscolhaEntrada } from '../fork-modo-entrada'
 
@@ -96,6 +97,7 @@ if (!app.requestSingleInstanceLock()) {
       if (gravou) avisoDeVersao?.refresh()
       return gravou
     })
+    registerOpenTray(open.name, () => window, daJanela, () => { if (window) bringToFront(window, () => app.focus({ steal: true })); else { openWindow(); app.focus({ steal: true }) } })
     Menu.setApplicationMenu(Menu.buildFromTemplate([
       { label: open.name, submenu: [{ label: traduzir(SOURCE_LANGUAGE, 'marca.menu.ajustes'), accelerator: 'Cmd+,', click: () => window?.webContents.send('app:command', { kind: 'openSettings' }) }, { role: 'quit' }] },
       { role: 'editMenu', submenu: [{ role: 'undo' }, { role: 'redo' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
