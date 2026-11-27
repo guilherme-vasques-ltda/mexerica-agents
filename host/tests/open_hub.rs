@@ -193,7 +193,7 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
     assert!(services.iter().any(|s| s["id"] == "linear"));
     assert!(services.iter().all(|s| s["contas"] == json!([])));
     assert_eq!(catalog["appsProprios"]["google"], Value::Null);
-    for method in ["marketContas", "marketConectar", "skills", "donnaWhatsapp", "credentialStatus"] {
+    for method in ["marketContas", "marketConectar", "donnaWhatsapp", "credentialStatus"] {
         let response = session_client
             .post(format!("http://localhost/api/{method}"))
             .bearer_auth(&credential)
@@ -202,6 +202,21 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
             .await
             .unwrap();
         assert_eq!(response.status(), reqwest::StatusCode::FORBIDDEN, "{method}");
+    }
+    assert!(!rpc(&session_client, &credential, "skills", json!({})).await.is_null());
+    for body in [
+        json!({"source": "pdf"}),
+        json!({"name": "manual", "description": "d", "instructions": "texto"}),
+        json!({"catalogId": "grilling", "source": "pdf"}),
+    ] {
+        let response = session_client
+            .post("http://localhost/api/installSkill")
+            .bearer_auth(&credential)
+            .json(&body)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::FORBIDDEN, "installSkill {body}");
     }
     assert_eq!(
         tcp.post("http://127.0.0.1:19524/api/hello").bearer_auth(&credential).send().await.unwrap().status(),

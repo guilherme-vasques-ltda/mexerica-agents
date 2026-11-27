@@ -47,9 +47,20 @@ pub(crate) fn check_request(caller: &Caller, method: &str, body: &Value) -> Resu
 /// Lista fechada do que a Open aceita: todo método fora dela, inclusive os de conexões de IA, é recusado.
 pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
     match method {
+        // Skills: só o dono local, e instalar só do catálogo embutido (sem source, sem texto escrito à mão).
+        "installSkill" => {
+            matches!(caller, Caller::Local)
+                && body.get("catalogId").is_some_and(Value::is_string)
+                && body.get("source").is_none()
+                && body.get("name").is_none()
+        }
         "donnaTaskProposals"
         | "donnaTimes"
         | crate::fork::native_catalog::METHOD
+        | "skills"
+        | "marketSkills"
+        | "skillDetails"
+        | "removeSkill"
         | "routines"
         | "routinesOverview"
         | "routineSchedule"
@@ -94,7 +105,11 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
         | "stop"
         | "deleteBot"
         | "reorderBots" => true,
-        "createBot" | "updateBot" => body.get("cwd").is_none_or(|cwd| cwd.as_str() == Some("")),
+        "createBot" | "updateBot" => {
+            body.get("cwd").is_none_or(|cwd| cwd.as_str() == Some(""))
+                && (matches!(caller, Caller::Local)
+                    || ["skills", "skillSelection"].iter().all(|key| body.get(key).is_none()))
+        }
         // Só texto, na conversa principal do bot: sem anexos e sem sessão extra.
         "send" => ["attachments", "sessionId"].iter().all(|key| body.get(key).is_none_or(Value::is_null)),
         _ if crate::fork::engine_setup::open_login_method(method) => true,
@@ -135,7 +150,6 @@ mod tests {
             "donnaTimesSave",
             "functionModels",
             "backgroundSpaceSelections",
-            "skills",
             "installSkill",
             "donnaMailManager",
             "credentialLogins",
@@ -164,7 +178,6 @@ mod tests {
             "marketContas",
             "marketConectar",
             "marketPersonalizado",
-            "skills",
             "donnaWhatsapp",
             "credentialStatus",
         ] {
@@ -200,6 +213,41 @@ mod tests {
         }
         for method in ["routineWebhook", "routineCall", "duplicateRoutine"] {
             assert!(!open_allows(&Caller::Local, method, &json!({})), "{method} não existe na Open");
+        }
+    }
+
+    #[test]
+    fn open_skills_so_para_o_dono_local_e_so_do_catalogo() {
+        let device = Caller::Device { key: "device".into(), scopes: vec![Scope::Control], autoridade: None };
+        for method in ["skills", "marketSkills", "skillDetails", "removeSkill"] {
+            assert!(open_allows(&Caller::Local, method, &json!({})), "{method}");
+            assert!(!open_allows(&device, method, &json!({})), "{method} fora do dono local");
+        }
+        let catalogo = json!({"catalogId": "grilling", "expectedDigest": "vista"});
+        assert!(open_allows(&Caller::Local, "installSkill", &catalogo));
+        assert!(!open_allows(&device, "installSkill", &catalogo));
+        for body in [
+            json!({}),
+            json!({"source": "pdf"}),
+            json!({"name": "manual", "description": "d", "instructions": "texto"}),
+            json!({"catalogId": "grilling", "source": "pdf"}),
+            json!({"catalogId": 7}),
+        ] {
+            assert!(!open_allows(&Caller::Local, "installSkill", &body), "{body}");
+        }
+        let selecao = json!({"id": "b", "skillSelection": {"protocol": 1, "skillId": "grilling", "enabled": true}});
+        assert!(open_allows(&Caller::Local, "updateBot", &selecao));
+        assert!(!open_allows(&device, "updateBot", &selecao), "ligar skill fora do dono local");
+        assert!(!open_allows(&device, "createBot", &json!({"name": "n", "skills": ["grilling"]})));
+        assert!(open_allows(&device, "updateBot", &json!({"id": "b", "name": "n"})));
+        for method in [
+            "extensaoEmTodosAplicar",
+            "extensaoNovosBotsDefinir",
+            "credentialStatus",
+            "donnaWhatsapp",
+            "marketConectar",
+        ] {
+            assert!(!open_allows(&Caller::Local, method, &json!({})), "{method} continua fechado");
         }
     }
 }

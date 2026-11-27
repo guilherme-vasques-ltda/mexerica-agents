@@ -13,6 +13,9 @@ mod installation;
 mod manual_revision_tests;
 #[cfg(test)]
 mod marketing_tests;
+mod open;
+#[cfg(test)]
+mod open_tests;
 pub(crate) mod preparo;
 mod registry;
 mod review;
@@ -21,6 +24,7 @@ mod storage;
 mod tests;
 pub(crate) use criador_de_skills::{install_guide, instructions as extensibility_instructions};
 pub(crate) use entrega::{brief, comando, conferir};
+pub(crate) use open::texto_para_bot as open_texto_para_bot;
 
 use crate::{LockExt, market::Skill, store::Store};
 use anyhow::{Context, Result, anyhow, bail, ensure};
@@ -294,6 +298,9 @@ fn catalog_item(p: &Package, all: &[Skill], state: &State) -> Result<Value> {
     item["installedId"] = json!(installed.map(|s| &s.id));
     let conflict = all.iter().any(|s| s.id == p.install_id) && installed.is_none();
     item["installable"] = json!(p.installable() && !conflict);
+    if crate::environment::Environment::is_open() {
+        open::marcar(&mut item, &p.metadata.id);
+    }
     if conflict {
         item["reason"] = json!(format!(
             "{} A identidade de instalação já pertence a outra versão/legado; nenhum arquivo será substituído. Confira e remova explicitamente o conflito antes de importar.",
@@ -864,6 +871,9 @@ fn install_locked(store: &Store, p: &Package, seed: bool, repair: Option<&str>) 
 
 pub(crate) fn install(store: &Store, body: &Value, revalidate: impl FnOnce() -> Result<()>) -> Result<Value> {
     let intent = install_intent(body)?;
+    if crate::environment::Environment::is_open() {
+        open::conferir(&intent.catalog_id)?;
+    }
     let p = registry::find(&intent.catalog_id)?;
     ensure!(
         intent.expected_digest == p.metadata.digest,
@@ -876,6 +886,9 @@ pub(crate) fn install(store: &Store, body: &Value, revalidate: impl FnOnce() -> 
 }
 
 pub(crate) fn custom(store: &Store, body: &Value, revalidate: impl FnOnce() -> Result<()>) -> Result<Value> {
+    if crate::environment::Environment::is_open() {
+        bail!("{}", open::MOTIVO);
+    }
     custom_with(store, body, revalidate, |_| Ok(()))
 }
 
@@ -1001,6 +1014,10 @@ pub(crate) fn with_installations<T>(
 }
 
 pub(crate) fn seed(store: &Store) -> Result<()> {
+    // Na Open nem o seed entra sem passar pela lista fechada de skills de texto.
+    if crate::environment::Environment::is_open() && !open::permitida(SEED) {
+        return Ok(());
+    }
     let _guard = MUTATION.locked();
     let _file = root_lock(store)?;
     let (all, mut state) = installation::load_initialized(store)?;

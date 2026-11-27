@@ -15,6 +15,7 @@ import { useRetencaoRascunho } from './ComparaRascunho'
 import { AvisoDeRemocao, LinhaDeUso } from './Acabamento'
 import { Anuncio, Selo } from './partes'
 import { LigarEmTodos } from '../extensoes/LigarEmTodos'
+import { extensoesSomenteCatalogo } from '../extensoes/tela'
 import { agruparInstaladas, capturarRemocao, filtrarInstaladas, type AlvoRemocao, type GrupoInstaladas } from './regras'
 import { textoDe, frase, semHub, type Frase } from './textos'
 import { useTextosSkills } from './textos-tela'
@@ -291,7 +292,7 @@ function LinhaInstalada({ somenteLeitura, aoMudarNovosBots, skill, grupo, pedido
         </button> : null}
       </div>
       {/* MX-264: "Ligar em todos os bots" e "Novos bots já vêm com esta skill"; o Hub só liga skill com o conteúdo conferido. */}
-      {!somenteLeitura && skill.contentStatus === 'verified' ? <LigarEmTodos tipo="skill" id={skill.id} nome={skill.name} novosBots={skill.novosBots === true} aoMudarNovosBots={aoMudarNovosBots} /> : null}
+      {!somenteLeitura && !extensoesSomenteCatalogo() && skill.contentStatus === 'verified' ? <LigarEmTodos tipo="skill" id={skill.id} nome={skill.name} novosBots={skill.novosBots === true} aoMudarNovosBots={aoMudarNovosBots} /> : null}
       {/* Em bloco: aviso longo quebra alinhado ao texto da linha, não na borda. */}
       {falha ? <Text as="div" id={`${id}-falha`} size="footnote" tone="danger" className="cs-linha-falha selectable">{falha}</Text> : null}
       {incerto ? <Text as="div" id={`${id}-incerto`} size="footnote" tone="attention" className="cs-linha-falha selectable">{incerto.aguardando ? `${incerto.mensagem} ${textos.incertoConferir}` : incerto.mensagem}</Text> : null}

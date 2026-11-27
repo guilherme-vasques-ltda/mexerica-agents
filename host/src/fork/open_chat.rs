@@ -257,6 +257,10 @@ pub(crate) fn run(
 ) {
     let hub = hub.clone();
     let instructions = format!("{}\n\n{INSTRUCTIONS}", cfg.description.trim());
+    let instructions = match crate::fork::skill_catalog::open_texto_para_bot(&hub.store, &cfg.skills) {
+        Some(skills) => format!("{instructions}\n\n{skills}"),
+        None => instructions,
+    };
     tokio::spawn(async move {
         let (entry_id, authority) = entry;
         let Ticket { bot, account, directory, model, mut cancel, done } = ticket;
