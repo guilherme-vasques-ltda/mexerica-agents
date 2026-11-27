@@ -295,7 +295,7 @@ pub(crate) fn run(
             &account,
             &lane,
             (&instructions, model.as_deref()),
-            &text,
+            (&text, TURN_LIMIT),
             (&entry_id, authority.as_ref()),
             &mut cancel,
             &mut reply,
@@ -348,7 +348,7 @@ pub(crate) async fn routine_turn(
                 &account,
                 &lane,
                 (&instructions, model.as_deref()),
-                &prompt,
+                (&prompt, timeout),
                 ("", None),
                 &mut cancel,
                 &mut reply,
@@ -379,7 +379,7 @@ async fn turn_in_profile(
     account: &str,
     lane: &Lane,
     (instructions, model): (&str, Option<&str>),
-    text: &str,
+    (text, limit): (&str, Duration),
     (entry_id, authority): (&str, Option<&Autoridade>),
     cancel: &mut watch::Receiver<bool>,
     reply: &mut Stream,
@@ -428,6 +428,7 @@ async fn turn_in_profile(
         saved.as_deref(),
         (instructions, model),
         text,
+        limit,
         cancel,
         before_text,
         on_sent,
@@ -489,7 +490,7 @@ async fn turn_in_profile(
     _: &str,
     _: &Lane,
     _: (&str, Option<&str>),
-    _: &str,
+    _: (&str, Duration),
     _: (&str, Option<&Autoridade>),
     _: &mut watch::Receiver<bool>,
     _: &mut Stream,
@@ -593,6 +594,7 @@ pub(crate) async fn drive(
     thread: Option<&str>,
     (instructions, model): (&str, Option<&str>),
     text: &str,
+    limit: Duration,
     cancel: &mut watch::Receiver<bool>,
     before_text: impl FnOnce(&str) -> Result<()>,
     on_sent: impl FnOnce(),
@@ -693,7 +695,7 @@ pub(crate) async fn drive(
         }
     };
     tokio::select! {
-        result = tokio::time::timeout(TURN_LIMIT, flow) => result.map_err(|_| anyhow!("open_chat_timeout"))?,
+        result = tokio::time::timeout(limit, flow) => result.map_err(|_| anyhow!("open_chat_timeout"))?,
         _ = cancel.wait_for(|stop| *stop) => bail!("open_chat_cancelled"),
     }
 }
