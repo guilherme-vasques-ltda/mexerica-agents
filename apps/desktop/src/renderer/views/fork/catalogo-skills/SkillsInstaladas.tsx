@@ -261,7 +261,7 @@ function GrupoInternas({ internas }: { internas: InternalSkill[] }) {
               <VStack as="span" gap={2} grow className="cs-linha-textos">
                 <Text size="body" weight="medium" tone="text" truncate title={s.name} translate="no" dir="auto">{s.name}</Text>
                 <Text size="callout" tone="secondary" lines={2} title={s.description} translate="no" dir="auto">{s.description}</Text>
-                <Text size="footnote" tone="secondary">{textos.usoInterna[s.uso] ?? textos.usoInternaOutro}</Text>
+                <Text size="footnote" tone="secondary">{Object.hasOwn(textos.usoInterna, s.uso) ? textos.usoInterna[s.uso] : textos.usoInternaOutro}</Text>
               </VStack>
             </div>
           </li>
