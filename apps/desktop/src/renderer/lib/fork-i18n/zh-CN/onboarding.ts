@@ -114,7 +114,7 @@ export const textos = {
   'onboarding.guia.modo.titulo': '你想怎样使用 Mexerica？',
   'onboarding.guia.modo.texto': '只需选择一次，之后可在设置中更改。',
   'onboarding.guia.modo.local.titulo': '100% 本地',
-  'onboarding.guia.modo.local.desc': "除了发送给你所连接的 AI 提供商的内容，没有任何数据离开这台电脑。无需账号，没有遥测。你可以连接自己的服务器，但没有网页版和手机应用。",
+  'onboarding.guia.modo.local.desc': "除了发送给你所连接的 AI 提供商的内容，以及你在设置中开启后的 GitHub 版本检查，没有任何数据离开这台电脑。无需账号，没有遥测。你可以连接自己的服务器，但没有网页版和手机应用。",
   'onboarding.guia.modo.conta.titulo': '使用账号',
   'onboarding.guia.modo.conta.desc': '包含 100% 本地的全部功能，另加网页版和手机应用。',
   'onboarding.guia.emBreve': '即将推出',

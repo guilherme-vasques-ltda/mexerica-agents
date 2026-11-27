@@ -237,7 +237,7 @@ export function Step3Wizard({
       type="button"
       role="radio"
       aria-checked={selecionada}
-      disabled={emBreve}
+      disabled={emBreve || gravando}
       className={`eg-opcao eg-escolha${selecionada ? ' is-escolhida' : ''}`}
       onClick={onEscolher}
     >

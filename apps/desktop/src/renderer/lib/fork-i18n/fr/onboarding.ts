@@ -114,7 +114,7 @@ export const textos = {
   'onboarding.guia.modo.titulo': 'Comment voulez-vous utiliser Mexerica ?',
   'onboarding.guia.modo.texto': 'Vous choisissez une fois. Vous pourrez changer plus tard dans Réglages.',
   'onboarding.guia.modo.local.titulo': '100 % local',
-  'onboarding.guia.modo.local.desc': "Rien ne quitte cet ordinateur, sauf ce qui part vers le fournisseur d’IA que vous connectez. Sans compte et sans télémétrie. Vous pouvez connecter votre propre serveur, mais sans version web ni app mobile.",
+  'onboarding.guia.modo.local.desc': "Rien ne quitte cet ordinateur, sauf ce qui part vers le fournisseur d’IA que vous connectez et, si vous l’activez dans les Réglages, la recherche de version sur GitHub. Sans compte et sans télémétrie. Vous pouvez connecter votre propre serveur, mais sans version web ni app mobile.",
   'onboarding.guia.modo.conta.titulo': 'Avec un compte',
   'onboarding.guia.modo.conta.desc': 'Tout le 100 % local, plus la version web et l’app mobile.',
   'onboarding.guia.emBreve': 'Bientôt',

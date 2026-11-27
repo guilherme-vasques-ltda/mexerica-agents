@@ -114,7 +114,7 @@ export const textos = {
   'onboarding.guia.modo.titulo': 'كيف تريد استخدام Mexerica؟',
   'onboarding.guia.modo.texto': 'تختار مرة واحدة، ويمكنك التغيير لاحقًا من الإعدادات.',
   'onboarding.guia.modo.local.titulo': 'محلي 100%',
-  'onboarding.guia.modo.local.desc': "لا يغادر شيء هذا الحاسوب إلا ما يذهب إلى مزوّد الذكاء الاصطناعي الذي تربطه. بلا حساب وبلا قياس عن بُعد. يمكنك ربط خادمك الخاص، لكن بلا نسخة الويب ولا تطبيق الهاتف.",
+  'onboarding.guia.modo.local.desc': "لا يغادر شيء هذا الحاسوب إلا ما يذهب إلى مزوّد الذكاء الاصطناعي الذي تربطه، والبحث عن الإصدارات على GitHub إذا فعّلته في الإعدادات. بلا حساب وبلا قياس عن بُعد. يمكنك ربط خادمك الخاص، لكن بلا نسخة الويب ولا تطبيق الهاتف.",
   'onboarding.guia.modo.conta.titulo': 'مع حساب',
   'onboarding.guia.modo.conta.desc': 'كل ما في الوضع المحلي 100%، مع نسخة الويب وتطبيق الهاتف.',
   'onboarding.guia.emBreve': 'قريبًا',

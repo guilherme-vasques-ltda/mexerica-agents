@@ -114,7 +114,7 @@ export const textos = {
   'onboarding.guia.modo.titulo': 'How do you want to use Mexerica?',
   'onboarding.guia.modo.texto': 'You choose once. You can change it later in Settings.',
   'onboarding.guia.modo.local.titulo': '100% local',
-  'onboarding.guia.modo.local.desc': "Nothing leaves this computer except what goes to the AI provider you connect. No account and no telemetry. You can connect your own server, but there is no web version or phone app.",
+  'onboarding.guia.modo.local.desc': "Nothing leaves this computer except what goes to the AI provider you connect and, if you turn it on in Settings, the version check on GitHub. No account and no telemetry. You can connect your own server, but there is no web version or phone app.",
   'onboarding.guia.modo.conta.titulo': 'With an account',
   'onboarding.guia.modo.conta.desc': 'Everything in 100% local, plus the web version and the phone app.',
   'onboarding.guia.emBreve': 'Coming soon',
