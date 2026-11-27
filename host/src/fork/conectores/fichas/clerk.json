@@ -1,0 +1,50 @@
+{
+  "id": "clerk",
+  "nome": "Clerk",
+  "categoria": "Código",
+  "descricao": "Consulte a lista de aplicações e os detalhes de cada aplicação no workspace do Clerk, sem alterar configurações.",
+  "exemplos": [
+    "Liste minhas aplicações do Clerk",
+    "Quais aplicações estão no meu workspace do Clerk?"
+  ],
+  "site": "https://clerk.com/",
+  "docs": "https://clerk.com/docs/guides/ai/mcp/clerk-mcp-server",
+  "links": {
+    "privacidade": "https://clerk.com/legal/privacy",
+    "termos": "https://clerk.com/legal/standard-terms"
+  },
+  "conferidaEm": "2026-11-27",
+  "fontes": [
+    "https://clerk.com/docs/guides/ai/mcp/clerk-mcp-server",
+    "https://mcp.clerk.com/.well-known/oauth-protected-resource/mcp",
+    "https://clerk.com/docs/oauth/scoped-access"
+  ],
+  "tipos": [
+    {
+      "id": "clerk.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "Clerk",
+      "url": "https://mcp.clerk.com/mcp",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "ler",
+          "rotulo": "Ler aplicações",
+          "escopos": [
+            "applications:read"
+          ],
+          "ferramentas": ["list_applications", "get_application"],
+          "padrao": true,
+          "disponivel": true,
+          "imposicao": "escopo"
+        }
+      ],
+      "recomendado": true,
+      "disponivel": true
+    }
+  ]
+}

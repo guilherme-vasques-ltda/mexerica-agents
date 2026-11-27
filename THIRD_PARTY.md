@@ -534,6 +534,12 @@ conferir a política do titular. Ver também [TRADEMARK.md](TRADEMARK.md).
 | vidIQ | `vidiq.png` | https://vidiq.com/favicons/apple-icon-180x180.png (fonte oficial do fornecedor, baixada em 2026-11-18). Regra de uso: página de marca não encontrada: logo tirada do site oficial (favicon), uso nominativo | `2dc2ec6330afb8bd9f26d98db3cc9fb6e90c4060fde6eb85bc4109f39b30d97f` |
 | Wix | `wix.png` | https://www.wix.com/favicon.ico (fonte oficial do fornecedor, baixada em 2026-11-18). Regra de uso: página de marca não encontrada: logo tirada do site oficial (favicon 192px), uso nominativo | `295a1f6f927fd11a3842a4c9f508b4152eca150cb4c54d6cfb64736fad659b80` |
 
+| Better Stack | `better-stack.svg` | `app_icon.svg` no [kit oficial](https://static.betterstackassets.com/brand/better_stack_logos.zip), baixado em 2026-11-27. [Diretrizes](https://betterstack.com/docs/brand/): manter proporções, cores e arte original, sem sugerir endosso. | `f85d2cfc6116ab257b2213687a903a8231e53933d896b73d9e729733d57a5209` |
+| Clerk | `clerk.svg` | [Símbolo primário](https://clerk.com/v2/downloads/symbol-primary.svg) do [kit oficial](https://clerk.com/brand-assets), baixado em 2026-11-27. Uso nominativo, sem alteração. | `e176af85b4fbdece5352ed2fb641bf6f8cb591ad84f72d605d283a829e3c12a1` |
+| CodeRabbit | `coderabbit.svg` | [Símbolo laranja](https://www.coderabbit.ai/content/assets/orange-logomark.svg) do [kit oficial](https://www.coderabbit.ai/brand), baixado em 2026-11-27. Usar o símbolo quando o logotipo completo não couber, sem recorte nem alterações. | `25c8cd16561dbad015504d2b2c2ed9eb86a49956c91af161bdc9aa05499336ee` |
+| PostHog | `posthog.svg` | [Ícone oficial](https://brand.posthog.com/favicon.svg) do [site de marca](https://brand.posthog.com/logo), baixado em 2026-11-27. [Diretrizes](https://posthog.com/handbook/brand/assets): usar o símbolo em tamanho pequeno sem modificar a arte. | `4bb46371b6b201482bd009d77cf2cf41fa1246e0581130292924e389c410fe56` |
+| RevenueCat | `revenuecat.svg` | [Ícone do site oficial](https://www.revenuecat.com/favicon/favicon.svg), baixado em 2026-11-27. Uso nominativo, sem alteração. | `03648f206cb744862113718d5fbe33e86de0f5478c0030f976a220561844af1b` |
+
 O dono A não publica uma página de marca; o arquivo é o logo que o site oficial dela serve. Em caso de dúvida do titular,
 vale o pedido dele (ver acima).
 
