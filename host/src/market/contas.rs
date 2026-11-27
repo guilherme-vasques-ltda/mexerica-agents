@@ -166,6 +166,7 @@ pub(crate) struct Pedido<'a> {
     pub nome: Option<&'a str>,
     pub nome_primeira: Option<&'a str>,
     pub liberacoes: Option<Vec<String>>,
+    pub aceita_credencial_com_escrita: bool,
 }
 
 /// Recusa estável de `conectar`/login de uma ficha com app próprio (Google) quando o Space ainda não cadastrou o app.
@@ -189,6 +190,10 @@ pub(crate) fn conectar_em(
 ) -> Result<Value> {
     let tipo = ficha.exigir_conectavel(pedido.tipo, hoje)?;
     let liberacoes = tipo.liberacoes_validas(pedido.liberacoes.as_deref())?;
+    ensure!(
+        !tipo.exige_filtro(&liberacoes) || pedido.aceita_credencial_com_escrita,
+        "credencial_com_escrita: use uma versão do app que mostre o aviso de que esta conta pode alterar dados."
+    );
     store.require_space(pedido.space)?;
     let mut conta = Connector {
         id: String::new(),
@@ -295,7 +300,7 @@ pub(crate) fn escopos_do_login(c: &Connector, desafio: Option<Vec<String>>, docu
     }
 }
 
-/// Ferramentas permitidas pelos grupos ligados (`None`: o fornecedor impõe o limite, ou conta sem ficha).
+/// Ferramentas elegíveis pelos grupos ligados (`None`: nenhum limite de nomes declarado, ou conta sem ficha).
 pub(crate) fn ferramentas_da_conta(c: &Connector) -> Result<Option<BTreeSet<&'static str>>> {
     Ok(tipo_da_conta(c)?.and_then(|tipo| tipo.ferramentas_permitidas(&c.liberacoes)))
 }

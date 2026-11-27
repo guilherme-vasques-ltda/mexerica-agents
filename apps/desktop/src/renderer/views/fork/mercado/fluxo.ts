@@ -72,6 +72,10 @@ export class FluxoConectar extends Observable {
 
   get nomes() { return planoDeNomes(this.servico) }
 
+  get credencialComEscrita(): boolean {
+    return this.tipo.grupos.some((g) => g.imposicao === 'filtro' && this.escolhidos.includes(g.id))
+  }
+
   /** Dá para confirmar a configuração: ao menos uma liberação e os nomes que a regra pede preenchidos. */
   get podeContinuar(): boolean {
     if (this.ocupado || this.escolhidos.length === 0) return false
@@ -104,6 +108,7 @@ export class FluxoConectar extends Observable {
       const n = this.nomes
       const pedido: PedidoConectar = {
         servico: this.servico.id, tipo: this.tipo.id, liberacoes: this.escolhidos,
+        ...(this.credencialComEscrita ? { aceitaCredencialComEscrita: true } : {}),
         ...(n.pedeNomeDaNova ? { nome: this.nomeDaNova.trim() } : {}),
         ...(n.pedeNomeDaPrimeira ? { nomePrimeira: this.nomeDaPrimeira.trim() } : {}),
       }
@@ -182,4 +187,3 @@ export class FluxoConectar extends Observable {
     await this.deps.reler()
   }
 }
-

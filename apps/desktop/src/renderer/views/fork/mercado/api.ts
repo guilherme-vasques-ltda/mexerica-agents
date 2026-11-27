@@ -10,6 +10,7 @@ export interface PedidoConectar {
   nome?: string
   nomePrimeira?: string
   liberacoes?: string[]
+  aceitaCredencialComEscrita?: true
 }
 
 /** O MCP do próprio usuário (`marketPersonalizado`): link ou comando; a chave segue no cabeçalho e vai direto ao cofre. */

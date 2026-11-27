@@ -32,7 +32,15 @@ async fn novo_space(hub: &Arc<Hub>, nome: &str) -> String {
 }
 
 fn pedido<'a>(servico: &'a str, tipo: &'a str, space: &'a str) -> Pedido<'a> {
-    Pedido { servico, tipo, space, nome: None, nome_primeira: None, liberacoes: None }
+    Pedido {
+        servico,
+        tipo,
+        space,
+        nome: None,
+        nome_primeira: None,
+        liberacoes: None,
+        aceita_credencial_com_escrita: false,
+    }
 }
 
 fn gmail(space: &str) -> Pedido<'_> {
