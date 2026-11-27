@@ -263,11 +263,7 @@ mod tests {
         assert!(!open_allows(&device, "updateBot", &selecao), "ligar skill fora do dono local");
         assert!(!open_allows(&device, "createBot", &json!({"name": "n", "skills": ["grilling"]})));
         assert!(open_allows(&device, "updateBot", &json!({"id": "b", "name": "n"})));
-        for method in [
-            "extensaoEmTodosAplicar",
-            "extensaoNovosBotsDefinir",
-            "donnaWhatsapp",
-        ] {
+        for method in ["extensaoEmTodosAplicar", "extensaoNovosBotsDefinir", "donnaWhatsapp"] {
             assert!(!open_allows(&Caller::Local, method, &json!({})), "{method} continua fechado");
         }
     }
@@ -309,7 +305,11 @@ mod tests {
             assert!(open_allows(&Caller::Local, method, &json!({})), "{method} é do dono local");
             assert!(!open_allows(&device, method, &json!({})), "{method} não é de aparelho");
         }
-        assert!(open_allows(&Caller::Local, "marketPersonalizado", &json!({"name": "n", "url": "https://x.example.invalid", "command": null})));
+        assert!(open_allows(
+            &Caller::Local,
+            "marketPersonalizado",
+            &json!({"name": "n", "url": "https://x.example.invalid", "command": null})
+        ));
         for method in ["marketPersonalizado", "installConnector"] {
             for body in [json!({"command": "npx servidor"}), json!({"command": ""})] {
                 assert!(!open_allows(&Caller::Local, method, &body), "{method} por comando é shell: {body}");
