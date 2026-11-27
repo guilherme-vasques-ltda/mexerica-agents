@@ -153,6 +153,11 @@ pub(crate) fn admit_for_test(hub: &Arc<Hub>, bot: &str, account: &str) -> Result
 
 pub(crate) fn stop(bot: &str) {
     crate::fork::open_chat_fila::cancel_pending(bot);
+    cancel_turn(bot);
+}
+
+/// Interrompe só o turno em curso: as mensagens que esperam na fila seguem quando ele terminar.
+fn cancel_turn(bot: &str) {
     if let Some(r) = RUNNING.locked().as_ref().and_then(|running| running.get(bot)) {
         let _ = r.cancel.send(true);
     }
@@ -251,11 +256,7 @@ pub(crate) fn run(
     text: String,
 ) {
     let hub = hub.clone();
-    let instructions = format!("{}\n\n{INSTRUCTIONS}", cfg.description.trim());
-    let instructions = match crate::fork::skill_catalog::open_texto_para_bot(&hub.store, &cfg.skills) {
-        Some(skills) => format!("{instructions}\n\n{skills}"),
-        None => instructions,
-    };
+    let instructions = instructions(&hub, cfg);
     tokio::spawn(async move {
         let (entry_id, authority) = entry;
         let Ticket { bot, account, directory, model, mut cancel, done } = ticket;
@@ -290,7 +291,7 @@ pub(crate) fn run(
             &account,
             &lane,
             (&instructions, model.as_deref()),
-            &text,
+            (&text, TURN_LIMIT),
             (&entry_id, authority.as_ref()),
             &mut cancel,
             &mut reply,
@@ -322,6 +323,59 @@ pub(crate) fn run(
     });
 }
 
+/// Instruções do turno só texto: descrição do bot, regras da conversa e o texto das skills selecionadas.
+fn instructions(hub: &Hub, cfg: &BotConfig) -> String {
+    let instructions = format!("{}\n\n{INSTRUCTIONS}", cfg.description.trim());
+    match crate::fork::skill_catalog::open_texto_para_bot(&hub.store, &cfg.skills) {
+        Some(skills) => format!("{instructions}\n\n{skills}"),
+        None => instructions,
+    }
+}
+
+/// Roda o turno de uma rotina da Open e devolve o texto da resposta; passado o prazo, interrompe o turno e falha.
+pub(crate) async fn routine_turn(
+    hub: &Arc<Hub>,
+    ticket: Ticket,
+    cfg: &BotConfig,
+    lane: Lane,
+    prompt: String,
+    timeout: Duration,
+) -> Result<String> {
+    let Ticket { bot, account, directory, model, mut cancel, done } = ticket;
+    let instructions = instructions(hub, cfg);
+    let outcome = async {
+        let turn = hub.store.alloc_turn(&cfg.id)?;
+        let mut reply = Stream::new(hub, &lane, turn, &bot);
+        let result = {
+            let mut turn_run = std::pin::pin!(turn_in_profile(
+                hub,
+                &directory,
+                &account,
+                &lane,
+                (&instructions, model.as_deref()),
+                (&prompt, timeout),
+                ("", None),
+                &mut cancel,
+                &mut reply,
+            ));
+            tokio::select! {
+                result = &mut turn_run => result,
+                () = tokio::time::sleep(timeout) => {
+                    cancel_turn(&bot);
+                    let _ = turn_run.await;
+                    Err(anyhow!("open_chat_timeout"))
+                }
+            }
+        };
+        reply.close();
+        result.map(|()| reply.text)
+    }
+    .await;
+    crate::fork::open_chat_fila::finish(hub, &bot);
+    drop(done);
+    outcome
+}
+
 #[cfg(unix)]
 #[allow(clippy::too_many_arguments)]
 async fn turn_in_profile(
@@ -330,7 +384,7 @@ async fn turn_in_profile(
     account: &str,
     lane: &Lane,
     (instructions, model): (&str, Option<&str>),
-    text: &str,
+    (text, limit): (&str, Duration),
     (entry_id, authority): (&str, Option<&Autoridade>),
     cancel: &mut watch::Receiver<bool>,
     reply: &mut Stream,
@@ -379,6 +433,7 @@ async fn turn_in_profile(
         saved.as_deref(),
         (instructions, model),
         text,
+        limit,
         cancel,
         before_text,
         on_sent,
@@ -440,7 +495,7 @@ async fn turn_in_profile(
     _: &str,
     _: &Lane,
     _: (&str, Option<&str>),
-    _: &str,
+    _: (&str, Duration),
     _: (&str, Option<&Autoridade>),
     _: &mut watch::Receiver<bool>,
     _: &mut Stream,
@@ -544,6 +599,7 @@ pub(crate) async fn drive(
     thread: Option<&str>,
     (instructions, model): (&str, Option<&str>),
     text: &str,
+    limit: Duration,
     cancel: &mut watch::Receiver<bool>,
     before_text: impl FnOnce(&str) -> Result<()>,
     on_sent: impl FnOnce(),
@@ -644,7 +700,7 @@ pub(crate) async fn drive(
         }
     };
     tokio::select! {
-        result = tokio::time::timeout(TURN_LIMIT, flow) => result.map_err(|_| anyhow!("open_chat_timeout"))?,
+        result = tokio::time::timeout(limit, flow) => result.map_err(|_| anyhow!("open_chat_timeout"))?,
         _ = cancel.wait_for(|stop| *stop) => bail!("open_chat_cancelled"),
     }
 }

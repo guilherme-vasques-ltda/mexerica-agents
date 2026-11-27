@@ -200,4 +200,24 @@ mod admission_tests {
             assert!(!state.paused);
         }
     }
+
+    #[test]
+    fn pausa_geral_segura_as_execucoes_pendentes_da_open() {
+        let store = Store::open(Path::new(":memory:")).unwrap();
+        let routines = Routines::default();
+        let r = routine();
+        let run = new_run(&r, Value::Null, None);
+        routines
+            .change(&store, |s| {
+                s.routines.push(r);
+                s.runs.push(run);
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(routines.pending_open_runs().len(), 1);
+        routines.set_paused(&store, true).unwrap();
+        assert_eq!(routines.pending_open_runs(), Vec::<(String, String)>::new());
+        routines.set_paused(&store, false).unwrap();
+        assert_eq!(routines.pending_open_runs().len(), 1);
+    }
 }

@@ -45,6 +45,20 @@ impl Routines {
         self.stopping.load(Ordering::Acquire)
     }
 
+    /// Execuções prontas para sair da fila, como (bot, execução); vazio com as rotinas pausadas.
+    pub fn pending_open_runs(&self) -> Vec<(String, String)> {
+        let s = self.state.locked();
+        let now = now_ms();
+        if s.paused {
+            return Vec::new();
+        }
+        s.runs
+            .iter()
+            .filter(|r| r.status == Status::Pending && r.retry_not_before_ms.is_none_or(|at| at <= now))
+            .map(|r| (r.bot_id.clone(), r.id.clone()))
+            .collect()
+    }
+
     pub fn release(&self, bot: &str) {
         self.active.locked().remove(bot);
     }
@@ -449,7 +463,7 @@ pub fn start(hub: &Arc<Hub>) {
                 break;
             }
             match run_scheduler_tick(&recovery, move |recovery| {
-                let result = tick_with_clocks(&hub, &mut retry, recovery, now_ms, Instant::now);
+                let result = tick_dispatching(&hub, &mut retry, recovery, now_ms, Instant::now, Dispatch::current());
                 (result, retry)
             })
             .await
@@ -573,12 +587,37 @@ enum DispatchClaim {
     Busy,
 }
 
+/// Na Open não há ator de bot: as execuções pendentes ficam para o executor de `fork::open_rotinas`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Dispatch {
+    BotActor,
+    OpenExecutor,
+}
+
+impl Dispatch {
+    fn current() -> Self {
+        if crate::environment::Environment::is_open() { Self::OpenExecutor } else { Self::BotActor }
+    }
+}
+
+#[cfg(test)]
 fn tick_with_clocks(
     hub: &Arc<Hub>,
     retry: &mut OrphanRetry,
     recovery: &mut ClockRecovery,
     clock: impl Fn() -> i64,
     monotonic: impl Fn() -> Instant,
+) -> Result<()> {
+    tick_dispatching(hub, retry, recovery, clock, monotonic, Dispatch::BotActor)
+}
+
+fn tick_dispatching(
+    hub: &Arc<Hub>,
+    retry: &mut OrphanRetry,
+    recovery: &mut ClockRecovery,
+    clock: impl Fn() -> i64,
+    monotonic: impl Fn() -> Instant,
+    dispatch: Dispatch,
 ) -> Result<()> {
     hub.update_keep_awake();
     if let Err(error) = hub.routines.publish(hub) {
@@ -589,6 +628,9 @@ fn tick_with_clocks(
         tracing::warn!(%error, "aviso de rotina não iniciada será salvo novamente");
     }
     scheduled?;
+    if dispatch == Dispatch::OpenExecutor {
+        return Ok(());
+    }
     let dispatch_now = clock();
     let (epoch, pending) = {
         let state = hub.routines.state.locked();
@@ -1099,6 +1141,31 @@ mod dispatch_recovery_tests {
             })
             .unwrap();
         run.id
+    }
+
+    #[tokio::test]
+    async fn open_deixa_a_execucao_agendada_para_o_proprio_executor_inclusive_apos_reinicio() {
+        let (hub, _dir, routine_id, due_at) = catchup_hub();
+        let run_id = queue_catchup(&hub, &routine_id, due_at);
+        tick_dispatching(
+            &hub,
+            &mut OrphanRetry::default(),
+            &mut ClockRecovery::default(),
+            || due_at + 2,
+            Instant::now,
+            Dispatch::OpenExecutor,
+        )
+        .unwrap();
+        assert_eq!(hub.routines.pending_open_runs(), vec![("bot".to_owned(), run_id.clone())]);
+        let restored = Routines::default();
+        restored.restore(&hub.store).unwrap();
+        assert_eq!(restored.pending_open_runs(), vec![("bot".to_owned(), run_id)]);
+        tick_with_clock(&hub, &mut OrphanRetry::default(), || due_at + 2).unwrap();
+        assert_eq!(
+            hub.routines.pending_open_runs(),
+            Vec::<(String, String)>::new(),
+            "o despacho para o ator de bot tiraria a vez do executor"
+        );
     }
 
     #[tokio::test]

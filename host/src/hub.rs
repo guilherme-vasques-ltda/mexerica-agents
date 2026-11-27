@@ -283,6 +283,8 @@ impl Hub {
         }
         crate::fork::workspace::start(self);
         if crate::environment::Environment::is_open() {
+            crate::routines::start(self);
+            crate::fork::open_rotinas::start(self);
             return Ok(());
         }
         // Mensagem de grupo que caiu antes de chegar a todos os membros: retomada uma vez ou marcada para conferência.

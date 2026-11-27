@@ -60,7 +60,16 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
         | "skills"
         | "marketSkills"
         | "skillDetails"
-        | "removeSkill" => matches!(caller, Caller::Local),
+        | "removeSkill"
+        | "routines"
+        | "routinesOverview"
+        | "routineSchedule"
+        | "routinesPause"
+        | "saveRoutine"
+        | "setRoutineEnabled"
+        | "deleteRoutine"
+        | "setRoutinesPaused"
+        | "runRoutine" => matches!(caller, Caller::Local),
         crate::fork::native_catalog::ADD_METHOD => {
             // Fora do Pessoal, só com a conta de IA escolhida; o Hub a confere como na criação manual.
             matches!(caller, Caller::Local)
@@ -141,8 +150,6 @@ mod tests {
             "donnaTimesSave",
             "functionModels",
             "backgroundSpaceSelections",
-            "routines",
-            "routinesOverview",
             "installSkill",
             "donnaMailManager",
             "credentialLogins",
@@ -183,6 +190,30 @@ mod tests {
         assert!(open_allows(&Caller::Local, "send", &json!({"attachments": null, "sessionId": null})));
         assert!(!open_allows(&Caller::Local, "send", &json!({"attachments": ["arquivo"]})));
         assert!(!open_allows(&Caller::Local, "send", &json!({"sessionId": "extra"})));
+    }
+
+    const ROTINAS: [&str; 9] = [
+        "routines",
+        "routinesOverview",
+        "routineSchedule",
+        "routinesPause",
+        "saveRoutine",
+        "setRoutineEnabled",
+        "deleteRoutine",
+        "setRoutinesPaused",
+        "runRoutine",
+    ];
+
+    #[test]
+    fn open_so_deixa_este_computador_gerir_rotinas() {
+        let device = Caller::Device { key: "aparelho".into(), scopes: vec![Scope::Control], autoridade: None };
+        for method in ROTINAS {
+            assert!(open_allows(&Caller::Local, method, &json!({})), "{method} é do computador");
+            assert!(!open_allows(&device, method, &json!({})), "{method} não é de aparelho");
+        }
+        for method in ["routineWebhook", "routineCall", "duplicateRoutine"] {
+            assert!(!open_allows(&Caller::Local, method, &json!({})), "{method} não existe na Open");
+        }
     }
 
     #[test]

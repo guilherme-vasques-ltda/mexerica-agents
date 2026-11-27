@@ -13,7 +13,6 @@ import { useStore } from '../../../store/context'
 import { useScreenViewed } from '../../../store/analytics'
 import type { SidePanelTab } from '../../../store/fork-sessions'
 import { RoutinesView } from '../../routines/RoutinesView'
-import { isOpenDesktop } from '@shared/fork-capacidades'
 import { HoldButton } from '../../thread/cards/HoldButton'
 import { sortedOptions } from '../../thread/PermissionCard'
 import { useOpenBotSettings } from '../bot-settings/bot-settings-entry'
@@ -144,7 +143,7 @@ function BotPanel({ bot, routineId, tab, setTab, sessions, openSession, onOpenSe
   const state = sessions.combined
   const role = principal.id === bot.id ? t('bots.painel.principal') : bot.title?.trim() || bot.description?.trim() || ''
   const model = `${store.backendName(bot.backend)}${bot.model ? ` · ${bot.model}` : ''}`
-  const tabs = visibleTabs(BOT_TABS, { bot, wa, plugin: caixa.leitura.leitura?.plugin.enabled === true, routines: !isOpenDesktop(window.codync) })
+  const tabs = visibleTabs(BOT_TABS, { bot, wa, plugin: caixa.leitura.leitura?.plugin.enabled === true, routines: true })
   const current = currentTab(tabs, tab)
   // A3: a aba guardada sumiu (WhatsApp com o plugin desligado ou sem número): grava Sessões como seleção, para a aba não
   // voltar selecionada sozinha; se o foco caiu (estava nela), vai para Sessões. Só com a leitura do Hub em mãos.

@@ -318,7 +318,6 @@ export const ThreadView = memo(function ThreadView({ botId, panelScope }: { botI
   const openTrace = useCallback(() => setShowTrace(true), [])
 
   const presentRoutine = useCallback((id: string | null) => {
-    if (isOpenDesktop(window.codync)) return
     setRoutineId(id)
     setRoutineRequest((r) => r + 1)
     setDetailsTab('routines')
