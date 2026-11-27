@@ -115,4 +115,10 @@ export const textos: Traducao<typeof fonte> = {
   "botSettings.indisponivel.guiasLinha": "تعليماتك لتوجيه الاختيار التلقائي، دون تغيير ما يمكن للبوت الوصول إليه.",
   "botSettings.indisponivel.nota": "في الوقت الحالي، تستخدم المحادثات الجديدة الحساب والنموذج المختارين أعلاه.",
   "botSettings.fechar": "إغلاق",
+  "botSettings.open.motor.intro": "يشغّل هذا الإصدار Codex فقط، نصًا، دون أوامر ودون تحكم في الحاسوب. اختر أدناه حساب هذا البوت ونموذجه؛ يسري من الرسالة التالية.",
+  "botSettings.open.motor.semConta": "لا يوجد حساب متصل. اربط حساب Codex من الإعدادات ← حسابات الذكاء الاصطناعي.",
+  "botSettings.open.motor.padrao": "{modelo} (الافتراضي)",
+  "botSettings.open.motor.usar": "استخدام",
+  "botSettings.open.motor.erro": "تعذّر تغيير النموذج. حاول مرة أخرى.",
+  "botSettings.open.memoria.aviso": "تُضاف الأدلة والملاحظات في هذا التبويب سياقًا نصيًا إلى محادثات هذا البوت: لا تمنح أدوات ولا صلاحيات وصول.",
 }

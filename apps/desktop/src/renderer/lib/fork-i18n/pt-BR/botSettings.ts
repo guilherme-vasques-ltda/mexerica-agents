@@ -112,4 +112,10 @@ export const textos = {
   "botSettings.indisponivel.guiasLinha": "Suas instruções para orientar a escolha automática, sem mudar o que o bot pode acessar.",
   "botSettings.indisponivel.nota": "Por enquanto, as conversas novas usam a conta e o modelo escolhidos acima.",
   "botSettings.fechar": "Fechar",
+  "botSettings.open.motor.intro": "Esta edição roda só o Codex, em texto, sem comandos e sem controle do computador. Escolha abaixo a conta e o modelo deste bot; vale a partir da próxima mensagem.",
+  "botSettings.open.motor.semConta": "Nenhuma conta conectada. Conecte uma conta Codex em Ajustes → Contas de IA.",
+  "botSettings.open.motor.padrao": "{modelo} (padrão)",
+  "botSettings.open.motor.usar": "Usar",
+  "botSettings.open.motor.erro": "Não foi possível trocar o modelo. Tente de novo.",
+  "botSettings.open.memoria.aviso": "Manuais e notas desta aba entram como contexto nas conversas deste bot, como texto: não dão ferramentas nem acesso.",
 } as const

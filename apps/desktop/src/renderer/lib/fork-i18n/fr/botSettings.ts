@@ -115,4 +115,10 @@ export const textos: Traducao<typeof fonte> = {
   "botSettings.indisponivel.guiasLinha": "Vos consignes pour orienter le choix automatique, sans changer ce à quoi le bot peut accéder.",
   "botSettings.indisponivel.nota": "Pour l’instant, les nouvelles conversations utilisent le compte et le modèle choisis ci-dessus.",
   "botSettings.fechar": "Fermer",
+  "botSettings.open.motor.intro": "Cette édition n'exécute que Codex, en texte, sans commandes ni contrôle de l'ordinateur. Choisissez ci-dessous le compte et le modèle de ce bot ; cela vaut dès le prochain message.",
+  "botSettings.open.motor.semConta": "Aucun compte connecté. Connectez un compte Codex dans Réglages → Comptes d'IA.",
+  "botSettings.open.motor.padrao": "{modelo} (par défaut)",
+  "botSettings.open.motor.usar": "Utiliser",
+  "botSettings.open.motor.erro": "Impossible de changer le modèle. Réessayez.",
+  "botSettings.open.memoria.aviso": "Les manuels et notes de cet onglet sont ajoutés comme contexte aux conversations de ce bot, sous forme de texte : ils ne donnent ni outils ni accès.",
 }

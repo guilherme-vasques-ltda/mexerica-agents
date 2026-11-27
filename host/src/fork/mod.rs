@@ -6,6 +6,7 @@ pub mod bootstrap;
 pub(crate) mod cadeias;
 pub(crate) mod open_chat;
 pub(crate) mod open_chat_fila;
+pub(crate) mod open_manuais;
 #[cfg(unix)]
 pub(crate) mod open_codex;
 pub(crate) mod open_modelo;

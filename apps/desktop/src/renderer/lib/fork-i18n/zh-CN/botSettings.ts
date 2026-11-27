@@ -115,4 +115,10 @@ export const textos: Traducao<typeof fonte> = {
   "botSettings.indisponivel.guiasLinha": "你的说明，用于引导自动选择，不会改变机器人可以访问的内容。",
   "botSettings.indisponivel.nota": "目前，新对话使用上面选择的账户和模型。",
   "botSettings.fechar": "关闭",
+  "botSettings.open.motor.intro": "此版本仅运行 Codex，仅支持文本，不执行命令，也不控制电脑。请在下方选择此机器人的账户和模型，从下一条消息起生效。",
+  "botSettings.open.motor.semConta": "尚未连接账户。请在“设置 → AI 账户”中连接 Codex 账户。",
+  "botSettings.open.motor.padrao": "{modelo}（默认）",
+  "botSettings.open.motor.usar": "使用",
+  "botSettings.open.motor.erro": "无法更换模型，请重试。",
+  "botSettings.open.memoria.aviso": "此标签页中的手册和笔记会作为文本上下文加入该机器人的对话：它们不提供工具或访问权限。",
 }
