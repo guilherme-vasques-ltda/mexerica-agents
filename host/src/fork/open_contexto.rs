@@ -49,10 +49,7 @@ fn summary_key(chat: &str) -> String {
 }
 
 fn load(hub: &Hub, chat: &str, account: &str) -> State {
-    hub.store
-        .kv_get(&state_key(chat, account))
-        .and_then(|raw| serde_json::from_str(&raw).ok())
-        .unwrap_or_default()
+    hub.store.kv_get(&state_key(chat, account)).and_then(|raw| serde_json::from_str(&raw).ok()).unwrap_or_default()
 }
 
 fn save(hub: &Hub, chat: &str, account: &str, state: &State) {
@@ -196,12 +193,12 @@ async fn clear_chat(hub: &Arc<Hub>, ticket: &mut open_chat::Ticket, chat: &Chat)
     let lane = Lane::main(&chat.id);
     let mut summary = None;
     if chat.thread.is_some() {
-        let text = open_chat::silent_turn(hub, ticket, &chat.cfg, &lane, SUMMARY_PROMPT, SUMMARY_LIMIT)
-            .await
-            .map_err(|error| {
+        let text = open_chat::silent_turn(hub, ticket, &chat.cfg, &lane, SUMMARY_PROMPT, SUMMARY_LIMIT).await.map_err(
+            |error| {
                 tracing::warn!(%error, "o resumo do /clear da Open falhou");
                 anyhow!("clear_summary_failed")
-            })?;
+            },
+        )?;
         summary = Some(parse_summary(&text)?);
     }
     let facts = summary.as_ref().map_or(0, |(_, facts)| facts.len());
@@ -254,7 +251,10 @@ fn save_facts(hub: &Hub, cfg: &BotConfig, facts: &[String]) -> Result<()> {
         let new = New { bot: Some(cfg.memory_id()), text, room: None, evidence: &[] };
         match mem::add(&db, Writer::Bot(&cfg.id), new, now_ms(), rev) {
             Ok(_) => {
-                db.execute("INSERT INTO kv(k,v) VALUES('memory.rev',?1) ON CONFLICT(k) DO UPDATE SET v=excluded.v", [rev])?;
+                db.execute(
+                    "INSERT INTO kv(k,v) VALUES('memory.rev',?1) ON CONFLICT(k) DO UPDATE SET v=excluded.v",
+                    [rev],
+                )?;
             }
             Err(mem::Error::Refused(reason)) => tracing::info!(?reason, "fato do /clear não entrou na memória"),
             Err(error) => {

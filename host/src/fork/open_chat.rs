@@ -408,7 +408,12 @@ pub(crate) fn compact(hub: &Arc<Hub>, ticket: Ticket, cfg: &BotConfig, lane: Lan
                         crate::fork::open_contexto::unsupported(&hub, &lane, &account);
                     }
                     let (code, text) = notice(&error.to_string());
-                    hub.add_entry(&lane, EntryKind::Notice, hub.store.max_turn(&bot), &json!({"text": text, "code": code, "author": bot}));
+                    hub.add_entry(
+                        &lane,
+                        EntryKind::Notice,
+                        hub.store.max_turn(&bot),
+                        &json!({"text": text, "code": code, "author": bot}),
+                    );
                 }
             }
             hub.emit_bot(&bot);
@@ -710,8 +715,20 @@ pub(crate) async fn drive(
     on_delta: impl FnMut(&str) -> bool,
     authority: Option<(&Hub, &Autoridade)>,
 ) -> Result<String> {
-    drive_usage(rpc, thread, session, Input::Text(text), limit, cancel, before_text, on_sent, on_delta, |_, _| {}, authority)
-        .await
+    drive_usage(
+        rpc,
+        thread,
+        session,
+        Input::Text(text),
+        limit,
+        cancel,
+        before_text,
+        on_sent,
+        on_delta,
+        |_, _| {},
+        authority,
+    )
+    .await
 }
 
 /// `drive` com a medição de contexto: `on_usage(usado, janela)` a cada `thread/tokenUsage/updated` (o `last` do
@@ -768,15 +785,14 @@ pub(crate) async fn drive_usage(
             .to_owned();
         before_text(&thread)?;
         let turn_id = match input {
-            Input::Compact => {
-                match rpc.request(4, "thread/compact/start", json!({"threadId": thread})).await? {
-                    Ok(_) => String::new(),
-                    Err(error) if error["code"] == METHOD_NOT_FOUND => bail!("context_cannot_compact"),
-                    Err(_) => bail!("open_chat_failed"),
-                }
-            }
+            Input::Compact => match rpc.request(4, "thread/compact/start", json!({"threadId": thread})).await? {
+                Ok(_) => String::new(),
+                Err(error) if error["code"] == METHOD_NOT_FOUND => bail!("context_cannot_compact"),
+                Err(_) => bail!("open_chat_failed"),
+            },
             Input::Text(text) => {
-                let params = json!({"threadId": thread, "input": [{"type": "text", "text": text, "text_elements": []}]});
+                let params =
+                    json!({"threadId": thread, "input": [{"type": "text", "text": text, "text_elements": []}]});
                 let turn = match authority {
                     Some((hub, proof)) => {
                         rpc.call_guarded(4, "turn/start", params, |effect| {
