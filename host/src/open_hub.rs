@@ -84,8 +84,8 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
         | "credentialLogins"
         | "credentialSaveLogin"
         | "credentialLabelLogin"
-        | "credentialRemoveLogin" => matches!(caller, Caller::Local),
-        "donnaTaskProposals"
+        | "credentialRemoveLogin"
+        | "donnaTaskProposals"
         | "donnaTimes"
         | crate::fork::native_catalog::METHOD
         | "skills"
