@@ -96,7 +96,7 @@ export function Ficha({ servico, prazoDias, aoVoltar, aoConectar, aoGerenciar }:
                           </HStack>
                           <Text size="callout" tone="secondary">
                             {x.disponivel
-                              ? (x.auth.modo === 'oauth' ? t('mercado.ficha.jeito.oauth', { servico: servico.nome }) : x.auth.modo === 'app_proprio' ? t('google.grupo.contas') : `${t('mercado.ficha.jeito.chave', { servico: servico.nome })} ${x.auth.comoCriarLeitura}`.trim())
+                              ? (x.auth.modo === 'oauth' ? t('mercado.ficha.jeito.oauth', { servico: servico.nome }) : x.auth.modo === 'app_proprio' ? t(x.auth.configuracao ? 'mercado.appProprio.titulo' : 'google.grupo.contas') : `${t('mercado.ficha.jeito.chave', { servico: servico.nome })} ${x.auth.comoCriarLeitura}`.trim())
                               : (x.motivoIndisponivel ?? t('mercado.lib.indisponivel'))}
                           </Text>
                         </VStack>

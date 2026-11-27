@@ -40,7 +40,25 @@ pub(crate) enum Auth {
     /// `provedor` agrupa os serviços na tela ("google"); `emissor` é o servidor de login fixado pela ficha (o Hub só
     /// aceita esse); `guia` são os passos para a pessoa criar o app, com os links como dado.
     #[serde(rename_all = "camelCase")]
-    AppProprio { provedor: &'static str, emissor: &'static str, guia: &'static [PassoDoGuia] },
+    AppProprio {
+        provedor: &'static str,
+        emissor: &'static str,
+        guia: &'static [PassoDoGuia],
+        #[serde(skip_serializing_if = "Option::is_none")]
+        configuracao: Option<AppProprioConfig>,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AppProprioConfig {
+    pub cadastro: &'static str,
+    #[serde(skip)]
+    pub recurso: &'static str,
+    #[serde(skip)]
+    pub autorizacao: &'static str,
+    #[serde(skip)]
+    pub token: &'static str,
 }
 
 /// Um passo do guia "crie o seu app": o `id` escolhe o texto na tela; `url` é o link oficial (https), se houver.
@@ -220,6 +238,14 @@ pub(crate) fn publico() -> Catalogo {
 pub(crate) fn fixture_filtro() -> &'static Servico {
     static FICHA: std::sync::LazyLock<Servico> = std::sync::LazyLock::new(|| {
         super::catalogo_json::ler(include_str!("../../../tests/fixtures/catalogo-filtro.json")).unwrap()
+    });
+    &FICHA
+}
+
+#[cfg(test)]
+pub(crate) fn fixture_app_proprio() -> &'static Servico {
+    static FICHA: std::sync::LazyLock<Servico> = std::sync::LazyLock::new(|| {
+        super::catalogo_json::ler(include_str!("../../../tests/fixtures/catalogo-app-proprio.json")).unwrap()
     });
     &FICHA
 }

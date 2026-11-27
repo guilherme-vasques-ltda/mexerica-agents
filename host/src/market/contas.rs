@@ -231,7 +231,13 @@ pub(crate) fn conectar_em(
             conta.oauth = Some(oauth::OAuth::default());
             "entrar"
         }
-        Auth::AppProprio { .. } => bail!("tipo_indisponivel: esse provedor ainda não é aceito."),
+        Auth::AppProprio { .. } => {
+            use super::google_app::{APP_DA_FICHA_AUSENTE, AppDaFicha};
+            let app = AppDaFicha::novo(ficha, tipo).ok_or_else(|| anyhow!("tipo_indisponivel"))?;
+            ensure!(app.ler(store, pedido.space)?.is_some(), "{APP_DA_FICHA_AUSENTE}");
+            conta.oauth = Some(oauth::OAuth::default());
+            "entrar"
+        }
     };
     let (publico, _) = update_connectors_com(
         store,
@@ -279,9 +285,9 @@ pub(crate) fn tipo_da_conta(c: &Connector) -> Result<Option<&'static TipoConexao
 
 /// O servidor de login que a ficha fixa, quando a conta entra com o app OAuth da própria pessoa. `None`: o caminho
 /// comum (descoberta + cadastro automático) ou conta sem ficha.
-pub(crate) fn emissor_proprio(c: &Connector) -> Result<Option<&'static str>> {
+pub(crate) fn auth_proprio(c: &Connector) -> Result<Option<&'static Auth>> {
     Ok(tipo_da_conta(c)?.and_then(|tipo| match &tipo.auth {
-        Auth::AppProprio { emissor, .. } => Some(*emissor),
+        auth @ Auth::AppProprio { .. } => Some(auth),
         _ => None,
     }))
 }
