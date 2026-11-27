@@ -1,0 +1,54 @@
+{
+  "id": "agentmail",
+  "nome": "AgentMail",
+  "categoria": "Comunicação",
+  "descricao": "Consulte a lista de caixas de e-mail da organização selecionada no AgentMail.",
+  "exemplos": [
+    "Liste as caixas de e-mail da organização"
+  ],
+  "site": "https://www.agentmail.to",
+  "docs": "https://docs.agentmail.to/integrations/mcp",
+  "links": {
+    "privacidade": "https://www.agentmail.to/legal/privacy",
+    "termos": "https://www.agentmail.to/legal/terms"
+  },
+  "conferidaEm": "2026-11-27",
+  "fontes": [
+    "https://docs.agentmail.to/integrations/mcp",
+    "https://mcp.agentmail.to/.well-known/oauth-protected-resource/mcp"
+  ],
+  "aviso": "O login não limita a credencial a listar caixas. O Hub não libera leitura de mensagens, envio ou exclusão.",
+  "tipos": [
+    {
+      "id": "agentmail.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "AgentMail",
+      "url": "https://mcp.agentmail.to/mcp",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "acoes",
+          "rotulo": "Consultar",
+          "escopos": [
+            "openid",
+            "email",
+            "profile",
+            "user:org:read"
+          ],
+          "ferramentas": [
+            "list_inboxes"
+          ],
+          "padrao": true,
+          "disponivel": true,
+          "imposicao": "filtro"
+        }
+      ],
+      "recomendado": true,
+      "disponivel": true
+    }
+  ]
+}

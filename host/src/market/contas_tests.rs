@@ -702,6 +702,11 @@ async fn duas_contas_por_ficha_preservam_o_filtro_e_a_escolha_por_bot() {
         ("tavily", &["tavily_search", "tavily_extract"][..], &["openid", "offline_access"][..], "entrar", true),
         ("apify", &["get-actor-run"][..], &["openid", "profile", "email", "full_api_access"][..], "entrar", true),
         ("heygen", &["list_videos", "list_templates"][..], &["openid", "profile", "email"][..], "entrar", true),
+        ("supabase", &["get_project"][..], &[][..], "chave", true),
+        ("wrike", &["search_spaces", "get_items_children"][..], &[][..], "chave", true),
+        ("agentmail", &["list_inboxes"][..], &["openid", "email", "profile", "user:org:read"][..], "entrar", true),
+        ("bright-data", &["search_engine"][..], &["mcp"][..], "entrar", true),
+        ("prisma", &["list_prisma_postgres_databases"][..], &["workspace:admin"][..], "entrar", true),
         (
             "trello",
             &["trelloReadBoard", "trelloReadList", "trelloReadCard"][..],
