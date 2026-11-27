@@ -80,6 +80,7 @@ fn o_catalogo_nao_tem_segredo_nem_duplicata_e_as_fichas_tem_fonte_oficial() {
 const CONECTAVEIS: &[&str] = &[
     "linear",
     "context7",
+    "exa",
     "neon",
     "wispr-flow",
     "github",
@@ -90,6 +91,10 @@ const CONECTAVEIS: &[&str] = &[
     "revenuecat",
     "supabase",
     "render",
+    "airtable",
+    "atlassian",
+    "notion",
+    "tally",
     "tavily",
     "apify",
     "heygen",
