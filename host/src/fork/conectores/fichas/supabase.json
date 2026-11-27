@@ -2,11 +2,9 @@
   "id": "supabase",
   "nome": "Supabase",
   "categoria": "Dados",
-  "descricao": "Banco Postgres, logs, tipos e documentação dos projetos Supabase, com modo de leitura por parâmetro na URL.",
+  "descricao": "Consulte os detalhes de um projeto Supabase, usando um token limitado a esse projeto.",
   "exemplos": [
-    "Liste as tabelas do meu projeto Supabase",
-    "Mostre os últimos erros nos logs da API",
-    "Que tipos TypeScript o banco gera?"
+    "Consulte os detalhes do meu projeto Supabase usando a referência que copiei no painel"
   ],
   "site": "https://supabase.com",
   "docs": "https://supabase.com/docs/guides/ai-tools/mcp",
@@ -14,12 +12,14 @@
     "privacidade": "https://supabase.com/privacy",
     "termos": "https://supabase.com/terms"
   },
-  "conferidaEm": "2026-11-18",
+  "conferidaEm": "2026-11-27",
   "fontes": [
     "https://supabase.com/docs/guides/ai-tools/mcp",
     "https://mcp.supabase.com/.well-known/oauth-protected-resource/mcp",
-    "https://api.supabase.com/.well-known/oauth-authorization-server"
+    "https://api.supabase.com/.well-known/oauth-authorization-server",
+    "https://supabase.com/docs/guides/platform/personal-access-tokens"
   ],
+  "aviso": "Use um token limitado ao projeto e à leitura de configurações. Informe na consulta a referência do projeto, não o token.",
   "skills": [
     {
       "id": "supabase-revisar-seguranca",
@@ -28,6 +28,33 @@
     }
   ],
   "tipos": [
+    {
+      "id": "supabase.oficial_chave",
+      "tipo": "oficial_chave",
+      "rotulo": "Oficial — chave de acesso",
+      "mantidoPor": "Supabase",
+      "url": "https://mcp.supabase.com/mcp?read_only=true",
+      "auth": {
+        "modo": "chave",
+        "destino": "header",
+        "nome": "Authorization",
+        "prefixo": "Bearer ",
+        "comoCriarLeitura": "No painel da Supabase, abra Access Tokens. Gere um token limitado a um projeto e à opção Project Settings (Read)."
+      },
+      "grupos": [
+        {
+          "id": "acoes",
+          "rotulo": "Consultar o projeto",
+          "escopos": [],
+          "ferramentas": ["get_project"],
+          "padrao": true,
+          "disponivel": true,
+          "imposicao": "filtro"
+        }
+      ],
+      "recomendado": true,
+      "disponivel": true
+    },
     {
       "id": "supabase.oficial_oauth",
       "tipo": "oficial_oauth",
@@ -57,7 +84,7 @@
           "imposicao": "url"
         }
       ],
-      "recomendado": true,
+      "recomendado": false,
       "disponivel": false,
       "motivoIndisponivel": "O login do Supabase exige um cadastro com segredo, que a Mexerica ainda não faz sem revisão de Segurança."
     }
@@ -69,6 +96,5 @@
       "licenca": "MIT",
       "aproveitavel": true
     }
-  ],
-  "emBreve": "O login do Supabase exige um cadastro com segredo; entra depois da revisão de Segurança."
+  ]
 }

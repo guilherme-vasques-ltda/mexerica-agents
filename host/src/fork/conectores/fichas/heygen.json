@@ -1,0 +1,54 @@
+{
+  "id": "heygen",
+  "nome": "HeyGen",
+  "categoria": "Design e mídia",
+  "descricao": "Liste os vídeos e modelos da sua conta HeyGen, sem gerar mídia.",
+  "exemplos": [
+    "Liste os modelos de vídeo da minha conta"
+  ],
+  "site": "https://www.heygen.com",
+  "docs": "https://developers.heygen.com/docs/mcp/overview",
+  "links": {
+    "privacidade": "https://www.heygen.com/privacy",
+    "termos": "https://www.heygen.com/terms"
+  },
+  "conferidaEm": "2026-11-27",
+  "fontes": [
+    "https://developers.heygen.com/docs/mcp/overview",
+    "https://mcp.heygen.com/.well-known/oauth-protected-resource/mcp/v1"
+  ],
+  "aviso": "O login da HeyGen não limita a credencial a consultas. O Hub só expõe as ferramentas de listagem.",
+  "tipos": [
+    {
+      "id": "heygen.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "HeyGen",
+      "url": "https://mcp.heygen.com/mcp/v1",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "acoes",
+          "rotulo": "Consultar vídeos e modelos",
+          "escopos": [
+            "openid",
+            "profile",
+            "email"
+          ],
+          "ferramentas": [
+            "list_videos",
+            "list_templates"
+          ],
+          "padrao": true,
+          "disponivel": true,
+          "imposicao": "filtro"
+        }
+      ],
+      "recomendado": true,
+      "disponivel": true
+    }
+  ]
+}
