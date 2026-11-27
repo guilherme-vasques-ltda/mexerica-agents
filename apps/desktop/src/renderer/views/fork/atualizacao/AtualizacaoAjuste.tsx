@@ -1,8 +1,9 @@
+import { useState } from 'react'
 import { useIdioma, useT } from '../../../lib/fork-i18n/estado'
 import { formatarData } from '../../../lib/fork-i18n/index.ts'
 import { ltr } from '@shared/bidi'
 import type { ReleaseNoticeState } from '@shared/fork-release-notice'
-import { Button, CardSection, ValueRow } from '../../../components/Controls'
+import { Button, CardSection, Switch, ValueRow } from '../../../components/Controls'
 import { HStack } from '../../../components/Stack'
 import { Text } from '../../../components/Text'
 import { Superficie } from '../../settings/rotulo'
@@ -14,10 +15,12 @@ import './aviso-atualizacao.css'
  * última verificação achou. A view pura recebe o estado e as ações; a montada lê da ponte e some
  * quando o app não tem o serviço (web, demo, builds sem o handler).
  */
-export function AtualizacaoAjusteView({ state, onCheck, onOpenDownload }: {
+export function AtualizacaoAjusteView({ state, onCheck, onOpenDownload, onCheckEnabled, checkSaveFailed = false }: {
   state: ReleaseNoticeState
+  checkSaveFailed?: boolean
   onCheck: () => void
   onOpenDownload: () => void
+  onCheckEnabled: (on: boolean) => void
 }) {
   const t = useT()
   const idioma = useIdioma()
@@ -29,10 +32,13 @@ export function AtualizacaoAjusteView({ state, onCheck, onOpenDownload }: {
   return (
     <Superficie>
       <CardSection title={t('ajustes.atualizacoes.titulo')}>
+        <ValueRow label={t('ajustes.atualizacoes.buscar')} detail={t('ajustes.atualizacoes.buscarDetalhe')}>
+          <Switch on={state.checkEnabled} onChange={onCheckEnabled} label={t('ajustes.atualizacoes.buscar')} />
+        </ValueRow>
         <ValueRow label={t('ajustes.atualizacoes.versaoAtual')} detail={lastChecked}>
           <HStack as="span" gap={10}>
             <span className="bidi-isolado" dir="ltr">{versaoAtual}</span>
-            <Button kind="secondary" onClick={onCheck} disabled={state.status === 'checking'}>
+            <Button kind="secondary" onClick={onCheck} disabled={!state.checkEnabled || state.status === 'checking'}>
               {state.status === 'checking' ? t('ajustes.atualizacoes.procurando') : t('ajustes.atualizacoes.procurar')}
             </Button>
           </HStack>
@@ -48,6 +54,9 @@ export function AtualizacaoAjusteView({ state, onCheck, onOpenDownload }: {
         {!releaseAvailable && state.status === 'up-to-date' ? (
           <Text size="footnote" tone="secondary">{t('ajustes.atualizacoes.atualizado')}</Text>
         ) : null}
+        {checkSaveFailed ? (
+          <Text size="footnote" tone="attention" dir="auto">{t('ajustes.atualizacoes.buscarErro')}</Text>
+        ) : null}
         {state.status === 'error' ? (
           <Text size="footnote" tone="attention" dir="auto">{t('ajustes.atualizacoes.erro')}</Text>
         ) : null}
@@ -58,12 +67,17 @@ export function AtualizacaoAjusteView({ state, onCheck, onOpenDownload }: {
 
 export function AtualizacaoAjuste() {
   const state = useReleaseNotice()
+  const [checkSaveFailed, setCheckSaveFailed] = useState(false)
   if (!state?.supported) return null
   return (
     <AtualizacaoAjusteView
       state={state}
       onCheck={() => { void window.codync?.releaseNotice?.check() }}
       onOpenDownload={() => { void window.codync?.releaseNotice?.openDownload() }}
+      checkSaveFailed={checkSaveFailed}
+      onCheckEnabled={(on) => {
+        void window.codync?.releaseNotice?.setCheckEnabled(on).then(() => setCheckSaveFailed(false), () => setCheckSaveFailed(true))
+      }}
     />
   )
 }

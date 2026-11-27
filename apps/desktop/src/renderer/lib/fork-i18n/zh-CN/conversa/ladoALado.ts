@@ -8,7 +8,7 @@ export const textos: Traducao<typeof fonte> = {
   'conversa.ladoALado.sair': "返回单个对话",
   'conversa.ladoALado.abrirNoMenu': "并排打开",
   'conversa.ladoALado.regiao': "并排视图面板",
-  'conversa.ladoALado.contagem': "{atual}/{maximo}",
+  'conversa.ladoALado.contagem': "已打开 {atual}/{maximo} 个对话",
   'conversa.ladoALado.adicionar': "添加对话",
   'conversa.ladoALado.adicionarCurto': "添加",
   'conversa.ladoALado.semConversas': "此 space 中没有其他可用对话",

@@ -100,7 +100,7 @@ const updates: UpdateState = {
   autoCheck: false, autoDownload: false, lastCheck: null, error: null,
 }
 const releaseNotice: ReleaseNoticeState = {
-  supported: false, currentVersion: version, status: 'idle', availableVersion: null, availableTag: null,
+  supported: false, checkEnabled: false, currentVersion: version, status: 'idle', availableVersion: null, availableTag: null,
   releaseUrl: null, dismissedVersion: null, lastCheckAt: null,
 }
 let appIcon: AppIconId = 'padrao'
@@ -208,7 +208,7 @@ const bridge: CodyncBridge = {
   },
   cloud: { request: async () => ({ ok: false, error: { status: 503, code: 'demo', message: DEMO_UNAVAILABLE } }) },
   updates: { state: async () => updates, onChange: none, check() {}, install() {}, setAutoCheck() {}, setAutoDownload() {} },
-  releaseNotice: { state: async () => releaseNotice, check: async () => releaseNotice, dismiss: async () => releaseNotice, openDownload: async () => false, onChange: none },
+  releaseNotice: { state: async () => releaseNotice, check: async () => releaseNotice, dismiss: async () => releaseNotice, openDownload: async () => false, setCheckEnabled: async () => releaseNotice, onChange: none },
   files: { begin: unavailable, write: async () => {}, finish: async () => {}, cancel: async () => {} },
   appIcon: {
     selected: async () => appIcon,

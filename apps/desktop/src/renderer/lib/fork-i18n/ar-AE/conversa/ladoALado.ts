@@ -8,7 +8,7 @@ export const textos: Traducao<typeof fonte> = {
   'conversa.ladoALado.sair': "العودة إلى محادثة واحدة",
   'conversa.ladoALado.abrirNoMenu': "فتح جنبًا إلى جنب",
   'conversa.ladoALado.regiao': "لوحة جنبًا إلى جنب",
-  'conversa.ladoALado.contagem': "{atual} من {maximo}",
+  'conversa.ladoALado.contagem': "{atual} من {maximo} محادثات مفتوحة",
   'conversa.ladoALado.adicionar': "إضافة محادثة",
   'conversa.ladoALado.adicionarCurto': "إضافة",
   'conversa.ladoALado.semConversas': "لا توجد محادثة أخرى متاحة في هذا الـ Space",

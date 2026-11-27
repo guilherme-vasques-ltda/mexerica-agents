@@ -8,7 +8,7 @@ export const textos: Traducao<typeof fonte> = {
   'conversa.ladoALado.sair': "Revenir à une seule conversation",
   'conversa.ladoALado.abrirNoMenu': "Ouvrir côte à côte",
   'conversa.ladoALado.regiao': "Tableau Côte à côte",
-  'conversa.ladoALado.contagem': "{atual} sur {maximo}",
+  'conversa.ladoALado.contagem': "{atual} conversations ouvertes sur {maximo}",
   'conversa.ladoALado.adicionar': "Ajouter une conversation",
   'conversa.ladoALado.adicionarCurto': "Ajouter",
   'conversa.ladoALado.semConversas': "Aucune autre conversation disponible dans ce Space",

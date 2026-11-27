@@ -103,7 +103,7 @@ test('Instalação direta informa a recusa no Desktop Linux e preserva as outras
     return items
   }
   const wizard = (platform: 'linux' | 'darwin' | 'win32', hostState: Parameters<typeof Step3Wizard>[0]['hostState']) => renderToStaticMarkup(createElement(Step3Wizard, {
-    client: null, spaceId: 'pessoal', hostState, localHubSupported: true, platform, status: null, where: 'local',
+    client: null, spaceId: 'pessoal', etapaInicial: 'onde', hostState, localHubSupported: true, platform, status: null, where: 'local',
     onSelectWhere: noop, onOpenComputers: noop, onSkip: noop, onContinue: noop,
   }))
   try {
@@ -168,6 +168,7 @@ test('Step3Wizard exige consentimento local, mostra bloqueio honesto e respeita 
       createElement(Step3Wizard, {
         client: null,
         spaceId: 'pessoal',
+      etapaInicial: 'onde',
       hostState: { kind: 'disabled' },
       platform: 'darwin',
       status: macStatus,
@@ -186,6 +187,7 @@ test('Step3Wizard exige consentimento local, mostra bloqueio honesto e respeita 
     createElement(Step3Wizard, {
       client: {} as never,
       spaceId: 'pessoal',
+      etapaInicial: 'onde',
       hostState: { kind: 'running' },
       platform: 'linux',
       status: {
@@ -260,4 +262,24 @@ test('FirstChatOnboarding, ComposerSpotlight e ReadinessCard renderizam 6 tarefa
   )
   assert.match(readinessHtml, /Pronta para trabalhar · 2 de 4/)
   assert.match(readinessHtml, /Configurar permissões/)
+})
+
+test('Entrada guiada pergunta 100% local ou com conta; sem login na versão, "Com conta" e "nossa nuvem" ficam em breve', async () => {
+  const { Step3Wizard } = await import('./Step3Wizard.tsx')
+  const tela = (etapaInicial: 'modo' | 'nuvem') => renderToStaticMarkup(createElement(Step3Wizard, {
+    client: null, spaceId: 'pessoal', etapaInicial, hostState: { kind: 'running' }, platform: 'linux', status: null, where: 'local',
+    onSelectWhere() {}, onOpenComputers() {}, onSkip() {}, onContinue() {},
+  }))
+  const modo = tela('modo')
+  assert.match(modo, /Como você quer usar a Mexerica\?/)
+  assert.match(modo, /Passo 2 de 5/)
+  assert.match(modo, /<button[^>]*role="radio" aria-checked="true"[^>]*>(?:(?!<\/button>).)*100% local/)
+  assert.match(modo, /<button[^>]*role="radio" aria-checked="false" disabled=""[^>]*>(?:(?!<\/button>).)*Com conta(?:(?!<\/button>).)*Em breve/)
+  assert.match(modo, /Nada sai deste computador, a não ser o que vai para o provedor de IA que você conectar/)
+  assert.match(modo, /Sem conta e sem telemetria/)
+
+  const nuvem = tela('nuvem')
+  assert.match(nuvem, /Passo 3 de 6/)
+  assert.match(nuvem, /<button[^>]*role="radio" aria-checked="true"[^>]*>(?:(?!<\/button>).)*Na sua infraestrutura/)
+  assert.match(nuvem, /<button[^>]*role="radio" aria-checked="false" disabled=""[^>]*>(?:(?!<\/button>).)*Na nossa nuvem(?:(?!<\/button>).)*Em breve/)
 })

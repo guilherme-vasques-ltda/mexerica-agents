@@ -180,10 +180,10 @@ function defaultUpdates(): CodyncBridge['updates'] {
 /** Nível 1 de atualizações: na web não há release local a avisar; a ponte devolve o estado vazio. */
 function defaultReleaseNotice(): CodyncBridge['releaseNotice'] {
   const state: ReleaseNoticeState = {
-    supported: false, currentVersion: appVersion, status: 'idle', availableVersion: null, availableTag: null,
+    supported: false, checkEnabled: false, currentVersion: appVersion, status: 'idle', availableVersion: null, availableTag: null,
     releaseUrl: null, dismissedVersion: null, lastCheckAt: null,
   }
-  return { state: async () => state, check: async () => state, dismiss: async () => state, openDownload: async () => false, onChange: none }
+  return { state: async () => state, check: async () => state, dismiss: async () => state, openDownload: async () => false, setCheckEnabled: async () => state, onChange: none }
 }
 
 /** O primeiro idioma do navegador que o app tem (mesma regra do main: shared/fork-idioma). */
