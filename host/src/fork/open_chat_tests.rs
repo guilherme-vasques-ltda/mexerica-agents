@@ -204,7 +204,8 @@ fn custo_local_separa_turnos_contas_e_lacunas() {
             "SELECT account_id,input_tokens,output_tokens,amount FROM donna_turn_usage WHERE bot_id=?1 ORDER BY turn",
         )
         .unwrap();
-    let linhas: Vec<(String, Option<i64>, Option<i64>, Option<f64>)> = q
+    type LinhaUso = (String, Option<i64>, Option<i64>, Option<f64>);
+    let linhas: Vec<LinhaUso> = q
         .query_map([bot], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
         .unwrap()
         .collect::<rusqlite::Result<_>>()
