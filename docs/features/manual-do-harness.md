@@ -1393,10 +1393,10 @@ o mesmo conjunto não se repete no chat, mesmo após reinícios, rotinas ou troc
 ferramentas; um conjunto diferente volta a ser publicado. O log mantém todos os
 avisos a cada início. Erro de leitura
 continua impedindo o início. O dono revisa fora do bot; a checagem não interpreta
-toda a sintaxe nem isola arquivos/processos. O cartão Codex só permite liberações
-de uma vez ou de sessão: opções que salvam regras de comando, rede ou MCP no
-`CODEX_HOME` são filtradas, inclusive **Never** (bloquear este host no futuro).
-Recusar e cancelar continuam disponíveis. **Permitir nesta sessão** não é uma regra permanente.
+toda a sintaxe nem isola arquivos/processos. O cartão Codex só permite aprovar a
+chamada atual: opções de sessão e opções que salvam regras de comando, rede ou MCP
+no `CODEX_HOME` são filtradas, inclusive **Never** (bloquear este host no futuro).
+Recusar e cancelar continuam disponíveis.
 O sempre permitir deve ser gerenciado nas regras do Hub previstas na D106.
 
 O porteiro recusa quando não consegue ler as regras e registra o erro para recuperação. Ao responder um cartão pendente, o Hub consulta a política atual: toda opção que não seja de recusa conta como aprovação, qualquer que seja o tipo informado pelo agente, e uma regra Recusar correspondente expira o cartão e impede a entrega da aprovação.
@@ -2286,7 +2286,7 @@ histórico, propostas e credenciais continuam exigindo execução ativa. Quando
 há ACP, falha do vínculo ativo não tenta preparação como alternativa.
 
 O porteiro consulta as regras Recusar do bot nas chamadas MCP dos conectores.
-Permitir nesta sessão não passa por cima de Recusar. Como os argumentos MCP não comprovam o alvo do efeito, uma regra Recusar por
+Uma aprovação no cartão não passa por cima de Recusar. Como os argumentos MCP não comprovam o alvo do efeito, uma regra Recusar por
 alvo pode bloquear amplamente as ferramentas aplicáveis.
 Em `resources/read` e `prompts/get`, somente uma regra do conector inteiro se aplica.
 A checagem e a escrita não são atômicas: há uma janela normalmente de milissegundos na

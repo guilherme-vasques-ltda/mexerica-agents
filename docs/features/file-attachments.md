@@ -42,7 +42,12 @@ accepted, including binary, hidden, extensionless and empty files, up to 100 MiB
 Directories and special files are refused. Group, routine and delegated turns cannot
 publish files.
 
-The host streams a snapshot into `~/.codync/bots/<bot>/files/<fileId>` and records
+Before sharing, the host masks exact matches of values saved in local vault logins
+in plain UTF-8 text and replaces a matching display filename. A binary with a
+matching value is refused. This does not resolve values from external vaults or
+detect transformed values.
+
+The host writes a snapshot into `~/.codync/bots/<bot>/files/<fileId>` and records
 its byte size and SHA-256 before publishing a final agent entry with
 `files: [{id, name, size, sha256}]`. Copying runs outside the bot actor; Stop,
 reconfiguration, timeout and turn completion cancel unpublished copies. A success

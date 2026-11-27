@@ -9,6 +9,9 @@ use std::io::{Read as _, Seek as _, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
+#[path = "files/fork-mask.rs"]
+mod fork_mask;
+
 pub const CHUNK_SIZE: usize = 384 * 1024;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -59,26 +62,49 @@ pub fn name(value: &str) -> Result<String> {
     Ok(value.to_owned())
 }
 
+#[cfg(unix)]
 fn open_regular(path: &Path) -> Result<File> {
-    let mut options = OpenOptions::new();
-    options.read(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt as _;
-        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
-    }
     ensure!(std::fs::symlink_metadata(path)?.file_type().is_file(), "only regular files can be shared");
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::OpenOptionsExt as _;
-        options.custom_flags(0x0020_0000); // FILE_FLAG_OPEN_REPARSE_POINT
+    crate::fork::motor_exec::fd::Directory::open(path.parent().context("file has no parent")?)?.file(
+        path.file_name().context("file has no name")?,
+        libc::O_RDONLY,
+        0,
+    )
+}
+
+#[cfg(windows)]
+fn open_regular(path: &Path) -> Result<File> {
+    use std::os::windows::fs::{MetadataExt as _, OpenOptionsExt as _};
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_READ,
+        FILE_SHARE_WRITE,
+    };
+
+    let mut parents = Vec::new();
+    let ancestors: Vec<_> = path.ancestors().skip(1).filter(|p| p.parent().is_some()).collect();
+    for parent in ancestors.into_iter().rev() {
+        let dir = OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(parent)?;
+        let metadata = dir.metadata()?;
+        ensure!(
+            metadata.is_dir() && metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT == 0,
+            "invalid file parent"
+        );
+        parents.push(dir);
     }
-    let file = options.open(path).context("opening the file")?;
-    ensure!(file.metadata()?.is_file(), "only regular files can be shared");
+    let file = OpenOptions::new().read(true).custom_flags(FILE_FLAG_OPEN_REPARSE_POINT).open(path)?;
+    let metadata = file.metadata()?;
+    ensure!(
+        metadata.is_file() && metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT == 0,
+        "only regular files can be shared"
+    );
     Ok(file)
 }
 
-/// Blocking, bounded-memory copy. Call on a blocking worker, never the bot actor.
+#[cfg(test)]
 pub fn snapshot(
     root: &Path,
     cwd: &Path,
@@ -86,12 +112,40 @@ pub fn snapshot(
     display: Option<&str>,
     cancelled: &AtomicBool,
 ) -> Result<Snapshot> {
+    snapshot_with_mask(root, cwd, source, display, cancelled, None)
+}
+
+pub(crate) fn snapshot_for_share(
+    root: &Path,
+    cwd: &Path,
+    source: &str,
+    display: Option<&str>,
+    cancelled: &AtomicBool,
+    store: &crate::store::Store,
+    visible_logins: &[String],
+) -> Result<Snapshot> {
+    let mask = fork_mask::Mask::from_store(store, visible_logins)?;
+    snapshot_with_mask(root, cwd, source, display, cancelled, mask.as_ref())
+}
+
+fn snapshot_with_mask(
+    root: &Path,
+    cwd: &Path,
+    source: &str,
+    display: Option<&str>,
+    cancelled: &AtomicBool,
+    mask: Option<&fork_mask::Mask>,
+) -> Result<Snapshot> {
     let original = cwd.join(source);
     let separate = crate::fork::motor_exec::configured();
     let source = if separate { original.clone() } else { original.canonicalize().context("finding the file")? };
     let display = match display {
         Some(value) => name(value)?,
         None => name(original.file_name().and_then(|v| v.to_str()).context("file name is not UTF-8; provide name")?)?,
+    };
+    let display = match mask {
+        Some(mask) => mask.name(display)?,
+        None => display,
     };
     let mut local = if separate { None } else { Some(open_regular(&source)?) };
     let mut delegated = if separate { Some(crate::fork::motor_exec::read::Input::open(&source)?) } else { None };
@@ -107,18 +161,18 @@ pub fn snapshot(
         committed: false,
     };
     let mut output = OpenOptions::new().write(true).create_new(true).open(&partial)?;
-    let (size, digest) = if let Some(input) = delegated.as_mut() {
-        let copied = copy(input, &mut output, cancelled)?;
+    let (raw_size, size, digest) = if let Some(input) = delegated.as_mut() {
+        let copied = copy_masked(input, &mut output, cancelled, mask)?;
         input.finish()?;
         copied
     } else {
-        copy(local.as_mut().context("arquivo local ausente")?, &mut output, cancelled)?
+        copy_masked(local.as_mut().context("arquivo local ausente")?, &mut output, cancelled, mask)?
     };
     owned.meta.size = size;
     if let (Some(input), Some(before)) = (&local, &before) {
         let after = input.metadata()?;
         ensure!(
-            owned.meta.size == before.len() && after.len() == before.len() && after.modified()? == before.modified()?,
+            raw_size == before.len() && after.len() == before.len() && after.modified()? == before.modified()?,
             "source file changed while sharing; retry"
         );
     }
@@ -129,6 +183,19 @@ pub fn snapshot(
     owned.path = final_path;
     owned.meta.sha256 = digest;
     Ok(owned)
+}
+
+fn copy_masked(
+    input: &mut impl std::io::Read,
+    output: &mut impl std::io::Write,
+    cancelled: &AtomicBool,
+    mask: Option<&fork_mask::Mask>,
+) -> Result<(u64, u64, String)> {
+    if let Some(mask) = mask {
+        return mask.copy(input, output, cancelled);
+    }
+    let (size, digest) = copy(input, output, cancelled)?;
+    Ok((size, size, digest))
 }
 
 fn copy(
