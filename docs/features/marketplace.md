@@ -519,9 +519,13 @@ Gmail, Agenda, Drive, Docs e Planilhas conectam **com o app OAuth que a própria
 cliente nem chave secreta existe no código, no catálogo ou no CI: o Google só deixa entrar apps cadastrados nele, e o app é
 dela.
 
-- **Catálogo**: `catalogo_google.rs` traz as 5 fichas (`<id>.oficial_app`, `Tipo::OficialApp`, `Auth::AppProprio { provedor:
-  "google", emissor, guia }`). O guia de 6 passos (`projeto`, `apis`, `previa`, `tela_login`, `cliente`, `campos`) e os links
-  oficiais são dado da ficha; os textos moram no app. O app agrupa os serviços pelo `provedor`.
+- **Catálogo**: o app agrupa as fichas de `catalogo_google.rs` pelo provedor Google. O guia pede criar um projeto,
+  ativar as APIs dos serviços e os MCPs escolhidos, configurar a tela de consentimento, adicionar as permissões de
+  leitura, criar o cliente OAuth para um agente de IA e cadastrar o ID e a chave secreta no cartão seguro.
+- **Endpoint do MCP**: novas contas de Gmail, Agenda, Drive, Docs e Planilhas usam `/mcp/v1self`, o perfil oficial
+  para clientes sem aprovação interativa do Google. Nesse perfil, algumas consultas podem retornar menos itens.
+  Contas no perfil anterior mantêm `/mcp/v1` e o vínculo original; para usar o novo perfil, é preciso criar
+  outra conta.
 - **O app da pessoa (`market/google_app.rs`)**: ID e chave secreta num registro do cofre **por Space** (`google_app.<space>`,
   selado com o slot como dado associado: copiado para outro Space, não abre). A leitura é **estrita** (`kv_read` +
   `vault::open`): texto claro ou sem selo é recusado (`app_google_ilegivel`) e nunca migrado. `marketGoogleApp` (dono, como os outros dois) devolve só
@@ -533,27 +537,20 @@ dela.
   recurso pode trazer uma barra final a mais, e só isso se releva. Sem cadastro automático: o ID e a chave do app do Space
   vão para a conta a cada login. O retorno do Google só vale pelo loopback (do app ou do Hub): a página da nuvem é
   recusada (`google_so_neste_computador`). O `Debug` do OAuth da conta oculta a chave e os tokens. Continuam valendo PKCE S256, `state`, `iss` e a conferência dos escopos devolvidos. Pede
-  `access_type=offline` e `prompt=consent` (sem isso o Google não devolve o refresh token) e **não envia `resource`**
+  `access_type=offline` e `prompt=select_account consent` (permite escolher a conta e pedir o refresh token) e **não envia `resource`**
   (nem no login, nem no refresh). Só os escopos dos grupos ligados; um login por serviço.
 - **Sem app cadastrado** no Space, `marketConectar` recusa com `app_proprio_ausente` e o app abre o guia.
 - **Escopos mínimos**: Gmail ler = `gmail.readonly`, rascunhos = `gmail.compose` (nunca `gmail.modify`/`gmail.send`); Agenda
   ler = `calendar.calendarlist.readonly` + `calendar.events.freebusy` + `calendar.events.readonly`; Drive ler =
   `drive.readonly` (o `drive.file` sozinho só enxerga o que o próprio app criou), criar = `drive.file`; Docs ler =
-  `documents.readonly`; Planilhas ler = `spreadsheets.readonly`. Toda escrita (rascunhos no Gmail, criar no Drive, editar
-  Agenda, Docs e Planilhas) fica **indisponível** até o filtro de ações perigosas, pela regra do catálogo: nenhuma
-  ficha escreve antes dele. `gmail.compose` também permite enviar no Google.
-- **Avisos da ficha**: os conectores do Google estão em prévia e, com o app em modo de teste, o Google pede o login de novo a
-  cada 7 dias.
-- **O que as fontes oficiais não respondem**: se o cliente pode ser "App para computador" (os guias só mostram "Aplicativo da
-  Web" + "usar este cliente para um agente com IA"). O guia manda criar como App para computador (loopback, RFC 8252) e a tela
-  explica o `redirect_uri_mismatch`; **não foi provado com conta Google de teste**.
-- **Pendências da prova com conta Google de teste** (a função só pode ser anunciada como funcionando depois delas):
-  (a) salvar o app no app real, com o cofre do sistema; (b) qual tipo de cliente os MCPs aceitam (App para computador ×
-  Aplicativo da Web, com a marca de agente de IA) e se o guia precisa do passo de acesso a dados (Data Access);
-  (c) login dos 5 serviços, um por vez; (d) o 403 de uma escrita com token só-leitura, um serviço de cada vez (os
-  grupos do Google não têm filtro de ferramentas no Hub: quem barra é o escopo); (e) se `create_draft` aceita
-  `gmail.drafts.create` (mais estreito que `gmail.compose`, que no Google também permite enviar; hoje o MCP não tem
-  ferramenta de enviar).
+  `documents.readonly`; Planilhas ler = `spreadsheets.readonly`. Os grupos de escrita ficam **indisponíveis**:
+  o Hub não pede seus escopos. Ferramentas sem curadoria precisam de liberação por conta e bot, inclusive as de
+  leitura. Autorizar uma ferramenta no Hub não amplia o escopo do token.
+- **Conta real**: em teste externo, adicione as contas em Usuários de teste; o Google pede login de novo após sete
+  dias. Para disponibilizar a terceiros, o Google pode exigir verificação dos escopos sensíveis ou restritos.
+  O [guia oficial](https://developers.google.com/workspace/guides/configure-mcp-servers) também documenta App para
+  computador e o modo pessoal para uma conta. Login, leitura e renovação dos tokens ainda precisam de teste com
+  uma conta real; use duas contas para confirmar que cada login retorna os dados da conta selecionada.
 - `MIRROR_SCHEMA` sobe para 51 (`appsProprios` e `auth.modo: "app_proprio"`).
 - `MIRROR_SCHEMA` sobe para 53 (`skills[]` das fichas deixa de vir vazia: `{id, titulo, resumo}`; o catálogo é lido sob demanda e não entra no mirror, e o app novo não mostra a seção quando a lista não vem).
 

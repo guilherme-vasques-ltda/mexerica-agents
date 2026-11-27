@@ -397,7 +397,7 @@ pub(crate) async fn start(hub: &Arc<Hub>, intent: StartIntent, callback: Callbac
             q.append_pair("resource", &resource.resource);
         } else {
             // Sem `offline` e `consent` o Google não devolve o refresh token, e o login expiraria em uma hora.
-            q.append_pair("access_type", "offline").append_pair("prompt", "consent");
+            q.append_pair("access_type", "offline").append_pair("prompt", "select_account consent");
         }
         if !scopes.is_empty() {
             q.append_pair("scope", &scopes.join(" "));

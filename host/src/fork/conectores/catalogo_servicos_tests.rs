@@ -387,19 +387,22 @@ fn as_cinco_fichas_do_google_usam_o_app_da_pessoa_e_so_pedem_escopos_do_proprio_
     for id in GOOGLE {
         let ficha = servico(id).unwrap();
         assert!(ficha.conectavel() && ficha.em_breve.is_none(), "{id}");
-        assert!(
-            ficha.aviso.is_some_and(|a| a.contains("prévia") && a.contains("7 dias")),
-            "{id} avisa prévia e 7 dias"
-        );
+        assert!(ficha.aviso.is_some_and(|a| a.contains("teste externo") && a.contains("7 dias")), "{id}");
         assert!(ficha.fontes.iter().any(|f| f.contains("configure-mcp-server")), "{id} cita o guia oficial");
-        let [tipo] = ficha.tipos else { panic!("{id}: um jeito só") };
-        assert_eq!(tipo.id, format!("{id}.oficial_app"));
+        let [tipo, anterior] = ficha.tipos else { panic!("{id}: modo compatível e modo anterior") };
+        assert_eq!(tipo.id, format!("{id}.oficial_app_self"));
+        assert!(tipo.recomendado);
+        assert_eq!(anterior.id, format!("{id}.oficial_app"));
+        assert!(!anterior.recomendado);
+        assert_eq!(tipo.url.strip_suffix("self"), Some(anterior.url));
+        let padroes = anterior.liberacoes_validas(None).unwrap();
+        assert_eq!(tipo.escopos_efetivos(&padroes), anterior.escopos_efetivos(&padroes));
         assert_eq!(tipo.tipo, Tipo::OficialApp);
         assert_eq!(tipo.mantido_por, "Google");
         let Auth::AppProprio { provedor, emissor, guia } = &tipo.auth else { panic!("{id}: app próprio") };
         assert_eq!((*provedor, *emissor), ("google", "https://accounts.google.com"));
         let passos: Vec<_> = guia.iter().map(|p| p.id).collect();
-        assert_eq!(passos, ["projeto", "apis", "previa", "tela_login", "cliente", "campos"]);
+        assert_eq!(passos, ["projeto", "apis", "tela_login", "escopos", "cliente", "campos"]);
         assert!(guia.iter().filter_map(|p| p.url).all(|u| u.starts_with("https://")));
         // Padrão seguro: só ler. Tudo que muda algo fica desligado até a pessoa ligar.
         let padrao: Vec<_> = tipo.grupos.iter().filter(|g| g.padrao).map(|g| g.id).collect();

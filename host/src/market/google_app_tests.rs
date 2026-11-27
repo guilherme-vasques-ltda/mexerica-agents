@@ -149,9 +149,9 @@ fn a_conta_google_nasce_so_leitura_com_o_endereco_e_os_escopos_da_ficha() {
     let hub = hub();
     let store = &hub.store;
     google_app::salvar(store, PERSONAL, ID, CHAVE).unwrap();
-    let r = contas::conectar(store, &gmail(PERSONAL)).unwrap();
+    let r = contas::conectar(store, &pedido("gmail", "gmail.oficial_app_self", PERSONAL)).unwrap();
     assert_eq!(r["connector"]["liberacoes"], json!(["ler"]));
-    assert_eq!(r["connector"]["url"], "https://gmailmcp.googleapis.com/mcp/v1");
+    assert_eq!(r["connector"]["url"], "https://gmailmcp.googleapis.com/mcp/v1self");
     assert_eq!(r["connector"]["auth"], "signedOut");
     let conta = connectors(store).unwrap().remove(0);
     assert_eq!(conta.oauth, Some(oauth::OAuth::default()), "o ID e a chave só entram no login");
@@ -177,6 +177,8 @@ fn a_conta_google_nasce_so_leitura_com_o_endereco_e_os_escopos_da_ficha() {
     p.liberacoes = Some(vec!["ler".into()]);
     contas::conectar(store, &p).unwrap();
     let segunda = connectors(store).unwrap().into_iter().find(|c| c.name == "Trabalho").unwrap();
+    assert_eq!(segunda.url.as_deref(), Some("https://gmailmcp.googleapis.com/mcp/v1"));
+    assert_ne!(segunda.id, conta.id);
     assert_eq!(
         contas::escopos_da_conta(&segunda).unwrap().unwrap(),
         ["https://www.googleapis.com/auth/gmail.readonly"]
