@@ -66,6 +66,8 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
         | "marketGoogleApp"
         | "marketGoogleAppSalvar"
         | "marketGoogleAppRemover"
+        | "marketAppProprioSalvar"
+        | "marketAppProprioRemover"
         | "connectors"
         | "connectorSignIn"
         | "connectorSignInFinish"
@@ -270,7 +272,7 @@ mod tests {
         }
     }
 
-    const CONECTORES: [&str; 25] = [
+    const CONECTORES: [&str; 27] = [
         "marketPersonalizado",
         "marketServico",
         "marketContas",
@@ -280,6 +282,8 @@ mod tests {
         "marketGoogleApp",
         "marketGoogleAppSalvar",
         "marketGoogleAppRemover",
+        "marketAppProprioSalvar",
+        "marketAppProprioRemover",
         "connectors",
         "connectorSignIn",
         "connectorSignInFinish",

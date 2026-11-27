@@ -1,5 +1,6 @@
 //! Renovação OAuth da Mexerica, sem nova autoridade nem registro de credenciais.
 //! A classificação conservadora e as guardas/CAS são adaptações da Mexerica.
+use super::catalogo_servicos::Auth;
 use super::{oauth_binding as binding, oauth_runtime::RuntimeIntent};
 use crate::hub::Hub;
 use crate::market::{
@@ -80,9 +81,21 @@ pub(crate) async fn fresh(hub: &Hub, c: &Connector, o: &OAuth, intent: &RuntimeI
     if o.access_token.trim().is_empty() {
         return Err(signed_out());
     }
-    // App próprio do Google: o servidor de login dele não usa `resource`; o refresh não o envia.
-    let proprio = market::contas::emissor_proprio(c).map_err(|_| anyhow!("{RETRY}"))?.is_some();
-    let resource = c.oauth_binding.as_ref().and_then(|binding| binding.resource()).filter(|_| !proprio);
+    let bound = c.oauth_binding.as_ref();
+    let resource = bound.and_then(|binding| binding.resource());
+    let resource = match market::contas::auth_proprio(c).map_err(|_| anyhow!("{RETRY}"))? {
+        Some(Auth::AppProprio { configuracao: Some(config), emissor, .. }) => {
+            ensure!(
+                resource == Some(config.recurso)
+                    && bound.and_then(binding::Binding::registration_issuer) == Some(*emissor)
+                    && o.token_endpoint == config.token,
+                "{RETRY}"
+            );
+            resource
+        }
+        Some(Auth::AppProprio { provedor: "google", .. }) => None,
+        _ => resource,
+    };
     if let Some(resource) = resource {
         ensure!(
             resource.chars().all(|c| !c.is_whitespace() && !c.is_control())

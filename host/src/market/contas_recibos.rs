@@ -13,6 +13,8 @@ pub(crate) enum Acao {
     /// O app Google do Space foi cadastrado ou trocado (o recibo não guarda ID nem chave).
     GoogleAppSalvar,
     GoogleAppRemover,
+    AppOauthSalvar,
+    AppOauthRemover,
 }
 
 impl Acao {
@@ -23,6 +25,8 @@ impl Acao {
             Self::Desconectar => "desconectar",
             Self::GoogleAppSalvar => "google_app_salvar",
             Self::GoogleAppRemover => "google_app_remover",
+            Self::AppOauthSalvar => "app_oauth_salvar",
+            Self::AppOauthRemover => "app_oauth_remover",
         }
     }
 }
