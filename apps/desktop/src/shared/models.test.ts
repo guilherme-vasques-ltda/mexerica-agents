@@ -128,7 +128,8 @@ test('preferência de navegador antiga assume integrado e PC persiste em normali
 
 test('o schema atual invalida caches 29 até o anterior e conserva preferência sem transformar cache em autorização', () => {
   const stamp = mirrorCacheStamp('fixture-app', 'fixture-hub')
-  assert.equal(stamp, 'donnabot-mirror-v77/fixture-app/fixture-hub')
+  assert.equal(stamp, 'donnabot-mirror-v78/fixture-app/fixture-hub')
+  assert.equal(isCurrentMirrorSchema('donnabot-mirror-v77/fixture-app/fixture-hub'), false)
   // MEX-1391: o cache do schema 51 não tem `contaTroca` nem os códigos novos de falha de preparo.
   assert.equal(isCurrentMirrorSchema('donnabot-mirror-v51/fixture-app/fixture-hub'), false)
   assert.equal(isCurrentMirrorSchema('donnabot-mirror-v50/fixture-app/fixture-hub'), false)

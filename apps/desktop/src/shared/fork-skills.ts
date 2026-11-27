@@ -128,6 +128,12 @@ export interface InstalledSkillV2 extends PassiveInstalledSkill {
   novosBots?: boolean
 }
 export interface SkillUsage { lastUsedAt: number | null; count: number }
+/**
+ * Interna: texto que vem compilado no Hub e que ele aplica sozinho, sem instalar. Só leitura: a
+ * identidade não é de skill instalada, então não tem detalhes, remoção, ligar nem editar. `uso` é um
+ * código do Hub (`todaConversa`, `criarSkill`); código desconhecido vira um texto genérico na tela.
+ */
+export interface InternalSkill { id: string; name: string; description: string; uso: string }
 export interface SkillDetailsV2 extends SkillDetails {
   skillProtocol: 2
   installation: InstalledSkillV2 | null
@@ -166,6 +172,9 @@ const digest = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-f]{
 function versioned(v: unknown): Record<string, unknown> {
   if (!object(v) || v.skillProtocol !== 2) return unsupported()
   return v
+}
+function internalSkill(v: unknown): v is InternalSkill {
+  return object(v) && (['id', 'name', 'description', 'uso'] as const).every((k) => typeof v[k] === 'string' && v[k] !== '')
 }
 function installationId(v: unknown): v is string {
   if (typeof v !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:[1-9][0-9]*$/.test(v)) return false
@@ -234,10 +243,13 @@ export const passiveSkillsV2 = {
     if (!Array.isArray(v.items)) return unsupported()
     return v.items as CatalogSkill[]
   },
-  installed: async (c: SkillClient): Promise<InstalledSkillV2[]> => {
+  installed: async (c: SkillClient): Promise<InstalledSkillV2[]> => (await passiveSkillsV2.installedAndInternal(c)).installed,
+  /** As instaladas e as internas da mesma leitura. Hub sem `internas` (anterior): lista vazia; entrada fora do formato sai. */
+  installedAndInternal: async (c: SkillClient): Promise<{ installed: InstalledSkillV2[]; internal: InternalSkill[] }> => {
     const v = versioned(await c.call<unknown>('skills', { skillProtocol: 2 }))
     if (!Array.isArray(v.items)) return unsupported()
-    return v.items.map(installedV2)
+    const internal = Array.isArray(v.internas) ? v.internas.filter(internalSkill) : []
+    return { installed: v.items.map(installedV2), internal: internal.map(({ id, name, description, uso }) => ({ id, name, description, uso })) }
   },
   details: async (c: SkillClient, selection: SkillSelection): Promise<SkillDetailsV2> => {
     const v = versioned(await c.call<unknown>('skillDetails', { ...selection, skillProtocol: 2 }))
