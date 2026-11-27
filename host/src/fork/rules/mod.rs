@@ -19,3 +19,5 @@ mod provas;
 #[path = "contrato.rs"]
 pub mod rule;
 pub mod store;
+#[cfg(test)]
+mod terminal;
