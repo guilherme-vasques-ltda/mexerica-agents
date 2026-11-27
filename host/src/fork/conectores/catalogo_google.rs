@@ -407,11 +407,11 @@ pub(super) static FICHAS: &[Servico] = &[
         descricao: "Consulte relatórios e métricas de uma propriedade do Google Analytics 4.",
         exemplos: &["Mostre as sessões da semana nesta propriedade"],
         site: "https://analytics.google.com",
-        docs: Some("https://developers.google.com/analytics/devguides/reporting/data/v1/mcp"),
+        docs: None,
         links: LINKS,
         conferida_em: CONFERIDA,
         fontes: &[
-            "https://developers.google.com/analytics/devguides/reporting/data/v1/mcp",
+            "https://developers.google.com/analytics/devguides/reporting/data/v1/rest",
             "https://analyticsdata.googleapis.com/.well-known/oauth-protected-resource/mcp/v1",
         ],
         aviso: Some(AVISO),

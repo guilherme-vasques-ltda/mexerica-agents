@@ -533,7 +533,7 @@ dela.
   - **Slides**: `slides.googleapis.com` e `slidesmcp.googleapis.com`, com `presentations.readonly`.
   - **Tarefas**: `tasksmcp.googleapis.com`, com `tasks.readonly`. O MCP não pede outra API de produto.
   - **Analytics**: `analyticsdata.googleapis.com`, com `analytics.readonly` e acesso de Leitor à propriedade
-    GA4. A ficha usa o [MCP remoto da Data API](https://developers.google.com/analytics/devguides/reporting/data/v1/mcp);
+    GA4. A ficha usa o MCP remoto da [Data API](https://developers.google.com/analytics/devguides/reporting/data/v1/rest);
     não instala o servidor local nem precisa da API Admin. Os quatro escopos usam o prefixo `https://www.googleapis.com/auth/`.
 - **O app da pessoa (`market/google_app.rs`)**: ID e chave secreta num registro do cofre **por Space** (`google_app.<space>`,
   selado com o slot como dado associado: copiado para outro Space, não abre). A leitura é **estrita** (`kv_read` +
