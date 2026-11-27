@@ -202,6 +202,8 @@ pub(crate) const METODOS: &[(&str, Classe)] = &[
     ("marketGoogleApp", Dono),
     ("marketGoogleAppRemover", Dono),
     ("marketGoogleAppSalvar", Dono),
+    ("marketAppProprioRemover", Dono),
+    ("marketAppProprioSalvar", Dono),
     ("marketConectar", Dono),
     ("marketConnectors", Leitura),
     ("marketContaDesconectar", Dono),

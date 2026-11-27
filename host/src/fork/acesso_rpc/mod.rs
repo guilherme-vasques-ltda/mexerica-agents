@@ -448,6 +448,8 @@ pub(crate) const CONTROLE: &[&str] = &[
     "marketGoogleApp",
     "marketGoogleAppRemover",
     "marketGoogleAppSalvar",
+    "marketAppProprioRemover",
+    "marketAppProprioSalvar",
     "marketPersonalizado",
     "marketServico",
     "marketSkills",

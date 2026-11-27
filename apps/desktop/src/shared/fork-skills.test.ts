@@ -139,3 +139,16 @@ test('R7 reply perdida/malformada após envio é incerta, exige conciliação e 
   const removed: SkillClient = { async call<T>() { return {skillProtocol: 2} as T } }
   assert.deepEqual(await passiveSkillsV2.remove(removed, {id: 'manual', expectedInstallationId: '11111111-1111-4111-8111-111111111111:1', expectedReceipt: {kind: 'none'}}), {skillProtocol: 2})
 })
+
+test('internas chegam da mesma leitura das instaladas, só no formato do Hub; Hub anterior dá lista vazia', async () => {
+  const { passiveSkillsV2 } = await import('./fork-skills.ts')
+  const interna = { id: 'interna:regras-da-open', name: 'Regras', description: 'Só texto.', uso: 'todaConversa' }
+  const atual: SkillClient = { async call<T>() {
+    return { skillProtocol: 2, items: [], internas: [interna, { ...interna, uso: '' }, { id: 'x' }, null, { ...interna, extra: 1 }] } as T
+  } }
+  assert.deepEqual(await passiveSkillsV2.installedAndInternal(atual), { installed: [], internal: [interna, interna] })
+  assert.deepEqual(await passiveSkillsV2.installed(atual), [])
+  const anterior: SkillClient = { async call<T>() { return { skillProtocol: 2, items: [] } as T } }
+  assert.deepEqual(await passiveSkillsV2.installedAndInternal(anterior), { installed: [], internal: [] })
+})
+

@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'electron-vite'
+import { searchForWorkspaceRoot } from 'vite'
 import { admitsCloudBuild } from './src/shared/fork-cloud-build.ts'
 import { officialAccount, officialConfigHash } from './src/shared/fork-official-account.ts'
 import { rcDistribution, rcManifestHash, readRcManifest } from './src/shared/fork-rc-profile.ts'
@@ -57,6 +58,8 @@ export default defineConfig(({ mode }) => {
     renderer: {
       define: releaseDefines,
       resolve: { alias: { '@shared': resolve('src/shared') } },
+      // Os ícones de interface ficam em brand/ (fora do app): o servidor de desenvolvimento libera só essa pasta.
+      server: { fs: { allow: [searchForWorkspaceRoot(resolve('src/renderer')), resolve('../../brand/assets/icon/mexerica')] } },
       plugins: [react(), {
         // MX-93: main.tsx carrega o app (inicio.tsx) só depois de a abertura pintar. Este preload no HTML baixa e
         // compila o pedaço em paralelo, para a espera ser só a do quadro, nunca a do download. (Pré-carregar também a
