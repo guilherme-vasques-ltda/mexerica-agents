@@ -11,9 +11,20 @@ use std::{
     time::Duration,
 };
 
-/// A Open só agenda por relógio: gatilho de webhook ou de evento depende de entrada externa.
+/// A Open só agenda por relógio: gatilho de webhook ou de evento depende de entrada externa, e a checagem
+/// silenciosa depende de fontes que a Open não tem. Confere os gatilhos já interpretados, venham de `triggers`
+/// ou do rascunho `schedule` do editor (inclusive `keep`, que reaproveita os gatilhos enviados).
 pub(crate) fn check_save(body: &Value) -> Result<()> {
-    let Some(triggers) = body.get("triggers") else { return Ok(()) };
+    ensure!(body.get("heartbeat").is_none_or(Value::is_null), "open_routine_heartbeat_unavailable");
+    let triggers = match (body.get("schedule"), body.get("triggers")) {
+        (Some(draft), _) => serde_json::from_value::<crate::routines::ScheduleDraft>(draft.clone())
+            .ok()
+            .and_then(|draft| draft.triggers().ok())
+            .and_then(|triggers| serde_json::to_value(triggers).ok())
+            .ok_or_else(|| anyhow::anyhow!("open_routine_trigger_invalid"))?,
+        (None, Some(triggers)) => triggers.clone(),
+        (None, None) => return Ok(()),
+    };
     let Some(triggers) = triggers.as_array() else { anyhow::bail!("open_routine_trigger_invalid") };
     for trigger in triggers {
         ensure!(
@@ -113,5 +124,16 @@ mod tests {
         assert!(check_save(&json!({"triggers": [{"type": "interval", "seconds": 60}, {"type": "event", "source": "s", "event": "e"}]})).is_err());
         assert!(check_save(&json!({"triggers": [{}]})).is_err());
         assert!(check_save(&json!({"triggers": "webhook"})).is_err());
+        assert!(check_save(&json!({"schedule": {"kind": "webhook"}})).is_err());
+        assert!(check_save(&json!({"schedule": {"kind": "keep", "original": [{"type": "webhook"}]}})).is_err());
+        assert!(
+            check_save(&json!({"schedule": {"kind": "keep", "original": [{"type": "interval", "seconds": 60}]}}))
+                .is_ok()
+        );
+        assert!(check_save(&json!({"schedule": {"kind": "cron", "zone": "UTC"}})).is_ok());
+        assert!(check_save(&json!({"schedule": {"kind": "manual"}})).is_ok());
+        assert!(check_save(&json!({"schedule": "webhook"})).is_err());
+        assert!(check_save(&json!({"heartbeat": {}})).is_err());
+        assert!(check_save(&json!({"heartbeat": null})).is_ok());
     }
 }
