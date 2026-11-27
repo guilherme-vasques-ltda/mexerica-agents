@@ -43,28 +43,12 @@
             "read:jira:agent-interface",
             "search:jira:agent-interface",
             "read:confluence:agent-interface",
-            "search:confluence:agent-interface"
+            "search:confluence:agent-interface",
+            "offline_access"
           ],
           "padrao": true,
           "disponivel": true,
           "imposicao": "escopo"
-        },
-        {
-          "id": "criar_editar",
-          "rotulo": "Criar e editar",
-          "escopos": [
-            "read:me",
-            "read:account",
-            "read:jira:agent-interface",
-            "search:jira:agent-interface",
-            "write:jira:agent-interface",
-            "read:confluence:agent-interface",
-            "search:confluence:agent-interface",
-            "write:confluence:agent-interface"
-          ],
-          "padrao": false,
-          "disponivel": true,
-          "imposicao": "filtro"
         }
       ],
       "recomendado": true,
