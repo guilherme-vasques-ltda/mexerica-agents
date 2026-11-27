@@ -628,6 +628,49 @@ fn registrar_na_conta(hub: &crate::hub::Hub, conta: &Connector, tools: &[Value])
 }
 
 #[tokio::test]
+async fn novas_fichas_de_leitura_isolam_contas_e_nao_ligam_ferramentas_sozinhas() {
+    let hub = hub();
+    for (servico, consulta, escrita, escopos) in [
+        ("better-stack", "monitors", "create_monitor", &["read"][..]),
+        ("clerk", "list_applications", "create_application", &["applications:read"][..]),
+        (
+            "coderabbit",
+            "list_repositories",
+            "request_review",
+            &["connection", "account:read", "repositories:read", "pull_requests:read"][..],
+        ),
+        ("posthog", "dashboards-get-all", "dashboard-create", &["dashboard:read"][..]),
+        ("revenuecat", "list-projects", "create-app", &["*:*:read"][..]),
+    ] {
+        let ficha = crate::fork::conectores::catalogo_servicos::servico(servico).unwrap();
+        let conferida = chrono::NaiveDate::parse_from_str(ficha.conferida_em, "%Y-%m-%d").unwrap();
+        let tipo = format!("{servico}.oficial_oauth");
+        let mut pedido =
+            contas::Pedido { servico, tipo: &tipo, space: PERSONAL, nome: None, nome_primeira: None, liberacoes: None };
+        contas::conectar_em(&hub.store, ficha, &pedido, conferida).unwrap();
+        pedido.nome = Some("Conta secundária");
+        pedido.nome_primeira = Some("Conta primária");
+        contas::conectar_em(&hub.store, ficha, &pedido, conferida).unwrap();
+        let contas: Vec<_> = crate::market::connectors(&hub.store)
+            .unwrap()
+            .into_iter()
+            .filter(|c| c.servico.as_deref() == Some(servico))
+            .collect();
+        let [primeira, segunda] = contas.as_slice() else { panic!("{servico}: esperava duas contas") };
+        assert_ne!(primeira.oauth_binding, segunda.oauth_binding);
+        for conta in &contas {
+            assert_eq!(contas::escopos_da_conta(conta).unwrap().unwrap(), escopos);
+            assert!(conta.oauth.as_ref().is_some_and(|oauth| !oauth.signed_in()));
+        }
+        let _rx = bot(&hub, servico, &[&primeira.id, &segunda.id]);
+        registrar_na_conta(&hub, primeira, &lista(&[consulta, escrita]));
+        assert_eq!(estado_de_conta(&hub, servico, primeira, escrita), Estado::Desligada(Motivo::ForaDaFicha));
+        assert_eq!(estado_de_conta(&hub, servico, primeira, consulta), Estado::Desligada(Motivo::Perigosa));
+        assert_eq!(estado_de_conta(&hub, servico, segunda, consulta), Estado::Desligada(Motivo::SemInventario));
+    }
+}
+
+#[tokio::test]
 async fn a_pessoa_liga_com_confirmacao_presa_ao_digest_e_so_no_bot_escolhido() {
     let hub = hub();
     let conta = conectar_linear(&hub);

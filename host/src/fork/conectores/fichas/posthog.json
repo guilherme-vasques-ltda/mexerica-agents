@@ -1,0 +1,53 @@
+{
+  "id": "posthog",
+  "nome": "PostHog",
+  "categoria": "Dados",
+  "descricao": "Lista dashboards do projeto PostHog. A ficha limita o acesso a leitura e à listagem de dashboards.",
+  "exemplos": [
+    "Liste os dashboards do meu projeto no PostHog"
+  ],
+  "site": "https://posthog.com",
+  "docs": "https://posthog.com/docs/product-analytics/surfaces/mcp",
+  "links": {
+    "privacidade": "https://posthog.com/privacy",
+    "termos": "https://posthog.com/terms"
+  },
+  "conferidaEm": "2026-11-27",
+  "fontes": [
+    "https://posthog.com/docs/api/dashboards",
+    "https://posthog.com/docs/product-analytics/surfaces/mcp",
+    "https://posthog.com/docs/model-context-protocol/tools",
+    "https://mcp.posthog.com/.well-known/oauth-protected-resource/mcp",
+    "https://oauth.posthog.com/.well-known/oauth-authorization-server"
+  ],
+  "tipos": [
+    {
+      "id": "posthog.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "PostHog",
+      "url": "https://mcp.posthog.com/mcp",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "ler",
+          "rotulo": "Listar dashboards",
+          "escopos": [
+            "dashboard:read"
+          ],
+          "padrao": true,
+          "disponivel": true,
+          "imposicao": "escopo",
+          "ferramentas": [
+            "dashboards-get-all"
+          ]
+        }
+      ],
+      "recomendado": true,
+      "disponivel": true
+    }
+  ]
+}

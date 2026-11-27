@@ -78,7 +78,18 @@ fn o_catalogo_nao_tem_segredo_nem_duplicata_e_as_fichas_tem_fonte_oficial() {
 
 /// As fichas conectáveis além da do dono A, na ordem do catálogo. Entrar aqui é decisão consciente: só vale com leitura
 /// imposta pelo fornecedor (conferida abaixo) e, enquanto o filtro de ações perigosas (fatia 2) não existe, sem escrita.
-const CONECTAVEIS: &[&str] = &["linear", "context7", "neon", "wispr-flow", "github"];
+const CONECTAVEIS: &[&str] = &[
+    "linear",
+    "context7",
+    "neon",
+    "wispr-flow",
+    "github",
+    "better-stack",
+    "clerk",
+    "coderabbit",
+    "posthog",
+    "revenuecat",
+];
 
 /// Id da ficha do dono A, lido do próprio arquivo JSON (nenhum nome de produto fora dele).
 fn id_dono_a() -> String {
