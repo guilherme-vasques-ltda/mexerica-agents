@@ -1,7 +1,7 @@
 import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { app, ipcMain, type WebContents } from 'electron'
+import { app, ipcMain, type IpcMainEvent, type WebContents } from 'electron'
 import type { SpeechEvent } from '../shared/ipc'
 
 // On-device speech recognition for calls: a small Swift helper (native/speech-macos) runs
@@ -49,7 +49,9 @@ function start(sender: WebContents, locale: string | null) {
     if (child === proc) child = null
     if (generation === mine) emit({ type: 'stopped' })
   })
-  proc.on('error', (error) => emit({ type: 'error', message: error.message }))
+  proc.on('error', (error) => {
+    if (generation === mine) emit({ type: 'error', message: error.message })
+  })
 }
 
 function stop() {
@@ -72,10 +74,30 @@ function locales() {
   return supported
 }
 
-export function registerSpeech() {
-  ipcMain.on('speech:available', (e) => (e.returnValue = process.platform === 'darwin' && helperPath() !== null))
-  ipcMain.on('speech:locales', (e) => (e.returnValue = locales()))
-  ipcMain.on('speech:start', (e, locale: string | null) => start(e.sender, locale))
-  ipcMain.on('speech:stop', () => stop())
+export function registerSpeech(allowed: (event: IpcMainEvent) => boolean = () => true) {
+  const available = () => process.platform === 'darwin' && helperPath() !== null
+  const watched = new WeakSet<WebContents>()
+  ipcMain.on('speech:available', (e) => (e.returnValue = allowed(e) && available()))
+  ipcMain.on('speech:locales', (e) => (e.returnValue = allowed(e) && available() ? locales() : []))
+  ipcMain.on('speech:start', (e, locale: unknown) => {
+    if (!allowed(e) || !available() || (locale !== null && (typeof locale !== 'string' || !locales().includes(locale)))) return
+    const sender = e.sender
+    if (!watched.has(sender)) {
+      const close = () => {
+        if (listener === sender) {
+          listener = null
+          stop()
+        }
+      }
+      watched.add(sender)
+      sender.once('destroyed', close)
+      sender.on('render-process-gone', close)
+      sender.on('did-start-navigation', (event) => {
+        if (event.isMainFrame && !event.isSameDocument) close()
+      })
+    }
+    start(sender, locale)
+  })
+  ipcMain.on('speech:stop', (e) => { if (allowed(e) && e.sender === listener) stop() })
   app.on('before-quit', stop)
 }

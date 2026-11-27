@@ -8,6 +8,9 @@ reuso", o dono escolheu "só da Mexerica" ("isso"). Sobre logo, mascote, símbol
 Mexeriquinhas e os 20 ícones opcionais já estarem registrados como livres para reuso, respondeu "ISSO". (Na pasta há 19 opções com licença Apache-2.0 declarada na origem e o `padrao.png`, que segue a regra B.) Antes disso, em 19/11/2026, o dono
 tinha liberado a arte própria para esta cópia ("sim, libera tudo, as artes são nossas, são minhas..." e "sim, volte. tudo.").
 
+Em 27/11/2026 o dono aprovou a biblioteca de ícones de interface ("boa pode seguir"). Ela é desenho próprio da Mexerica, entra em
+`brand/assets/icon/mexerica/` e segue a regra B, a da pasta `brand/assets/icon/`, como o `LEIA-ME.md` do próprio pacote já diz.
+
 Este texto registra essas decisões em linguagem simples. Nenhum advogado o leu, e ele não é parecer jurídico.
 
 ## Regra A: Apache-2.0 (reuso livre, com os avisos da licença)
@@ -36,7 +39,8 @@ permissão pode ser ampliada depois, sem voltar atrás; o contrário não vale.
 | Fundos de chat e papéis de parede | `brand/assets/fundos-chat/`, `apps/desktop/src/renderer/assets/wallpapers/` | 128 |
 | Personagens por papel | `brand/assets/personagens/` | 11 |
 | Logo, mascote, símbolo, ícone do app, favicons e ícone da barra de menus | `brand/assets/logo/`, `apps/desktop/resources/icon.png`, `apps/desktop/resources/icon.svg`, `apps/desktop/resources/icon-tray.png`, `apps/desktop/resources/brand/Donnabot.icns`, `apps/desktop/resources/AppIcon.icon/`, `apps/desktop/resources/brand/`, `apps/desktop/resources/tray/`, `apps/desktop/src/renderer/assets/brand/` | 136 |
-| Variantes e fontes do ícone do app | `brand/assets/icon/` | 185 |
+| Variantes e fontes do ícone do app | `brand/assets/icon/` (fora `brand/assets/icon/mexerica/`) | 185 |
+| Ícones de interface da Mexerica (159 SVGs, `manifesto.json`, `HASHES.tsv` e `LEIA-ME.md`); os desenhos também entram no app, nos botões | `brand/assets/icon/mexerica/` | 162 |
 | Ícone padrão da grade de Ajustes (é o ícone oficial reduzido) | `apps/desktop/resources/app-icons/padrao.png` | 1 |
 
 Os textos que descrevem os arquivos dentro dessas pastas (`LEIA-ME`, tabelas de medidas) seguem a regra da pasta em que estão. Alguns desses textos vêm do projeto de origem e citam caminhos que não estão nesta cópia (por exemplo `web/`, `docs/assets/brand/`, `docs/guides/marca.md`, `brand/propostas-icone-app/` e um branch de trabalho); são referências históricas, não arquivos distribuídos aqui.

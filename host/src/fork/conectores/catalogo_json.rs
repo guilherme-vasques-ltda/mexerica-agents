@@ -69,6 +69,10 @@ pub(super) const FICHAS: &[&str] = &[
     include_str!("fichas/tinyfish.json"),
     include_str!("fichas/vidiq.json"),
     include_str!("fichas/wix.json"),
+    include_str!("fichas/tavily.json"),
+    include_str!("fichas/apify.json"),
+    include_str!("fichas/heygen.json"),
+    include_str!("fichas/trello.json"),
 ];
 
 /// Cada string é vazada uma única vez na partida: o catálogo inteiro vive até o fim do processo.

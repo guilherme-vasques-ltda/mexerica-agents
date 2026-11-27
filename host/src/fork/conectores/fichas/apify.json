@@ -1,0 +1,54 @@
+{
+  "id": "apify",
+  "nome": "Apify",
+  "categoria": "IA e automação",
+  "descricao": "Consulte o estado de execuções que já existem na Apify, sem iniciar novos Actors.",
+  "exemplos": [
+    "Confira o estado de uma execução da minha conta"
+  ],
+  "site": "https://apify.com",
+  "docs": "https://github.com/apify/apify-mcp-server",
+  "links": {
+    "privacidade": "https://docs.apify.com/legal/privacy-policy",
+    "termos": "https://docs.apify.com/legal/general-terms-and-conditions"
+  },
+  "conferidaEm": "2026-11-27",
+  "fontes": [
+    "https://github.com/apify/apify-mcp-server",
+    "https://mcp.apify.com/.well-known/oauth-protected-resource"
+  ],
+  "aviso": "O login dá acesso amplo à API. O Hub permite consultar execuções, mas não iniciar, abortar nem apagar.",
+  "tipos": [
+    {
+      "id": "apify.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "Apify",
+      "url": "https://mcp.apify.com",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "acoes",
+          "rotulo": "Consultar uma execução",
+          "escopos": [
+            "openid",
+            "profile",
+            "email",
+            "full_api_access"
+          ],
+          "ferramentas": [
+            "get-actor-run"
+          ],
+          "padrao": true,
+          "disponivel": true,
+          "imposicao": "filtro"
+        }
+      ],
+      "recomendado": true,
+      "disponivel": true
+    }
+  ]
+}

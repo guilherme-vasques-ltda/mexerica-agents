@@ -13,6 +13,8 @@ import { registerOpenTray } from './bandeja'
 import { registerReleaseNotice } from '../fork-release-notice'
 import { aoMudarIdiomaDoApp, definirIdiomaDoApp, idiomaDoApp, iniciarIdiomaDoApp, suggestedLanguage } from '../fork-idioma'
 import { arquivoEscolhaEntrada, gravarEscolhaEntrada, lerEscolhaEntrada } from '../fork-modo-entrada'
+import { registerSpeech } from '../speech'
+import { isWindowSender } from '../fork-chat-sender'
 
 if (process.platform !== 'darwin' || !app.isPackaged || app.getName() !== open.name ||
     JSON.stringify(JSON.parse(readFileSync(join(process.resourcesPath, 'open-profile.json'), 'utf8'))) !== JSON.stringify(open)) {
@@ -63,7 +65,7 @@ if (!app.requestSingleInstanceLock()) {
     const sync = {
       'app:name': open.name, 'app:scheme': open.scheme, 'app:hostPort': open.port, 'app:version': app.getVersion(),
       'app:computerName': open.name, 'app:suggestedLanguage': suggestedLanguage(), 'app:openedAtLogin': false, 'app:debugOpen': null,
-      'speech:available': false, 'speech:locales': [], 'island:supported': false,
+      'island:supported': false,
     }
     for (const [channel, value] of Object.entries(sync)) ipcMain.on(channel, (event) => { event.returnValue = value })
     const state = {
@@ -84,8 +86,9 @@ if (!app.requestSingleInstanceLock()) {
     registerOpenHub(homeConfig, temp, chatURL, () => window)
     // Nível 1 de atualizações: o perfil Open também avisa de nova versão; handlers só aceitam a
     // própria janela do chat (a mesma guarda do hub), e o estado em `userData` segue 0600/regular.
-    const daJanela = (event: IpcMainInvokeEvent | IpcMainEvent) => event.sender === window?.webContents &&
-      event.senderFrame !== null && event.senderFrame === event.sender.mainFrame && event.senderFrame.url === chatURL
+    const daJanela = (event: IpcMainInvokeEvent | IpcMainEvent) =>
+      isWindowSender(event, window, chatURL) && event.senderFrame?.url === chatURL
+    registerSpeech(daJanela)
     const avisoDeVersao = registerReleaseNotice({
       windows: () => (window && !window.isDestroyed() && window.webContents.getURL() === chatURL ? [window] : []),
       userDataDir: userData,

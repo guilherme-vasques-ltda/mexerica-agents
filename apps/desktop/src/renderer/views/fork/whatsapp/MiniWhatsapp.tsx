@@ -313,7 +313,7 @@ function Escrever({ botId, chat, caixa, nome }: { botId: string; chat: ConversaW
           onChange={(e) => setTexto(e.currentTarget.value)}
         />
         <button type="submit" className="send" disabled={enviando || !texto.trim()} aria-label={t('whatsapp.caixa.enviar')} title={t('whatsapp.caixa.enviar')}>
-          <Icon name="arrow.up" size={13} weight="bold" scaled={false} />
+          <Icon name="mx-enviar" size={13} weight="bold" scaled={false} />
         </button>
       </form>
       {erro ? <p className="wa-erro-curto" role="alert"><TextoDaMensagem m={erro} /></p> : null}
