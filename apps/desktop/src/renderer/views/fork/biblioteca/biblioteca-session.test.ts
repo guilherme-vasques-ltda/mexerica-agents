@@ -1,7 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { parseNativeCatalog } from '../../../../shared/fork-native-catalog.ts'
-import { LibrarySession, resetLibraryPending, type LibrarySource } from './biblioteca-session.ts'
+import { LibrarySession, contaParaAdicionar, resetLibraryPending, type LibrarySource } from './biblioteca-session.ts'
+import type { ManagedAccount } from '../../../../shared/fork-engine-accounts.ts'
 
 // BN-03 (D70): só as fronteiras do cliente. Origem capturada (Hub, link, época, space, geração), corpo fechado,
 // mesma intenção em retry, motor obrigatório fora do Pessoal, autoridade do Hub e recibo removido sem navegação.
@@ -74,18 +75,28 @@ test('Pessoal: corpo fechado sem motor, chave do gesto e geração/revisão da p
   })
 })
 
-test('Fora do Pessoal: sem motor nada é enviado; com motor, readd usa o vínculo removido', async () => {
+test('Fora do Pessoal: sem motor ou sem conta nada é enviado; com os dois, readd usa o vínculo removido', async () => {
   const { session, link: hub } = await opened(LOJA, false)
-  assert.equal(await session.add('pesquisador', null), null)
+  assert.equal(await session.add('pesquisador', null, 'conta-1'), null)
+  assert.equal(await session.add('pesquisador', 'codex'), null)
+  assert.equal(await session.add('pesquisador', 'codex', ''), null)
   assert.equal(hub.calls.filter((c) => c.method === 'donnaNativeCatalogAdd').length, 0)
   assert.equal(session.op.kind, 'refused')
-  void session.add('operador', 'codex')
+  void session.add('operador', 'codex', 'conta-1')
   await settle()
   const body = hub.last('donnaNativeCatalogAdd').body
   assert.equal(body.intent, 'readd')
   assert.equal(body.expectedGeneration, 1)
   assert.equal(body.expectedRevision, 7)
   assert.equal(body.backend, 'codex')
+  assert.equal(body.engineAccountId, 'conta-1')
+})
+
+test('Pessoal: a conta de IA nunca vai no corpo', async () => {
+  const { session, link: hub } = await opened(PESSOAL, true)
+  void session.add('pesquisador', null, 'conta-1')
+  await settle()
+  assert.equal('engineAccountId' in hub.last('donnaNativeCatalogAdd').body, false)
 })
 
 test('Sem resposta: Conferir resultado reenvia a mesma chave e corpo, inclusive depois de fechar e reabrir', async () => {
@@ -147,7 +158,7 @@ test('Prévia atrasada de antes da troca de Hub não pinta; outro Hub esquece tu
 
 test('Recibo histórico removido não vira sucesso ativo; sem autoridade de gestão nada é enviado', async () => {
   const { source, session, link: hub } = await opened(LOJA, false)
-  void session.add('pesquisador', 'codex')
+  void session.add('pesquisador', 'codex', 'conta-1')
   await settle()
   hub.last('donnaNativeCatalogAdd').answer.resolve({ hubId: HUB, spaceId: LOJA, catalogKey: 'pesquisador', clientRequestKey: 'chave-1', generation: 1, botId: 'bot-1', state: 'removed' })
   await settle()
@@ -156,6 +167,33 @@ test('Recibo histórico removido não vira sucesso ativo; sem autoridade de gest
   source.canManageEngineAccounts = false
   source.emit()
   assert.equal(session.canAdd, false)
-  assert.equal(await session.add('pesquisador', 'codex'), null)
+  assert.equal(await session.add('pesquisador', 'codex', 'conta-1'), null)
   assert.equal(hub.calls.filter((c) => c.method === 'donnaNativeCatalogAdd').length, 1, 'nenhum envio sem a capacidade do Hub')
+})
+
+test('Contas fora do Pessoal: a sessão lê, relê depois de falhar e o Pessoal não lê', async () => {
+  const pessoal = await opened(PESSOAL, true)
+  assert.equal(pessoal.link.calls.filter((c) => c.method === 'donnaEngineAccounts').length, 0)
+  const { session, link } = await opened(LOJA, false)
+  assert.equal(session.accounts.estado, 'carregando')
+  link.last('donnaEngineAccounts').answer.reject(new Error('falhou'))
+  await settle()
+  assert.equal(session.accounts.estado, 'falhou')
+  session.rereadAccounts()
+  assert.equal(link.calls.filter((c) => c.method === 'donnaEngineAccounts').length, 2, 'falha sem queda lê de novo')
+  link.last('donnaEngineAccounts').answer.resolve({ accounts: [] })
+  await settle()
+  assert.equal(session.accounts.estado, 'pronto')
+  session.rereadAccounts()
+  assert.equal(link.calls.filter((c) => c.method === 'donnaEngineAccounts').length, 2, 'leitura boa não repete')
+})
+
+test('Conta para adicionar: só a escolhida conectada do motor, ou o padrão legado único', () => {
+  const conta = (id: string, origin: 'managed' | 'legacy', state = 'connected', backend = 'codex') => ({ id, origin, state, backend, label: id }) as unknown as ManagedAccount
+  const contas = [conta('a', 'managed'), conta('b', 'managed', 'disconnected'), conta('c', 'managed', 'connected', 'claude'), conta('l', 'legacy')]
+  assert.equal(contaParaAdicionar(contas, 'codex', true, 'a')?.id, 'a')
+  assert.equal(contaParaAdicionar(contas, 'codex', true, 'b'), null, 'desconectada')
+  assert.equal(contaParaAdicionar(contas, 'codex', true, 'c'), null, 'de outro motor')
+  assert.equal(contaParaAdicionar(contas, 'codex', true, null)?.id, 'l', 'padrão legado do Hub')
+  assert.equal(contaParaAdicionar(contas, 'codex', false, 'a'), null, 'sem posse das contas')
 })

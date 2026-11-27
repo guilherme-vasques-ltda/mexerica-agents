@@ -1,5 +1,7 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import type { Backend } from '@shared/models'
+import { contaPadraoDoHub, contasDoMotor, escolhaDeConta } from '@shared/fork-criar-bot-destino'
+import { ContaDaIa } from '../../criar-bot/Destino'
 import { avatarDoBot, normalizarAvatarDoBot } from '@shared/fork-avatar-config'
 import type { NativeLink, NativeProfile } from '@shared/fork-native-catalog'
 import { Button, ChoicePicker, IconButton, Spinner } from '../../../components/Controls'
@@ -9,11 +11,12 @@ import { DonnabotAvatar } from '../../../fork/avatars/Avatar'
 import { useModel } from '../../../lib/observable'
 import { opcoesDeMotor } from '../../criar-bot/ModeloDaIa'
 import { AvisoDoMotor } from '../../fork/aviso-motor/AvisoDoMotor'
-import { LibrarySession, type LibrarySource } from './biblioteca-session'
+import { LibrarySession, contaParaAdicionar, type LibrarySource } from './biblioteca-session'
 import { libraryActions, type LibraryAction } from './biblioteca-acoes'
 import '../../criar-bot/funcao-etiqueta.css'
 import './biblioteca.css'
 import { traduzir } from '../../../lib/fork-i18n/index.ts'
+import { useT } from '../../../lib/fork-i18n/estado'
 
 // Biblioteca de especialistas (components/BibliotecaEspecialistas).
 // Só apresenta o que o Hub manda e envia a intenção do gesto. Perfis, rostos, Almas e vínculos vêm da prévia do Hub.
@@ -54,6 +57,9 @@ export function BibliotecaView({ target, session: given, onEditor, onConversatio
   }, [session, store, given])
   const [open, setOpen] = useState<string | null>(null)
   const [backend, setBackend] = useState('')
+  const [conta, setConta] = useState<string | null>(null)
+  const contas = session.accounts
+  const podeConta = store.canManageEngineAccounts
   const [readd, setReadd] = useState(false)
   const lastCard = useRef<string | null>(null)
   const body = useRef<HTMLDivElement>(null)
@@ -63,6 +69,8 @@ export function BibliotecaView({ target, session: given, onEditor, onConversatio
   const live = session.link === 'live'
   const linkOf = (key: string) => catalog?.links.find((l) => l.catalogKey === key) ?? null
   const profile = open ? catalog?.profiles.find((p) => p.catalogKey === open) ?? null : null
+  const escolhaConta = escolhaDeConta(podeConta, backend)
+  const contaEscolhida = personal ? null : contaParaAdicionar(contas.lista, backend, podeConta, conta)
   const opKey = op.kind === 'sending' || op.kind === 'unknown' ? op.intent.body.catalogKey : op.kind === 'refused' ? op.catalogKey : op.kind === 'done' ? op.added.catalogKey : null
 
   // Sucesso provado no Pessoal: quando o bot chega ao app, abre o Bot por dentro normal.
@@ -84,6 +92,7 @@ export function BibliotecaView({ target, session: given, onEditor, onConversatio
     if (key) lastCard.current = key
     setOpen(key)
     setBackend('')
+    setConta(null)
   }
 
   // Esc na prévia volta à grade; na grade, a folha fecha (Sheet).
@@ -91,7 +100,7 @@ export function BibliotecaView({ target, session: given, onEditor, onConversatio
 
   const add = () => {
     if (!profile) return
-    void session.add(profile.catalogKey, personal ? null : backend || null)
+    void session.add(profile.catalogKey, personal ? null : backend || null, contaEscolhida?.id ?? null)
   }
 
   const actionsOf = (key: string, preview: boolean) => libraryActions(key, { personal, link: linkOf(key), op, preview })
@@ -101,6 +110,7 @@ export function BibliotecaView({ target, session: given, onEditor, onConversatio
     canAdd: session.canAdd,
     canRetry: live && session.authorized,
     motorMissing: !personal && !backend,
+    contaMissing: !personal && !!backend && !contaEscolhida,
     sending: op.kind === 'sending',
     waiting,
     onShow: () => show(key),
@@ -129,7 +139,10 @@ export function BibliotecaView({ target, session: given, onEditor, onConversatio
             <Button kind="secondary" onClick={() => session.reread()} disabled={!live}>Tentar de novo</Button>
           </div>
             : catalog && profile ? <Previa profile={profile} actions={actionsOf(profile.catalogKey, true)} ctx={ctxFor(profile.catalogKey, false)} target={target} session={session}
-              backend={backend} onBackend={setBackend} onBack={() => show(null)}
+              backend={backend} onBackend={(b) => { setBackend(b); setConta(null); session.rereadAccounts() }} onBack={() => show(null)}
+              contaSlot={personal || !backend ? null : <ContaDaIa escolha={escolhaConta} contas={contasDoMotor(contas.lista, backend)} carregando={contas.estado === 'carregando'}
+                falhou={contas.estado === 'falhou'} conta={conta} padraoDisponivel={!!contaPadraoDoHub(contas.lista, backend)}
+                disabled={op.kind === 'sending' || !live} onConta={setConta} />}
               message={opKey === profile.catalogKey ? opMessage(session, personal, spaceName) : null} />
               : catalog ? <>
                 <p className="bib-faixa"><Icon name="checkmark.shield" size={15} /><span><strong>{traduzir('pt-BR', 'marca.biblioteca.faixa')}</strong> Nada é criado até você abrir a prévia e escolher Adicionar. Cada um vira um bot normal deste space.</span></p>
@@ -183,6 +196,7 @@ interface ActionContext {
   canAdd: boolean
   canRetry: boolean
   motorMissing: boolean
+  contaMissing: boolean
   sending: boolean
   waiting: string | null
   onShow: () => void
@@ -212,9 +226,9 @@ function Acoes({ actions, ctx }: { actions: LibraryAction[]; ctx: ActionContext 
       case 'show':
         return <span key={a.kind} {...data} className="bib-acao"><Button {...common} onClick={ctx.onShow}><Icon name="magnifyingglass" size={12} /> {a.again ? 'Ver e adicionar de novo' : 'Ver e adicionar'}</Button></span>
       case 'add':
-        return <span key={a.kind} {...data} className="bib-acao"><Button {...common} onClick={ctx.onAdd} disabled={!ctx.canAdd || ctx.motorMissing}>{ctx.sending ? <Spinner /> : `Adicionar a ${ctx.spaceName}`}</Button></span>
+        return <span key={a.kind} {...data} className="bib-acao"><Button {...common} onClick={ctx.onAdd} disabled={!ctx.canAdd || ctx.motorMissing || ctx.contaMissing}>{ctx.sending ? <Spinner /> : `Adicionar a ${ctx.spaceName}`}</Button></span>
       case 'readd':
-        return <span key={a.kind} {...data} className="bib-acao"><Button {...common} onClick={ctx.onReadd} disabled={!ctx.canAdd || ctx.motorMissing}>{ctx.sending ? <Spinner /> : 'Adicionar de novo…'}</Button></span>
+        return <span key={a.kind} {...data} className="bib-acao"><Button {...common} onClick={ctx.onReadd} disabled={!ctx.canAdd || ctx.motorMissing || ctx.contaMissing}>{ctx.sending ? <Spinner /> : 'Adicionar de novo…'}</Button></span>
       case 'retry':
         return <span key={a.kind} {...data} className="bib-acao"><Button {...common} onClick={ctx.onRetry} disabled={!ctx.canRetry}>Conferir resultado</Button></span>
       case 'current':
@@ -248,7 +262,7 @@ function Cartao({ profile, link, actions, ctx }: { profile: NativeProfile; link:
   </li>
 }
 
-function Previa({ profile, actions, ctx, target, session, backend, onBackend, onBack, message }: {
+function Previa({ profile, actions, ctx, target, session, backend, onBackend, onBack, contaSlot, message }: {
   profile: NativeProfile
   actions: LibraryAction[]
   ctx: ActionContext
@@ -257,15 +271,17 @@ function Previa({ profile, actions, ctx, target, session, backend, onBackend, on
   backend: string
   onBackend: (id: string) => void
   onBack: () => void
+  contaSlot: ReactNode
   message: string | null
 }) {
   const { personal, spaceName, store } = target
+  const t = useT()
   const kinds = actions.map((a) => a.kind)
   const settled = opens(actions) || kinds.includes('current') || kinds.includes('retry')
   const backends = store.hello?.backends ?? []
   const titleId = `bib-previa-${profile.catalogKey}`
   const note = kinds.includes('current') ? RECIBO_REMOVIDO
-    : message ?? (opens(actions) && !personal ? FORA_DO_PESSOAL : !settled && ctx.motorMissing ? 'Escolha o motor antes de adicionar.' : !session.authorized ? 'Este aparelho não pode adicionar bots neste computador agora.' : '')
+    : message ?? (opens(actions) && !personal ? FORA_DO_PESSOAL : !settled && ctx.motorMissing ? 'Escolha o motor antes de adicionar.' : !settled && ctx.contaMissing ? t('marca.biblioteca.escolhaConta') : !session.authorized ? 'Este aparelho não pode adicionar bots neste computador agora.' : '')
 
   return <section className="bib-previa" aria-labelledby={titleId}>
     <div className="bib-previa-topo">
@@ -296,14 +312,15 @@ function Previa({ profile, actions, ctx, target, session, backend, onBackend, on
               disabled={settled || ctx.sending || session.link !== 'live'} />
           </div>
           {backend ? <AvisoDoMotor backend={backend} /> : null}
+          {contaSlot && !settled ? <><h4>{t('botCreate.contaDeIa')}</h4>{contaSlot}</> : null}
         </>}
-        <p className="bib-nota">Contas de IA não são ligadas ao adicionar.</p>
+        {personal ? <p className="bib-nota">Contas de IA não são ligadas ao adicionar.</p> : null}
         <h4>Ao adicionar</h4>
         <ul className="bib-lista">
           <li>Entra em {spaceName}, no {store.hostName}</li>
           <li>Conversa e memória próprias, começando vazias</li>
           <li>Começa em Pedir aprovação</li>
-          <li>Sem contas, conectores, skills ou computador</li>
+          {personal ? <li>Sem contas, conectores, skills ou computador</li> : <li>{t('marca.biblioteca.soConta')}</li>}
           <li>Não começa nenhum trabalho</li>
           {personal ? null : <li>Em outro space seria outro bot, sem memória nem acessos deste</li>}
         </ul>

@@ -42,6 +42,20 @@ impl Fixture {
     fn cfg(&self, result: &Value) -> BotConfig {
         self.hub.store.bot(result["botId"].as_str().unwrap()).unwrap().unwrap().config
     }
+    /// Conta API conectada do Codex, ligável em qualquer Space do dono.
+    fn connected_account(&self) -> String {
+        let id = format!("ac_{}", "4".repeat(64));
+        let registry = json!({
+            "salt":uuid::Uuid::new_v4().to_string(),"accounts":[{
+                "id":id,"backend":"codex","billing":"paid_api","state":"connected","scope":"owner",
+                "launch":{"kind":"cli_profile","executable":self.dir.join("cli-inexistente"),
+                    "directory":self.dir.join("perfil-sintetico")},
+                "quotaIdentity":null,"verifiedAt":null,"subscriptionProof":null,"models":[]
+            }]
+        });
+        self.hub.store.kv_set(crate::fork::engine_accounts::SLOT, &registry.to_string()).unwrap();
+        id
+    }
     fn count(&self, table: &str) -> i64 {
         self.hub.store.db.locked().query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0)).unwrap()
     }
@@ -371,13 +385,27 @@ async fn contexto_fechado_autoridade_e_space_nao_divulgam_nem_copiam_estado_priv
     body.as_object_mut().unwrap().remove("backend");
     assert!(f.add(body.clone()).await.is_err());
     body["backend"] = json!("codex");
+    assert!(f.add(body.clone()).await.is_err(), "fora do Pessoal exige a conta de IA");
+    body["engineAccountId"] = json!(format!("ac_{}", "5".repeat(64)));
+    assert!(f.add(body.clone()).await.is_err(), "conta desconhecida");
+    let account = f.connected_account();
+    body["engineAccountId"] = json!(account);
+    body["backend"] = json!("claude");
+    assert!(f.add(body.clone()).await.is_err(), "conta de outro motor");
+    body["backend"] = json!("codex");
+    assert_eq!(f.count("bots"), 1);
     let separate = f.add(body).await.unwrap();
+    let space_cfg = f.cfg(&separate);
+    assert_eq!(space_cfg.fork_editor.engine_account_id.as_deref(), Some(account.as_str()));
+    assert_eq!(space_cfg.permission, Permission::Ask);
+    assert!(space_cfg.skills.is_empty() && space_cfg.connectors.is_empty() && space_cfg.logins.is_empty());
     assert_ne!(separate["botId"], personal["botId"]);
     assert_ne!(f.cfg(&separate).cwd, cfg.cwd);
     assert_ne!(f.cfg(&separate).description, cfg.description);
     assert!(!f.link(other).await.to_string().contains(&cfg.description));
     let mut guessed = f.request("tentativa-cross-space");
     guessed["spaceId"] = json!(other);
+    guessed["engineAccountId"] = json!(account);
     guessed["expectedGeneration"] = json!(1);
     guessed["expectedRevision"] = f.link(PERSONAL).await["revision"].clone();
     assert!(f.add(guessed).await.is_err());
@@ -494,4 +522,27 @@ async fn falha_de_preparacao_limpa_so_diretorios_novos_vazios_e_preserva_conteud
     std::fs::remove_dir(kept.parent().unwrap()).unwrap();
     std::fs::remove_dir(owner).unwrap();
     f.hub.shutdown().await;
+}
+
+#[test]
+fn open_so_aceita_conta_codex_gerenciada() {
+    use crate::fork::engine_accounts::Registry;
+    let f = Fixture::new();
+    let api = f.connected_account();
+    let registry = Registry::load(&f.hub.store).unwrap();
+    super::add::conta_permitida(&registry, &api, false).unwrap();
+    let erro = super::add::conta_permitida(&registry, &api, true).unwrap_err();
+    assert!(erro.to_string().contains("open_codex_unavailable"));
+    let gerida = format!("ac_{}", "6".repeat(64));
+    let launch = json!({"kind":"cli_profile","executable":f.dir.join("cli-inexistente"),"directory":f.dir.join("perfil-gerido")});
+    let conta = json!({"salt":uuid::Uuid::new_v4().to_string(),"accounts":[{
+        "id":gerida,"backend":"codex","billing":"subscription","state":"connected","launch":launch,
+        "scope":"owner","quotaIdentity":null,"verifiedAt":null,"subscriptionProof":null,"models":[],
+        "managed":{"label":"Conta","revision":1,"generation":0,"enabled":true,"requestId":"f","principal":"f",
+            "profile":null,"setupRequest":null,"catalog":null}
+    }]});
+    f.hub.store.kv_set(crate::fork::engine_accounts::SLOT, &conta.to_string()).unwrap();
+    let registry = Registry::load(&f.hub.store).unwrap();
+    super::add::conta_permitida(&registry, &gerida, true).unwrap();
+    assert!(super::add::conta_permitida(&registry, &api, true).is_err(), "conta desconhecida");
 }

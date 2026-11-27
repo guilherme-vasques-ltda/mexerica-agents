@@ -45,7 +45,7 @@ export interface NativeAdded {
   state: 'active' | 'removed'
 }
 
-/** O corpo fechado da inclusão. Sem configuração, conta, grant, modelo ou ID de bot. */
+/** O corpo fechado da inclusão. Sem configuração, grant, modelo ou ID de bot; conta de IA só fora do Pessoal. */
 export interface NativeAddBody {
   hubId: string
   spaceId: string
@@ -56,6 +56,7 @@ export interface NativeAddBody {
   expectedGeneration: number
   expectedRevision: number
   backend?: string
+  engineAccountId?: string
 }
 
 const invalid = () => new Error('native_invalid_answer')
@@ -112,11 +113,12 @@ export function parseNativeAdded(raw: unknown, body: NativeAddBody): NativeAdded
  * A intenção de um gesto, a partir do vínculo lido na mesma prévia. Pessoal não manda motor (segue a fonte canônica
  * do Hub); fora dele o motor é obrigatório. A chave nasce aqui e acompanha o corpo até uma resposta definitiva.
  */
-export function nativeAddBody(catalog: NativeCatalog, catalogKey: string, opts: { personal: boolean; backend: string | null; key: string }): NativeAddBody {
+export function nativeAddBody(catalog: NativeCatalog, catalogKey: string, opts: { personal: boolean; backend: string | null; account?: string | null; key: string }): NativeAddBody {
   const profile = catalog.profiles.find((p) => p.catalogKey === catalogKey)
   const link = catalog.links.find((l) => l.catalogKey === catalogKey)
   if (!profile || !link || link.state === 'active') throw new Error('native_gesture_unavailable')
   if (!opts.personal && !opts.backend) throw new Error('space_backend_selection_required')
+  if (!opts.personal && !opts.account) throw new Error('space_account_selection_required')
   return {
     hubId: catalog.hubId,
     spaceId: catalog.spaceId,
@@ -126,7 +128,7 @@ export function nativeAddBody(catalog: NativeCatalog, catalogKey: string, opts: 
     intent: link.state === 'removed' ? 'readd' : 'add',
     expectedGeneration: link.generation,
     expectedRevision: link.revision,
-    ...(opts.personal ? {} : { backend: opts.backend! }),
+    ...(opts.personal ? {} : { backend: opts.backend!, engineAccountId: opts.account! }),
   }
 }
 

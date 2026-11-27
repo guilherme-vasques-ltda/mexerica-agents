@@ -3,6 +3,8 @@ import {
   nativeAddBody, nativeFailure, nativeFailureText, parseNativeAdded, parseNativeCatalog,
   type NativeAddBody, type NativeAdded, type NativeCatalog,
 } from '../../../../shared/fork-native-catalog.ts'
+import { contaPadraoDoHub, contasDoMotor, escolhaDeConta } from '../../../../shared/fork-criar-bot-destino.ts'
+import type { EngineAccounts, ManagedAccount } from '../../../../shared/fork-engine-accounts.ts'
 import { Observable } from '../../../lib/observable.ts'
 
 // Biblioteca de especialistas (components/BibliotecaEspecialistas): o que a
@@ -46,6 +48,16 @@ const pending = new Map<string, AddIntent>()
 const pendingKey = (hostId: string, spaceId: string) => JSON.stringify([hostId, spaceId])
 
 const READ_TIMEOUT = 20_000
+const ACCOUNTS_TIMEOUT = 90_000
+
+export interface LibraryAccounts { estado: 'carregando' | 'pronto' | 'falhou'; lista: ManagedAccount[] }
+
+/** Fora do Pessoal, a conta como na criação manual num Space: a escolhida, se conectada, ou o padrão legado do Hub. */
+export function contaParaAdicionar(contas: readonly ManagedAccount[], backend: string, podeGerenciar: boolean, escolhida: string | null): ManagedAccount | null {
+  if (escolhaDeConta(podeGerenciar, backend) !== 'escolher') return null
+  if (!escolhida) return contaPadraoDoHub(contas, backend)
+  return contasDoMotor(contas, backend).find((c) => c.conta.id === escolhida && c.escolhivel)?.conta ?? null
+}
 const ADD_TIMEOUT = 60_000
 
 export class LibrarySession extends Observable {
@@ -55,6 +67,8 @@ export class LibrarySession extends Observable {
   /** Hora da última prévia aceita, para “Última leitura às…”. */
   asOf: number | null = null
   op: LibraryOp = { kind: 'idle' }
+  /** Fora do Pessoal: as contas de IA do Hub para a escolha, lidas na mesma origem da prévia. */
+  accounts: LibraryAccounts = { estado: 'carregando', lista: [] }
 
   readonly spaceId: string
   readonly personal: boolean
@@ -62,6 +76,7 @@ export class LibrarySession extends Observable {
   private hostId: string | null = null
   private gen = 0
   private reads = 0
+  private accountReads = 0
   private ops = 0
   private unwatch: (() => void) | null = null
   private source: LibrarySource | null = null
@@ -102,16 +117,24 @@ export class LibrarySession extends Observable {
 
   reread() {
     const origin = this.origin
-    if (origin && this.current(origin)) void this.read(origin)
+    if (!origin || !this.current(origin)) return
+    void this.read(origin)
+    if (this.accounts.estado === 'falhou') void this.readAccounts(origin)
+  }
+
+  /** Lê as contas de novo se a última leitura falhou sem queda de conexão (a queda já relê ao voltar). */
+  rereadAccounts() {
+    const origin = this.origin
+    if (this.accounts.estado === 'falhou' && origin && this.current(origin)) void this.readAccounts(origin)
   }
 
   /** Um gesto novo: chave nova, corpo a partir do vínculo da prévia atual. Só o Hub decide o efeito. */
-  async add(catalogKey: string, backend: string | null): Promise<NativeAdded | null> {
+  async add(catalogKey: string, backend: string | null, account: string | null = null): Promise<NativeAdded | null> {
     const origin = this.origin
     if (!this.canAdd || !origin || !this.catalog) return null
     let body: NativeAddBody
     try {
-      body = nativeAddBody(this.catalog, catalogKey, { personal: this.personal, backend, key: this.uuid() })
+      body = nativeAddBody(this.catalog, catalogKey, { personal: this.personal, backend, account, key: this.uuid() })
     } catch (e) {
       this.op = { kind: 'refused', catalogKey, message: nativeFailureText(e) }
       this.changed()
@@ -173,6 +196,7 @@ export class LibrarySession extends Observable {
     if (!this.catalog) this.phase = { kind: 'loading' }
     this.changed()
     void this.read(origin)
+    void this.readAccounts(origin)
   }
 
   /** A store mudou: outro Hub encerra; queda invalida a origem (mesmo que o link volte igual); link/época nova relê. */
@@ -245,6 +269,22 @@ export class LibrarySession extends Observable {
         this.catalog = null
         this.phase = { kind: 'error', message: nativeFailureText(e) }
       }
+    }
+    this.changed()
+  }
+
+  private async readAccounts(origin: Origin) {
+    if (this.personal || !origin.source.canManageEngineAccounts) return
+    const read = ++this.accountReads
+    this.accounts = { estado: 'carregando', lista: [] }
+    this.changed()
+    try {
+      const answer = await origin.client.call('donnaEngineAccounts', {}, ACCOUNTS_TIMEOUT) as EngineAccounts
+      if (!this.current(origin) || read !== this.accountReads) return
+      this.accounts = { estado: 'pronto', lista: answer.accounts }
+    } catch {
+      if (!this.current(origin) || read !== this.accountReads) return
+      this.accounts = { estado: 'falhou', lista: [] }
     }
     this.changed()
   }
