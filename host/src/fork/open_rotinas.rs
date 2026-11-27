@@ -71,7 +71,7 @@ async fn execute(hub: &Arc<Hub>, bot: &str, run: &str) {
             .filter(|row| !row.deleted)
             .ok_or_else(|| anyhow::anyhow!("open_chat_cancelled"))?
             .config;
-        open_chat::precheck(hub, &cfg)?;
+        open_chat::precheck(hub, &cfg, "")?;
         let ticket = open_chat::admit_locked(&mut open_chat::RUNNING.locked(), hub, &cfg)?;
         Ok::<_, anyhow::Error>((cfg, ticket))
     })();
