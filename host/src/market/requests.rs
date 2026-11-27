@@ -770,6 +770,7 @@ mod tests {
             nome: None,
             nome_primeira: None,
             liberacoes: None,
+            aceita_credencial_com_escrita: false,
         };
         crate::market::contas::conectar(&hub.store, &pedido).unwrap();
         let owner = crate::fork::autoridade::Autoridade::local();

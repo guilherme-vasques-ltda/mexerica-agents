@@ -38,6 +38,7 @@ export const ChaveDoErro: Record<CodigoDeRecusa, ChaveTexto> = {
   conta_sem_ficha: 'mercado.erro.conta_sem_ficha',
   conta_desligada_no_bot: 'mercado.erro.conta_desligada_no_bot',
   app_proprio_ausente: 'google.erro.app_proprio_ausente',
+  credencial_com_escrita: 'mercado.erro.credencial_com_escrita',
   app_google_invalido: 'google.erro.app_google_invalido',
   descricao_invalida: 'mercado.erro.descricao_invalida',
   descricao_desconhecida: 'mercado.erro.descricao_desconhecida',

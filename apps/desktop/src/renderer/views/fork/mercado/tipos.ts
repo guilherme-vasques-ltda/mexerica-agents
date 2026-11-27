@@ -25,8 +25,8 @@ export interface Grupo {
   /** Pré-marcado ao conectar: o padrão seguro. */
   padrao: boolean
   disponivel: boolean
-  /** Quem garante que o grupo só lê: o endereço, os escopos pedidos ou a natureza do serviço. */
-  imposicao?: 'url' | 'escopo' | 'natureza' | null
+  /** Limite de leitura do fornecedor ou liberação de ações pelo filtro do Hub. */
+  imposicao?: 'url' | 'escopo' | 'natureza' | 'filtro' | null
 }
 
 /** Ação que só a pessoa liga, com confirmação (fatia 2). Hoje a ficha só a lista. */

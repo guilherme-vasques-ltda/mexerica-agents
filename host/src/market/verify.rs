@@ -97,7 +97,7 @@ async fn verify_timeout(store: &Store, id: &str, port: u16, timeout: Duration) -
                     let tools = reply["result"]["tools"]
                         .as_array()
                         .ok_or_else(|| anyhow!("Connector did not return its tools"))?;
-                    // Só as ferramentas dos grupos ligados (conta de ficha); sem lista na ficha, o fornecedor já impôs o limite.
+                    // Conta de ficha: conta apenas os nomes elegíveis, sem conceder acesso a eles.
                     let permitidas = super::contas::ferramentas_da_conta(&c)?;
                     let expostas =
                         crate::fork::conectores::catalogo_servicos::filtrar_ferramentas(tools, permitidas.as_ref());

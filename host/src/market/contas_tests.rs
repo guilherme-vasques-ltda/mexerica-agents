@@ -46,7 +46,15 @@ fn bot(
 }
 
 fn pedido<'a>(space: &'a str, nome: Option<&'a str>, primeira: Option<&'a str>) -> Pedido<'a> {
-    Pedido { servico: "linear", tipo: "linear.oficial_oauth", space, nome, nome_primeira: primeira, liberacoes: None }
+    Pedido {
+        servico: "linear",
+        tipo: "linear.oficial_oauth",
+        space,
+        nome,
+        nome_primeira: primeira,
+        liberacoes: None,
+        aceita_credencial_com_escrita: false,
+    }
 }
 
 fn nomes(hub: &Hub, space: &str) -> Vec<(String, String)> {
@@ -673,6 +681,19 @@ fn texto_externo_nao_troca_de_conta_e_o_turno_recusa_conta_nao_autorizada() {
 }
 
 // MARK: API
+
+#[test]
+fn conta_com_filtro_exige_confirmacao_de_escrita_antes_de_gravar() {
+    let hub = hub();
+    let ficha = crate::fork::conectores::catalogo_servicos::fixture_filtro();
+    let mut p = Pedido { servico: ficha.id, tipo: ficha.tipos[0].id, ..pedido(PERSONAL, None, None) };
+    let hoje = chrono::NaiveDate::parse_from_str(ficha.conferida_em, "%Y-%m-%d").unwrap();
+    assert!(erro(contas::conectar_em(&hub.store, ficha, &p, hoje)).starts_with("credencial_com_escrita"));
+    assert_eq!(connectors(&hub.store).unwrap(), Vec::<Connector>::new());
+    p.aceita_credencial_com_escrita = true;
+    assert_eq!(contas::conectar_em(&hub.store, ficha, &p, hoje).unwrap()["proximoPasso"], "entrar");
+    assert_eq!(connectors(&hub.store).unwrap()[0].liberacoes, ["acoes"]);
+}
 
 #[tokio::test]
 async fn catalogo_da_open_e_local_e_nao_expoe_contas_do_cofre() {

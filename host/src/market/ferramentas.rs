@@ -289,11 +289,19 @@ impl Estado {
 
 /// O que a ficha da conta diz sobre as ferramentas.
 pub(crate) struct Politica {
-    /// `Some`: só estes nomes (mais as `perigosas`) existem para a conta; `None`: o fornecedor impõe o limite.
+    /// `Some`: só estes nomes são elegíveis; `None`: a ficha não restringe nomes.
     permitidas: Option<BTreeSet<&'static str>>,
     /// Pares nome → digest que a ficha curou: só estes passam sem a pessoa ligar.
     curadas: BTreeMap<String, String>,
     tipo: &'static TipoConexao,
+}
+
+impl Politica {
+    fn para_perfil(tipo: &'static TipoConexao, liberacoes: &[String]) -> Self {
+        let curadas =
+            tipo.ferramentas_curadas(liberacoes).into_iter().map(|(n, d)| (n.to_owned(), d.to_owned())).collect();
+        Self { permitidas: tipo.ferramentas_permitidas(liberacoes), curadas, tipo }
+    }
 }
 
 /// `None`: conta sem ficha, fora deste filtro (decisão em aberto do produto). Erro: ficha sumiu, venceu, não confere ou
@@ -309,9 +317,7 @@ pub(crate) fn politica(c: &Connector) -> Result<Option<Politica>> {
         tipo.perfil_disponivel(&c.liberacoes),
         "ficha_indisponivel: o perfil desta conta não está mais disponível."
     );
-    let curadas =
-        tipo.ferramentas_curadas(&c.liberacoes).into_iter().map(|(n, d)| (n.to_owned(), d.to_owned())).collect();
-    Ok(Some(Politica { permitidas: tipo.ferramentas_permitidas(&c.liberacoes), curadas, tipo }))
+    Ok(Some(Politica::para_perfil(tipo, &c.liberacoes)))
 }
 
 fn palavras(nome: &str) -> Vec<String> {

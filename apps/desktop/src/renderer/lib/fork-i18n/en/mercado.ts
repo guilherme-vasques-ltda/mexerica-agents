@@ -274,4 +274,6 @@ export const textos: Traducao<typeof fonte> = {
   "mercado.acoes.confirmar.campos": "And what it will read in each field of the action:",
   "mercado.acoes.confirmar.campo": "{campo}: {texto}",
   "mercado.acoes.ocultos": "Careful: this text has characters that don’t show on screen or that change the writing direction.",
+  "mercado.lib.filtro": "This account can change data in the service. In Mexerica, all actions start disabled. To use an action, you must enable it individually for each bot.",
+  "mercado.erro.credencial_com_escrita": "Update the app to see the write-access warning before connecting this account.",
 } as const

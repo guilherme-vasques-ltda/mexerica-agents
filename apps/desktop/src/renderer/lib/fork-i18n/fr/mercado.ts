@@ -277,4 +277,6 @@ export const textos: Traducao<typeof fonte> = {
   "mercado.acoes.confirmar.campos": "Et ce qu’il lira dans chaque champ de l’action :",
   "mercado.acoes.confirmar.campo": "{campo} : {texto}",
   "mercado.acoes.ocultos": "Attention : ce texte contient des caractères invisibles à l’écran ou qui changent le sens de l’écriture.",
+  "mercado.lib.filtro": "Ce compte peut modifier des données dans le service. Dans Mexerica, toutes les actions sont désactivées au départ. Pour utiliser une action, activez-la individuellement pour chaque bot.",
+  "mercado.erro.credencial_com_escrita": "Mettez l’application à jour pour voir l’avertissement sur l’accès en écriture avant de connecter ce compte.",
 } as const

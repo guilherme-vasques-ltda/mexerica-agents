@@ -271,4 +271,6 @@ export const textos: Traducao<typeof fonte> = {
   "mercado.acoes.confirmar.campos": "以及它在此操作每个字段中将读到的内容：",
   "mercado.acoes.confirmar.campo": "{campo}：{texto}",
   "mercado.acoes.ocultos": "注意：此说明含有屏幕上看不见或会改变书写方向的字符。",
+  "mercado.lib.filtro": "此账号可以修改服务中的数据。在 Mexerica 中，所有操作默认关闭。要使用某个操作，必须为每个机器人单独启用该操作。",
+  "mercado.erro.credencial_com_escrita": "请更新应用，以便在连接此账号前查看写入权限提示。",
 } as const

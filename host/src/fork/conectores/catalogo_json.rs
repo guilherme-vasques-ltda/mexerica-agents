@@ -255,8 +255,13 @@ impl ServicoJson {
                     tipo.id
                 ));
             }
-            if tipo.disponivel && tipo.grupos.iter().any(|g| g.disponivel && g.imposicao.is_none()) {
-                return Err(format!("grupo disponível sem leitura imposta pelo fornecedor em `{}`", tipo.id));
+            for grupo in &tipo.grupos {
+                if grupo.imposicao == Some(Imposicao::Filtro) && !grupo.curadas.is_empty() {
+                    return Err(format!("grupo com imposição pelo filtro não admite curadoria em `{}`", tipo.id));
+                }
+                if tipo.disponivel && grupo.disponivel && grupo.imposicao.is_none() {
+                    return Err(format!("grupo disponível sem imposição explícita em `{}`", tipo.id));
+                }
             }
         }
         Ok(())
