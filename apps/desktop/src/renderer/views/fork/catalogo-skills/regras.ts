@@ -1,5 +1,5 @@
 import { passiveSkillsV2 } from '../../../../shared/fork-skills.ts'
-import type { CatalogSkill, InstalledSkillV2, RemoveInstalledSkillV2, SkillAvailability, SkillDetailsV2 } from '../../../store/fork-skills.ts'
+import type { CatalogSkill, InstalledSkillV2, InternalSkill, RemoveInstalledSkillV2, SkillAvailability, SkillDetailsV2 } from '../../../store/fork-skills.ts'
 import { cru, ErroFrase, frase, frases, type Frase } from './textos.ts'
 
 export { ErroFrase }
@@ -159,11 +159,18 @@ export function filtrarInstaladas(lista: readonly InstalledSkillV2[], busca: str
   return lista.filter((s) => [s.name, s.description, s.id].some((campo) => normalizar(campo).includes(termo)))
 }
 
+/** As internas que a busca encontra, pelos mesmos campos das instaladas. */
+export function filtrarInternas(lista: readonly InternalSkill[], busca: string): InternalSkill[] {
+  const termo = normalizar(busca.trim())
+  if (!termo) return [...lista]
+  return lista.filter((s) => [s.name, s.description, s.id].some((campo) => normalizar(campo).includes(termo)))
+}
+
 export type GrupoInstaladas = { id: 'catalogo' | 'semRecibo'; skills: InstalledSkillV2[] }
 
 /**
  * Os grupos que os dados sustentam: com recibo do catálogo e sem recibo (antiga ou escrita à mão).
- * O Hub não diz se uma skill veio incluída, então não existe grupo de "incluídas". Grupo vazio sai.
+ * As que vêm com o app chegam à parte, em internas, e não entram aqui. Grupo vazio sai.
  */
 export function agruparInstaladas(lista: readonly InstalledSkillV2[]): GrupoInstaladas[] {
   const grupos: GrupoInstaladas[] = [
