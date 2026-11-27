@@ -428,16 +428,25 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
             "{method} must be rejected by the Open API"
         );
     }
+    let manual = json!({"botId": berga, "name": "Fixture", "instruction": "Fixture", "schedule": {"kind": "manual"}});
+    let saved = session_client
+        .post("http://localhost/api/saveRoutine")
+        .bearer_auth(&credential)
+        .json(&manual)
+        .send()
+        .await
+        .unwrap();
+    assert!(saved.status().is_success(), "a clock routine is saved by the Open API, got {}", saved.status());
     let webhook = json!({"botId": berga, "name": "Fixture", "instruction": "Fixture", "schedule": {"kind": "webhook"}});
-    let status = session_client
+    let refused = session_client
         .post("http://localhost/api/saveRoutine")
         .bearer_auth(&credential)
         .json(&webhook)
         .send()
         .await
-        .unwrap()
-        .status();
-    assert!(!status.is_success(), "a webhook routine must be refused by the Open API, got {status}");
+        .unwrap();
+    assert_eq!(refused.status(), reqwest::StatusCode::BAD_REQUEST, "a webhook routine must be refused by the Open API");
+    assert!(refused.text().await.unwrap().contains("open_routine_trigger_unavailable"));
     let stream = session_client.get("http://localhost/events").bearer_auth(&credential).send().await.unwrap();
     assert_eq!(stream.status(), reqwest::StatusCode::OK);
     close_stdin(&mut child).await;

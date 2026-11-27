@@ -153,6 +153,11 @@ pub(crate) fn admit_for_test(hub: &Arc<Hub>, bot: &str, account: &str) -> Result
 
 pub(crate) fn stop(bot: &str) {
     crate::fork::open_chat_fila::cancel_pending(bot);
+    cancel_turn(bot);
+}
+
+/// Interrompe só o turno em curso: as mensagens que esperam na fila seguem quando ele terminar.
+fn cancel_turn(bot: &str) {
     if let Some(r) = RUNNING.locked().as_ref().and_then(|running| running.get(bot)) {
         let _ = r.cancel.send(true);
     }
@@ -347,7 +352,7 @@ pub(crate) async fn routine_turn(
             tokio::select! {
                 result = &mut turn_run => result,
                 () = tokio::time::sleep(timeout) => {
-                    stop(&bot);
+                    cancel_turn(&bot);
                     let _ = turn_run.await;
                     Err(anyhow!("open_chat_timeout"))
                 }

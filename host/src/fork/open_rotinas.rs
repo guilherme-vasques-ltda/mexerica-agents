@@ -62,17 +62,9 @@ pub(crate) fn start(hub: &Arc<Hub>) {
 }
 
 async fn execute(hub: &Arc<Hub>, bot: &str, run: &str) {
-    let claim = {
-        let (hub, bot, run) = (hub.clone(), bot.to_owned(), run.to_owned());
-        tokio::task::spawn_blocking(move || hub.routines.begin(&hub, &bot, &run)).await
-    };
-    let prepared = match claim {
-        Ok(Ok(Some(prepared))) => prepared,
-        Ok(Ok(None)) => return,
-        Ok(Err(error)) => return tracing::error!(error = format!("{error:#}"), run, "rotina da Open não reservada"),
-        Err(error) => return tracing::error!(%error, run, "reserva da rotina da Open falhou"),
-    };
-    let outcome = async {
+    // A vez do bot é reservada antes da execução: ocupado por outra rotina ou por uma mensagem do dono, a execução
+    // continua pendente e volta no próximo ciclo, sem virar falha.
+    let admitted = (|| {
         let cfg = hub
             .store
             .bot(bot)?
@@ -81,9 +73,38 @@ async fn execute(hub: &Arc<Hub>, bot: &str, run: &str) {
             .config;
         open_chat::precheck(hub, &cfg)?;
         let ticket = open_chat::admit_locked(&mut open_chat::RUNNING.locked(), hub, &cfg)?;
-        open_chat::routine_turn(hub, ticket, &cfg, prepared.lane, prepared.prompt, prepared.timeout).await
+        Ok::<_, anyhow::Error>((cfg, ticket))
+    })();
+    if matches!(&admitted, Err(error) if error.to_string() == "open_chat_busy") {
+        return;
     }
-    .await;
+    let claim = {
+        let (hub, bot, run) = (hub.clone(), bot.to_owned(), run.to_owned());
+        tokio::task::spawn_blocking(move || hub.routines.begin(&hub, &bot, &run)).await
+    };
+    let claim = match claim {
+        Ok(Ok(Some(prepared))) => Ok(prepared),
+        Ok(Ok(None)) => {
+            if admitted.is_ok() {
+                crate::fork::open_chat_fila::finish(hub, bot);
+            }
+            return;
+        }
+        Ok(Err(error)) => Err(error),
+        Err(error) => Err(anyhow::anyhow!("open_routine_claim_failed: {error}")),
+    };
+    // Falha na reserva (inclusive depois de gravar `Starting`) é concluída como falha: o turno de IA não começou.
+    let outcome = match (claim, admitted) {
+        (Ok(prepared), Ok((cfg, ticket))) => {
+            open_chat::routine_turn(hub, ticket, &cfg, prepared.lane, prepared.prompt, prepared.timeout).await
+        }
+        (claim, admitted) => {
+            if admitted.is_ok() {
+                crate::fork::open_chat_fila::finish(hub, bot);
+            }
+            Err(claim.err().or(admitted.err()).unwrap_or_else(|| anyhow::anyhow!("open_chat_unavailable")))
+        }
+    };
     let (observed, detail, text) = match outcome {
         Ok(text) => (
             Observed {
@@ -99,11 +120,20 @@ async fn execute(hub: &Arc<Hub>, bot: &str, run: &str) {
             (Observed::failed(Reason::AgentError), Some(detail), None)
         }
     };
-    let hub = hub.clone();
-    let id = run.to_owned();
-    let saved = tokio::task::spawn_blocking(move || hub.routines.complete(&hub, &id, &observed, detail, text)).await;
-    if !matches!(saved, Ok(Ok(()))) {
-        tracing::error!(run, "resultado da rotina da Open não gravado");
+    // Gravar o resultado tenta de novo enquanto o Hub roda: o texto gerado não se perde e a execução sai de `Running`.
+    for attempt in 0u32.. {
+        let (shared, id, observed, detail, text) =
+            (hub.clone(), run.to_owned(), observed.clone(), detail.clone(), text.clone());
+        let saved =
+            tokio::task::spawn_blocking(move || shared.routines.complete(&shared, &id, &observed, detail, text)).await;
+        if matches!(saved, Ok(Ok(()))) {
+            return;
+        }
+        tracing::error!(run, attempt, "resultado da rotina da Open não gravado");
+        if hub.routines.stopping() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_secs(2u64.saturating_pow(attempt.min(5)))).await;
     }
 }
 
