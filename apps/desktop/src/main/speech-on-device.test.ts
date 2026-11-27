@@ -15,10 +15,14 @@ test('o helper recusa fala indisponível antes de pedir o microfone e revalida a
   assert.equal((main + policy).match(/SFSpeechAudioBufferRecognitionRequest\(\)/g)?.length, 1)
 })
 
-test('a lista inclui só idiomas com suporte local; a Open não registra fala', () => {
+test('a lista inclui só idiomas com suporte local', () => {
   const main = readFileSync(new URL('main.swift', helper), 'utf8')
   assert.match(main, /SFSpeechRecognizer\.supportedLocales\(\)\s*\.filter \{ SFSpeechRecognizer\(locale: \$0\)\?\.supportsOnDeviceRecognition == true \}/)
+})
+
+test('a Open registra a fala nativa só para a janela local e não libera permissões de mídia ao renderer', () => {
   const open = readFileSync(new URL('./fork-open/main.ts', import.meta.url), 'utf8')
-  assert.match(open, /'speech:available': false, 'speech:locales': \[\]/)
-  assert.doesNotMatch(open, /registerSpeech|speech:start/)
+  assert.match(open, /isWindowSender\(event, window, chatURL\) && event\.senderFrame\?\.url === chatURL/)
+  assert.match(open, /registerSpeech\(daJanela\)/)
+  assert.match(open, /setPermissionRequestHandler\(\(_contents, _permission, callback\) => callback\(false\)\)/)
 })

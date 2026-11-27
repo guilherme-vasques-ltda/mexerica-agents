@@ -19,6 +19,11 @@ pub(super) const FICHAS: &[&str] = &[
     include_str!("fichas/neon.json"),
     include_str!("fichas/wispr-flow.json"),
     include_str!("fichas/github.json"),
+    include_str!("fichas/better-stack.json"),
+    include_str!("fichas/clerk.json"),
+    include_str!("fichas/coderabbit.json"),
+    include_str!("fichas/posthog.json"),
+    include_str!("fichas/revenuecat.json"),
     include_str!("fichas/supabase.json"),
     include_str!("fichas/todoist.json"),
     include_str!("fichas/clickup.json"),
@@ -64,6 +69,14 @@ pub(super) const FICHAS: &[&str] = &[
     include_str!("fichas/tinyfish.json"),
     include_str!("fichas/vidiq.json"),
     include_str!("fichas/wix.json"),
+    include_str!("fichas/tavily.json"),
+    include_str!("fichas/apify.json"),
+    include_str!("fichas/heygen.json"),
+    include_str!("fichas/trello.json"),
+    include_str!("fichas/wrike.json"),
+    include_str!("fichas/agentmail.json"),
+    include_str!("fichas/bright-data.json"),
+    include_str!("fichas/prisma.json"),
 ];
 
 /// Cada string é vazada uma única vez na partida: o catálogo inteiro vive até o fim do processo.

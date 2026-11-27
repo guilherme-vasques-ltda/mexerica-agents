@@ -450,7 +450,7 @@ function Composer({ session, target, bots, disabled }: { session: ProjectsSessio
           onChange={(e) => { setText(e.target.value); setCaret(e.target.selectionStart ?? e.target.value.length); setPick(0) }}
           onSelect={(e) => setCaret(e.currentTarget.selectionStart ?? 0)} onKeyDown={onKey} />
         <button className="tf-send" aria-label={t('projetos.tarefas.composer.enviar')} title={t('projetos.tarefas.composer.enviar')} aria-disabled={blocked || sending || !text.trim() || undefined} onClick={() => void submit()}>
-          <Icon name="arrow.up" size={13} weight="semibold" />
+          <Icon name="mx-enviar" size={13} weight="semibold" />
         </button>
         {options.length ? (
           <ul id="tf-mention-list" className="tf-mentions" role="listbox" aria-label={t('projetos.tarefas.composer.mencionar')}>
