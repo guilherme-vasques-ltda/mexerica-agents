@@ -24,6 +24,10 @@ pub(crate) const ENGINE_ACTION: &str = "engine";
 
 fn actions(c: &rusqlite::Connection, chat: &str) -> Result<Vec<&'static str>> {
     let mut actions = SESSION_ACTIONS.to_vec();
+    // Open: só criar a aba e escrever nela; encerrar, motor e demais ações seguem fechados em open_allows.
+    if crate::environment::Environment::is_open() {
+        return Ok(actions);
+    }
     // Sessões PR5: encerrar e continuar, implementados por este Hub (Hub antigo não os anuncia; sem fallback).
     actions.extend(super::encerrar::ACTIONS);
     if engine_choice::personal_bot(c, chat)?.is_some() {
@@ -184,7 +188,10 @@ pub(crate) fn send_lane(c: &rusqlite::Connection, chat: &str, body: &Value) -> R
     }
     // A extra roda em série no próprio slot; a admissão (recibo + CAS da escolha) acontece no `queued` → `sent`.
     let lane = crate::store::Lane { chat: chat.to_owned(), session: Some(session.id) };
-    extra_admissible(c, &lane)?;
+    // Open: a conta do Codex isolado é conferida no precheck do envio; a classe de roteamento é do app completo.
+    if !crate::environment::Environment::is_open() {
+        extra_admissible(c, &lane)?;
+    }
     Ok(lane)
 }
 

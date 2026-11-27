@@ -35,6 +35,8 @@ export const textos: Traducao<typeof fonte> = {
   'sessions.new.title': "与 {nome} 新建会话",
   'sessions.new.label': "新建会话",
   'sessions.new.busy': "正在创建会话…",
+  'sessions.newTab.title': "新标签页",
+  'sessions.newTab.detail': "与同一个机器人打开一个并行对话。输入 /nova-aba 加文字即可在其中开始。",
   'sessions.untitled': "无标题",
   'sessions.state.running': "运行中",
   'sessions.state.needsYou': "需要你",

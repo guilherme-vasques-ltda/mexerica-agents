@@ -102,6 +102,8 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
         | "donnaConversations"
         | "donnaConversationHistory"
         | "donnaConversationRead"
+        | "sessions"
+        | "sessionCreate"
         | "stop"
         | "deleteBot"
         | "reorderBots" => true,
@@ -110,8 +112,11 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
                 && (matches!(caller, Caller::Local)
                     || ["skills", "skillSelection"].iter().all(|key| body.get(key).is_none()))
         }
-        // Só texto, na conversa principal do bot: sem anexos e sem sessão extra.
-        "send" => ["attachments", "sessionId"].iter().all(|key| body.get(key).is_none_or(Value::is_null)),
+        // Só texto: sem anexos; a aba (sessão extra) é indicada por 'sessionId' em texto e o Hub confere bot e estado.
+        "send" => {
+            body.get("attachments").is_none_or(Value::is_null)
+                && body.get("sessionId").is_none_or(|id| id.is_null() || id.is_string())
+        }
         _ if crate::fork::engine_setup::open_login_method(method) => true,
         _ => false,
     }
@@ -189,7 +194,22 @@ mod tests {
         assert!(open_allows(&Caller::Local, "send", &json!({"text": "oi"})));
         assert!(open_allows(&Caller::Local, "send", &json!({"attachments": null, "sessionId": null})));
         assert!(!open_allows(&Caller::Local, "send", &json!({"attachments": ["arquivo"]})));
-        assert!(!open_allows(&Caller::Local, "send", &json!({"sessionId": "extra"})));
+        assert!(open_allows(&Caller::Local, "send", &json!({"sessionId": "extra", "text": "oi"})));
+        assert!(!open_allows(&Caller::Local, "send", &json!({"sessionId": ["extra"]})));
+        assert!(!open_allows(&Caller::Local, "send", &json!({"sessionId": "extra", "attachments": ["arquivo"]})));
+        for method in ["sessions", "sessionCreate"] {
+            assert!(open_allows(&Caller::Local, method, &json!({"botId": "b"})), "{method}");
+        }
+        for method in [
+            "sessionClose",
+            "sessionContinue",
+            "sessionRename",
+            "sessionEngineSet",
+            "sessionDelete",
+            "sessionAutoCloseConfig",
+        ] {
+            assert!(!open_allows(&Caller::Local, method, &json!({"botId": "b"})), "{method} continua fechado na Open");
+        }
     }
 
     const ROTINAS: [&str; 9] = [

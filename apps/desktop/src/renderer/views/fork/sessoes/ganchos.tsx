@@ -2,7 +2,7 @@ import { spaceAllows } from '../../../lib/fork-space-capabilities'
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import { isGroup, type Bot } from '@shared/models'
 import { useModel } from '../../../lib/observable'
-import type { BotStore } from '../../../store/bot-store'
+import type { BotStore, SendOptions } from '../../../store/bot-store'
 import type { SessionFailure, SessionFailureNotice, SidePanelTab } from '../../../store/fork-sessions'
 import type { ChaveTexto } from '../../../lib/fork-i18n/index.ts'
 import { superficieIdioma, useIdioma, useT } from '../../../lib/fork-i18n/estado.ts'
@@ -50,6 +50,27 @@ export function useNewSession(store: BotStore, chat: Bot | null, open: (sessionI
     // Abre a aba devolvida só se esta conversa ainda está na tela; nada é enviado. D527: `onFail` (o "+" do cartão
     // pega o foco de volta) só com a conversa ainda na tela.
     run: (onFail) => { void model.create(chatId).then((r) => { if (!alive.current) return; if (r.ok) openRef.current(r.session.id); else onFail?.() }) },
+  }
+}
+
+/**
+ * `/nova-aba <texto>`: cria a sessão, abre a aba e envia o texto nela (a intenção é capturada só depois de a lista
+ * conhecer a sessão nova). Mesma exigência de `create` e `send` do "+"; devolve false se nada foi criado, para o
+ * compositor devolver o texto à caixa.
+ */
+export function useNewTab(store: BotStore, chat: Bot | null, open: (sessionId: string) => void): ((text: string, options: SendOptions) => Promise<boolean>) | null {
+  const model = useModel(store.sessions)
+  if (!extrasAllowed(store, chat) || !model.can(chat.id, 'create') || !model.can(chat.id, 'send')) return null
+  const chatId = chat.id
+  return async (text, options) => {
+    const created = await model.create(chatId)
+    if (!created.ok) return false
+    open(created.session.id)
+    if (!text) return true
+    const session = model.intent(chatId, created.session.id)
+    if (session === null) model.fail(chatId, created.session.id, 'unsupported')
+    else store.send(text, chatId, { ...options, session })
+    return true
   }
 }
 
