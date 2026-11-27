@@ -4,6 +4,8 @@
 use crate::store::BotConfig;
 use serde_json::Value;
 use std::fmt::Write as _;
+use std::fs::File;
+use std::io::Read as _;
 use std::path::PathBuf;
 
 const MAX_TEXT_FILE: usize = 200 * 1024;
@@ -33,8 +35,14 @@ pub(crate) fn prepare(cfg: &BotConfig, attachments: &Value, text: &str) -> (Stri
         let size = std::fs::metadata(&path).map_or(u64::MAX, |m| m.len());
         let size = usize::try_from(size).unwrap_or(usize::MAX);
         let content = (size <= MAX_TEXT_FILE && used.saturating_add(size) <= MAX_TEXT_TOTAL)
-            .then(|| std::fs::read(&path).ok().and_then(|bytes| String::from_utf8(bytes).ok()))
-            .flatten();
+            .then(|| {
+                let mut bytes = Vec::new();
+                File::open(&path).ok()?.take(MAX_TEXT_FILE as u64 + 1).read_to_end(&mut bytes).ok()?;
+                let text = (bytes.len() <= MAX_TEXT_FILE && !bytes.contains(&0)).then_some(bytes)?;
+                String::from_utf8(text).ok()
+            })
+            .flatten()
+            .filter(|content| used.saturating_add(content.len()) <= MAX_TEXT_TOTAL);
         match content {
             Some(content) => {
                 used += content.len();

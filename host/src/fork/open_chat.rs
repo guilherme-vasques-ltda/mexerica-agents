@@ -257,8 +257,14 @@ pub(crate) fn run(
 ) {
     let hub = hub.clone();
     let instructions = instructions(&hub, cfg);
-    let attachments = hub.store.entry(&entry.0).map(|e| e.data["attachments"].clone()).unwrap_or_default();
-    let (text, images) = crate::fork::open_chat_anexos::prepare(cfg, &attachments, text);
+    let attachments = hub.store.entry(&entry.0).map_or_else(
+        || {
+            tracing::warn!("open turn entry missing; sending without attachments");
+            Value::Null
+        },
+        |e| e.data["attachments"].clone(),
+    );
+    let (cfg, text) = (cfg.clone(), text.to_owned());
     tokio::spawn(async move {
         let (entry_id, authority) = entry;
         let Ticket { bot, account, directory, model, mut cancel, done } = ticket;
@@ -279,6 +285,14 @@ pub(crate) fn run(
             crate::fork::open_chat_fila::finish(&hub, &bot);
             return;
         }
+        let Ok((text, images)) =
+            tokio::task::spawn_blocking(move || crate::fork::open_chat_anexos::prepare(&cfg, &attachments, &text))
+                .await
+        else {
+            mark_unsent(&hub, &entry_id, "open_chat_failed", &account);
+            crate::fork::open_chat_fila::finish(&hub, &bot);
+            return;
+        };
         hub.set_runtime(&bot, |r| {
             r.status = BotStatus::Working;
             r.lane = Some(lane.clone());
