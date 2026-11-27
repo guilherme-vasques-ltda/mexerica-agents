@@ -224,6 +224,19 @@
 .cs-remover-linha {
   flex: none;
 }
+/* Internas: só leitura, sem botão; a linha não reage ao ponteiro. */
+.cs-internas {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.cs-internas .cs-linha {
+  gap: 12px;
+  padding: 8px 6px 8px 8px;
+}
+.cs-internas .cs-linha:hover {
+  background: none;
+}
 /* Lixeira sem ação (conteúdo que não confere, ou pedido incerto ainda não conferido): o motivo está no
    selo/aviso da linha e no `title`. Removendo… (aria-busy) mantém a aparência normal. */
 .cs-remover-linha[aria-disabled='true']:not([aria-busy='true']) {
