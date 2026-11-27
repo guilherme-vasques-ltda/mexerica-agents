@@ -2,9 +2,9 @@
 //! DONNA Bot, 2026-11-04: prazo privado do Bearer real na última entrega Hub,
 //! depois da guarda completa; sem mudar autoridade, cache ou contrato público.
 use super::runtime;
-use crate::fork::conectores::{oauth_binding, oauth_runtime::RuntimeIntent};
+use crate::fork::conectores::{catalogo_local, oauth_binding, oauth_runtime::RuntimeIntent};
 use crate::{LockExt, hub::Hub};
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Result, anyhow, bail, ensure};
 use serde_json::{Value, json};
 use std::sync::Arc;
 
@@ -17,7 +17,13 @@ pub(super) async fn call(
     bridge: Option<&str>,
     namespace: &str,
 ) -> Result<Value> {
-    let method = body["method"].as_str().ok_or_else(|| anyhow!("Método MCP obrigatório"))?;
+    let local = super::catalog_local(body);
+    let acquire = local && action == "donnaGuardRuntime" && body["method"].is_null();
+    let method = if acquire {
+        "initialize"
+    } else {
+        body["method"].as_str().ok_or_else(|| anyhow!("Método MCP obrigatório"))?
+    };
     let intent = if action == "donnaGuardRuntime" {
         RuntimeIntent::capture(hub, id, connector, method)?
     } else {
@@ -36,6 +42,29 @@ pub(super) async fn call(
     }
     // Captura03b antes do primeiro await, sobre a mesma execução do RuntimeIntent.
     crate::fork::spaces::connector_context::check(hub, id, body, intent.execution())?;
+    if local && intent.late_notification() && runtime::snapshot(namespace, connector, id, Some(bridge)).is_none() {
+        bail!("Lease MCP local indisponível");
+    }
+    let mut local_snapshot = None;
+    if local && !intent.late_notification() {
+        crate::market::vault::unlock(hub.clone()).await?;
+        let saved = intent.snapshot(hub)?;
+        let artifact = catalogo_local::da_conta(&saved).ok_or_else(|| anyhow!("Artefato MCP não fixado"))?;
+        ensure!(crate::market::ferramentas::politica(&saved)?.is_some(), "Ficha MCP local indisponível");
+        ensure!(saved.oauth.as_ref().is_none_or(|o| o.signed_in()), "Login MCP local indisponível");
+        let fingerprint = runtime::remote_fingerprint(&saved);
+        if acquire {
+            oauth_binding::check_runtime(hub, &saved, &intent, || Ok(()))?;
+            runtime::remember(namespace, connector, id, bridge, &[]);
+            runtime::bind_remote(namespace, connector, id, bridge, &fingerprint);
+            return Ok(json!({"artefato":artifact.id(),"bridgeId":bridge}));
+        }
+        ensure!(
+            runtime::remote_matches(namespace, connector, id, bridge, &fingerprint),
+            "Lease MCP local indisponível ou alterada"
+        );
+        local_snapshot = Some((saved, fingerprint));
+    }
     // Marketplace, fatia 2: o fornecedor avisou que a lista de ferramentas mudou. A decisão antiga deixa de valer
     // antes de qualquer outra coisa, mesmo que a observação seguinte seja retida: nada passa até uma lista nova.
     if action == "donnaGuardObserve"
@@ -49,6 +78,36 @@ pub(super) async fn call(
         }
     }
     if action == "donnaGuardRuntime" {
+        if let Some((saved, _)) = local_snapshot {
+            if !matches!(method, "initialize" | "ping" | "tools/list" | "tools/call" | "notifications/initialized") {
+                return Ok(json!({"ruleDenied":true}));
+            }
+            if let Some(context) = &context {
+                let _boundary = hub.store.memory_boundary.locked();
+                intent.validate_live(hub)?;
+                intent.validate_db(&hub.store.db.locked())?;
+                if super::chamada_recusada(hub, context, Some(&saved), method, &body["params"]) {
+                    return Ok(json!({"ruleDenied":true}));
+                }
+            }
+            oauth_binding::check_runtime(hub, &saved, &intent, || Ok(()))?;
+            if method == "tools/list" {
+                let request = body["requestId"]
+                    .as_str()
+                    .filter(|id| uuid::Uuid::parse_str(id).is_ok())
+                    .ok_or_else(|| anyhow!("Pedido de descoberta local inválido"))?;
+                let generation = crate::market::ferramentas::geracao(&hub.store, connector)?;
+                runtime::local_discovery(
+                    namespace,
+                    connector,
+                    id,
+                    bridge,
+                    request,
+                    Some((generation, !body["params"]["cursor"].is_null())),
+                )?;
+            }
+            return Ok(json!({"valid":true}));
+        }
         if context.is_none()
             && !matches!(
                 method,
@@ -72,6 +131,7 @@ pub(super) async fn call(
         crate::market::vault::unlock(hub.clone()).await?;
         crate::fork::spaces::connector_context::check(hub, id, body, intent.execution())?;
         let saved = intent.snapshot(hub)?;
+        ensure!(!catalogo_local::reservado(&saved), "Conta MCP local não usa transporte HTTP");
         if !matches!(method, "initialize" | "ping" | "tools/list" | "tools/call" | "notifications/initialized")
             && crate::market::contas::tipo_da_conta(&saved)?.is_some_and(|tipo| tipo.exige_filtro(&saved.liberacoes))
         {
@@ -163,17 +223,7 @@ pub(super) async fn call(
             let _boundary = hub.store.memory_boundary.locked();
             intent.validate_live(hub)?;
             intent.validate_db(&hub.store.db.locked())?;
-            match crate::fork::rules::mcp::check(&hub.store, &context.bot, &context.connector, method, &body["params"])
-            {
-                Ok(false) => {}
-                Ok(true) => return Ok(json!({"ruleDenied":true})),
-                Err(error) => {
-                    tracing::error!(%error, "política MCP indisponível; chamada recusada");
-                    return Ok(json!({"ruleDenied":true}));
-                }
-            }
-            // Marketplace, fatia 2: ação perigosa, ferramenta nova ou alterada só passa ligada pela pessoa neste bot.
-            if crate::market::ferramentas::recusar_chamada(&hub.store, &context.bot, &saved, method, &body["params"]) {
+            if super::chamada_recusada(hub, context, Some(&saved), method, &body["params"]) {
                 return Ok(json!({"ruleDenied":true}));
             }
         }
@@ -181,24 +231,52 @@ pub(super) async fn call(
     }
     if intent.late_notification() {
         let secrets = runtime::snapshot(namespace, connector, id, Some(bridge));
-        return super::observe(hub, &intent, body, secrets.as_deref().map(Vec::as_slice), "http");
+        return super::observe(
+            hub,
+            &intent,
+            body,
+            secrets.as_deref().map(Vec::as_slice),
+            if local { "catalog-local" } else { "http" },
+        );
     }
-    let saved = intent.snapshot(hub)?;
-    let fingerprint = runtime::remote_fingerprint(&saved);
+    let (saved, fingerprint) = match local_snapshot {
+        Some(local) => local,
+        None => {
+            let saved = intent.snapshot(hub)?;
+            ensure!(!catalogo_local::reservado(&saved), "Conta MCP local não usa transporte HTTP");
+            let fingerprint = runtime::remote_fingerprint(&saved);
+            (saved, fingerprint)
+        }
+    };
     if !runtime::remote_matches(namespace, connector, id, bridge, &fingerprint) {
         bail!("Retorno de configuração remota antiga retido");
     }
     let secrets = runtime::snapshot(namespace, connector, id, Some(bridge));
-    let mut result = super::observe(hub, &intent, body, secrets.as_deref().map(Vec::as_slice), "http")?;
+    let mut result = super::observe(
+        hub,
+        &intent,
+        body,
+        secrets.as_deref().map(Vec::as_slice),
+        if local { "catalog-local" } else { "http" },
+    )?;
     if method == "tools/list" {
         // Marketplace, fatia 2: o digest sai do frame original; o que a conta não pode usar não chega ao bot.
-        let geracao = crate::market::ferramentas::encerrar_descoberta(bridge, connector);
+        let (geracao, params) = if local {
+            let request = body["requestId"]
+                .as_str()
+                .filter(|id| body["frame"]["id"] == *id)
+                .ok_or_else(|| anyhow!("Resposta de descoberta local inválida"))?;
+            let (generation, paginated) = runtime::local_discovery(namespace, connector, id, bridge, request, None)?;
+            (Some(generation), json!({"cursor":paginated.then_some(true)}))
+        } else {
+            (crate::market::ferramentas::encerrar_descoberta(bridge, connector), body["params"].clone())
+        };
         match &context {
             Some(context) => crate::market::ferramentas::filtrar_lista(
                 &hub.store,
                 &context.bot,
                 &saved,
-                &body["params"],
+                &params,
                 &body["frame"],
                 &mut result,
                 geracao,
@@ -208,11 +286,24 @@ pub(super) async fn call(
                     crate::market::ferramentas::registrar_descoberta(
                         &hub.store,
                         &saved,
-                        &body["params"],
+                        &params,
                         &body["frame"],
                         &result,
                         geracao,
                     )?;
+                    if local {
+                        ensure!(
+                            crate::market::ferramentas::lista_completa(&params, &body["frame"])
+                                && geracao == Some(crate::market::ferramentas::geracao(&hub.store, connector)?),
+                            "Descoberta MCP local incompleta ou alterada"
+                        );
+                        let permitidas = crate::market::contas::ferramentas_da_conta(&saved)?
+                            .ok_or_else(|| anyhow!("Lista de ferramentas MCP local ausente"))?;
+                        let tools = result["message"]["result"]["tools"]
+                            .as_array_mut()
+                            .ok_or_else(|| anyhow!("Inventário MCP local indisponível"))?;
+                        tools.retain(|tool| tool["name"].as_str().is_some_and(|name| permitidas.contains(name)));
+                    }
                 }
             }
         }

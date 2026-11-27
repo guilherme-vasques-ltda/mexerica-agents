@@ -203,7 +203,7 @@ pub(crate) fn conectar_em(
         command: None,
         args: vec![],
         env: std::collections::BTreeMap::default(),
-        url: Some(tipo.url_efetiva(&liberacoes).to_owned()),
+        url: (tipo.tipo != catalogo::Tipo::Local).then(|| tipo.url_efetiva(&liberacoes).to_owned()),
         headers: std::collections::BTreeMap::default(),
         oauth: None,
         oauth_binding: None,
@@ -277,7 +277,11 @@ pub(crate) fn tipo_da_conta(c: &Connector) -> Result<Option<&'static TipoConexao
         .and_then(|ficha| ficha.tipo(tipo))
         .ok_or_else(|| anyhow!("ficha_indisponivel: a ficha dessa conta não está mais no catálogo."))?;
     ensure!(
-        c.url.as_deref() == Some(tipo.url_efetiva(&c.liberacoes)),
+        if tipo.tipo == catalogo::Tipo::Local {
+            crate::fork::conectores::catalogo_local::da_conta(c).is_some()
+        } else {
+            c.url.as_deref() == Some(tipo.url_efetiva(&c.liberacoes))
+        },
         "ficha_indisponivel: o endereço da conta não confere com a ficha."
     );
     Ok(Some(tipo))
