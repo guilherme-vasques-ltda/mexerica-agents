@@ -357,9 +357,7 @@ pub(crate) async fn routine_turn(
         result.map(|()| reply.text)
     }
     .await;
-    if let Some(running) = RUNNING.locked().as_mut() {
-        running.remove(&bot);
-    }
+    crate::fork::open_chat_fila::finish(hub, &bot);
     drop(done);
     outcome
 }

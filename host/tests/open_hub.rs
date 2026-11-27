@@ -406,7 +406,9 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
         "installConnector",
         "importConnectors",
         "connectorVerify",
-        "saveRoutine",
+        "routineWebhook",
+        "routineCall",
+        "duplicateRoutine",
         "credentialSaveLogin",
         "donnaEngineAccountUsage",
         "donnaEngineFallback",
@@ -426,6 +428,16 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
             "{method} must be rejected by the Open API"
         );
     }
+    let webhook = json!({"botId": berga, "name": "Fixture", "instruction": "Fixture", "schedule": {"kind": "webhook"}});
+    let status = session_client
+        .post("http://localhost/api/saveRoutine")
+        .bearer_auth(&credential)
+        .json(&webhook)
+        .send()
+        .await
+        .unwrap()
+        .status();
+    assert!(!status.is_success(), "a webhook routine must be refused by the Open API, got {status}");
     let stream = session_client.get("http://localhost/events").bearer_auth(&credential).send().await.unwrap();
     assert_eq!(stream.status(), reqwest::StatusCode::OK);
     close_stdin(&mut child).await;
