@@ -74,8 +74,9 @@ coluna; índice `UNIQUE` novo (a versão anterior pode tentar gravar um valor re
 descarta por não reconhecer.
 
 1. **Primeiro a que lê.** A versão N passa a entender o formato novo ao lado do antigo e
-   continua gravando o antigo. Se a mudança apaga ou renomeia uma coluna, a versão N continua
-   gravando a coluna enquanto ela existir e também grava sem erro quando ela já saiu. Sai assim.
+   continua gravando o antigo. Se a mudança apaga, renomeia ou move um dado, enquanto o lugar
+   antigo e o novo existem a versão N grava nos dois, e grava sem erro quando o antigo já
+   saiu. Assim nenhuma das duas versões perde o que a outra gravou. Sai assim.
 2. **Depois a que grava.** Na versão seguinte, ela começa a gravar o formato novo. A anterior
    já sabe ler.
 
