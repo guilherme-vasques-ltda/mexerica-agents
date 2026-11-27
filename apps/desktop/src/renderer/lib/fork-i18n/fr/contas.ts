@@ -394,7 +394,7 @@ export const textos: Traducao<typeof fonte> = {
   "contas.apiDireta.estado.recusada": "Clé refusée",
   "contas.apiDireta.catalogoNaoProva": "La liste des modèles ne prouve ni le solde ni l'autorisation pour chaque modèle. L'accès ne se confirme qu'à la première conversation.",
   "contas.openModelo.titulo": "Modèle Codex",
-  "contas.openModelo.explica": "S'applique à Berga et aux bots qui n'ont pas encore choisi de modèle. Vous pourrez le changer plus tard, sous la zone de message.",
+  "contas.openModelo.explica": "S'applique à Berga et aux bots qui n'ont pas encore de moteur choisi. Vous pourrez le changer plus tard, sous la zone de message.",
   "contas.openModelo.padrao": "{modelo} (par défaut)",
   "contas.openModelo.usar": "Utiliser ce modèle",
   "contas.openModelo.aplicando": "Application…",

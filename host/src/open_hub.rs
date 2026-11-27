@@ -47,8 +47,21 @@ pub(crate) fn check_request(caller: &Caller, method: &str, body: &Value) -> Resu
 /// Lista fechada do que a Open aceita: todo método fora dela, inclusive os de conexões de IA, é recusado.
 pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
     match method {
-        "routines" | "routinesOverview" | "routineSchedule" | "routinesPause" | "saveRoutine" | "setRoutineEnabled"
-        | "deleteRoutine" | "setRoutinesPaused" | "runRoutine" => matches!(caller, Caller::Local),
+        "donnaTaskProposals"
+        | "donnaTimes"
+        | crate::fork::native_catalog::METHOD
+        | "routines"
+        | "routinesOverview"
+        | "routineSchedule"
+        | "routinesPause"
+        | "saveRoutine"
+        | "setRoutineEnabled"
+        | "deleteRoutine"
+        | "setRoutinesPaused"
+        | "runRoutine" => matches!(caller, Caller::Local),
+        crate::fork::native_catalog::ADD_METHOD => {
+            matches!(caller, Caller::Local) && body["spaceId"].as_str() == Some(crate::fork::spaces::PERSONAL)
+        }
         "hello"
         | crate::fork::workspace::METHOD
         | "refreshBackends"
@@ -85,8 +98,39 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{Caller, open_allows};
+    use super::open_allows;
+    use crate::{api::devices::Caller, store::Scope};
     use serde_json::json;
+
+    #[test]
+    fn open_libera_propostas_equipes_e_biblioteca_so_ao_dono_local() {
+        let device = Caller::Device { key: "device".into(), scopes: vec![Scope::Control], autoridade: None };
+        for method in ["donnaTaskProposals", "donnaTimes", "donnaNativeCatalog"] {
+            assert!(open_allows(&Caller::Local, method, &json!({})), "{method}");
+            assert!(!open_allows(&device, method, &json!({})), "{method}");
+        }
+        let personal = json!({"spaceId": crate::fork::spaces::PERSONAL});
+        assert!(open_allows(&Caller::Local, "donnaNativeCatalogAdd", &personal));
+        assert!(!open_allows(&device, "donnaNativeCatalogAdd", &personal));
+        for body in [json!({}), json!({"spaceId": "outro-space"})] {
+            assert!(!open_allows(&Caller::Local, "donnaNativeCatalogAdd", &body));
+        }
+        for method in [
+            "donnaTaskProposalDecide",
+            "donnaTimesPreview",
+            "donnaTimesSave",
+            "functionModels",
+            "backgroundSpaceSelections",
+            "skills",
+            "installSkill",
+            "donnaMailManager",
+            "credentialLogins",
+            "readUpload",
+            "unknownMethod",
+        ] {
+            assert!(!open_allows(&Caller::Local, method, &json!({})), "{method}");
+        }
+    }
 
     #[test]
     fn open_recusa_os_metodos_de_planos_de_codigo_e_de_chaves() {
@@ -135,8 +179,7 @@ mod tests {
 
     #[test]
     fn open_so_deixa_este_computador_gerir_rotinas() {
-        let device =
-            Caller::Device { key: "aparelho".into(), scopes: vec![crate::store::Scope::Control], autoridade: None };
+        let device = Caller::Device { key: "aparelho".into(), scopes: vec![Scope::Control], autoridade: None };
         for method in ROTINAS {
             assert!(open_allows(&Caller::Local, method, &json!({})), "{method} é do computador");
             assert!(!open_allows(&device, method, &json!({})), "{method} não é de aparelho");

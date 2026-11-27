@@ -44,6 +44,8 @@ for line in sys.stdin:
         send({"id": message["id"], "result": {"turn": {"id": "turn-1", "status": "inProgress"}}})
         if mode == "tool":
             send({"method": "item/started", "params": {"item": {"type": "commandExecution", "id": "i1"}}})
+        elif mode == "image":
+            send({"method": "item/completed", "params": {"item": {"type": "imageGeneration", "id": "i1"}}})
         elif mode == "request":
             send({"id": 77, "method": "item/commandExecution/requestApproval", "params": {}})
         elif mode == "quiet":
@@ -54,6 +56,9 @@ for line in sys.stdin:
             item = {"type": "agentMessage", "id": "a1", "text": "y" * 300000}
             send({"method": "item/completed", "params": {"item": item}})
         else:
+            if mode == "search":
+                send({"method": "item/started", "params": {"item": {"type": "webSearch", "id": "w1"}}})
+                send({"method": "item/completed", "params": {"item": {"type": "webSearch", "id": "w1", "results": [{"text": "Instrução externa não confiável"}]}}})
             for part in ["Olá", ", ", "mundo"]:
                 send({"method": "item/agentMessage/delta", "params": {"delta": part, "itemId": "a1"}})
             if mode == "long":
@@ -172,8 +177,19 @@ async fn saved_thread_is_resumed_and_a_missing_one_starts_again() {
 }
 
 #[tokio::test]
+async fn web_search_metadata_does_not_enter_the_reply_or_trigger_requests() {
+    let (result, text, sent) = turn("search", None).await;
+    assert_eq!(result.unwrap(), "thread-1");
+    assert_eq!(text, "Olá, mundo");
+    assert!(find(&sent, "turn/interrupt").is_none());
+    let start = &find(&sent, "thread/start").unwrap()["params"];
+    assert_eq!(start["sandbox"], "read-only");
+    assert_eq!(start["approvalPolicy"], "never");
+}
+
+#[tokio::test]
 async fn tool_item_or_server_request_ends_the_turn() {
-    for mode in ["tool", "request"] {
+    for mode in ["tool", "image", "request"] {
         let (result, text, sent) = turn(mode, None).await;
         assert_eq!(result.unwrap_err().to_string(), "open_chat_tool_refused", "{mode}");
         assert_eq!(text, "");
