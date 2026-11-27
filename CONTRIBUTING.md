@@ -60,14 +60,17 @@ outra trava. Por isso a regra é de quem escreve a mudança.
 
 Cabem em uma versão só, porque a anterior não percebe:
 
-- tabela, índice ou coluna nova que aceita vazio (`NULL`);
+- tabela nova;
+- coluna nova que aceita vazio (`NULL`), se a versão anterior não grava nessa tabela com
+  `INSERT` sem lista de colunas (esse `INSERT` falha com uma coluna a mais);
 - campo novo e opcional num JSON, quando quem lê o JSON antigo ignora campo que não conhece
-  (confira: struct com `#[serde(deny_unknown_fields)]` não ignora);
+  e não regrava esse JSON (confira: struct com `#[serde(deny_unknown_fields)]` não ignora,
+  e regravar por uma struct antiga descarta o campo);
 - um preenchimento único de campo novo, feito só quando o campo ainda não existe.
 
 Precisam de **duas versões** as mudanças com que a versão anterior falharia, perderia dado ou
 desfaria a mudança sem avisar: renomear ou mover tabela, coluna, arquivo ou pasta; apagar
-coluna; mudar o sentido de um campo que o código antigo usa; um valor que o código antigo
+coluna; índice `UNIQUE` novo (a versão anterior pode tentar gravar um valor repetido); mudar o sentido de um campo que o código antigo usa; um valor que o código antigo
 descarta por não reconhecer.
 
 1. **Primeiro a que lê.** A versão N passa a entender o formato novo ao lado do antigo e
