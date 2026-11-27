@@ -21,7 +21,7 @@ const GUIA: &[PassoDoGuia] = &[
 const LINKS: Links =
     Links { privacidade: "https://policies.google.com/privacy", termos: "https://policies.google.com/terms" };
 
-const AUTH: Auth = Auth::AppProprio { provedor: "google", emissor: EMISSOR, guia: GUIA };
+const AUTH: Auth = Auth::AppProprio { provedor: "google", emissor: EMISSOR, guia: GUIA, configuracao: None };
 
 macro_rules! escopo {
     ($nome:literal) => {

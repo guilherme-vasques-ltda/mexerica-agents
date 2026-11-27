@@ -21,6 +21,7 @@
 // Em 2026-11-06 (M3-C): PRM validado por candidato e resource preso à tentativa/concessão.
 use crate::LockExt;
 use crate::api::devices::Caller;
+use crate::fork::conectores::catalogo_servicos::{AppProprioConfig, Auth};
 use crate::fork::conectores::oauth_binding::{self as binding, Origin, StartIntent};
 use crate::fork::conectores::oauth_iss::Esperado;
 use crate::fork::conectores::oauth_refresh::{self, fresh};
@@ -50,6 +51,8 @@ pub struct OAuth {
     pub client_id: String,
     #[serde(default)]
     pub client_secret: Option<String>,
+    #[serde(default)]
+    pub(crate) client_secret_basic: bool,
     /// The redirect URIs `client_id` was registered with.
     #[serde(default)]
     pub redirect_uris: Vec<String>,
@@ -69,7 +72,7 @@ impl std::fmt::Debug for OAuth {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let oculto = |preenchido: bool| if preenchido { "<oculto>" } else { "<vazio>" };
         f.debug_struct("OAuth")
-            .field("client_id", &self.client_id)
+            .field("client_id", &oculto(!self.client_id.is_empty()))
             .field("client_secret", &oculto(self.client_secret.is_some()))
             .field("redirect_uris", &self.redirect_uris)
             .field("token_endpoint", &self.token_endpoint)
@@ -121,7 +124,7 @@ pub(crate) fn now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
-fn loopback_uri(port: u16) -> String {
+pub(crate) fn loopback_uri(port: u16) -> String {
     format!("http://127.0.0.1:{port}/oauth/callback")
 }
 
@@ -262,6 +265,54 @@ fn emissor_fixado(documento: &Value, emissor: &str) -> Result<String> {
     Ok(emissor.to_owned())
 }
 
+fn cliente_da_ficha(
+    config: AppProprioConfig,
+    resource: &str,
+    meta: &Value,
+    authorize: &str,
+    token: &str,
+) -> Result<bool> {
+    anyhow::ensure!(resource == config.recurso, oauth_resource::ERRO);
+    anyhow::ensure!(authorize == config.autorizacao && token == config.token, urls::METADADOS);
+    let Some(metodos) = meta.get("token_endpoint_auth_methods_supported") else {
+        return Ok(true);
+    };
+    let metodos = metodos
+        .as_array()
+        .filter(|metodos| metodos.iter().all(Value::is_string))
+        .ok_or_else(|| anyhow!(urls::METADADOS))?;
+    let tem = |metodo| metodos.iter().any(|m| m.as_str() == Some(metodo));
+    anyhow::ensure!(tem("client_secret_basic") || tem("client_secret_post"), urls::METADADOS);
+    Ok(tem("client_secret_basic"))
+}
+
+#[cfg(test)]
+#[test]
+fn app_proprio_exige_recurso_endpoints_e_autenticacao_anunciados() {
+    let tipo = &crate::fork::conectores::catalogo_servicos::fixture_app_proprio().tipos[0];
+    let Auth::AppProprio { configuracao: Some(config), .. } = tipo.auth else { panic!("fixture") };
+    let meta = json!({"token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post"]});
+    let metodo = |meta: &Value| cliente_da_ficha(config, config.recurso, meta, config.autorizacao, config.token);
+    assert!(metodo(&meta).unwrap());
+    assert!(metodo(&json!({})).unwrap(), "RFC 8414: omitido tem default client_secret_basic");
+    assert!(!metodo(&json!({"token_endpoint_auth_methods_supported": ["client_secret_post"]})).unwrap());
+    for ruim in [json!(null), json!(["none"]), json!(["client_secret_basic", 42])] {
+        assert!(metodo(&json!({"token_endpoint_auth_methods_supported": ruim})).is_err());
+    }
+    assert!(
+        cliente_da_ficha(config, "https://servico.example.invalid/mcp/", &meta, config.autorizacao, config.token)
+            .is_err()
+    );
+    assert!(
+        cliente_da_ficha(config, config.recurso, &meta, config.autorizacao, "https://outro.example.invalid/token")
+            .is_err()
+    );
+    assert!(
+        cliente_da_ficha(config, config.recurso, &meta, "https://outro.example.invalid/authorize", config.token)
+            .is_err()
+    );
+}
+
 /// Starts signing in to connector `id`: the page to open.
 pub(crate) async fn start(hub: &Arc<Hub>, intent: StartIntent, callback: Callback) -> Result<Value> {
     let store = &hub.store;
@@ -283,9 +334,16 @@ pub(crate) async fn start(hub: &Arc<Hub>, intent: StartIntent, callback: Callbac
     let (origin, c) = intent.begin(hub)?;
     // Conta com o app OAuth da própria pessoa (Google): o servidor de login é o que a ficha fixa, não o que a descoberta
     // disser, e não há cadastro automático (o ID e a chave são os do app dela).
-    let proprio = market::contas::emissor_proprio(&c)?;
+    let proprio = market::contas::auth_proprio(&c)?;
+    let google = matches!(proprio, Some(Auth::AppProprio { provedor: "google", configuracao: None, .. }));
     // O Google só volta pelo loopback (do app ou do Hub): a página da nuvem nunca recebe o código do app próprio.
-    anyhow::ensure!(proprio.is_none() || callback != Callback::App, "{APP_PROPRIO_SO_LOOPBACK}");
+    if proprio.is_some() && callback == Callback::App {
+        bail!(if google {
+            APP_PROPRIO_SO_LOOPBACK
+        } else {
+            "O login com app próprio exige retorno neste computador."
+        });
+    }
     let url = c.url.clone().ok_or_else(|| anyhow!("Conector remoto indisponível para entrar."))?;
     let conector = urls::conector(&url)?;
     let scopes = if proprio.is_some() { Ok(None) } else { oauth_scopes::inicial(&url).await };
@@ -299,7 +357,12 @@ pub(crate) async fn start(hub: &Arc<Hub>, intent: StartIntent, callback: Callbac
     let issuer = match proprio {
         // O anúncio do recurso pode trazer uma barra final que o `issuer` dos metadados não tem: só isso se relevia, e o
         // emissor usado daqui em diante é o da ficha.
-        Some(emissor) => emissor_fixado(&resource.documento, emissor)?,
+        Some(Auth::AppProprio { emissor, .. }) if google => emissor_fixado(&resource.documento, emissor)?,
+        Some(Auth::AppProprio { emissor, .. }) => {
+            anyhow::ensure!(resource.documento["authorization_servers"][0].as_str() == Some(*emissor), urls::EMISSOR);
+            (*emissor).to_owned()
+        }
+        Some(_) => bail!(urls::EMISSOR),
         None => resource.documento["authorization_servers"][0]
             .as_str()
             .map_or_else(|| split(&url).map(|(origin, _)| origin), |s| Ok(s.to_owned()))?,
@@ -312,6 +375,24 @@ pub(crate) async fn start(hub: &Arc<Hub>, intent: StartIntent, callback: Callbac
     let iss = Esperado::capturar(&issuer, &meta)?;
     let authorize = text(&meta["authorization_endpoint"]).ok_or_else(|| anyhow!("no authorization endpoint"))?;
     let token_endpoint = text(&meta["token_endpoint"]).ok_or_else(|| anyhow!("no token endpoint"))?;
+    let app_da_ficha = if let Some(Auth::AppProprio { configuracao: Some(config), .. }) = proprio {
+        let basico = cliente_da_ficha(
+            *config,
+            &resource.resource,
+            &meta,
+            meta["authorization_endpoint"].as_str().unwrap_or_default(),
+            meta["token_endpoint"].as_str().unwrap_or_default(),
+        )?;
+        let app = market::google_app::AppDaFicha::resolver(
+            c.servico.as_deref().unwrap_or_default(),
+            c.tipo.as_deref().unwrap_or_default(),
+        )?
+        .ler(store, &c.space)?
+        .ok_or_else(|| anyhow!(market::google_app::APP_DA_FICHA_AUSENTE))?;
+        Some((app, basico))
+    } else {
+        None
+    };
     let mut link = urls::derivada(&conector, &authorize)?;
     let token_url = urls::derivada(&conector, &token_endpoint)?;
     anyhow::ensure!(
@@ -332,11 +413,17 @@ pub(crate) async fn start(hub: &Arc<Hub>, intent: StartIntent, callback: Callbac
     let wanted: Vec<String> = std::iter::once(loopback_uri(port)).chain(app).chain(desktop).collect();
     let mut oauth = c.oauth.clone().unwrap_or_default();
     let needs_registration = proprio.is_some() || !oauth_registration::reutilizavel(&c, &issuer, &wanted);
-    if proprio.is_some() {
+    if google {
         // O ID e a chave do app do Space vêm do cofre, a cada login (trocar o app não deixa cadastro antigo para trás).
         let app = market::google_app::para_a_conta(store, &c.space)?;
         oauth.client_id = app.client_id;
         oauth.client_secret = app.client_secret;
+        oauth.client_secret_basic = false;
+        oauth.redirect_uris = wanted;
+    } else if let Some((app, basico)) = app_da_ficha {
+        oauth.client_id = app.client_id;
+        oauth.client_secret = Some(app.client_secret);
+        oauth.client_secret_basic = basico;
         oauth.redirect_uris = wanted;
     } else if needs_registration {
         let register = text(&meta["registration_endpoint"]).ok_or_else(|| anyhow!(oauth_registration::SEM_CADASTRO))?;
@@ -362,6 +449,7 @@ pub(crate) async fn start(hub: &Arc<Hub>, intent: StartIntent, callback: Callbac
         let v = response.unwrap_or(Value::Null);
         oauth.client_id = text(&v["client_id"]).ok_or_else(|| anyhow!(urls::CADASTRO))?;
         oauth.client_secret = text(&v["client_secret"]);
+        oauth.client_secret_basic = false;
         oauth.redirect_uris = wanted;
     }
     oauth.token_endpoint = token_endpoint;
@@ -393,7 +481,7 @@ pub(crate) async fn start(hub: &Arc<Hub>, intent: StartIntent, callback: Callbac
             .append_pair("code_challenge", &challenge)
             .append_pair("code_challenge_method", "S256")
             .append_pair("state", &state);
-        if proprio.is_none() {
+        if !google {
             q.append_pair("resource", &resource.resource);
         } else {
             // Sem `offline` e `consent` o Google não devolve o refresh token, e o login expiraria em uma hora.
@@ -416,7 +504,7 @@ pub(crate) async fn start(hub: &Arc<Hub>, intent: StartIntent, callback: Callbac
                 verifier,
                 redirect_uri,
                 resource: resource.resource,
-                enviar_resource: proprio.is_none(),
+                enviar_resource: !google,
                 iss,
                 started: Instant::now(),
             },
@@ -455,8 +543,8 @@ pub(crate) async fn finish(
     binding::check(store, &p.snapshot, Some((hub, &p.origin)), || Ok(()))?;
     // M3-B: antes de usar o código ou mostrar qualquer erro vindo do retorno.
     p.iss.conferir(iss)?;
-    if let Some(error) = error {
-        bail!("O login não foi concluído: {error}");
+    if error.is_some() {
+        bail!("O login não foi concluído. Inicie o login novamente.");
     }
     let code = code.ok_or_else(|| anyhow!("O login não devolveu o código de acesso"))?;
     let oauth = p.snapshot.oauth.as_ref().ok_or_else(|| anyhow!("unknown connector"))?;
@@ -515,27 +603,58 @@ pub(crate) async fn finish(
 
 /// Transporte separado da classificação OAuth; erros não carregam URL/query ou corpo externo.
 pub(crate) async fn token_post(oauth: &OAuth, form: &[(&str, &str)]) -> Result<(reqwest::StatusCode, Value)> {
-    let mut form: Vec<(&str, &str)> = form.to_vec();
-    form.push(("client_id", &oauth.client_id));
-    if let Some(secret) = &oauth.client_secret {
-        form.push(("client_secret", secret));
-    }
-    let body = form.iter().map(|(k, v)| format!("{}={}", encode(k), encode(v))).collect::<Vec<_>>().join("&");
     let retry = || anyhow!("Não foi possível renovar a conexão agora. Tente novamente em instantes.");
-    let res = urls::cliente()
-        .map_err(|_| retry())?
-        .post(&oauth.token_endpoint)
-        .header("content-type", "application/x-www-form-urlencoded")
-        .header("accept", "application/json")
-        .body(body)
-        .timeout(TIMEOUT)
-        .send()
-        .await
-        .map_err(|_| retry())?;
+    let res = token_request(oauth, form)?.send().await.map_err(|_| retry())?;
     // 3xx volta como `Ok`: `classify` recusa sem fallback; o `Location` nunca é seguido.
     let status = res.status();
     let v: Value = res.json().await.unwrap_or(Value::Null);
     Ok((status, v))
+}
+
+fn token_request(oauth: &OAuth, form: &[(&str, &str)]) -> Result<reqwest::RequestBuilder> {
+    let retry = || anyhow!("Não foi possível renovar a conexão agora. Tente novamente em instantes.");
+    let mut form: Vec<(&str, &str)> = form.to_vec();
+    let mut req = urls::cliente().map_err(|_| retry())?.post(&oauth.token_endpoint);
+    if oauth.client_secret_basic {
+        let secret = oauth.client_secret.as_deref().filter(|s| !s.is_empty()).ok_or_else(retry)?;
+        req = req.basic_auth(encode(&oauth.client_id), Some(encode(secret)));
+    } else {
+        form.push(("client_id", &oauth.client_id));
+        if let Some(secret) = &oauth.client_secret {
+            form.push(("client_secret", secret));
+        }
+    }
+    let body = form.iter().map(|(k, v)| format!("{}={}", encode(k), encode(v))).collect::<Vec<_>>().join("&");
+    Ok(req
+        .header("content-type", "application/x-www-form-urlencoded")
+        .header("accept", "application/json")
+        .body(body)
+        .timeout(TIMEOUT))
+}
+
+#[cfg(test)]
+#[test]
+fn app_proprio_envia_credencial_em_um_unico_metodo_de_autenticacao() {
+    let mut cliente = OAuth {
+        client_id: "fixture:id".into(),
+        client_secret: Some("fixture+secret".into()),
+        token_endpoint: "https://auth.example.invalid/token".into(),
+        client_secret_basic: true,
+        ..Default::default()
+    };
+    let form = [("grant_type", "refresh_token"), ("resource", "https://servico.example.invalid/mcp")];
+    let request = token_request(&cliente, &form).unwrap().build().unwrap();
+    let header = request.headers().get(reqwest::header::AUTHORIZATION).unwrap();
+    assert!(header.is_sensitive());
+    assert!(header.to_str().unwrap().starts_with("Basic "));
+    let body = |r: &reqwest::Request| String::from_utf8(r.body().unwrap().as_bytes().unwrap().to_vec()).unwrap();
+    assert!(!body(&request).contains("client_"));
+    assert!(body(&request).contains("resource="));
+
+    cliente.client_secret_basic = false;
+    let request = token_request(&cliente, &form).unwrap().build().unwrap();
+    assert!(!request.headers().contains_key(reqwest::header::AUTHORIZATION));
+    assert!(body(&request).contains("client_id=fixture%3Aid&client_secret=fixture%2Bsecret"));
 }
 
 fn encode(s: &str) -> String {

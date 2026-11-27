@@ -513,6 +513,19 @@ Todos os métodos aceitam `spaceId` (o Space atual; sem ele, Pessoal); erros sã
 
 Códigos de recusa: `nome_obrigatorio`, `nome_primeira_obrigatorio`, `nome_repetido`, `nome_invalido`, `ficha_vencida`, `servico_desconhecido`, `tipo_desconhecido`, `tipo_indisponivel`, `liberacao_desconhecida`, `liberacao_indisponivel`, `liberacao_obrigatoria`, `conta_de_outro_space`, `conta_padrao_invalida`, `ficha_indisponivel`, `ligar_e_desligar`, `principal_sem_contas`, `app_proprio_ausente`, `app_google_invalido`, `cofre_trancado`. O bot ganha `contaPadrao` e `perguntarConta` (`MIRROR_SCHEMA` 49).
 
+### Fichas com app OAuth próprio
+
+Uma ficha JSON pode usar `auth.modo: "app_proprio"` quando o fornecedor aceita um cliente confidencial criado pela
+pessoa. A ficha fixa o emissor, o recurso e os endpoints de autorização e token que devem coincidir exatamente com os
+metadados; o Hub exige PKCE S256 e não segue redirecionamentos HTTP na troca do token. Não há cadastro dinâmico nesse modo.
+
+O catálogo entrega o link oficial de cadastro, os endereços locais de retorno e o estado do app em
+`appsProprios[tipo.id]`. O dono informa ID e chave no cartão seguro. `marketAppProprioSalvar` recebe
+`{servico, tipo, spaceId?, clientId, clientSecret}`; `marketAppProprioRemover` recebe
+`{servico, tipo, spaceId?}`. As respostas trazem só `{configurado}`. O ID e a chave ficam no cofre do Hub,
+separada por Space, ficha, tipo e emissor. Troca ou remoção encerra os logins desse tipo no Space, sem revogar
+o app no fornecedor. A edição Open não mostra nem permite esse jeito de conectar.
+
 ### Google direto com o app OAuth da própria pessoa
 
 Gmail, Agenda, Drive, Docs e Planilhas conectam **com o app OAuth que a própria pessoa cria no Google Cloud**. Nenhum ID de

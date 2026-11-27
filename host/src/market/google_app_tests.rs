@@ -67,6 +67,42 @@ fn tudo_em_claro(hub: &Hub) -> String {
 }
 
 #[tokio::test]
+async fn app_proprio_da_ficha_isola_space_e_encerra_apenas_os_logins_daquele_tipo() {
+    let hub = hub();
+    let store = &hub.store;
+    let ficha = crate::fork::conectores::catalogo_servicos::fixture_app_proprio();
+    let tipo = &ficha.tipos[0];
+    let app = google_app::AppDaFicha::novo(ficha, tipo).unwrap();
+    let outro = novo_space(&hub, "Outro").await;
+    let hoje = chrono::NaiveDate::parse_from_str(ficha.conferida_em, "%Y-%m-%d").unwrap();
+    let literal = pedido(ficha.id, tipo.id, PERSONAL);
+    assert!(erro(contas::conectar_em(store, ficha, &literal, hoje)).starts_with("app_da_ficha_ausente:"));
+    let salvo = app.escrever(store, PERSONAL, Some((ID, CHAVE))).unwrap();
+    assert_eq!(salvo, json!({"configurado": true}));
+    assert_eq!(app.publico(store, &outro).unwrap(), json!({"configurado": false}));
+    assert!(google_app::AppDaFicha::resolver("gmail", "gmail.oficial_app").is_err());
+    let claro = tudo_em_claro(&hub);
+    assert!(!claro.contains(CHAVE) && !claro.contains(ID));
+    for space in [PERSONAL, &outro] {
+        app.escrever(store, space, Some((ID, CHAVE))).unwrap();
+        contas::conectar_em(store, ficha, &pedido(ficha.id, tipo.id, space), hoje).unwrap();
+    }
+    update_connectors(store, |all| {
+        for c in all {
+            c.oauth = Some(oauth::OAuth { access_token: "fixture-access".into(), ..Default::default() });
+        }
+        Ok(())
+    })
+    .unwrap();
+    app.escrever(store, PERSONAL, None).unwrap();
+    for c in connectors(store).unwrap() {
+        assert_eq!(c.oauth.as_ref().unwrap().signed_in(), c.space == outro);
+    }
+    assert!(app.ler(store, PERSONAL).unwrap().is_none());
+    assert!(app.ler(store, &outro).unwrap().is_some());
+}
+
+#[tokio::test]
 async fn a_chave_secreta_nunca_sai_do_cofre() {
     let hub = hub();
     let store = &hub.store;
@@ -168,7 +204,14 @@ fn a_conta_google_nasce_so_leitura_com_o_endereco_e_os_escopos_da_ficha() {
         ["https://www.googleapis.com/auth/gmail.readonly"],
         "só os escopos dos grupos ligados"
     );
-    assert_eq!(contas::emissor_proprio(&conta).unwrap(), Some("https://accounts.google.com"));
+    assert!(matches!(
+        contas::auth_proprio(&conta).unwrap(),
+        Some(crate::fork::conectores::catalogo_servicos::Auth::AppProprio {
+            emissor: "https://accounts.google.com",
+            configuracao: None,
+            ..
+        })
+    ));
     // A escrita que pode apagar não liga; grupo inventado também não.
     for ruim in ["criar_editar", "admin"] {
         let mut p = pedido("google-agenda", "google-agenda.oficial_app", PERSONAL);
@@ -309,6 +352,7 @@ async fn registro_em_texto_claro_ou_de_outro_space_nunca_abre() {
 fn debug_do_oauth_nao_imprime_chave_nem_tokens() {
     let o = oauth::OAuth {
         client_id: "cliente-publico".into(),
+        client_secret_basic: false,
         client_secret: Some("chave-secreta-sintetica".into()),
         redirect_uris: vec!["http://127.0.0.1:1/oauth/callback".into()],
         token_endpoint: "https://oauth.exemplo.invalid/token".into(),
@@ -320,7 +364,7 @@ fn debug_do_oauth_nao_imprime_chave_nem_tokens() {
         for segredo in ["chave-secreta-sintetica", "token-de-acesso-sintetico", "token-de-renovacao-sintetico"] {
             assert!(!texto.contains(segredo), "{texto}");
         }
-        assert!(texto.contains("cliente-publico") && texto.contains("<oculto>"));
+        assert!(!texto.contains("cliente-publico") && texto.contains("<oculto>"));
     }
     assert!(format!("{:?}", oauth::OAuth::default()).contains("<vazio>"));
 }

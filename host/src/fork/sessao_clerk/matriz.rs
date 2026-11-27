@@ -176,6 +176,8 @@ pub(crate) const MATRIZ: &[(&str, Minimo)] = &[
     ("marketGoogleApp", Admin),
     ("marketGoogleAppRemover", Admin),
     ("marketGoogleAppSalvar", Admin),
+    ("marketAppProprioRemover", Admin),
+    ("marketAppProprioSalvar", Admin),
     ("marketConectar", Admin),
     ("marketContaDesconectar", Admin),
     ("marketContaRenomear", Admin),

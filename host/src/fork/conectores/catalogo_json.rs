@@ -2,7 +2,8 @@
 //! O arquivo tem o mesmo formato do que o catálogo entrega ao app. Ficha malformada nunca entra no catálogo: o
 //! erro é registrado e o serviço fica de fora (fail-closed); o teste do catálogo reprova esse caso.
 use super::catalogo_servicos::{
-    Auth, CATEGORIAS, Curada, Grupo, Imposicao, Links, Perigosa, Servico, SkillOficial, SkillRef, Tipo, TipoConexao,
+    AppProprioConfig, Auth, CATEGORIAS, Curada, Grupo, Imposicao, Links, Perigosa, Servico, SkillOficial, SkillRef,
+    Tipo, TipoConexao,
 };
 use serde::Deserialize;
 
@@ -145,37 +146,12 @@ struct TipoJson {
     motivo_indisponivel: Option<String>,
 }
 
-/// O bloco de login, como está no arquivo: recusa campo desconhecido como o resto da ficha, e cada `modo` só aceita os
-/// seus campos (um segredo de app colado por engano em `auth` tira a ficha do catálogo).
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct AuthBruto {
-    modo: String,
-    registro: Option<String>,
-    destino: Option<String>,
-    nome: Option<String>,
-    prefixo: Option<String>,
-    como_criar_leitura: Option<String>,
-}
-
-#[derive(Deserialize)]
-#[serde(try_from = "AuthBruto")]
+#[serde(tag = "modo", rename_all = "snake_case", rename_all_fields = "camelCase", deny_unknown_fields)]
 enum AuthJson {
     Oauth { registro: String },
     Chave { destino: String, nome: String, prefixo: Option<String>, como_criar_leitura: String },
-}
-
-impl TryFrom<AuthBruto> for AuthJson {
-    type Error = String;
-    fn try_from(b: AuthBruto) -> Result<Self, String> {
-        match (b.modo.as_str(), b.registro, b.destino, b.nome, b.prefixo, b.como_criar_leitura) {
-            ("oauth", Some(registro), None, None, None, None) => Ok(Self::Oauth { registro }),
-            ("chave", None, Some(destino), Some(nome), prefixo, Some(como_criar_leitura)) => {
-                Ok(Self::Chave { destino, nome, prefixo, como_criar_leitura })
-            }
-            _ => Err("auth inválido: o modo não combina com os campos".to_owned()),
-        }
-    }
+    AppProprio { emissor: String, cadastro: String, recurso: String, autorizacao: String, token: String },
 }
 
 #[derive(Deserialize)]
@@ -242,6 +218,22 @@ impl ServicoJson {
             if !tipo.id.starts_with(&self.id) {
                 return Err(format!("tipo `{}` não pertence à ficha `{}`", tipo.id, self.id));
             }
+            if let AuthJson::AppProprio { emissor, cadastro, recurso, autorizacao, token } = &tipo.auth {
+                use super::oauth_urls;
+                let seguro = |endereco: &String| {
+                    endereco.starts_with("https://")
+                        && !endereco.chars().any(|c| c.is_control() || c.is_whitespace())
+                        && oauth_urls::conector(endereco).is_ok()
+                };
+                if self.id == "google"
+                    || tipo.id.split_once('.').map(|(servico, _)| servico) != Some(self.id.as_str())
+                    || self.tipos.iter().filter(|t| t.id == tipo.id).count() != 1
+                    || ![emissor, cadastro, recurso, autorizacao, token].into_iter().all(seguro)
+                    || emissor.contains('?')
+                {
+                    return Err("endereços inválidos no app OAuth próprio".into());
+                }
+            }
             let curada_invalida = |g: &GrupoJson| {
                 g.curadas.iter().any(|c| {
                     !g.ferramentas.contains(&c.ferramenta)
@@ -282,7 +274,7 @@ impl ServicoJson {
             conferida_em: fixa(self.conferida_em),
             fontes: fixos(self.fontes),
             aviso: self.aviso.map(fixa),
-            tipos: lista(self.tipos.into_iter().map(TipoJson::fixar).collect()),
+            tipos: lista(self.tipos.into_iter().map(|tipo| tipo.fixar(id)).collect()),
             skills: lista(
                 self.skills
                     .into_iter()
@@ -306,7 +298,7 @@ impl ServicoJson {
 }
 
 impl TipoJson {
-    fn fixar(self) -> TipoConexao {
+    fn fixar(self, servico: &'static str) -> TipoConexao {
         TipoConexao {
             id: fixa(self.id),
             tipo: self.tipo,
@@ -315,6 +307,17 @@ impl TipoJson {
             url: fixa(self.url),
             auth: match self.auth {
                 AuthJson::Oauth { registro } => Auth::Oauth { registro: fixa(registro) },
+                AuthJson::AppProprio { emissor, cadastro, recurso, autorizacao, token } => Auth::AppProprio {
+                    provedor: servico,
+                    emissor: fixa(emissor),
+                    guia: &[],
+                    configuracao: Some(AppProprioConfig {
+                        cadastro: fixa(cadastro),
+                        recurso: fixa(recurso),
+                        autorizacao: fixa(autorizacao),
+                        token: fixa(token),
+                    }),
+                },
                 AuthJson::Chave { destino, nome, prefixo, como_criar_leitura } => Auth::Chave {
                     destino: fixa(destino),
                     nome: fixa(nome),

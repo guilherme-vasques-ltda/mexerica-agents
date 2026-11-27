@@ -246,8 +246,16 @@ fn same_config(a: &Connector, b: &Connector) -> bool {
 }
 
 /// Exclui somente `access/refresh/expires_at`; cadastro/endpoint/redirect continuam configuração.
-fn oauth_config(o: Option<&market::oauth::OAuth>) -> Option<(&str, Option<&str>, &[String], &str)> {
-    o.map(|o| (o.client_id.as_str(), o.client_secret.as_deref(), o.redirect_uris.as_slice(), o.token_endpoint.as_str()))
+fn oauth_config(o: Option<&market::oauth::OAuth>) -> Option<(&str, Option<&str>, &[String], &str, bool)> {
+    o.map(|o| {
+        (
+            o.client_id.as_str(),
+            o.client_secret.as_deref(),
+            o.redirect_uris.as_slice(),
+            o.token_endpoint.as_str(),
+            o.client_secret_basic,
+        )
+    })
 }
 /// Chamado somente sob `connector_lock`, sem reentrar o loader público.
 pub(crate) fn initialize(all: &mut [Connector]) -> bool {
