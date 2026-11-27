@@ -1,5 +1,6 @@
 import { useSyncExternalStore, type CSSProperties } from 'react'
 import { fallbackSvg } from './icon-fallbacks'
+import { iconeMexerica } from './fork-icones-mexerica'
 
 export type Weight = 'light' | 'regular' | 'medium' | 'semibold' | 'bold' | 'black'
 
@@ -57,6 +58,24 @@ export function Icon({ name, size, weight = 'regular', color, style, className, 
   const m = useManifest()
   const metrics = m?.[name]
   const unit = scaled ? `${size}px * var(--scale)` : `${size}px`
+  // Fork: o que a biblioteca da Mexerica cobre desenha o SVG do manifesto (traço 2, cor do tema), antes do SF e do Lucide.
+  const mexerica = iconeMexerica(name)
+  if (mexerica !== null) {
+    return (
+      <svg
+        className={className}
+        aria-hidden={title ? undefined : true}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke={color ?? 'currentColor'}
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        style={{ width: `calc(1.2 * ${unit})`, height: `calc(1.2 * ${unit})`, flex: 'none', ...style }}
+        dangerouslySetInnerHTML={{ __html: (title ? `<title>${title.replace(/[&<>]/g, (c) => `&#${c.charCodeAt(0)};`)}</title>` : '') + mexerica }}
+      />
+    )
+  }
   if (metrics) {
     const url = `url("${import.meta.env.BASE_URL}symbols/${name}.${weight}.png")`
     return (

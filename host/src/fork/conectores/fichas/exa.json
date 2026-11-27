@@ -2,7 +2,7 @@
   "id": "exa",
   "nome": "Exa",
   "categoria": "Pesquisa e web",
-  "descricao": "Busca na web e leitura de páginas pela Exa, com os créditos da sua conta Exa.",
+  "descricao": "Busque na web e leia páginas pela Exa; as ações gastam créditos e só rodam depois que você liga cada uma.",
   "exemplos": [
     "Pesquise artigos recentes sobre agentes de IA para atendimento",
     "Leia esta página e resuma os pontos principais",
@@ -14,14 +14,14 @@
     "privacidade": "https://exa.ai/privacy-policy",
     "termos": "https://exa.ai/terms-of-service"
   },
-  "conferidaEm": "2026-11-18",
+  "conferidaEm": "2026-11-27",
   "fontes": [
     "https://docs.exa.ai/reference/exa-mcp",
+    "https://exa.ai/docs/get-started/exa-mcp.md",
     "https://mcp.exa.ai/.well-known/oauth-protected-resource/mcp",
-    "https://auth.exa.ai/.well-known/oauth-authorization-server",
-    "https://exa.ai/docs/get-started/exa-mcp.md"
+    "https://auth.exa.ai/.well-known/oauth-authorization-server"
   ],
-  "aviso": "A busca gasta créditos da sua conta Exa.",
+  "aviso": "A busca, a leitura de páginas e o Exa Agent gastam créditos da sua conta Exa.",
   "skills": [
     {
       "id": "exa-pesquisar-na-web",
@@ -42,18 +42,18 @@
       },
       "grupos": [
         {
-          "id": "ler",
-          "rotulo": "Ler",
+          "id": "usar",
+          "rotulo": "Usar a conta (ações desligadas)",
           "escopos": [
             "mcp:tools"
           ],
           "padrao": true,
-          "disponivel": false
+          "disponivel": true,
+          "imposicao": "filtro"
         }
       ],
       "recomendado": true,
-      "disponivel": false,
-      "motivoIndisponivel": "Com o login, o Exa também libera uma ferramenta que inicia trabalho cobrado e que continua no Exa; sem como limitar só à busca, fica para depois do filtro de ações perigosas."
+      "disponivel": true
     }
   ],
   "skillsOficiais": [
@@ -63,6 +63,5 @@
       "licenca": "MIT",
       "aproveitavel": true
     }
-  ],
-  "emBreve": "A conta do Exa também libera execuções cobradas; entra depois do filtro de ações perigosas."
+  ]
 }

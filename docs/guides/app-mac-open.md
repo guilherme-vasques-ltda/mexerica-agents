@@ -20,8 +20,8 @@ principal de cada bot. A Open não usa contas, executores ou credenciais
 de outros perfis. WhatsApp e a seleção de pastas externas
 continuam indisponíveis. O Hub só aceita as chamadas aprovadas para a
 Open, como ler o estado e editar bots e Spaces locais; as demais são
-recusadas. O pacote leva o helper de fala, mas a janela não o executa
-nem pede microfone.
+recusadas. O ditado e a voz no próprio Mac usam o helper de fala.
+O macOS pede permissão ao usar o microfone ou o reconhecimento de fala.
 
 O macOS identifica este pacote por `app.mexerica.open`; ele declara apenas o
 esquema `mexerica-open:`. O Hub reserva a porta 19524 na interface local,

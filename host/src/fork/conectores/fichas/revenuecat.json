@@ -1,0 +1,54 @@
+{
+  "id": "revenuecat",
+  "nome": "RevenueCat",
+  "categoria": "Finanças e pagamentos",
+  "descricao": "Liste projetos e apps cadastrados no RevenueCat, sem alterar a configuração das assinaturas.",
+  "exemplos": [
+    "Liste meus projetos no RevenueCat",
+    "Quais apps estão configurados neste projeto?"
+  ],
+  "site": "https://www.revenuecat.com/",
+  "docs": "https://www.revenuecat.com/docs/tools/mcp",
+  "links": {
+    "privacidade": "https://www.revenuecat.com/privacy",
+    "termos": "https://www.revenuecat.com/terms"
+  },
+  "conferidaEm": "2026-11-27",
+  "fontes": [
+    "https://www.revenuecat.com/docs/tools/mcp",
+    "https://www.revenuecat.com/docs/tools/mcp/tools-reference",
+    "https://mcp.revenuecat.ai/.well-known/oauth-protected-resource/mcp",
+    "https://mcp.revenuecat.ai/.well-known/oauth-authorization-server"
+  ],
+  "tipos": [
+    {
+      "id": "revenuecat.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "RevenueCat",
+      "url": "https://mcp.revenuecat.ai/mcp",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "ler",
+          "rotulo": "Listar projetos e apps",
+          "escopos": [
+            "*:*:read"
+          ],
+          "ferramentas": [
+            "list-projects",
+            "list-apps"
+          ],
+          "padrao": true,
+          "disponivel": true,
+          "imposicao": "escopo"
+        }
+      ],
+      "recomendado": true,
+      "disponivel": true
+    }
+  ]
+}

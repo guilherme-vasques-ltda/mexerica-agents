@@ -1,0 +1,54 @@
+{
+  "id": "wrike",
+  "nome": "Wrike",
+  "categoria": "Projetos",
+  "descricao": "Consulte os espaços, projetos e tarefas acessíveis pela sua conta Wrike.",
+  "exemplos": [
+    "Mostre os espaços da minha conta Wrike"
+  ],
+  "site": "https://www.wrike.com",
+  "docs": "https://developers.wrike.com/docs/wrike-mcp-server-overview",
+  "links": {
+    "privacidade": "https://www.wrike.com/security/privacy/",
+    "termos": "https://www.wrike.com/security/terms/"
+  },
+  "conferidaEm": "2026-11-27",
+  "fontes": [
+    "https://developers.wrike.com/docs/wrike-mcp-server-overview",
+    "https://developers.wrike.com/docs/mcp-legacy-authentication-pat",
+    "https://developers.wrike.com/docs/available-tools-on-wrike-mcp"
+  ],
+  "aviso": "O token herda as permissões da conta. O Hub só libera consultas de espaços, projetos e tarefas.",
+  "tipos": [
+    {
+      "id": "wrike.oficial_chave",
+      "tipo": "oficial_chave",
+      "rotulo": "Oficial — chave de acesso",
+      "mantidoPor": "Wrike",
+      "url": "https://mcp.wrike.com/v2",
+      "auth": {
+        "modo": "chave",
+        "destino": "header",
+        "nome": "Authorization",
+        "prefixo": "Bearer ",
+        "comoCriarLeitura": "Gere um token de acesso permanente nas configurações de API da Wrike. Se possível, use uma conta sem permissão de escrita."
+      },
+      "grupos": [
+        {
+          "id": "acoes",
+          "rotulo": "Consultar",
+          "escopos": [],
+          "ferramentas": [
+            "search_spaces",
+            "get_items_children"
+          ],
+          "padrao": true,
+          "disponivel": true,
+          "imposicao": "filtro"
+        }
+      ],
+      "recomendado": true,
+      "disponivel": true
+    }
+  ]
+}

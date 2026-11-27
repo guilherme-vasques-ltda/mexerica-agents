@@ -261,7 +261,7 @@ export function Message({ model }: { model: IslandModel }) {
               }}
             />
             <button type="submit" className="island-send" aria-label={t('navegacao.ilha.enviar')} title={t('navegacao.ilha.enviar')} disabled={!text.trim() || model.sending}>
-              <Icon name="arrow.up" size={12} weight="bold" scaled={false} />
+              <Icon name="mx-enviar" size={12} weight="bold" scaled={false} />
             </button>
           </form>
         </div>

@@ -1,0 +1,52 @@
+{
+  "id": "prisma",
+  "nome": "Prisma",
+  "categoria": "Dados",
+  "descricao": "Liste os bancos Prisma Postgres do workspace selecionado na Prisma.",
+  "exemplos": [
+    "Liste os bancos do workspace selecionado"
+  ],
+  "site": "https://www.prisma.io",
+  "docs": "https://www.prisma.io/docs/ai/tools/mcp-server",
+  "links": {
+    "privacidade": "https://www.prisma.io/legal/privacy",
+    "termos": "https://www.prisma.io/legal/terms"
+  },
+  "conferidaEm": "2026-11-27",
+  "fontes": [
+    "https://www.prisma.io/docs/ai/tools/mcp-server",
+    "https://www.prisma.io/docs/ai/mcp-tools",
+    "https://mcp.prisma.io/.well-known/oauth-protected-resource/mcp"
+  ],
+  "aviso": "A Prisma exige uma credencial de administrador do workspace. O Hub só permite listar bancos, sem consultas SQL nem alterações.",
+  "tipos": [
+    {
+      "id": "prisma.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "Prisma",
+      "url": "https://mcp.prisma.io/mcp",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "acoes",
+          "rotulo": "Consultar",
+          "escopos": [
+            "workspace:admin"
+          ],
+          "ferramentas": [
+            "list_prisma_postgres_databases"
+          ],
+          "padrao": true,
+          "disponivel": true,
+          "imposicao": "filtro"
+        }
+      ],
+      "recomendado": true,
+      "disponivel": true
+    }
+  ]
+}
