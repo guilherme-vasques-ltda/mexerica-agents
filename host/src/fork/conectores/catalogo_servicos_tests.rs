@@ -88,11 +88,16 @@ const CONECTAVEIS: &[&str] = &[
     "coderabbit",
     "posthog",
     "revenuecat",
+    "supabase",
     "render",
     "tavily",
     "apify",
     "heygen",
     "trello",
+    "wrike",
+    "agentmail",
+    "bright-data",
+    "prisma",
 ];
 
 /// Id da ficha do dono A, lido do próprio arquivo JSON (nenhum nome de produto fora dele).
