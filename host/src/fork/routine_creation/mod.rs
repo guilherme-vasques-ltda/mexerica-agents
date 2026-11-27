@@ -178,6 +178,17 @@ pub(crate) fn create_on(
         // MX-106: a liberação é um gesto do dono no app.
         routine.enabled = false;
     }
+    record_creation_on(c, space, &cfg, routine, invocation, now)
+}
+
+pub(crate) fn record_creation_on(
+    c: &Connection,
+    space: &str,
+    cfg: &BotConfig,
+    routine: &Routine,
+    invocation: Option<&Invocation>,
+    now: i64,
+) -> Result<Creation> {
     let policy = policy(c, space, &cfg.id)?;
     let mut quota = ledger(c, space, &cfg.id, now)?;
     if quota.timestamps.len() >= policy.routine_creation_limit_24h as usize {
@@ -208,7 +219,9 @@ pub(crate) fn create_on(
     } else {
         "Ela está pausada."
     };
-    let action = if routine.external_creation {
+    let action = if crate::environment::Environment::is_open() {
+        "Para mudar o agendamento, abra Rotinas."
+    } else if routine.external_creation {
         "Você pode ligar ou cancelar no Mission Board."
     } else {
         "Você pode manter ou cancelar no Mission Board."
@@ -223,7 +236,7 @@ pub(crate) fn create_on(
             &Receipt {
                 digest: invocation.digest.clone(),
                 space_id: space.into(),
-                bot_id: cfg.id,
+                bot_id: cfg.id.clone(),
                 routine_id: routine.id.clone(),
             },
         )?;

@@ -10,6 +10,8 @@ pub(crate) mod open_chat_fila;
 pub(crate) mod open_codex;
 pub(crate) mod open_modelo;
 pub(crate) mod open_rotinas;
+pub(crate) mod open_tool_actions;
+mod open_tools;
 pub(crate) mod voz_gpt_live;
 pub(crate) mod web_local;
 pub(crate) mod webhook;

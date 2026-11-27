@@ -47,6 +47,7 @@ pub(crate) fn check_request(caller: &Caller, method: &str, body: &Value) -> Resu
 /// Lista fechada do que a Open aceita: todo método fora dela, inclusive os de conexões de IA, é recusado.
 pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
     match method {
+        "respondPermission" => matches!(caller, Caller::Local) && crate::fork::open_tool_actions::app_response(body),
         // Skills: só o dono local, e instalar só do catálogo embutido (sem source, sem texto escrito à mão).
         "installSkill" => {
             matches!(caller, Caller::Local)

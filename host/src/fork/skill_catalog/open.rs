@@ -4,7 +4,7 @@
 use super::{bounded_read, dir, installation, installed_receipt, registry, storage};
 use crate::store::Store;
 use anyhow::{Result, bail};
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::collections::BTreeSet;
 
 pub(super) const MOTIVO: &str = "Indisponível nesta edição: a skill precisa de ferramenta, conector, credencial ou execução que esta edição não oferece. Aqui só entram skills de texto do catálogo que o bot aplica na conversa.";
@@ -62,6 +62,24 @@ fn apoio(store: &Store, skill: &crate::market::Skill, package: &registry::Packag
         textos.push(format!("### {}\n{}", asset.path, content.trim()));
     }
     Ok(textos)
+}
+
+pub(crate) fn installed(store: &Store, enabled: &[String]) -> Result<Value> {
+    let (all, state) = storage::current(store)?;
+    let items: Vec<_> = all
+        .iter()
+        .filter_map(|skill| {
+            let receipt = installed_receipt(&state, &skill.id)?;
+            let package = registry::captured(&receipt.catalog_id, &receipt.digest).ok()??;
+            (package.install_id == skill.id && permitida(&receipt.catalog_id) && package.installable()).then(|| {
+                json!({
+                    "id": skill.id, "name": skill.name, "description": skill.description,
+                    "enabled": enabled.contains(&skill.id),
+                })
+            })
+        })
+        .collect();
+    Ok(json!({"items": items}))
 }
 
 /// O texto que o bot da Open recebe: só skill permitida, instalada do catálogo e com o corpo
