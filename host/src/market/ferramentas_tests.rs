@@ -642,7 +642,7 @@ async fn novas_fichas_de_leitura_isolam_contas_e_nao_ligam_ferramentas_sozinhas(
         ("posthog", "dashboards-get-all", "dashboard-create", &["dashboard:read"][..]),
         ("revenuecat", "list-projects", "create-app", &["*:*:read"][..]),
     ] {
-        let ficha = crate::fork::conectores::catalogo_servicos::servico(servico).unwrap();
+        let ficha = catalogo_servicos::servico(servico).unwrap();
         let conferida = chrono::NaiveDate::parse_from_str(ficha.conferida_em, "%Y-%m-%d").unwrap();
         let tipo = format!("{servico}.oficial_oauth");
         let mut pedido =
