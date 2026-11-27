@@ -51,7 +51,7 @@ pub(super) fn marcar(item: &mut Value, id: &str) {
 fn apoio(store: &Store, skill: &crate::market::Skill, package: &registry::Package) -> Result<Vec<String>> {
     let mut textos = Vec::new();
     for asset in &package.assets {
-        let apoio = asset.path.ends_with(".md") || asset.path.ends_with(".txt");
+        let apoio = std::path::Path::new(&asset.path).extension().is_some_and(|ext| ext == "md" || ext == "txt");
         if asset.path == "SKILL.md" || !apoio || asset.path.starts_with("LICENSE") || asset.path == "ADAPTATION.md" {
             continue;
         }

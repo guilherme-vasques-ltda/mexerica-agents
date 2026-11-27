@@ -48,14 +48,19 @@ pub(crate) fn check_request(caller: &Caller, method: &str, body: &Value) -> Resu
 pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
     match method {
         // Skills: só o dono local, e instalar só do catálogo embutido (sem source, sem texto escrito à mão).
-        "skills" | "marketSkills" | "skillDetails" | "removeSkill" => matches!(caller, Caller::Local),
         "installSkill" => {
             matches!(caller, Caller::Local)
                 && body.get("catalogId").is_some_and(Value::is_string)
                 && body.get("source").is_none()
                 && body.get("name").is_none()
         }
-        "donnaTaskProposals" | "donnaTimes" | crate::fork::native_catalog::METHOD => matches!(caller, Caller::Local),
+        "donnaTaskProposals"
+        | "donnaTimes"
+        | crate::fork::native_catalog::METHOD
+        | "skills"
+        | "marketSkills"
+        | "skillDetails"
+        | "removeSkill" => matches!(caller, Caller::Local),
         crate::fork::native_catalog::ADD_METHOD => {
             // Fora do Pessoal, só com a conta de IA escolhida; o Hub a confere como na criação manual.
             matches!(caller, Caller::Local)
