@@ -2,7 +2,7 @@
   "id": "tally",
   "nome": "Tally",
   "categoria": "Produtividade",
-  "descricao": "Criador de formulários sem código: o MCP cria e edita formulários, publica e lista respostas de submissions.",
+  "descricao": "Formulários: lê formulários e respostas; criar, editar, publicar e apagar só depois que você ligar cada ação.",
   "exemplos": [
     "Quantas respostas o formulário do Tally recebeu hoje?",
     "Resuma as respostas da pesquisa de satisfação"
@@ -13,10 +13,10 @@
     "privacidade": "https://tally.so/help/privacy-policy",
     "termos": "https://tally.so/help/terms-conditions"
   },
-  "conferidaEm": "2026-11-18",
+  "conferidaEm": "2026-11-27",
   "fontes": [
     "https://developers.tally.so/api-reference/mcp",
-    "https://api.tally.so/oauth/register/mcp",
+    "https://api.tally.so/.well-known/oauth-protected-resource/mcp",
     "https://api.tally.so/.well-known/oauth-authorization-server/mcp"
   ],
   "tipos": [
@@ -34,16 +34,17 @@
         {
           "id": "usar",
           "rotulo": "Usar com a sua conta",
-          "escopos": [],
+          "escopos": [
+            "mcp"
+          ],
           "padrao": true,
-          "disponivel": false
+          "disponivel": true,
+          "imposicao": "filtro"
         }
       ],
       "recomendado": true,
-      "disponivel": false,
-      "motivoIndisponivel": "O Tally não oferece um modo só de leitura; entra depois do filtro de ações perigosas."
+      "disponivel": true
     }
   ],
-  "emBreve": "O fornecedor não impõe leitura: entra depois do filtro de ações perigosas.",
   "skillsOficiais": []
 }
