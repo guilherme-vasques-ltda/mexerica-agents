@@ -377,7 +377,7 @@ fn responders<'a>(members: &'a [BotConfig], messages: &[Entry]) -> Vec<&'a BotCo
 }
 
 /// Ways to @-mention a bot: its full name, without spaces, or its first word (lowercased).
-fn handles(name: &str) -> Vec<String> {
+pub(crate) fn handles(name: &str) -> Vec<String> {
     let lower = name.trim().to_lowercase();
     let mut out = vec![lower.clone(), lower.split_whitespace().collect::<String>()];
     if let Some(first) = lower.split_whitespace().next() {
@@ -390,7 +390,7 @@ fn handles(name: &str) -> Vec<String> {
 
 /// `@handle` in `text`, not followed by more of a Latin word (`@al` isn't `@alice`).
 /// CJK names are often followed straight by the message, so only ASCII letters end a match early.
-fn mentions(text: &str, handle: &str) -> bool {
+pub(crate) fn mentions(text: &str, handle: &str) -> bool {
     let lower = text.to_lowercase();
     let needle = format!("@{handle}");
     lower

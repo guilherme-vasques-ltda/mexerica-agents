@@ -345,7 +345,7 @@ pub(super) async fn call(
             // mensagem entra na fila do Hub (`fork::open_chat_fila`).
             let open_turn = crate::environment::Environment::is_open();
             if open_turn {
-                crate::fork::open_chat::precheck(hub, &row.config)?;
+                crate::fork::open_chat::precheck(hub, &row.config, text)?;
             }
             // `replyTo`: the message of this chat it answers (`chat::replies`).
             let reply = match quoted {
@@ -454,14 +454,7 @@ pub(super) async fn call(
                 tracing::warn!(%error, bot, "couldn't mark bot read after send");
             }
             if open_turn {
-                crate::fork::open_chat_fila::submit(
-                    hub,
-                    &row.config,
-                    lane,
-                    e.turn,
-                    (e.id.clone(), effect_authority.cloned()),
-                    text.to_owned(),
-                );
+                crate::fork::open_canal::deliver(hub, &row.config, lane, &e, effect_authority, text);
             } else if row.config.is_group() {
                 // Each member reads it in its room prompt (`chat::group`).
                 crate::chat::group::start_authorized(
