@@ -204,7 +204,13 @@ impl AppDaFicha {
     }
 
     pub(crate) fn ler(&self, store: &Store, space: &str) -> Result<Option<CredenciaisApp>> {
-        ler_slot(store, &self.slot(space)).map_err(|_| anyhow!("Não foi possível ler o app OAuth no cofre."))
+        ler_slot(store, &self.slot(space)).map_err(|e| {
+            if e.to_string() == COFRE_TRANCADO {
+                anyhow!("cofre_trancado: destrave o cofre do Hub para ler o app OAuth.")
+            } else {
+                anyhow!("Não foi possível ler o app OAuth no cofre.")
+            }
+        })
     }
 
     pub(crate) fn publico(&self, store: &Store, space: &str) -> Option<Value> {

@@ -321,6 +321,9 @@ fn cofre_trancado_vira_codigo_estavel_e_nao_grava_nada() {
         assert!(e.starts_with("cofre_trancado") || e.contains("Secure credential storage"), "{e}");
     }
     assert!(erro(google_app::salvar(store, PERSONAL, ID, CHAVE)).starts_with("cofre_trancado"));
+    let ficha = crate::fork::conectores::catalogo_servicos::fixture_app_proprio();
+    let app = google_app::AppDaFicha::novo(ficha, &ficha.tipos[0]).unwrap();
+    assert!(erro(app.ler(store, PERSONAL)).starts_with("cofre_trancado:"));
     assert!(!tudo_em_claro(&hub).contains(CHAVE));
 }
 

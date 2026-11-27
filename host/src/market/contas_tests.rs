@@ -696,6 +696,60 @@ fn conta_com_filtro_exige_confirmacao_de_escrita_antes_de_gravar() {
 }
 
 #[tokio::test]
+async fn duas_contas_por_ficha_preservam_o_filtro_e_a_escolha_por_bot() {
+    for (id, ferramentas, escopos, proximo, com_filtro) in [
+        ("render", &["list_services"][..], &[][..], "chave", true),
+        ("tavily", &["tavily_search", "tavily_extract"][..], &["openid", "offline_access"][..], "entrar", true),
+        ("apify", &["get-actor-run"][..], &["openid", "profile", "email", "full_api_access"][..], "entrar", true),
+        ("heygen", &["list_videos", "list_templates"][..], &["openid", "profile", "email"][..], "entrar", true),
+        (
+            "trello",
+            &["trelloReadBoard", "trelloReadList", "trelloReadCard"][..],
+            &["read:board:trello"][..],
+            "entrar",
+            false,
+        ),
+    ] {
+        let hub = hub();
+        let ficha = servico(id).unwrap();
+        let tipo = &ficha.tipos[0];
+        let hoje = chrono::NaiveDate::parse_from_str(ficha.conferida_em, "%Y-%m-%d").unwrap();
+        let mut p = Pedido { servico: id, tipo: tipo.id, ..pedido(PERSONAL, None, None) };
+        if com_filtro {
+            assert!(erro(contas::conectar_em(&hub.store, ficha, &p, hoje)).starts_with("credencial_com_escrita"));
+            assert_eq!(connectors(&hub.store).unwrap(), Vec::<Connector>::new());
+            p.aceita_credencial_com_escrita = true;
+            assert!(!tipo.perfil_disponivel(&["ler".into()]));
+        }
+        assert_eq!(contas::conectar_em(&hub.store, ficha, &p, hoje).unwrap()["proximoPasso"], proximo);
+        p.nome = Some("Trabalho");
+        p.nome_primeira = Some("Pessoal");
+        assert_eq!(contas::conectar_em(&hub.store, ficha, &p, hoje).unwrap()["proximoPasso"], proximo);
+
+        let todas = connectors(&hub.store).unwrap();
+        let [pessoal, trabalho] = todas.as_slice() else { panic!("{id}: esperado duas contas") };
+        assert_ne!(pessoal.id, trabalho.id);
+        assert_ne!(
+            pessoal.oauth_binding.as_ref().unwrap().instance(),
+            trabalho.oauth_binding.as_ref().unwrap().instance()
+        );
+        for conta in &todas {
+            assert_eq!(contas::escopos_da_conta(conta).unwrap().unwrap(), escopos);
+            let permitidas = contas::ferramentas_da_conta(conta).unwrap().unwrap();
+            assert_eq!(permitidas.len(), ferramentas.len());
+            assert!(ferramentas.iter().all(|nome| permitidas.contains(nome)));
+            assert!(tipo.ferramentas_curadas(&conta.liberacoes).is_empty());
+        }
+        let cfg: BotConfig =
+            serde_json::from_value(json!({"id": "b", "name": "B", "spaceId": PERSONAL, "connectors": [pessoal.id]}))
+                .unwrap();
+        let turno = contas_do_turno(&cfg, MensagemDaPessoa::nova("Consulte a conta disponível"), &todas);
+        assert!(turno.exigir(&pessoal.id).is_ok());
+        assert!(turno.exigir(&trabalho.id).is_err());
+    }
+}
+
+#[tokio::test]
 async fn catalogo_da_open_e_local_e_nao_expoe_contas_do_cofre() {
     if !crate::environment::Environment::is_open() {
         return;

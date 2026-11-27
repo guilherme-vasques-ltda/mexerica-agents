@@ -187,7 +187,7 @@ export function UserBubble({ entry, botWorking, reply }: { entry: Entry; botWork
           </Bubble>
         ) : null}
         {status && status !== 'sent' ? <span className="chat-status"><UserStatus entry={entry} botWorking={botWorking} hovering={hovering} /></span> : null}
-        {/* Beside the bubble, inside its hover region: showing them never changes the height. */}
+        {/* Under the bubble, inside its hover region: its row is reserved, so showing them never changes the height. */}
         <MessageActions className="leading" visible={hovering} reactions={reactionPick(store, entry)} reply={reply} copy={copy} />
       </div>
     </div>
@@ -460,7 +460,7 @@ export function ReactionsRow({ entry }: { entry: Entry }) {
   )
 }
 
-/** Compact actions beside the bubble: a reaction strip, reply, and more (copy, what it did). */
+/** Compact actions under the bubble: a reaction strip, reply, and more (copy, what it did). */
 function MessageActions({ visible, className, reactions, reply, trace, copy, explain }: {
   /** Rota-03b: abre o recibo do turno junto do botão Mais ações. */
   explain?: (from: HTMLElement) => void

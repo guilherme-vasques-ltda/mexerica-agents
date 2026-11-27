@@ -4,5 +4,5 @@
 export { passiveSkillsV2, SkillInstallationError, SkillMutationOutcomeUnknown, SkillRequestScope } from '../../shared/fork-skills'
 export type {
   CatalogSkill, ExpectedSkillReceipt, InstallCatalogSkill, InstalledSkillV2, RemoveInstalledSkillV2, SkillAvailability,
-  SkillClient, SkillContentStatus, SkillDetailsV2, SkillMutationV2, SkillReadiness, SkillReceipt,
+  InternalSkill, SkillClient, SkillContentStatus, SkillDetailsV2, SkillMutationV2, SkillReadiness, SkillReceipt,
 } from '../../shared/fork-skills'
