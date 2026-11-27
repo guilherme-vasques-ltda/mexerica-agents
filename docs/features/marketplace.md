@@ -526,6 +526,15 @@ dela.
   para clientes sem aprovação interativa do Google. Nesse perfil, algumas consultas podem retornar menos itens.
   Contas no perfil anterior mantêm `/mcp/v1` e o vínculo original; para usar o novo perfil, é preciso criar
   outra conta.
+- **Contatos, Slides, Tarefas e Analytics**: as quatro fichas também usam o app próprio e restringem as ferramentas
+  à leitura. No projeto Google Cloud, habilite só os serviços que for conectar:
+  - **Contatos**: `people.googleapis.com` e o escopo `contacts.readonly`. A ficha busca contatos pessoais, sem
+    pedir acesso ao perfil ou ao diretório da organização.
+  - **Slides**: `slides.googleapis.com` e `slidesmcp.googleapis.com`, com `presentations.readonly`.
+  - **Tarefas**: `tasksmcp.googleapis.com`, com `tasks.readonly`. O MCP não pede outra API de produto.
+  - **Analytics**: `analyticsdata.googleapis.com`, com `analytics.readonly` e acesso de Leitor à propriedade
+    GA4. A ficha usa o MCP remoto da [Data API](https://developers.google.com/analytics/devguides/reporting/data/v1/rest);
+    não instala o servidor local nem precisa da API Admin. Os quatro escopos usam o prefixo `https://www.googleapis.com/auth/`.
 - **O app da pessoa (`market/google_app.rs`)**: ID e chave secreta num registro do cofre **por Space** (`google_app.<space>`,
   selado com o slot como dado associado: copiado para outro Space, não abre). A leitura é **estrita** (`kv_read` +
   `vault::open`): texto claro ou sem selo é recusado (`app_google_ilegivel`) e nunca migrado. `marketGoogleApp` (dono, como os outros dois) devolve só
