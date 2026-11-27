@@ -72,7 +72,7 @@ export function Icon({ name, size, weight = 'regular', color, style, className, 
         strokeLinecap="round"
         strokeLinejoin="round"
         style={{ width: `calc(1.2 * ${unit})`, height: `calc(1.2 * ${unit})`, flex: 'none', ...style }}
-        dangerouslySetInnerHTML={{ __html: (title ? `<title>${title}</title>` : '') + mexerica }}
+        dangerouslySetInnerHTML={{ __html: (title ? `<title>${title.replace(/[&<>]/g, (c) => `&#${c.charCodeAt(0)};`)}</title>` : '') + mexerica }}
       />
     )
   }
