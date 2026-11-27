@@ -50,6 +50,22 @@ test('2ª conta: o campo do nome novo já vem com "Stripe 2" e o nome sugerido �
   assert.equal(editavel.nomeDaNova, 'Stripe – Consultoria')
 })
 
+test('perfil com filtro só pede confirmação de acesso de escrita quando selecionado', async () => {
+  const s = servico('fixture-filtro', 'Serviço fictício', {
+    tipos: [tipo([grupo('ler', { padrao: true, imposicao: 'escopo' }), grupo('acoes', { imposicao: 'filtro' })])],
+  })
+  const { chamadas, deps } = montar(() => ({ connector: conta('a', 'Serviço fictício', s.id), proximoPasso: 'chave' }))
+  const f = new FluxoConectar(s, s.tipos[0], deps)
+  assert.equal(f.credencialComEscrita, false)
+  f.alternar('acoes')
+  assert.equal(f.credencialComEscrita, true)
+  f.voltarAoPadrao()
+  assert.equal(f.credencialComEscrita, false)
+  f.alternar('acoes')
+  await f.confirmar()
+  assert.equal(chamadas[0].corpo.aceitaCredencialComEscrita, true)
+})
+
 test('2ª conta: sem os dois nomes não continua; com eles, manda nome e nomePrimeira', async () => {
   const s = ficha([{ id: 'a', name: 'Stripe', identidade: null }])
   const { chamadas, deps } = montar(() => ({ connector: conta('stripe-2', 'Stripe – Consultoria', 'stripe'), proximoPasso: 'entrar' }))

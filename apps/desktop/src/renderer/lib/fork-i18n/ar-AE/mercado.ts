@@ -286,4 +286,6 @@ export const textos: Traducao<typeof fonte> = {
   "mercado.acoes.confirmar.campos": "وما سيقرؤه في كل حقل من حقول الإجراء:",
   "mercado.acoes.confirmar.campo": "{campo}: {texto}",
   "mercado.acoes.ocultos": "تنبيه: يحتوي هذا النص على محارف لا تظهر على الشاشة أو تغيّر اتجاه الكتابة.",
+  "mercado.lib.filtro": "يمكن لهذا الحساب تعديل البيانات في الخدمة. في Mexerica، تكون جميع الإجراءات معطّلة في البداية. لاستخدام أي إجراء، عليك تفعيله على حدة لكل روبوت.",
+  "mercado.erro.credencial_com_escrita": "حدّث التطبيق للاطلاع على تنبيه صلاحية الكتابة قبل ربط هذا الحساب.",
 } as const

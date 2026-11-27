@@ -15,7 +15,7 @@ import { Aviso, Erro, frasesDaRecusa, LogoServico, Titulo } from './pecas'
 
 const NUMERO: Record<PassoGoogle, 1 | 2 | 3> = { guia: 1, servicos: 2, entrar: 3, pronto: 3 }
 /** Os passos do guia que a tela sabe contar; um passo novo da ficha sem texto aqui some em vez de aparecer em branco. */
-const PASSOS_COM_TEXTO = ['projeto', 'apis', 'previa', 'tela_login', 'cliente'] as const
+const PASSOS_COM_TEXTO = ['projeto', 'apis', 'tela_login', 'escopos', 'cliente'] as const
 
 const tx = (t: unknown, chave: string): string => (t as (c: ChaveTexto) => string)(chave as ChaveTexto)
 
@@ -93,10 +93,7 @@ function Guia({ fluxo, aoCancelar }: { fluxo: FluxoGoogle; aoCancelar: () => voi
               <li key={p.id} className="mercado-guia-passo">
                 <span className="mercado-passo-numero"><Text size="caption" weight="semibold">{i + 1}</Text></span>
                 <VStack gap={2} shrink grow>
-                  <HStack gap={8}>
-                    <Text size="body" weight="semibold" tone="text">{tx(t, `google.passo.${p.id}.titulo`)}</Text>
-                    {p.id === 'previa' ? <Text size="caption" weight="medium" className="mercado-etiqueta aviso">{t('google.passo.previa.etiqueta')}</Text> : null}
-                  </HStack>
+                  <Text size="body" weight="semibold" tone="text">{tx(t, `google.passo.${p.id}.titulo`)}</Text>
                   <Text size="callout" tone="secondary">{tx(t, `google.passo.${p.id}.texto`)}</Text>
                 </VStack>
                 {p.url ? <Button kind="secondary" onClick={() => abrirLink(p.url!)}>{tx(t, `google.passo.${p.id}.botao`)}<Icon name="arrow.up.right.square" size={12} /></Button> : null}

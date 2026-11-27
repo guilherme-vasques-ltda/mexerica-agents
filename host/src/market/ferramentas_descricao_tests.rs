@@ -18,6 +18,7 @@ fn conta_com_bot(hub: &Arc<crate::hub::Hub>) -> Connector {
         nome: None,
         nome_primeira: None,
         liberacoes: None,
+        aceita_credencial_com_escrita: false,
     };
     contas::conectar(&hub.store, &pedido).unwrap();
     let conta = crate::market::connectors(&hub.store).unwrap().remove(0);

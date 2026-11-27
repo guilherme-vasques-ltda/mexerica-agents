@@ -47,9 +47,21 @@ fn ficha(
     hoje: chrono::NaiveDate,
     contas: Option<&[super::Connector]>,
     space: &str,
+    open: bool,
 ) -> Value {
     let mut v = serde_json::to_value(servico).unwrap_or(Value::Null);
-    v["conectavel"] = json!(servico.conectavel() && servico.conferencia_vigente(hoje));
+    let conectavel = if open {
+        let tipos: Vec<_> = servico
+            .tipos
+            .iter()
+            .filter(|t| !t.grupos.iter().any(|g| g.imposicao == Some(catalogo::Imposicao::Filtro)))
+            .collect();
+        v["tipos"] = json!(tipos);
+        tipos.iter().any(|t| t.conectavel())
+    } else {
+        servico.conectavel()
+    };
+    v["conectavel"] = json!(conectavel && servico.conferencia_vigente(hoje));
     v["conferenciaVigente"] = json!(servico.conferencia_vigente(hoje));
     v["diasDesdeConferencia"] = json!(catalogo::dias_desde_conferencia(servico.conferida_em, hoje));
     v["contas"] = json!(contas.map(|todas| {
@@ -60,6 +72,22 @@ fn ficha(
             .collect::<Vec<_>>()
     }));
     v
+}
+
+#[cfg(test)]
+#[test]
+fn open_omite_jeito_que_usa_filtro_e_preserva_leitura_do_fornecedor() {
+    let com_filtro = catalogo::fixture_filtro();
+    let hoje = chrono::NaiveDate::parse_from_str(com_filtro.conferida_em, "%Y-%m-%d").unwrap();
+    let completa = ficha(com_filtro, hoje, None, "", false);
+    assert_eq!(completa["tipos"][0]["grupos"][0]["imposicao"], "filtro");
+    assert_eq!(completa["conectavel"], true);
+    let open = ficha(com_filtro, hoje, None, "", true);
+    assert_eq!(open["tipos"], json!([]));
+    assert_eq!(open["conectavel"], false);
+
+    let linear = catalogo::servico("linear").unwrap();
+    assert_eq!(ficha(linear, hoje, None, "", true), ficha(linear, hoje, None, "", false));
 }
 
 pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: &Value) -> Result<Option<Value>> {
@@ -86,13 +114,13 @@ pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: &Valu
                 "spaceId": space,
                 // O app OAuth da própria pessoa, por Space: só o ID, nunca a chave. Cofre trancado = `null`.
                 "appsProprios": {"google": (!open).then(|| super::google_app::publico(store, &space)).flatten()},
-                "servicos": catalogo.servicos.iter().map(|s| ficha(s, hoje, todas.as_deref(), &space)).collect::<Vec<_>>(),
+                "servicos": catalogo.servicos.iter().map(|s| ficha(s, hoje, todas.as_deref(), &space, open)).collect::<Vec<_>>(),
             })
         }
         "marketServico" => {
             let servico = catalogo::servico(texto(b, "id")?).ok_or_else(|| anyhow!("servico_desconhecido"))?;
             let todas = super::connectors(store).ok();
-            json!({"servico": ficha(servico, hoje, todas.as_deref(), &space), "spaceId": space})
+            json!({"servico": ficha(servico, hoje, todas.as_deref(), &space, false), "spaceId": space})
         }
         "marketContas" => contas::listar(store, &space)?,
         "marketConectar" => {
@@ -113,6 +141,7 @@ pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: &Valu
                 nome: texto_opcional(b, "nome")?,
                 nome_primeira: texto_opcional(b, "nomePrimeira")?,
                 liberacoes,
+                aceita_credencial_com_escrita: b["aceitaCredencialComEscrita"] == true,
             };
             contas::conectar(store, &pedido)?
         }
