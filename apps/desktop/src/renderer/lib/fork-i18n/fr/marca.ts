@@ -70,6 +70,8 @@ export const textos: Traducao<typeof fonte> = {
   'marca.acesso.segundoPlano': 'Autorisez Mexerica à s’exécuter en arrière-plan (Réglages Système → Ouverture).',
   'marca.biblioteca.perfilPronto': 'Profil prêt de Mexerica · version',
   'marca.biblioteca.faixa': 'Profils prêts, créés par Mexerica.',
+  'marca.biblioteca.escolhaConta': 'Choisissez le compte d’IA avant d’ajouter.',
+  'marca.biblioteca.soConta': 'Utilise seulement le compte d’IA choisi ; sans connecteurs, skills ni ordinateur',
   'marca.skills.adaptada': 'Version adaptée par Mexerica.',
   'marca.motores.node': 'Fonctionne avec Node.js ; Mexerica ajoute sa propre copie.',
   'marca.node.copia': 'Certains moteurs en ont besoin pour fonctionner. Mexerica peut ajouter une copie rien que pour eux.',

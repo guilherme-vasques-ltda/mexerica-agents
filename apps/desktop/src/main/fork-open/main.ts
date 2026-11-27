@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { app, BrowserWindow, ipcMain, Menu, session } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu, session, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron'
 import { traduzir } from '../../renderer/lib/fork-i18n/index.ts'
 import { SOURCE_LANGUAGE } from '../../shared/fork-idioma.ts'
 import type { AccountState, UpdateState } from '../../shared/ipc'
@@ -10,6 +10,7 @@ import { privateDirectory } from '../../shared/fork-private-files'
 import { bringToFront, isOpenAsset, open, openPaths } from './isolation'
 import { registerOpenHub } from './hub'
 import { registerReleaseNotice } from '../fork-release-notice'
+import { arquivoEscolhaEntrada, gravarEscolhaEntrada, lerEscolhaEntrada } from '../fork-modo-entrada'
 
 if (process.platform !== 'darwin' || !app.isPackaged || app.getName() !== open.name ||
     JSON.stringify(JSON.parse(readFileSync(join(process.resourcesPath, 'open-profile.json'), 'utf8'))) !== JSON.stringify(open)) {
@@ -81,12 +82,19 @@ if (!app.requestSingleInstanceLock()) {
     registerOpenHub(homeConfig, temp, chatURL, () => window)
     // Nível 1 de atualizações: o perfil Open também avisa de nova versão; handlers só aceitam a
     // própria janela do chat (a mesma guarda do hub), e o estado em `userData` segue 0600/regular.
-    registerReleaseNotice({
+    const daJanela = (event: IpcMainInvokeEvent | IpcMainEvent) => event.sender === window?.webContents &&
+      event.senderFrame !== null && event.senderFrame === event.sender.mainFrame && event.senderFrame.url === chatURL
+    const avisoDeVersao = registerReleaseNotice({
       windows: () => (window && !window.isDestroyed() && window.webContents.getURL() === chatURL ? [window] : []),
       userDataDir: userData,
       currentVersion: app.getVersion(),
-      allowed: (event) => event.sender === window?.webContents &&
-        event.senderFrame !== null && event.senderFrame === event.sender.mainFrame && event.senderFrame.url === chatURL,
+      allowed: daJanela,
+    })
+    ipcMain.handle('app:escolhaEntrada', (event) => daJanela(event) ? lerEscolhaEntrada(arquivoEscolhaEntrada(userData)) : null)
+    ipcMain.handle('app:gravarEscolhaEntrada', (event, escolha: unknown) => {
+      const gravou = daJanela(event) && gravarEscolhaEntrada(arquivoEscolhaEntrada(userData), escolha)
+      if (gravou) avisoDeVersao?.refresh()
+      return gravou
     })
     Menu.setApplicationMenu(Menu.buildFromTemplate([
       { label: open.name, submenu: [{ label: traduzir(SOURCE_LANGUAGE, 'marca.menu.ajustes'), accelerator: 'Cmd+,', click: () => window?.webContents.send('app:command', { kind: 'openSettings' }) }, { role: 'quit' }] },

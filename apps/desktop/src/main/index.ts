@@ -45,6 +45,7 @@ import { launchAtLogin, openedAtLogin, setLaunchAtLogin, updateLoginItem } from 
 import { openExternalURL, openSystemSettingsURL, registerWindowNavigation } from './navigation'
 import { origemDoChat, permiteNoChat } from './seguranca-renderer'
 import { onboardingDismissal } from './fork-onboarding-dismissal'
+import { arquivoEscolhaEntrada, gravarEscolhaEntrada, lerEscolhaEntrada } from './fork-modo-entrada'
 
 /** macOS's user-facing computer name, else the host name. */
 function computerName() {
@@ -240,6 +241,8 @@ function menu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
+let avisoDeVersao: { refresh(): void } | undefined
+
 function registerIPC(tray: Tray) {
   registerHostProxy()
   registerMexeriquinhaProtocol(host)
@@ -282,6 +285,12 @@ function registerIPC(tray: Tray) {
     const accountRealm = officialLoginConfig?.clerkFrontendOrigin ?? buildConfig.deploymentId ?? null
     if (accountRealm === null) return null
     return onboardingDismissal(prefs, [identity.environment, app.getPath('userData'), dataDir, port, accountRealm], confirmed?.userId, userId, action)
+  })
+  ipcMain.handle('app:escolhaEntrada', (event) => pedidoDoChat(event) ? lerEscolhaEntrada(arquivoEscolhaEntrada(app.getPath('userData'))) : null)
+  ipcMain.handle('app:gravarEscolhaEntrada', (event, escolha: unknown) => {
+    const gravou = !!pedidoDoChat(event) && gravarEscolhaEntrada(arquivoEscolhaEntrada(app.getPath('userData')), escolha)
+    if (gravou) avisoDeVersao?.refresh()
+    return gravou
   })
   ipcMain.on('app:openExternal', (_e, url: string) => {
     void openExternalURL(url)
@@ -446,7 +455,7 @@ if (yieldsToInstall()) {
     updates.register(generalWindows)
     // Nível 1 de atualizações: aviso discreto de nova versão (sem download automático, forkFeatures.updates segue false).
     if (isRc) ipcMain.handle('releaseNotice:state', () => null)
-    else registerReleaseNotice({ windows: generalWindows, userDataDir: app.getPath('userData'), currentVersion: app.getVersion() })
+    else avisoDeVersao = registerReleaseNotice({ windows: generalWindows, userDataDir: app.getPath('userData'), currentVersion: app.getVersion() })
     menu()
     aoMudarIdiomaDoApp(() => { menu(); tray.hostChanged() })
     host.on('change', () => {

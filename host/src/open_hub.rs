@@ -60,7 +60,13 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
         | "setRoutinesPaused"
         | "runRoutine" => matches!(caller, Caller::Local),
         crate::fork::native_catalog::ADD_METHOD => {
-            matches!(caller, Caller::Local) && body["spaceId"].as_str() == Some(crate::fork::spaces::PERSONAL)
+            // Fora do Pessoal, só com a conta de IA escolhida; o Hub a confere como na criação manual.
+            matches!(caller, Caller::Local)
+                && match body["spaceId"].as_str() {
+                    Some(crate::fork::spaces::PERSONAL) => true,
+                    Some(_) => body["engineAccountId"].as_str().is_some_and(|id| !id.trim().is_empty()),
+                    None => false,
+                }
         }
         "hello"
         | crate::fork::workspace::METHOD
@@ -112,7 +118,15 @@ mod tests {
         let personal = json!({"spaceId": crate::fork::spaces::PERSONAL});
         assert!(open_allows(&Caller::Local, "donnaNativeCatalogAdd", &personal));
         assert!(!open_allows(&device, "donnaNativeCatalogAdd", &personal));
-        for body in [json!({}), json!({"spaceId": "outro-space"})] {
+        let space = json!({"spaceId": "outro-space", "engineAccountId": "conta"});
+        assert!(open_allows(&Caller::Local, "donnaNativeCatalogAdd", &space));
+        assert!(!open_allows(&device, "donnaNativeCatalogAdd", &space));
+        for body in [
+            json!({}),
+            json!({"spaceId": "outro-space"}),
+            json!({"spaceId": "outro-space", "engineAccountId": " "}),
+            json!({"spaceId": "outro-space", "engineAccountId": null}),
+        ] {
             assert!(!open_allows(&Caller::Local, "donnaNativeCatalogAdd", &body));
         }
         for method in [
@@ -458,6 +472,7 @@ mod unix {
         let store = profile.open_store()?;
         let host_id = crate::store_host_id(&store)?;
         crate::chat::manage::recover(&store);
+        crate::fork::open_chat_fila::recover(&store)?;
         let identity = crate::remote::identity::Identity::load_or_create(&profile.data)?;
         let token = crate::new_token();
         let hub = Hub::new(store, host_id, identity, token, port);

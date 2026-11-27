@@ -33,7 +33,18 @@ pub(crate) struct Running {
     done: watch::Receiver<()>,
 }
 
-static RUNNING: Mutex<Option<HashMap<String, Running>>> = Mutex::new(None);
+impl Running {
+    #[cfg(test)]
+    pub(crate) fn for_test(hub: &Arc<Hub>, cancel: watch::Sender<bool>, done: watch::Receiver<()>) -> Self {
+        Running { hub: Arc::downgrade(hub), account: "conta-da-fila".into(), cancel, done }
+    }
+
+    pub(crate) fn is_live(&self) -> bool {
+        self.hub.strong_count() > 0 && self.done.has_changed().is_ok()
+    }
+}
+
+pub(crate) static RUNNING: Mutex<Option<HashMap<String, Running>>> = Mutex::new(None);
 static CLOSING: Mutex<Vec<Weak<Hub>>> = Mutex::new(Vec::new());
 
 /// Reserva da conversa: um turno por bot, e nenhum depois do encerramento do Hub.
@@ -80,6 +91,17 @@ pub(crate) fn with_idle_account<T>(account: &str, effect: impl FnOnce() -> Resul
     effect()
 }
 
+/// Recusas que não dependem de haver resposta em curso, antes de gravar a mensagem: resposta em curso não recusa, a
+/// mensagem espera na fila (`fork::open_chat_fila`).
+pub(crate) fn precheck(hub: &Arc<Hub>, cfg: &BotConfig) -> Result<()> {
+    ensure!(crate::environment::Environment::is_open(), "open_chat_unavailable");
+    ensure!(!cfg.is_group(), "open_chat_unavailable");
+    let (account, _, _) = account_profile(hub, cfg)?;
+    ensure!(!CLOSING.locked().iter().any(|h| h.ptr_eq(&Arc::downgrade(hub))), "open_chat_unavailable");
+    ensure!(!crate::fork::engine_setup::in_setup(&hub.store, &account), "open_chat_reconnecting");
+    Ok(())
+}
+
 /// Cerca da escolha de conta e modelo dos bots: `RUNNING` retido do exame da conta até o commit, a mesma trava em
 /// que as mutações e a reconexão da conta conferem e gravam. Ordem: `RUNNING` antes das travas do Hub.
 pub(crate) fn with_account_fence<T>(effect: impl FnOnce() -> Result<T>) -> Result<T> {
@@ -87,12 +109,14 @@ pub(crate) fn with_account_fence<T>(effect: impl FnOnce() -> Result<T>) -> Resul
     effect()
 }
 
-pub(crate) fn begin(hub: &Arc<Hub>, cfg: &BotConfig) -> Result<Ticket> {
-    ensure!(crate::environment::Environment::is_open(), "open_chat_unavailable");
-    ensure!(!cfg.is_group(), "open_chat_unavailable");
-    let mut guard = RUNNING.locked();
+/// Reserva o turno de `cfg` sob a trava `RUNNING` já segura pelo chamador.
+pub(crate) fn admit_locked(
+    guard: &mut Option<HashMap<String, Running>>,
+    hub: &Arc<Hub>,
+    cfg: &BotConfig,
+) -> Result<Ticket> {
     let (account, directory, model) = account_profile(hub, cfg)?;
-    admit(&mut guard, hub, &cfg.id, account, directory, model)
+    admit(guard, hub, &cfg.id, account, directory, model)
 }
 
 /// Reserva o turno sob `RUNNING`, a mesma trava em que a reconexão da conta abre a operação: uma conta em reconexão
@@ -128,6 +152,7 @@ pub(crate) fn admit_for_test(hub: &Arc<Hub>, bot: &str, account: &str) -> Result
 }
 
 pub(crate) fn stop(bot: &str) {
+    crate::fork::open_chat_fila::cancel_pending(bot);
     if let Some(r) = RUNNING.locked().as_ref().and_then(|running| running.get(bot)) {
         let _ = r.cancel.send(true);
     }
@@ -204,7 +229,7 @@ fn thread_key(lane: &Lane, account: &str) -> String {
 /// Marca a mensagem que o Codex nunca aceitou: a Open não tem fila de despacho, então a entrada não pode ficar
 /// `queued` — sem isso ela sai da conversa e só o aviso de falha aparece. Depois do aceite a entrada já está
 /// `sent` e segue assim, mesmo que o turno aceite falhe depois.
-fn mark_unsent(hub: &Hub, entry_id: &str, code: &str, account: &str) {
+pub(crate) fn mark_unsent(hub: &Hub, entry_id: &str, code: &str, account: &str) {
     if let Some(entry) = hub.store.entry(entry_id)
         && entry.data["status"] == "queued"
     {
@@ -239,13 +264,12 @@ pub(crate) fn run(
                 tracing::warn!(%error, "open turn admission check unavailable");
                 mark_unsent(&hub, &entry_id, "open_chat_failed", &account);
             }
+            crate::fork::open_chat_fila::finish(&hub, &bot);
             return;
         }
         let alive = || matches!(hub.store.bot(&bot), Ok(Some(row)) if !row.deleted);
         if !alive() {
-            if let Some(running) = RUNNING.locked().as_mut() {
-                running.remove(&bot);
-            }
+            crate::fork::open_chat_fila::finish(&hub, &bot);
             return;
         }
         hub.set_runtime(&bot, |r| {
@@ -289,9 +313,7 @@ pub(crate) fn run(
             });
             hub.emit_bot(&bot);
         }
-        if let Some(running) = RUNNING.locked().as_mut() {
-            running.remove(&bot);
-        }
+        crate::fork::open_chat_fila::finish(&hub, &bot);
         drop(done);
     });
 }

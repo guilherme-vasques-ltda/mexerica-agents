@@ -68,6 +68,8 @@ export const textos = {
   'marca.acesso.segundoPlano': 'Permita que a Mexerica rode em segundo plano (Ajustes do Sistema → Itens de Início).',
   'marca.biblioteca.perfilPronto': 'Perfil pronto da Mexerica · versão',
   'marca.biblioteca.faixa': 'Perfis prontos, feitos pela Mexerica.',
+  'marca.biblioteca.escolhaConta': 'Escolha a conta de IA antes de adicionar.',
+  'marca.biblioteca.soConta': 'Usa só a conta de IA escolhida; sem conectores, skills ou computador',
   'marca.skills.adaptada': 'Versão adaptada pela Mexerica.',
   'marca.motores.node': 'Roda em Node.js; a Mexerica adiciona uma cópia própria.',
   'marca.node.copia': 'Alguns motores precisam dele para rodar. A Mexerica pode adicionar uma cópia só para eles.',

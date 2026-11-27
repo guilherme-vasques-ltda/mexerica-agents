@@ -127,7 +127,7 @@ test('parseLatestReleasePayload: versão nova vira available com tag canônica; 
 })
 
 const estado = (mudanca: Partial<ReleaseNoticeState>): ReleaseNoticeState => ({
-  supported: true, currentVersion: '0.1.0', status: 'available', availableVersion: '0.2.0', availableTag: 'v0.2.0',
+  supported: true, checkEnabled: true, currentVersion: '0.1.0', status: 'available', availableVersion: '0.2.0', availableTag: 'v0.2.0',
   releaseUrl: TAG_URL('v0.2.0'), dismissedVersion: null, lastCheckAt: null, ...mudanca,
 })
 

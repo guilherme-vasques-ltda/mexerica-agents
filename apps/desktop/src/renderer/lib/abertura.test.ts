@@ -152,32 +152,32 @@ function relogio() {
   return { r, avancar, eventos, registros, timers, em: (ms: number) => void (t = ms) }
 }
 
-test('MIN_SPLASH_MS é 2000 ms', () => assert.equal(MIN_SPLASH_MS, 2000))
+test('MIN_SPLASH_MS é 4000 ms', () => assert.equal(MIN_SPLASH_MS, 4000))
 
-test('pronto em 300 ms: a abertura espera até 2000 ms', () => {
+test('pronto em 300 ms: a abertura espera até 4000 ms', () => {
   const c = relogio()
   const saida = criarSaidaDaAbertura(c.r)
   c.em(300)
   saida.pronta()
   assert.deepEqual(c.eventos, [])
-  c.avancar(1999)
+  c.avancar(3999)
   assert.deepEqual(c.eventos, [])
-  c.avancar(2000)
-  assert.deepEqual(c.eventos, ['remove@2000'])
-  assert.deepEqual(c.registros, [[300, 2000]], 'tempo real de pronto (300) separado do exibido (2000)')
+  c.avancar(4000)
+  assert.deepEqual(c.eventos, ['remove@4000'])
+  assert.deepEqual(c.registros, [[300, 4000]], 'tempo real de pronto (300) separado do exibido (4000)')
 })
 
-test('pronto em 3500 ms: sai na hora, sem acrescentar atraso', () => {
+test('pronto em 4500 ms: sai na hora, sem acrescentar atraso', () => {
   const c = relogio()
   const saida = criarSaidaDaAbertura(c.r)
-  c.em(3500)
+  c.em(4500)
   saida.pronta()
-  assert.deepEqual(c.eventos, ['remove@3500'])
+  assert.deepEqual(c.eventos, ['remove@4500'])
   assert.equal(c.timers.size, 0)
-  assert.deepEqual(c.registros, [[3500, 3500]])
-  assert.equal(esperaRestanteMs(3500), 0)
-  assert.equal(esperaRestanteMs(2000), 0)
-  assert.equal(esperaRestanteMs(300), 1700)
+  assert.deepEqual(c.registros, [[4500, 4500]])
+  assert.equal(esperaRestanteMs(4500), 0)
+  assert.equal(esperaRestanteMs(4000), 0)
+  assert.equal(esperaRestanteMs(300), 3700)
 })
 
 test('movimento reduzido: mesma regra de tempo, com a cena estática por CSS', () => {
@@ -187,11 +187,11 @@ test('movimento reduzido: mesma regra de tempo, com a cena estática por CSS', (
   const saida = criarSaidaDaAbertura(c.r)
   c.em(300)
   saida.pronta()
-  c.avancar(2000)
-  assert.deepEqual(c.eventos, ['remove@2000'])
+  c.avancar(4000)
+  assert.deepEqual(c.eventos, ['remove@4000'])
 })
 
-test('erro de carga sai na hora e cancela a espera dos 2 s', () => {
+test('erro de carga sai na hora e cancela a espera dos 4 s', () => {
   const c = relogio()
   const saida = criarSaidaDaAbertura(c.r)
   c.em(300)

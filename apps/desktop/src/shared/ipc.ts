@@ -15,6 +15,7 @@ import type { OriginReport } from './guard-hub'
 import type { AppIconId } from './app-icons'
 import type { PonteCofreChat } from './fork-cofre-seguro'
 import type { ReleaseNoticeState } from './fork-release-notice'
+import type { EscolhaEntrada } from './fork-modo-entrada'
 
 // The bridge between the main process (host lifecycle, loopback HTTP, tray, windows)
 // and the renderer (stores and UI). Exposed as `window.codync` by the preload script.
@@ -308,6 +309,8 @@ export interface CodyncBridge {
     check(): Promise<ReleaseNoticeState>
     dismiss(): Promise<ReleaseNoticeState>
     openDownload(): Promise<boolean>
+    /** Liga ou desliga a busca de nova versão; desligada, nenhuma requisição de versão sai do app. */
+    setCheckEnabled(on: boolean): Promise<ReleaseNoticeState>
     onChange(cb: (s: ReleaseNoticeState) => void): () => void
   }
   files: {
@@ -331,6 +334,9 @@ export interface CodyncBridge {
     /** Files picked in the system dialog: name and bytes. */
     pickFiles(): Promise<{ name: string; data: Uint8Array }[]>
     readClipboardFiles(): Promise<{ name: string; data: Uint8Array }[]>
+    /** A escolha "100% local" ou "com conta" da entrada guiada, gravada pelo processo principal; ausente na web. */
+    escolhaEntrada?(): Promise<EscolhaEntrada | null>
+    gravarEscolhaEntrada?(escolha: EscolhaEntrada): Promise<boolean>
     setTraySummary(summary: TraySummary): void
     /** D454/D495: o idioma efetivo do app, para o menu do Mac e a barra de menus (processo principal). */
     setLanguage(idioma: AppLanguage): void

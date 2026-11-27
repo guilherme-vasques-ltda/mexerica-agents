@@ -5,7 +5,8 @@
 import { join } from 'node:path'
 import { app, ipcMain, shell, type BrowserWindow, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron'
 import type { ReleaseNoticeState } from '../shared/fork-release-notice'
-import { createFileReleaseNoticeStore, createReleaseNoticeController } from './fork-release-notice-core'
+import { createFileReleaseNoticeStore, createReleaseNoticeController, type ReleaseNoticeController } from './fork-release-notice-core'
+import { arquivoEscolhaEntrada, lerEscolhaEntrada } from './fork-modo-entrada'
 
 export interface RegisterReleaseNoticeOptions {
   windows: () => BrowserWindow[]
@@ -15,10 +16,12 @@ export interface RegisterReleaseNoticeOptions {
   allowed?: (event: IpcMainEvent | IpcMainInvokeEvent) => boolean
 }
 
-export function registerReleaseNotice(options: RegisterReleaseNoticeOptions) {
+/** A busca só nasce ligada no modo "com conta"; sem escolha gravada ou no 100% local, nada sai. */
+export function registerReleaseNotice(options: RegisterReleaseNoticeOptions): ReleaseNoticeController {
   const controller = createReleaseNoticeController({
     currentVersion: options.currentVersion,
     store: createFileReleaseNoticeStore(join(options.userDataDir, 'release-notice.json')),
+    defaultCheckEnabled: () => lerEscolhaEntrada(arquivoEscolhaEntrada(options.userDataDir))?.modo === 'conta',
     openExternal: (url) => shell.openExternal(url).then(() => true, () => false),
     onChange: (state: ReleaseNoticeState) => {
       for (const window of options.windows()) {
@@ -34,13 +37,16 @@ export function registerReleaseNotice(options: RegisterReleaseNoticeOptions) {
     return true
   }
   const estadoNegado = (): ReleaseNoticeState => ({
-    supported: false, currentVersion: options.currentVersion, status: 'idle', availableVersion: null, availableTag: null,
+    supported: false, checkEnabled: false, currentVersion: options.currentVersion, status: 'idle', availableVersion: null, availableTag: null,
     releaseUrl: null, dismissedVersion: null, lastCheckAt: null,
   })
   ipcMain.handle('releaseNotice:state', (event) => (admit('state', event) ? controller.getState() : estadoNegado()))
   ipcMain.handle('releaseNotice:check', (event) => (admit('check', event) ? controller.check({ manual: true }) : Promise.resolve(estadoNegado())))
   ipcMain.handle('releaseNotice:dismiss', (event) => (admit('dismiss', event) ? controller.dismiss() : Promise.resolve(estadoNegado())))
   ipcMain.handle('releaseNotice:openDownload', (event) => (admit('openDownload', event) ? controller.openDownload() : Promise.resolve(false)))
+  ipcMain.handle('releaseNotice:setCheckEnabled', (event, on: unknown) =>
+    (admit('setCheckEnabled', event) && typeof on === 'boolean' ? controller.setCheckEnabled(on) : estadoNegado()))
   controller.start()
   app.on('before-quit', () => controller.stop())
+  return controller
 }
