@@ -36,6 +36,7 @@ pub(crate) fn prepare(cfg: &BotConfig, attachments: &Value, text: &str) -> (Stri
         let size = usize::try_from(size).unwrap_or(usize::MAX);
         let content = (size <= MAX_TEXT_FILE && used.saturating_add(size) <= MAX_TEXT_TOTAL)
             .then(|| {
+                std::fs::symlink_metadata(&path).ok()?.is_file().then_some(())?;
                 let mut bytes = Vec::new();
                 File::open(&path).ok()?.take(MAX_TEXT_FILE as u64 + 1).read_to_end(&mut bytes).ok()?;
                 let text = (bytes.len() <= MAX_TEXT_FILE && !bytes.contains(&0)).then_some(bytes)?;
