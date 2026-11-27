@@ -89,7 +89,7 @@ const SETTINGS_LOCAL: [&str; 40] = [
     "donnaCostReport",
 ];
 
-/// Plugins (WhatsApp e Gerente de e-mail), também só do dono local.
+/// Plugins (`WhatsApp` e Gerente de e-mail), também só do dono local.
 const WHATSAPP_LOCAL: [&str; 22] = [
     "donnaMailManager",
     "donnaMailManagerSave",
