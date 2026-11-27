@@ -3,6 +3,15 @@ import type { textos as fonte } from '../pt-BR/mercado.ts'
 
 // Marketplace de conectores (fatia 1b): Extensões → Conectores e Contas no bot. Chaves completas; docs/guides/idiomas.md.
 export const textos: Traducao<typeof fonte> = {
+  "mercado.appProprio.titulo": "你的 OAuth 应用",
+  "mercado.appProprio.salvar": "将应用保存到保险库",
+  "mercado.appProprio.editar": "配置应用",
+  "mercado.appProprio.portal": "打开服务商设置",
+  "mercado.appProprio.redirect": "保存前，请在服务商处登记这些重定向地址。",
+  "mercado.appProprio.aviso": "更换或移除应用将退出此空间中使用该连接类型的账户。",
+  "mercado.appProprio.remover": "移除应用",
+  "mercado.appProprio.erro": "无法确认 OAuth 应用的更改。",
+  "mercado.appProprio.indisponivel": "解锁保险库并重新加载服务页面以配置 OAuth 应用。",
   "mercado.tab.rotulo": "连接器分区",
   "mercado.tab.catalogo": "目录",
   "mercado.tab.contas": "我的账号",

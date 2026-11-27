@@ -3,7 +3,7 @@
 import { Observable } from '../../../lib/observable.ts'
 import { mercadoApi, type PedidoConectar } from './api.ts'
 import { alternarGrupo, codigoDaRecusa, nomeSugerido, padraoSeguro, planoDeNomes, type CodigoDeRecusa } from './regras.ts'
-import type { Conta, ProximoPasso, Servico, TipoConexao } from './tipos.ts'
+import type { AppProprio, Conta, ProximoPasso, Servico, TipoConexao } from './tipos.ts'
 
 const mensagem = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
@@ -54,17 +54,22 @@ export class FluxoConectar extends Observable {
   falhaDeEntrada: string | null = null
   conta: Conta | null = null
   ocupado = false
+  appProprio: AppProprio | null = null
+  erroAppProprio = false
   private proximo: ProximoPasso | null = null
 
   readonly servico: Servico
   readonly tipo: TipoConexao
+  readonly cadastro?: { app: AppProprio | null; spaceId: string; redirects: string[] }
   private readonly deps: Dependencias
 
-  constructor(servico: Servico, tipo: TipoConexao, deps: Dependencias) {
+  constructor(servico: Servico, tipo: TipoConexao, deps: Dependencias, cadastro?: FluxoConectar['cadastro']) {
     super()
     this.servico = servico
     this.tipo = tipo
     this.deps = deps
+    this.cadastro = cadastro
+    this.appProprio = cadastro?.app ?? null
     this.escolhidos = padraoSeguro(tipo)
     // Da 2ª conta em diante o campo já vem com "Serviço 2" (editável); o Hub segue conferindo o nome.
     this.nomeDaNova = nomeSugerido(servico)
@@ -79,6 +84,7 @@ export class FluxoConectar extends Observable {
   /** Dá para confirmar a configuração: ao menos uma liberação e os nomes que a regra pede preenchidos. */
   get podeContinuar(): boolean {
     if (this.ocupado || this.escolhidos.length === 0) return false
+    if (this.tipo.auth.modo === 'app_proprio' && this.tipo.auth.configuracao && !this.appProprio?.configurado) return false
     const n = this.nomes
     if (n.pedeNomeDaNova && this.nomeDaNova.trim() === '') return false
     if (n.pedeNomeDaPrimeira && this.nomeDaPrimeira.trim() === '') return false
@@ -100,6 +106,30 @@ export class FluxoConectar extends Observable {
     return { codigo, texto: mensagem(e), campo: codigo ? (CAMPO_DO_CODIGO[codigo] ?? null) : null }
   }
 
+  async escreverAppProprio(dados?: { id: string; chave: string }): Promise<boolean> {
+    if (!this.cadastro || this.passo !== 'configurar' || this.ocupado) return false
+    const alvo = { servico: this.servico.id, tipo: this.tipo.id, spaceId: this.cadastro.spaceId }
+    this.ocupado = true; this.erroAppProprio = false; this.changed()
+    try {
+      const cliente = await this.deps.cliente()
+      this.appProprio = dados
+        ? await mercadoApi.salvarAppProprio(cliente, alvo, dados.id, dados.chave)
+        : await mercadoApi.removerAppProprio(cliente, alvo)
+      return true
+    } catch {
+      this.erroAppProprio = true
+      this.appProprio = null
+      try {
+        const catalogo = await mercadoApi.catalogo(await this.deps.cliente())
+        await this.deps.cliente()
+        if (catalogo.spaceId === alvo.spaceId) this.appProprio = catalogo.appsProprios?.[alvo.tipo] ?? null
+      } catch { this.appProprio = null }
+      return false
+    } finally {
+      try { await this.deps.reler() } finally { this.ocupado = false; this.changed() }
+    }
+  }
+
   /** Passo 1 → 2: o Hub confere nome, ficha e liberações; só a recusa dele vira erro na tela. */
   async confirmar(): Promise<void> {
     if (!this.podeContinuar || this.passo !== 'configurar') return
@@ -108,6 +138,7 @@ export class FluxoConectar extends Observable {
       const n = this.nomes
       const pedido: PedidoConectar = {
         servico: this.servico.id, tipo: this.tipo.id, liberacoes: this.escolhidos,
+        ...(this.cadastro ? { spaceId: this.cadastro.spaceId } : {}),
         ...(this.credencialComEscrita ? { aceitaCredencialComEscrita: true } : {}),
         ...(n.pedeNomeDaNova ? { nome: this.nomeDaNova.trim() } : {}),
         ...(n.pedeNomeDaPrimeira ? { nomePrimeira: this.nomeDaPrimeira.trim() } : {}),
