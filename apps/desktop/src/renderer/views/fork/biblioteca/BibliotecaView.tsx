@@ -1,9 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import type { Backend } from '@shared/models'
-import { contaPadraoDoHub, escolhaDeConta } from '@shared/fork-criar-bot-destino'
-import type { ManagedAccount } from '@shared/fork-engine-accounts'
-import type { HostClient } from '../../../client/host-client'
-import { engineSetup } from '../../../store/fork-engine-setup'
+import { contaPadraoDoHub, contasDoMotor, escolhaDeConta } from '@shared/fork-criar-bot-destino'
 import { ContaDaIa } from '../../criar-bot/Destino'
 import { avatarDoBot, normalizarAvatarDoBot } from '@shared/fork-avatar-config'
 import type { NativeLink, NativeProfile } from '@shared/fork-native-catalog'
@@ -14,11 +11,12 @@ import { DonnabotAvatar } from '../../../fork/avatars/Avatar'
 import { useModel } from '../../../lib/observable'
 import { opcoesDeMotor } from '../../criar-bot/ModeloDaIa'
 import { AvisoDoMotor } from '../../fork/aviso-motor/AvisoDoMotor'
-import { LibrarySession, type LibrarySource } from './biblioteca-session'
+import { LibrarySession, contaParaAdicionar, type LibrarySource } from './biblioteca-session'
 import { libraryActions, type LibraryAction } from './biblioteca-acoes'
 import '../../criar-bot/funcao-etiqueta.css'
 import './biblioteca.css'
 import { traduzir } from '../../../lib/fork-i18n/index.ts'
+import { useT } from '../../../lib/fork-i18n/estado'
 
 // Biblioteca de especialistas (components/BibliotecaEspecialistas).
 // Só apresenta o que o Hub manda e envia a intenção do gesto. Perfis, rostos, Almas e vínculos vêm da prévia do Hub.
@@ -33,8 +31,6 @@ export interface LibraryStore extends LibrarySource {
   readonly bots: ReadonlyMap<string, unknown>
   /** A versão da store (Observable): um bot que chega ou a conexão que cai redesenham a folha. */
   readonly getVersion: () => number
-  /** Fora do Pessoal: lê as contas de IA do Hub para a escolha (a mesma leitura da criação manual). */
-  ready(): Promise<HostClient>
 }
 
 export interface LibraryTarget { store: LibraryStore; spaceId: string; personal: boolean; spaceName: string }
@@ -62,17 +58,8 @@ export function BibliotecaView({ target, session: given, onEditor, onConversatio
   const [open, setOpen] = useState<string | null>(null)
   const [backend, setBackend] = useState('')
   const [conta, setConta] = useState<string | null>(null)
-  const [contas, setContas] = useState<{ estado: 'carregando' | 'pronto' | 'falhou'; lista: ManagedAccount[] }>({ estado: 'carregando', lista: [] })
+  const contas = session.accounts
   const podeConta = store.canManageEngineAccounts
-  useEffect(() => {
-    if (personal || !podeConta) return
-    let live = true
-    void store.ready().then((client) => engineSetup.accounts(client)).then(
-      (r) => { if (live) setContas({ estado: 'pronto', lista: r.accounts }) },
-      () => { if (live) setContas({ estado: 'falhou', lista: [] }) },
-    )
-    return () => { live = false }
-  }, [store, personal, podeConta])
   const [readd, setReadd] = useState(false)
   const lastCard = useRef<string | null>(null)
   const body = useRef<HTMLDivElement>(null)
@@ -82,12 +69,8 @@ export function BibliotecaView({ target, session: given, onEditor, onConversatio
   const live = session.link === 'live'
   const linkOf = (key: string) => catalog?.links.find((l) => l.catalogKey === key) ?? null
   const profile = open ? catalog?.profiles.find((p) => p.catalogKey === open) ?? null : null
-  // Fora do Pessoal, a conta de IA como na criação manual num Space: uma conectada do motor ou o padrão legado do Hub.
   const escolhaConta = escolhaDeConta(podeConta, backend)
-  const contasDoBackend = contas.lista.filter((c) => c.backend === backend).map((c) => ({ conta: c, escolhivel: c.state === 'connected' }))
-  const contaPadrao = contaPadraoDoHub(contas.lista, backend)
-  const contaEscolhida = personal || escolhaConta !== 'escolher' ? null
-    : conta ? contasDoBackend.find((c) => c.conta.id === conta && c.escolhivel)?.conta ?? null : contaPadrao
+  const contaEscolhida = personal ? null : contaParaAdicionar(contas.lista, backend, podeConta, conta)
   const opKey = op.kind === 'sending' || op.kind === 'unknown' ? op.intent.body.catalogKey : op.kind === 'refused' ? op.catalogKey : op.kind === 'done' ? op.added.catalogKey : null
 
   // Sucesso provado no Pessoal: quando o bot chega ao app, abre o Bot por dentro normal.
@@ -156,9 +139,9 @@ export function BibliotecaView({ target, session: given, onEditor, onConversatio
             <Button kind="secondary" onClick={() => session.reread()} disabled={!live}>Tentar de novo</Button>
           </div>
             : catalog && profile ? <Previa profile={profile} actions={actionsOf(profile.catalogKey, true)} ctx={ctxFor(profile.catalogKey, false)} target={target} session={session}
-              backend={backend} onBackend={(b) => { setBackend(b); setConta(null) }} onBack={() => show(null)}
-              contaSlot={personal || !backend ? null : <ContaDaIa escolha={escolhaConta} contas={contasDoBackend} carregando={contas.estado === 'carregando'}
-                falhou={contas.estado === 'falhou'} conta={conta} padraoDisponivel={!!contaPadrao}
+              backend={backend} onBackend={(b) => { setBackend(b); setConta(null); session.rereadAccounts() }} onBack={() => show(null)}
+              contaSlot={personal || !backend ? null : <ContaDaIa escolha={escolhaConta} contas={contasDoMotor(contas.lista, backend)} carregando={contas.estado === 'carregando'}
+                falhou={contas.estado === 'falhou'} conta={conta} padraoDisponivel={!!contaPadraoDoHub(contas.lista, backend)}
                 disabled={op.kind === 'sending' || !live} onConta={setConta} />}
               message={opKey === profile.catalogKey ? opMessage(session, personal, spaceName) : null} />
               : catalog ? <>
@@ -292,12 +275,13 @@ function Previa({ profile, actions, ctx, target, session, backend, onBackend, on
   message: string | null
 }) {
   const { personal, spaceName, store } = target
+  const t = useT()
   const kinds = actions.map((a) => a.kind)
   const settled = opens(actions) || kinds.includes('current') || kinds.includes('retry')
   const backends = store.hello?.backends ?? []
   const titleId = `bib-previa-${profile.catalogKey}`
   const note = kinds.includes('current') ? RECIBO_REMOVIDO
-    : message ?? (opens(actions) && !personal ? FORA_DO_PESSOAL : !settled && ctx.motorMissing ? 'Escolha o motor antes de adicionar.' : !settled && ctx.contaMissing ? traduzir('pt-BR', 'marca.biblioteca.escolhaConta') : !session.authorized ? 'Este aparelho não pode adicionar bots neste computador agora.' : '')
+    : message ?? (opens(actions) && !personal ? FORA_DO_PESSOAL : !settled && ctx.motorMissing ? 'Escolha o motor antes de adicionar.' : !settled && ctx.contaMissing ? t('marca.biblioteca.escolhaConta') : !session.authorized ? 'Este aparelho não pode adicionar bots neste computador agora.' : '')
 
   return <section className="bib-previa" aria-labelledby={titleId}>
     <div className="bib-previa-topo">
@@ -328,7 +312,7 @@ function Previa({ profile, actions, ctx, target, session, backend, onBackend, on
               disabled={settled || ctx.sending || session.link !== 'live'} />
           </div>
           {backend ? <AvisoDoMotor backend={backend} /> : null}
-          {contaSlot && !settled ? <><h4>{traduzir('pt-BR', 'botCreate.contaDeIa')}</h4>{contaSlot}</> : null}
+          {contaSlot && !settled ? <><h4>{t('botCreate.contaDeIa')}</h4>{contaSlot}</> : null}
         </>}
         {personal ? <p className="bib-nota">Contas de IA não são ligadas ao adicionar.</p> : null}
         <h4>Ao adicionar</h4>
@@ -336,7 +320,7 @@ function Previa({ profile, actions, ctx, target, session, backend, onBackend, on
           <li>Entra em {spaceName}, no {store.hostName}</li>
           <li>Conversa e memória próprias, começando vazias</li>
           <li>Começa em Pedir aprovação</li>
-          {personal ? <li>Sem contas, conectores, skills ou computador</li> : <li>{traduzir('pt-BR', 'marca.biblioteca.soConta')}</li>}
+          {personal ? <li>Sem contas, conectores, skills ou computador</li> : <li>{t('marca.biblioteca.soConta')}</li>}
           <li>Não começa nenhum trabalho</li>
           {personal ? null : <li>Em outro space seria outro bot, sem memória nem acessos deste</li>}
         </ul>
