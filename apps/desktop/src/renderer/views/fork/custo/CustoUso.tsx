@@ -11,6 +11,8 @@ import { ComputerBadge } from '../../ComputerBadge'
 import { mesDe, type AbaUso } from './modelo'
 import { PainelUso, type LimitesItem } from './PainelUso'
 import { useCusto } from './useCusto'
+import { useHistorico } from './useHistorico'
+import type { FaixaHistorico } from './historico'
 import { useCadastroContas } from './useCadastroContas'
 import './custo.css'
 
@@ -48,10 +50,13 @@ function Painel({ source, aba }: { source: BotStore; aba: AbaUso }) {
   const [mes, setMes] = useEstadoDaPagina<string | undefined>(`uso/${store.computer.id}/mes`, undefined)
   const { estado, lendo, ler, online } = useCusto(store, mes ? { month: mes } : {}, true)
   const cadastro = useCadastroContas(store, aba === 'conta')
+  const [faixa, setFaixa] = useEstadoDaPagina<FaixaHistorico>(`uso/${store.computer.id}/historico`, '7d')
+  const historico = useHistorico(store, faixa, aba === 'conta')
   const limites = useLimites()
   const atual = estado.kind === 'pronto' ? estado.relatorio.month : mes ?? mesDe(Date.now())
   return (
-    <PainelUso estado={estado} lendo={lendo} online={online} mes={atual} onMes={setMes} onAtualizar={() => { ler(); cadastro.recarregar() }}
-      aba={aba} cadastro={cadastro.estado} bot={(id) => store.bots.get(id)} limites={limites} />
+    <PainelUso estado={estado} lendo={lendo} online={online} mes={atual} onMes={setMes} onAtualizar={() => { ler(); cadastro.recarregar(); historico.ler() }}
+      aba={aba} cadastro={cadastro.estado} bot={(id) => store.bots.get(id)} limites={limites}
+      historico={{ estado: historico.estado, lendo: historico.lendo, online: store.connection.kind === 'online', faixa, onFaixa: setFaixa, onAtualizar: historico.ler }} />
   )
 }
