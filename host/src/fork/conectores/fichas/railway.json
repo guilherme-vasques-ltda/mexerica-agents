@@ -13,10 +13,11 @@
     "privacidade": "https://railway.com/legal/privacy",
     "termos": "https://railway.com/legal/terms"
   },
-  "conferidaEm": "2026-11-18",
+  "conferidaEm": "2026-11-27",
   "fontes": [
     "https://docs.railway.com/ai/mcp-server",
-    "https://backboard.railway.com/oauth/register",
+    "https://docs.railway.com/integrations/oauth/scopes-and-user-consent",
+    "https://mcp.railway.com/.well-known/oauth-protected-resource",
     "https://backboard.railway.com/.well-known/oauth-authorization-server"
   ],
   "tipos": [
@@ -44,10 +45,10 @@
       ],
       "recomendado": true,
       "disponivel": false,
-      "motivoIndisponivel": "O Railway não oferece um modo só de leitura; entra depois do filtro de ações perigosas."
+      "motivoIndisponivel": "O OAuth do Railway tem workspace:viewer, mas o MCP só declara workspace:member, que também cria projeto e faz deploy: o fornecedor não impõe leitura."
     }
   ],
-  "emBreve": "O fornecedor não impõe leitura: entra depois do filtro de ações perigosas.",
+  "emBreve": "O fornecedor não impõe leitura neste conector, e a regra do catálogo exige que o próprio fornecedor imponha.",
   "skillsOficiais": [
     {
       "url": "https://github.com/railwayapp/railway-skills",

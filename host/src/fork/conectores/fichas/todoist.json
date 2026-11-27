@@ -2,7 +2,7 @@
   "id": "todoist",
   "nome": "Todoist",
   "categoria": "Produtividade",
-  "descricao": "Tarefas, projetos e filtros do Todoist. Leitura só se o acesso vier com o escopo de leitura.",
+  "descricao": "Tarefas, projetos e filtros do Todoist. O MCP do fornecedor pede leitura e escrita juntas.",
   "exemplos": [
     "O que tenho para hoje no Todoist?",
     "Liste as tarefas atrasadas do projeto Casa",
@@ -14,9 +14,11 @@
     "privacidade": "https://www.todoist.com/privacy",
     "termos": "https://www.todoist.com/terms-of-service"
   },
-  "conferidaEm": "2026-11-18",
+  "conferidaEm": "2026-11-27",
   "fontes": [
-    "https://developer.todoist.com/api/v1",
+    "https://developer.todoist.com/api/v1/todoist-mcp.md",
+    "https://developer.todoist.com/api/v1/authorization.md",
+    "https://www.todoist.com/help/todoist/todoist-and-ai/connect-todoist-to-an-ai-assistant-xMSzFfHng",
     "https://ai.todoist.net/.well-known/oauth-protected-resource/mcp",
     "https://todoist.com/.well-known/oauth-authorization-server"
   ],
@@ -45,9 +47,9 @@
       ],
       "recomendado": true,
       "disponivel": false,
-      "motivoIndisponivel": "O Todoist só anuncia o acesso de leitura e escrita juntos para este conector."
+      "motivoIndisponivel": "O MCP do Todoist anuncia só data:read_write; sem prova de login só de leitura nele."
     }
   ],
   "skillsOficiais": [],
-  "emBreve": "O Todoist anuncia leitura e escrita juntas; entra depois do filtro de ações perigosas."
+  "emBreve": "O MCP do Todoist pede leitura e escrita juntas; entra depois do filtro de ações perigosas."
 }

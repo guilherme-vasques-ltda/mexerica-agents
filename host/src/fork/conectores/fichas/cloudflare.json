@@ -2,7 +2,7 @@
   "id": "cloudflare",
   "nome": "Cloudflare",
   "categoria": "Infraestrutura",
-  "descricao": "Infraestrutura Cloudflare: consulta DNS, Workers, R2 e Zero Trust pela API e executa mudanças na conta e na zona.",
+  "descricao": "Infraestrutura Cloudflare: consulte DNS, Workers, R2 e Zero Trust pela API oficial.",
   "exemplos": [
     "Como está o tráfego do meu site no Cloudflare?",
     "Liste os domínios e o estado de cada um"
@@ -13,10 +13,12 @@
     "privacidade": "https://www.cloudflare.com/privacypolicy/",
     "termos": "https://www.cloudflare.com/website-terms/"
   },
-  "conferidaEm": "2026-11-18",
+  "conferidaEm": "2026-11-27",
   "fontes": [
     "https://developers.cloudflare.com/agents/model-context-protocol/cloudflare/servers-for-cloudflare/",
-    "https://mcp.cloudflare.com/register",
+    "https://developers.cloudflare.com/changelog/post/2026-08-22-wrangler-mcp-optional-oauth-scopes/",
+    "https://developers.cloudflare.com/fundamentals/oauth/create-an-oauth-client/",
+    "https://mcp.cloudflare.com/.well-known/oauth-protected-resource/mcp",
     "https://mcp.cloudflare.com/.well-known/oauth-authorization-server"
   ],
   "tipos": [
@@ -44,10 +46,10 @@
       ],
       "recomendado": true,
       "disponivel": false,
-      "motivoIndisponivel": "O Cloudflare não oferece um modo só de leitura; entra depois do filtro de ações perigosas."
+      "motivoIndisponivel": "O login só de leitura do Cloudflare pede apenas user:read e account:read, os únicos escopos que o MCP anuncia; com eles as listas de zona, DNS e Workers voltam vazias."
     }
   ],
-  "emBreve": "O fornecedor não impõe leitura: entra depois do filtro de ações perigosas.",
+  "emBreve": "Ler DNS, Workers e R2 exige os escopos de leitura de cada produto, que o MCP ainda não anuncia no login.",
   "skillsOficiais": [
     {
       "url": "https://github.com/cloudflare/skills",
