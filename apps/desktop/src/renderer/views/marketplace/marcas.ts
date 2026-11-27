@@ -4,14 +4,17 @@
 import airtable from '../../assets/marcas/airtable.png'
 import atlassian from '../../assets/marcas/atlassian.svg'
 import attio from '../../assets/marcas/attio.svg'
+import betterStack from '../../assets/marcas/better-stack.svg'
 import brevo from '../../assets/marcas/brevo.svg'
 import browserUse from '../../assets/marcas/browser-use.svg'
 import calCom from '../../assets/marcas/cal-com.svg'
 import calendly from '../../assets/marcas/calendly.svg'
 import camtasia from '../../assets/marcas/camtasia.svg'
+import clerk from '../../assets/marcas/clerk.svg'
 import clickup from '../../assets/marcas/clickup.svg'
 import cloudflare from '../../assets/marcas/cloudflare.svg'
 import coda from '../../assets/marcas/coda.png'
+import coderabbit from '../../assets/marcas/coderabbit.svg'
 import composio from '../../assets/marcas/composio.png'
 import context7 from '../../assets/marcas/context7.svg'
 import descript from '../../assets/marcas/descript.svg'
@@ -40,9 +43,11 @@ import outlook from '../../assets/marcas/outlook.png'
 import paypal from '../../assets/marcas/paypal.svg'
 import pipedrive from '../../assets/marcas/pipedrive.png'
 import plaud from '../../assets/marcas/plaud.svg'
+import posthog from '../../assets/marcas/posthog.svg'
 import railway from '../../assets/marcas/railway.png'
 import render from '../../assets/marcas/render.svg'
 import resend from '../../assets/marcas/resend.png'
+import revenuecat from '../../assets/marcas/revenuecat.svg'
 import semrush from '../../assets/marcas/semrush.svg'
 import sentry from '../../assets/marcas/sentry.svg'
 import shortIo from '../../assets/marcas/short-io.png'
@@ -61,14 +66,17 @@ export const MARCAS: Readonly<Record<string, string>> = {
   airtable,
   atlassian,
   attio,
+  'better-stack': betterStack,
   brevo,
   'browser-use': browserUse,
   'cal-com': calCom,
   calendly,
   camtasia,
+  clerk,
   clickup,
   cloudflare,
   coda,
+  coderabbit,
   composio,
   context7,
   descript,
@@ -97,9 +105,11 @@ export const MARCAS: Readonly<Record<string, string>> = {
   paypal,
   pipedrive,
   plaud,
+  posthog,
   railway,
   render,
   resend,
+  revenuecat,
   semrush,
   sentry,
   'short-io': shortIo,
