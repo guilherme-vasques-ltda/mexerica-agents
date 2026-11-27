@@ -56,6 +56,7 @@ const LOCAL_ONLY: &[&str] = &[
     crate::fork::onboarding::DETECT_METHOD,
     crate::fork::onboarding::STATUS_METHOD,
     crate::fork::onboarding::SAVE_METHOD,
+    crate::fork::open_modelo::SET_METHOD,
     "hostUpdateStatus",
     "checkHostUpdate",
     "installHostUpdate",

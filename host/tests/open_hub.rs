@@ -188,6 +188,21 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
     let credential = fs::read_to_string(&token_path).unwrap();
     let first = identity(&session_client, &credential, [3u8; 32]).await;
     assert!(session_client.post(endpoint).bearer_auth(&credential).send().await.unwrap().status().is_success());
+    let catalog = rpc(&session_client, &credential, "marketCatalogo", json!({})).await;
+    let services = catalog["servicos"].as_array().unwrap();
+    assert!(services.iter().any(|s| s["id"] == "linear"));
+    assert!(services.iter().all(|s| s["contas"] == json!([])));
+    assert_eq!(catalog["appsProprios"]["google"], Value::Null);
+    for method in ["marketContas", "marketConectar", "skills", "donnaWhatsapp", "credentialStatus"] {
+        let response = session_client
+            .post(format!("http://localhost/api/{method}"))
+            .bearer_auth(&credential)
+            .json(&json!({}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::FORBIDDEN, "{method}");
+    }
     assert_eq!(
         tcp.post("http://127.0.0.1:19524/api/hello").bearer_auth(&credential).send().await.unwrap().status(),
         reqwest::StatusCode::NOT_FOUND

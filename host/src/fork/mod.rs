@@ -8,6 +8,7 @@ pub(crate) mod open_chat;
 pub(crate) mod open_chat_fila;
 #[cfg(unix)]
 pub(crate) mod open_codex;
+pub(crate) mod open_modelo;
 pub(crate) mod voz_gpt_live;
 pub(crate) mod web_local;
 pub(crate) mod webhook;

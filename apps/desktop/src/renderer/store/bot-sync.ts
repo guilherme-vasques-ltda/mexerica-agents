@@ -1,5 +1,6 @@
 // Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { spaceAllows } from '../lib/fork-space-capabilities'
+import { isOpenDesktop } from '@shared/fork-capacidades'
 import { draftKey } from '../../shared/composer-drafts'
 import { AvatarBotMap } from '@shared/fork-avatar-mood'
 import { mirrorCacheStamp } from '@shared/fork-mirror-cache'
@@ -70,7 +71,7 @@ export class BotSync extends BotMirror {
   readonly timesRoster = new TimesRoster(() => {
     const client = this.connectedClient
     const spaceId = this.spaceId ?? this.spaces?.personalSpaceId
-    return spaceAllows(this.spaceId, 'teams') && client && this.hostId && spaceId ? { contextId: this.contextId, computerId: this.computer.id,
+    return !isOpenDesktop(globalThis.window?.codync) && spaceAllows(this.spaceId, 'teams') && client && this.hostId && spaceId ? { contextId: this.contextId, computerId: this.computer.id,
       hostId: this.hostId, spaceId, client, epoch: this.principalEpoch } : null
   })
   private heldDrop: Connection | null = null

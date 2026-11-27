@@ -74,10 +74,40 @@ fn na_partida_a_mensagem_que_ficou_na_fila_de_uma_execucao_anterior_vira_falha()
     let (a, _) = mensagem(&hub, bot, 1);
     let enviada =
         hub.add_entry(&Lane::main(bot), EntryKind::User, 2, &json!({"text": "ok", "status": "sent"})).unwrap();
-    super::recover(&hub.store);
+    super::recover(&hub.store).unwrap();
     assert_eq!(status(&hub, &a), "failed");
     assert_eq!(hub.store.entry(&a).unwrap().data["reason"]["code"], "open_chat_failed");
     assert_eq!(status(&hub, &enviada.id), "sent", "o que já foi aceito não muda");
+}
+
+#[test]
+fn envios_concorrentes_entram_na_fila_na_ordem_em_que_foram_gravados() {
+    let bot = "bot-fila-concorrente";
+    let hub = hub_de_teste(bot);
+    let _reserva = reservar(&hub, bot);
+    let cfg = hub.store.bot(bot).unwrap().unwrap().config;
+    let gravadas = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let threads: Vec<_> = (0..8)
+        .map(|n| {
+            let (hub, cfg, gravadas) = (hub.clone(), cfg.clone(), gravadas.clone());
+            std::thread::spawn(move || {
+                let _ordem = super::ordem();
+                let e = hub
+                    .add_entry(&Lane::main(bot), EntryKind::User, n, &json!({"text": "x", "status": "queued"}))
+                    .unwrap();
+                std::thread::sleep(std::time::Duration::from_millis(5));
+                gravadas.locked().push(e.id.clone());
+                submit(&hub, &cfg, Lane::main(bot), n, (e.id, None), "x".into());
+            })
+        })
+        .collect();
+    for t in threads {
+        t.join().unwrap();
+    }
+    let na_fila: Vec<String> = PENDING.locked().as_ref().unwrap()[bot].iter().map(|q| q.entry.0.clone()).collect();
+    assert_eq!(na_fila, *gravadas.locked(), "a fila segue a ordem de gravação");
+    RUNNING.locked().as_mut().unwrap().remove(bot);
+    PENDING.locked().as_mut().unwrap().remove(bot);
 }
 
 #[test]

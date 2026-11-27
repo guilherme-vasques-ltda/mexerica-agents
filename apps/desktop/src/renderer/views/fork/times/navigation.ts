@@ -1,5 +1,6 @@
 // Abre e fecha a tela Times (components/TimesView), que ocupa a janela no lugar das conversas, como Rotinas.
 import { Observable } from '../../../lib/observable'
+import { isOpenDesktop } from '@shared/fork-capacidades'
 
 class TimesScreen extends Observable {
   open = false
@@ -13,6 +14,7 @@ class TimesScreen extends Observable {
   seq = 0
 
   show(spaceId: string | null, computerId: string | null = null, fallbackComputerId: string | null = null) {
+    if (isOpenDesktop(globalThis.window?.codync)) return
     this.open = true
     this.spaceId = spaceId
     this.computerId = computerId

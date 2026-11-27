@@ -23,6 +23,7 @@ export const textos = {
   "extensoes.plugins.voltar": "Voltar para a lista de plugins",
   "extensoes.cred.sobre": "Senhas, chaves e logins que os bots usam. Os valores ficam guardados no Hub e nunca aparecem na tela.",
   "extensoes.conectores.sobre": "Dê aos seus bots acesso aos serviços que você usa. Cada conta fica neste Space e começa desligada nos bots.",
+  "extensoes.conectores.sobreOpen": "Na Mexerica Open, você pode consultar as fichas dos conectores. Esta edição não conecta serviços aos bots.",
   "extensoes.plugins.rodape": "Novos plugins aparecem aqui.",
   "extensoes.cred.adicionarLogin": "Adicionar login",
   "extensoes.meusMcp": "Meus MCP",

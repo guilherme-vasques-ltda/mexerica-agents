@@ -5,6 +5,7 @@ import {
   countActiveProposalTasks,
   decideBody,
   includedPendingItemIds,
+  offersBergaProposals,
   parseProposalDecideAnswer,
   parseTaskProposals,
   resolveItemStartBadge,
@@ -14,6 +15,13 @@ import {
   type TaskProposal,
 } from './fork-propostas.ts'
 import type { SpacesSnapshot } from './fork-spaces.ts'
+
+test('só a edição Open não monta o cartão de propostas', () => {
+  assert.equal(offersBergaProposals({ appScheme: 'mexerica-open' }), false)
+  for (const appScheme of ['donnabot', 'donnabot-dev', undefined]) {
+    assert.equal(offersBergaProposals({ appScheme }), true)
+  }
+})
 
 const origin = { hubId: 'hub-1', spaceId: 'space-a' }
 const UUID = '11111111-1111-4111-8111-111111111111'

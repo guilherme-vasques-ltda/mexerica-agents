@@ -422,6 +422,7 @@ pub(super) async fn call(
             };
             crate::fork::idioma_app::carimbar(&hub.store, caller, &mut data); // D395
             // MB-1b: a mensagem humana responde, na mesma transação, as perguntas pendentes desta conversa.
+            let _ordem = open_turn.then(crate::fork::open_chat_fila::ordem);
             let e = if let (Some(delivery), Some(authority)) = (&mailbox, &mailbox_authority) {
                 let Some(new) =
                     crate::fork::owner_question::add_mailbox_message(hub, delivery, authority, &lane, &b, &data)?

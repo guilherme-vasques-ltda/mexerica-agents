@@ -66,13 +66,17 @@ pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: &Valu
     if !METHODS.contains(&method) {
         return Ok(None);
     }
+    let open = crate::environment::Environment::is_open();
+    if open && (!matches!(caller, Caller::Local) || method != "marketCatalogo") {
+        return Err(crate::api::devices::Forbidden.into());
+    }
     let store = &hub.store;
     let space = contas::space_do_pedido(store, b)?;
     let hoje = catalogo::hoje();
     Ok(Some(match method {
         // O catálogo é dado público; a lista de contas do Space só aparece com o cofre aberto.
         "marketCatalogo" => {
-            let todas = super::connectors(store).ok();
+            let todas = if open { Some(Vec::new()) } else { super::connectors(store).ok() };
             let catalogo = catalogo::publico();
             json!({
                 "versao": catalogo.versao,
@@ -81,7 +85,7 @@ pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: &Valu
                 "hoje": hoje.to_string(),
                 "spaceId": space,
                 // O app OAuth da própria pessoa, por Space: só o ID, nunca a chave. Cofre trancado = `null`.
-                "appsProprios": {"google": super::google_app::publico(store, &space)},
+                "appsProprios": {"google": (!open).then(|| super::google_app::publico(store, &space)).flatten()},
                 "servicos": catalogo.servicos.iter().map(|s| ficha(s, hoje, todas.as_deref(), &space)).collect::<Vec<_>>(),
             })
         }

@@ -186,6 +186,7 @@ pub(crate) const SO_LOCAL: &[&str] = &[
     "donnaOnboardingDetect",
     "donnaOnboardingSave",
     "donnaOnboardingStatus",
+    "donnaOpenModelSet",
     "donnaPersonalBootstrapStatus",
     "donnaRuleDelete",
     "donnaRules",

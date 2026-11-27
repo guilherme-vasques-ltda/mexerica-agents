@@ -420,7 +420,13 @@ pub(crate) fn codex_models(catalog: &Value) -> Vec<Model> {
         } else {
             vec![ModelOption { id: "reasoning_effort".into(), values, default }]
         };
-        models.push(Model { id: id.into(), options });
+        // O padrão do Codex vem primeiro: é o modelo já marcado quando a Open pede a escolha.
+        let entry = Model { id: id.into(), options };
+        if model["isDefault"] == true {
+            models.insert(0, entry);
+        } else {
+            models.push(entry);
+        }
     }
     models
 }

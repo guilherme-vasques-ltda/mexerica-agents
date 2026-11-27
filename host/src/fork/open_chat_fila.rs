@@ -26,6 +26,13 @@ mod tests;
 /// Sempre tomada com `RUNNING` já segura: a decisão "tem resposta em curso?" e a entrada na fila são um passo só.
 static PENDING: Mutex<Option<HashMap<String, VecDeque<Queued>>>> = Mutex::new(None);
 
+/// Serializa "gravar a mensagem + entregá-la à fila": duas mensagens enviadas ao mesmo tempo entram na fila na mesma
+/// ordem em que foram gravadas. Quem segura não pode esperar nada além do banco e da própria `submit`.
+pub(crate) fn ordem() -> std::sync::MutexGuard<'static, ()> {
+    static ORDEM: Mutex<()> = Mutex::new(());
+    ORDEM.locked()
+}
+
 /// Entrega a mensagem já gravada: começa o turno se o bot está livre, senão entra no fim da fila do bot.
 pub(crate) fn submit(
     hub: &Arc<Hub>,
@@ -77,26 +84,28 @@ pub(crate) fn finish(hub: &Arc<Hub>, bot: &str) {
 
 /// A fila vive na memória: na partida, o que ficou `queued` de uma execução anterior nunca será entregue. Marca como
 /// não enviada com o motivo, em vez de deixar a mensagem presa e contando no limite da fila.
-pub(crate) fn recover(store: &crate::store::Store) {
-    let ids: Vec<String> = {
+pub(crate) fn recover(store: &crate::store::Store) -> anyhow::Result<()> {
+    use anyhow::Context as _;
+    let ids = {
         let db = store.db.locked();
-        let Ok(mut stmt) = db.prepare(
-            "SELECT id FROM entries WHERE kind = 'user'
-                AND (CASE WHEN json_valid(data) THEN json_extract(data, '$.status') END) = 'queued'",
-        ) else {
-            return;
-        };
-        let Ok(rows) = stmt.query_map([], |row| row.get(0)) else { return };
-        rows.flatten().collect()
+        let mut stmt = db
+            .prepare(
+                "SELECT id FROM entries WHERE kind = 'user'
+                    AND (CASE WHEN json_valid(data) THEN json_extract(data, '$.status') END) = 'queued'",
+            )
+            .context("consulta das mensagens da fila da Open")?;
+        stmt.query_map([], |row| row.get::<_, String>(0))
+            .context("leitura das mensagens da fila da Open")?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .context("linha das mensagens da fila da Open")?
     };
     for id in ids {
         let Some(mut data) = store.entry(&id).map(|entry| entry.data) else { continue };
         data["status"] = serde_json::json!("failed");
         data["reason"] = serde_json::json!({"code": "open_chat_failed", "accountId": ""});
-        if let Err(error) = store.update_entry(&id, &data) {
-            tracing::warn!(%error, "mensagem da fila da Open não foi marcada na partida");
-        }
+        store.update_entry(&id, &data).with_context(|| format!("mensagem {id} da fila da Open na partida"))?;
     }
+    Ok(())
 }
 
 /// `stop` interrompe a resposta e também as mensagens que esperavam depois dela.
