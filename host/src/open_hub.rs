@@ -81,7 +81,11 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
         | "stop"
         | "deleteBot"
         | "reorderBots" => true,
-        "createBot" | "updateBot" => body.get("cwd").is_none_or(|cwd| cwd.as_str() == Some("")),
+        "createBot" | "updateBot" => {
+            body.get("cwd").is_none_or(|cwd| cwd.as_str() == Some(""))
+                && (matches!(caller, Caller::Local)
+                    || ["skills", "skillSelection"].iter().all(|key| body.get(key).is_none()))
+        }
         // Só texto, na conversa principal do bot: sem anexos e sem sessão extra.
         "send" => ["attachments", "sessionId"].iter().all(|key| body.get(key).is_none_or(Value::is_null)),
         _ if crate::fork::engine_setup::open_login_method(method) => true,
@@ -146,6 +150,11 @@ mod tests {
         ] {
             assert!(!open_allows(&Caller::Local, "installSkill", &body), "{body}");
         }
+        let selecao = json!({"id": "b", "skillSelection": {"protocol": 1, "skillId": "grilling", "enabled": true}});
+        assert!(open_allows(&Caller::Local, "updateBot", &selecao));
+        assert!(!open_allows(&device, "updateBot", &selecao), "ligar skill fora do dono local");
+        assert!(!open_allows(&device, "createBot", &json!({"name": "n", "skills": ["grilling"]})));
+        assert!(open_allows(&device, "updateBot", &json!({"id": "b", "name": "n"})));
         for method in [
             "extensaoEmTodosAplicar",
             "extensaoNovosBotsDefinir",
