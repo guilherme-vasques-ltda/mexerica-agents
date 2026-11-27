@@ -74,6 +74,29 @@ const asText = (value: unknown): string => {
 	return text.length > MAX_OUTPUT ? `${text.slice(0, MAX_OUTPUT)}\n[saída truncada pelo motor]` : text;
 };
 
+const describeProperty = (name: string, schema: unknown, required: boolean): string => {
+	const info = (schema ?? {}) as { type?: unknown; description?: unknown };
+	const type = Array.isArray(info.type) ? info.type.join("|") : typeof info.type === "string" ? info.type : "any";
+	const description = typeof info.description === "string" ? ` — ${info.description}` : "";
+	return `  - ${name} (${type}, ${required ? "obrigatório" : "opcional"})${description}`;
+};
+
+/**
+ * Chamada sem parâmetro obrigatório: não roda; o erro diz o que faltou, o que foi mandado e a lista de parâmetros,
+ * para o modelo corrigir na hora em vez de repetir o mesmo pedido.
+ */
+export const requireParameters = (name: string, schema: unknown, args: unknown): unknown => {
+	const { required, properties } = (schema ?? {}) as { required?: unknown; properties?: Record<string, unknown> };
+	const needed = Array.isArray(required) ? required.filter((key): key is string => typeof key === "string") : [];
+	const sent = args && typeof args === "object" && !Array.isArray(args) ? (args as Record<string, unknown>) : {};
+	const missing = needed.filter((key) => sent[key] === undefined);
+	if (missing.length === 0) return args;
+	const list = Object.entries(properties ?? {}).map(([key, value]) => describeProperty(key, value, needed.includes(key)));
+	throw new Error(
+		`A ferramenta "${name}" não rodou: faltou ${missing.join(", ")}.\nRecebido: ${JSON.stringify(args ?? {})}\nParâmetros:\n${list.join("\n")}`,
+	);
+};
+
 /** Ponte entre as chamadas do modelo e o Hub: `emit` escreve o evento no stdout. */
 export class HubTools {
 	private readonly emit: (event: object) => void;
@@ -94,6 +117,7 @@ export class HubTools {
 					? spec.description
 					: `${spec.description}\n(conta: ${spec.origin.accountLabel})`,
 			parameters: spec.inputSchema,
+			prepareArguments: (args) => requireParameters(spec.name, spec.inputSchema, args) as any,
 			executionMode: "sequential",
 			execute: async (_toolCallId, params, signal) => {
 				const result = await this.request(spec.name, params, signal);
