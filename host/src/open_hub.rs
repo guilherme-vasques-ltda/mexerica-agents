@@ -46,16 +46,11 @@ pub(crate) fn check_request(caller: &Caller, method: &str, body: &Value) -> Resu
 
 /// Métodos das páginas de Ajustes religadas na Open (memória, Nunca fazer, Instruções, Delegação, Bot de fundo,
 /// Atividade, Armazenamento, Uso, Computadores e dispositivos e Lugares de trabalho), todos só do dono local.
-const SETTINGS_LOCAL: [&str; 40] = [
+const SETTINGS_LOCAL: [&str; 35] = [
     "approveMemorySuggestion",
     "discardMemorySuggestion",
     "restoreFunctionModel",
     "restoreFunctionModels",
-    "donnaUsageLimits",
-    "donnaUsageLimitsSave",
-    "donnaCeiling",
-    "donnaCeilingSave",
-    "donnaCeilingRelease",
     "donnaUsageHistory",
     "donnaEngineAccountUsage",
     "devices",
