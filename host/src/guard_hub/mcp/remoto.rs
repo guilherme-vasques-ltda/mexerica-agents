@@ -51,7 +51,10 @@ pub(super) async fn call(
         let saved = intent.snapshot(hub)?;
         let artifact = catalogo_local::da_conta(&saved).ok_or_else(|| anyhow!("Artefato MCP não fixado"))?;
         ensure!(crate::market::ferramentas::politica(&saved)?.is_some(), "Ficha MCP local indisponível");
-        ensure!(saved.oauth.as_ref().is_none_or(|o| o.signed_in()), "Login MCP local indisponível");
+        ensure!(
+            saved.oauth.as_ref().is_none_or(crate::market::oauth::OAuth::signed_in),
+            "Login MCP local indisponível"
+        );
         let fingerprint = runtime::remote_fingerprint(&saved);
         if acquire {
             oauth_binding::check_runtime(hub, &saved, &intent, || Ok(()))?;
@@ -239,14 +242,13 @@ pub(super) async fn call(
             if local { "catalog-local" } else { "http" },
         );
     }
-    let (saved, fingerprint) = match local_snapshot {
-        Some(local) => local,
-        None => {
-            let saved = intent.snapshot(hub)?;
-            ensure!(!catalogo_local::reservado(&saved), "Conta MCP local não usa transporte HTTP");
-            let fingerprint = runtime::remote_fingerprint(&saved);
-            (saved, fingerprint)
-        }
+    let (saved, fingerprint) = if let Some(local) = local_snapshot {
+        local
+    } else {
+        let saved = intent.snapshot(hub)?;
+        ensure!(!catalogo_local::reservado(&saved), "Conta MCP local não usa transporte HTTP");
+        let fingerprint = runtime::remote_fingerprint(&saved);
+        (saved, fingerprint)
     };
     if !runtime::remote_matches(namespace, connector, id, bridge, &fingerprint) {
         bail!("Retorno de configuração remota antiga retido");
