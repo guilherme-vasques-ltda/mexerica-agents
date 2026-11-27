@@ -755,7 +755,6 @@ async fn duas_contas_por_ficha_preservam_o_filtro_e_a_escolha_por_bot() {
 }
 
 #[tokio::test]
-#[tokio::test]
 async fn open_so_conecta_para_o_dono_local_e_sem_acao_que_altera_dados() {
     if !crate::environment::Environment::is_open() {
         return;
