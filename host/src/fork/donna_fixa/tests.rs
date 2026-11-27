@@ -923,6 +923,7 @@ fn estado_do_dono(hub: &Hub) -> Value {
         kv.push(format!("{chave}={v:?}"));
     }
     out.insert("kv".into(), json!(kv));
+    out.insert("appsOAuth".into(), json!(dump("SELECT k,v FROM kv WHERE k LIKE 'app_oauth.%' ORDER BY k")));
     out.insert(
         "routineCreationPolicy".into(),
         json!(dump("SELECT k,v FROM kv WHERE k LIKE 'donna.routine-creation.%' ORDER BY k")),
@@ -957,6 +958,11 @@ async fn revogacao_antes_da_gravacao_em_todo_metodo_do_dono() {
     use super::metodos::{Classe, METODOS};
     use crate::store::{Device, DeviceSource};
     use std::sync::atomic::{AtomicBool, Ordering};
+    let ficha_oauth = crate::fork::conectores::catalogo_servicos::fixture_app_proprio();
+    let alvo_oauth = json!({"servico": ficha_oauth.id, "tipo": ficha_oauth.tipos[0].id});
+    let mut salvar_oauth = alvo_oauth.clone();
+    salvar_oauth["clientId"] = json!("fixture-id");
+    salvar_oauth["clientSecret"] = json!("fixture-only");
     // (método, corpo, grava sem rede)
     let casos: Vec<(&str, Value, bool)> = vec![
         // MEX-1289: exigem também a posse ACS4, ausente nesta porta.
@@ -1033,6 +1039,8 @@ async fn revogacao_antes_da_gravacao_em_todo_metodo_do_dono() {
         // revogação do aparelho é conferida à parte em `google_app_tests`.
         ("marketGoogleApp", json!({"spaceId":"space-inexistente"}), false),
         ("marketGoogleAppRemover", json!({}), true),
+        ("marketAppProprioSalvar", salvar_oauth.clone(), true),
+        ("marketAppProprioRemover", alvo_oauth, true),
         ("marketContaDesconectar", json!({"id":"$conector"}), true),
         ("marketBotContasDefinir", json!({"botId":"donna","ligar":["$conector"]}), true),
         // Fatia 2: ligar ação perigosa recusa antes de gravar sem conta do catálogo ligada; desligar grava pelo ponto do dono.
@@ -1179,6 +1187,9 @@ async fn revogacao_antes_da_gravacao_em_todo_metodo_do_dono() {
             .unwrap()["skill"]
             .clone();
         local_call("donnaWhatsappSave", json!({"enabled":true})).await.unwrap();
+        if method == "marketAppProprioRemover" {
+            local_call("marketAppProprioSalvar", salvar_oauth.clone()).await.unwrap();
+        }
         let mut body = serde_json::to_string(&body)
             .unwrap()
             .replace("$conector", &conector)

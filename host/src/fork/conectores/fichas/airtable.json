@@ -2,7 +2,7 @@
   "id": "airtable",
   "nome": "Airtable",
   "categoria": "Produtividade",
-  "descricao": "Plataforma de bancos de dados relacionais e apps colaborativos. O MCP expõe bases, tabelas, registros, views e automações a agentes.",
+  "descricao": "Leia bases, tabelas, campos e registros do Airtable pelo MCP oficial, só em leitura.",
   "exemplos": [
     "Quais registros novos entraram na minha base de clientes?",
     "Resuma a tabela de tarefas do Airtable por responsável"
@@ -13,12 +13,14 @@
     "privacidade": "https://airtable.com/privacy",
     "termos": "https://airtable.com/tos"
   },
-  "conferidaEm": "2026-11-18",
+  "conferidaEm": "2026-11-27",
   "fontes": [
-    "https://airtable.com/developers/agents/mcp/getting-started",
-    "https://airtable.com/oauth2/v1/register",
-    "https://airtable.com/.well-known/oauth-authorization-server/oauth2/v1"
+    "https://airtable.com/developers/agents/mcp/controls",
+    "https://airtable.com/developers/agents/mcp/other",
+    "https://mcp.airtable.com/.well-known/oauth-protected-resource",
+    "https://mcp.airtable.com/.well-known/oauth-authorization-server"
   ],
+  "aviso": "O próprio Airtable barra escrita quando o login não pede data.records:write nem schema.bases:write; você escolhe as bases no consentimento.",
   "tipos": [
     {
       "id": "airtable.oficial_oauth",
@@ -40,15 +42,27 @@
             "workspacesAndBases:read"
           ],
           "padrao": true,
-          "disponivel": false
+          "disponivel": true,
+          "imposicao": "escopo"
+        },
+        {
+          "id": "criar_editar",
+          "rotulo": "Criar e editar",
+          "escopos": [
+            "data.records:read",
+            "data.records:write",
+            "schema.bases:read",
+            "schema.bases:write"
+          ],
+          "padrao": false,
+          "disponivel": true,
+          "imposicao": "filtro"
         }
       ],
       "recomendado": true,
-      "disponivel": false,
-      "motivoIndisponivel": "O Airtable não oferece um modo só de leitura; entra depois do filtro de ações perigosas."
+      "disponivel": true
     }
   ],
-  "emBreve": "O fornecedor não impõe leitura: entra depois do filtro de ações perigosas.",
   "skillsOficiais": [
     {
       "url": "https://github.com/airtable/skills",

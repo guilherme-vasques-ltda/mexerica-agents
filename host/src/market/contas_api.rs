@@ -2,6 +2,7 @@
 //! bot). O app só renderiza e manda intenção; nome, Space, escopos e liberações são decididos e conferidos aqui.
 //! Contrato para a tela (fatia 1b): `docs/features/marketplace.md`, seção "API do Marketplace".
 use super::contas::{self, Pedido};
+use super::google_app::AppDaFicha;
 use crate::agent::bot::Cmd;
 use crate::api::devices::Caller;
 use crate::fork::conectores::catalogo_servicos as catalogo;
@@ -26,6 +27,8 @@ pub(crate) const METHODS: &[&str] = &[
     "marketGoogleApp",
     "marketGoogleAppSalvar",
     "marketGoogleAppRemover",
+    "marketAppProprioSalvar",
+    "marketAppProprioRemover",
 ];
 
 fn texto<'a>(b: &'a Value, campo: &str) -> Result<&'a str> {
@@ -54,7 +57,10 @@ fn ficha(
         let tipos: Vec<_> = servico
             .tipos
             .iter()
-            .filter(|t| !t.grupos.iter().any(|g| g.imposicao == Some(catalogo::Imposicao::Filtro)))
+            .filter(|t| {
+                AppDaFicha::novo(servico, t).is_none()
+                    && !t.grupos.iter().any(|g| g.imposicao == Some(catalogo::Imposicao::Filtro))
+            })
             .collect();
         v["tipos"] = json!(tipos);
         tipos.iter().any(|t| t.conectavel())
@@ -90,6 +96,22 @@ fn open_omite_jeito_que_usa_filtro_e_preserva_leitura_do_fornecedor() {
     assert_eq!(ficha(linear, hoje, None, "", true), ficha(linear, hoje, None, "", false));
 }
 
+#[cfg(test)]
+#[test]
+fn open_omite_app_proprio_mesmo_com_escopo_de_leitura() {
+    let servico = catalogo::fixture_app_proprio();
+    let hoje = chrono::NaiveDate::parse_from_str(servico.conferida_em, "%Y-%m-%d").unwrap();
+    let completa = ficha(servico, hoje, None, "", false);
+    assert_eq!(completa["conectavel"], true);
+    assert_eq!(
+        completa["tipos"][0]["auth"]["configuracao"],
+        json!({"cadastro":"https://servico.example.invalid/config"})
+    );
+    let open = ficha(servico, hoje, None, "", true);
+    assert_eq!(open["conectavel"], false);
+    assert_eq!(open["tipos"], json!([]));
+}
+
 pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: &Value) -> Result<Option<Value>> {
     if !METHODS.contains(&method) {
         return Ok(None);
@@ -106,6 +128,17 @@ pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: &Valu
         "marketCatalogo" => {
             let todas = if open { Some(Vec::new()) } else { super::connectors(store).ok() };
             let catalogo = catalogo::publico();
+            let mut apps = Map::new();
+            apps.insert("google".into(), json!((!open).then(|| super::google_app::publico(store, &space)).flatten()));
+            if !open {
+                for ficha in catalogo.servicos {
+                    for tipo in ficha.tipos.iter().filter(|t| t.conectavel()) {
+                        if let Some(app) = AppDaFicha::novo(ficha, tipo) {
+                            apps.insert(tipo.id.into(), json!(app.publico(store, &space)));
+                        }
+                    }
+                }
+            }
             json!({
                 "versao": catalogo.versao,
                 "prazoConferenciaDias": catalogo.prazo_conferencia_dias,
@@ -113,7 +146,11 @@ pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: &Valu
                 "hoje": hoje.to_string(),
                 "spaceId": space,
                 // O app OAuth da própria pessoa, por Space: só o ID, nunca a chave. Cofre trancado = `null`.
-                "appsProprios": {"google": (!open).then(|| super::google_app::publico(store, &space)).flatten()},
+                "appsProprios": apps,
+                "oauthRedirectUris": if apps.len() > 1 {
+                    std::iter::once(hub.port).chain(crate::fork::conectores::oauth_desktop::PORTAS)
+                        .map(super::oauth::loopback_uri).collect::<Vec<_>>()
+                } else { Vec::new() },
                 "servicos": catalogo.servicos.iter().map(|s| ficha(s, hoje, todas.as_deref(), &space, open)).collect::<Vec<_>>(),
             })
         }
@@ -164,6 +201,17 @@ pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: &Valu
         }
         "marketGoogleAppRemover" => {
             let resposta = super::google_app::remover(store, &space)?;
+            atualizar_bots_do_space(hub, &space);
+            resposta
+        }
+        "marketAppProprioSalvar" | "marketAppProprioRemover" => {
+            let app = AppDaFicha::resolver(texto(b, "servico")?, texto(b, "tipo")?)?;
+            let dados = if method == "marketAppProprioSalvar" {
+                Some((texto(b, "clientId")?, texto(b, "clientSecret")?))
+            } else {
+                None
+            };
+            let resposta = app.escrever(store, &space, dados)?;
             atualizar_bots_do_space(hub, &space);
             resposta
         }
