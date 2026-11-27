@@ -118,4 +118,10 @@ export const textos = {
   "botSettings.open.motor.usar": "Usar",
   "botSettings.open.motor.erro": "Não foi possível trocar o modelo. Tente de novo.",
   "botSettings.open.memoria.aviso": "Manuais e notas desta aba entram como contexto nas conversas deste bot, como texto: não dão ferramentas nem acesso.",
+  "botSettings.open.fluxo.pasta": "Pasta de trabalho: na Mexerica Open o bot não acessa pastas do computador. Isso depende do controle de comandos, que fica com a frente de shell.",
+  "botSettings.open.fluxo.computador": "Usar o computador: a Open conversa só em texto e não controla o computador. Esse fluxo fica com a frente de controle do computador.",
+  "botSettings.open.fluxo.navegador": "Navegador do bot: depende de comandos no computador e não roda na Open.",
+  "botSettings.open.fluxo.conectores": "Conectores e logins guardados: dependem do Cofre e de login como fluxo e ficam com a frente de segurança. As skills do catálogo funcionam normalmente.",
+  "botSettings.open.fluxo.whatsapp": "O WhatsApp depende de login e pareamento de conta e não roda na Open. Ele aparece aqui quando o fluxo estiver liberado.",
+  "botSettings.open.fluxo.voz": "A voz depende do microfone e dos fluxos de voz, que ficam com a frente de voz.",
 } as const

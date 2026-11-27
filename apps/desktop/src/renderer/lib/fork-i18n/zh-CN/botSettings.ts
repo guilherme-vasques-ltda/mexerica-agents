@@ -121,4 +121,10 @@ export const textos: Traducao<typeof fonte> = {
   "botSettings.open.motor.usar": "使用",
   "botSettings.open.motor.erro": "无法更换模型，请重试。",
   "botSettings.open.memoria.aviso": "此标签页中的手册和笔记会作为文本上下文加入该机器人的对话：它们不提供工具或访问权限。",
+  "botSettings.open.fluxo.pasta": "工作文件夹：在 Mexerica Open 中，机器人无法访问这台电脑上的文件夹。这依赖命令控制，由 shell 工作线负责。",
+  "botSettings.open.fluxo.computador": "使用电脑：Open 仅以文字对话，不控制电脑。该流程由电脑控制工作线负责。",
+  "botSettings.open.fluxo.navegador": "机器人浏览器：需要在电脑上执行命令，Open 中不可用。",
+  "botSettings.open.fluxo.conectores": "连接器和已保存的登录：依赖保险库和登录流程，由安全工作线负责。目录中的技能可正常使用。",
+  "botSettings.open.fluxo.whatsapp": "WhatsApp 需要账号登录和配对，Open 中不可用。该流程开放后会显示在这里。",
+  "botSettings.open.fluxo.voz": "语音需要麦克风和语音流程，由语音工作线负责。",
 }

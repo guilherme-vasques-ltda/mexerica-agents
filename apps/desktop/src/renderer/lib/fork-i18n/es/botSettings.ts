@@ -121,4 +121,10 @@ export const textos: Traducao<typeof fonte> = {
   "botSettings.open.motor.usar": "Usar",
   "botSettings.open.motor.erro": "No se pudo cambiar el modelo. Inténtalo de nuevo.",
   "botSettings.open.memoria.aviso": "Los manuales y notas de esta pestaña se añaden como contexto a las conversaciones de este bot, como texto: no dan herramientas ni acceso.",
+  "botSettings.open.fluxo.pasta": "Carpeta de trabajo: en Mexerica Open el bot no accede a carpetas del equipo. Depende del control de comandos, que corresponde al trabajo de shell.",
+  "botSettings.open.fluxo.computador": "Usar el equipo: Open conversa solo en texto y no controla el equipo. Ese flujo corresponde al trabajo de control del equipo.",
+  "botSettings.open.fluxo.navegador": "Navegador del bot: necesita comandos en el equipo y no funciona en Open.",
+  "botSettings.open.fluxo.conectores": "Conectores e inicios de sesión guardados: dependen de la Bóveda y del inicio de sesión como flujo, que corresponden al trabajo de seguridad. Las skills del catálogo funcionan con normalidad.",
+  "botSettings.open.fluxo.whatsapp": "WhatsApp necesita iniciar sesión y vincular la cuenta y no funciona en Open. Aparecerá aquí cuando ese flujo esté disponible.",
+  "botSettings.open.fluxo.voz": "La voz necesita el micrófono y los flujos de voz, que corresponden al trabajo de voz.",
 }

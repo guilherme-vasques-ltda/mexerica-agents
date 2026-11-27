@@ -24,7 +24,8 @@ import { mensagemDoErro, textoDaMensagem } from './mensagem'
 import { SecaoWhatsapp } from '../whatsapp/SecaoWhatsapp'
 import { useWhatsapp } from '../whatsapp/partes'
 import { pluginLigado, secaoValida, secoesVisiveis } from '../whatsapp/secao'
-import { abaDaOpen } from './fork-open-abas'
+import { ComportamentoDaOpen } from './fork-open-comportamento'
+import { AvisoDoFluxo } from './fork-open-fluxo'
 import { MotorDaOpen } from './fork-open-motor'
 
 const allSections = [
@@ -40,11 +41,11 @@ export function BotSettingsPage({ botId, initialSection, onClose, onConversation
   const principal = useModel(store.principal)
   const model = useMemo(() => createBotSettingsStore(store), [store])
   const state = useSyncExternalStore(model.subscribe, model.getSnapshot)
-  const [section, setSectionState] = useState<Section>(open && !(initialSection && abaDaOpen(initialSection)) ? 'identity' : initialSection ?? 'identity')
+  const [section, setSectionState] = useState<Section>(initialSection ?? 'identity')
   // D350: o item e a seção WhatsApp só com o plugin ligado em Ajustes → Plugins (e somem ao desligar).
   const whatsapp = useWhatsapp(store, !open)
   const whatsappKnown = whatsapp.leitura !== null || whatsapp.erroLeitura !== null
-  const sections = open ? allSections.filter(([id]) => abaDaOpen(id)) : secoesVisiveis(allSections, pluginLigado(whatsapp.leitura))
+  const sections = open ? allSections : secoesVisiveis(allSections, pluginLigado(whatsapp.leitura))
   const setSection = (next: Section) => setSectionState(secaoValida(next, sections))
   useEffect(() => { if (secaoValida(section, sections) !== section) setSectionState(sections[0]![0]) }, [section, sections.length])
   const [leaving, setLeaving] = useState<(() => void) | null>(null)
@@ -194,6 +195,10 @@ export function BotSettingsPage({ botId, initialSection, onClose, onConversation
           {sections.slice(1).map(([id, label]) => <section key={id} role="tabpanel" id={`bot-settings-panel-${id}`} aria-labelledby={`bot-settings-tab-${id}`} hidden={section !== id} tabIndex={0} className="bot-settings-placeholder">
             <h2>{t(label)}</h2>
             {bot && open && id === 'engine' ? <MotorDaOpen bot={bot} disabled={disabled} />
+              : bot && open && id === 'behaviour' ? <fieldset disabled={disabled} className="bot-settings-controls"><ComportamentoDaOpen bot={bot} permission={(permission) => { void saveIntent('permission', () => store.setPermission(botId, permission)) }} onFerramentas={() => setSection('tools')} /></fieldset>
+              : bot && open && id === 'tools' ? <><AvisoDoFluxo fluxo="conectores" /><fieldset className="bot-settings-controls"><CurrentToolsSettings bot={bot} save={save} saveSkill={saveSkill} feedback={feedback} disabled={disabled} /></fieldset></>
+              : open && id === 'whatsapp' ? <AvisoDoFluxo fluxo="whatsapp" />
+              : open && id === 'voice' ? <AvisoDoFluxo fluxo="voz" />
               : bot && ['engine', 'behaviour', 'tools', 'notifications'].includes(id) ? <fieldset disabled={id === 'tools' ? false : disabled} className="bot-settings-controls">
               {id === 'engine' ? <CurrentEngineSettings bot={bot} save={save} feedback={feedback} accounts={state.editor ? { editor: state.editor, draft: state.draft, model, disabled } : undefined} /> : null}
               {id === 'behaviour' ? <CurrentBehaviourSettings bot={bot} save={save} feedback={feedback} busy={disabled} navegador={{ editor: state.editor, draft: state.draft, model }} permission={(permission) => { void saveIntent('permission', () => store.setPermission(botId, permission)) }} onFerramentas={() => setSection('tools')} /> : null}

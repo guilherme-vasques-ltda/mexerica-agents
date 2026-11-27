@@ -121,4 +121,10 @@ export const textos: Traducao<typeof fonte> = {
   "botSettings.open.motor.usar": "Utiliser",
   "botSettings.open.motor.erro": "Impossible de changer le modèle. Réessayez.",
   "botSettings.open.memoria.aviso": "Les manuels et notes de cet onglet sont ajoutés comme contexte aux conversations de ce bot, sous forme de texte : ils ne donnent ni outils ni accès.",
+  "botSettings.open.fluxo.pasta": "Dossier de travail : dans Mexerica Open, le bot n'accède pas aux dossiers de l'ordinateur. Cela dépend du contrôle des commandes, qui relève du chantier shell.",
+  "botSettings.open.fluxo.computador": "Utiliser l'ordinateur : Open converse en texte seulement et ne contrôle pas l'ordinateur. Ce flux relève du chantier de contrôle de l'ordinateur.",
+  "botSettings.open.fluxo.navegador": "Navigateur du bot : nécessite des commandes sur l'ordinateur et ne fonctionne pas dans Open.",
+  "botSettings.open.fluxo.conectores": "Connecteurs et identifiants enregistrés : ils dépendent du Coffre et de la connexion comme flux, qui relèvent du chantier sécurité. Les skills du catalogue fonctionnent normalement.",
+  "botSettings.open.fluxo.whatsapp": "WhatsApp nécessite connexion et appairage du compte et ne fonctionne pas dans Open. Il apparaîtra ici quand ce flux sera disponible.",
+  "botSettings.open.fluxo.voz": "La voix nécessite le micro et les flux vocaux, qui relèvent du chantier voix.",
 }

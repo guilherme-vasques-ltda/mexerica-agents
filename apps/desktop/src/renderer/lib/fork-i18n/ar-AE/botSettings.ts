@@ -121,4 +121,10 @@ export const textos: Traducao<typeof fonte> = {
   "botSettings.open.motor.usar": "استخدام",
   "botSettings.open.motor.erro": "تعذّر تغيير النموذج. حاول مرة أخرى.",
   "botSettings.open.memoria.aviso": "تُضاف الأدلة والملاحظات في هذا التبويب سياقًا نصيًا إلى محادثات هذا البوت: لا تمنح أدوات ولا صلاحيات وصول.",
+  "botSettings.open.fluxo.pasta": "مجلد العمل: في Mexerica Open لا يصل البوت إلى مجلدات هذا الكمبيوتر. هذا يعتمد على التحكم بالأوامر الذي يتبع مسار الـ shell.",
+  "botSettings.open.fluxo.computador": "استخدام الكمبيوتر: يتحدث Open نصًا فقط ولا يتحكم بالكمبيوتر. هذا المسار يتبع عمل التحكم بالكمبيوتر.",
+  "botSettings.open.fluxo.navegador": "متصفح البوت: يحتاج إلى أوامر على الكمبيوتر ولا يعمل في Open.",
+  "botSettings.open.fluxo.conectores": "الموصلات وتسجيلات الدخول المحفوظة: تعتمد على الخزنة وتسجيل الدخول كمسار، وتتبع عمل الأمان. تعمل مهارات الكتالوج بشكل طبيعي.",
+  "botSettings.open.fluxo.whatsapp": "يحتاج واتساب إلى تسجيل الدخول وربط الحساب ولا يعمل في Open. سيظهر هنا عند إتاحة هذا المسار.",
+  "botSettings.open.fluxo.voz": "يحتاج الصوت إلى الميكروفون ومسارات الصوت التي تتبع عمل الصوت.",
 }
