@@ -717,7 +717,7 @@ async fn duas_contas_por_ficha_preservam_o_filtro_e_a_escolha_por_bot() {
         let mut p = Pedido { servico: id, tipo: tipo.id, ..pedido(PERSONAL, None, None) };
         if com_filtro {
             assert!(erro(contas::conectar_em(&hub.store, ficha, &p, hoje)).starts_with("credencial_com_escrita"));
-            assert!(connectors(&hub.store).unwrap().is_empty());
+            assert_eq!(connectors(&hub.store).unwrap(), Vec::<Connector>::new());
             p.aceita_credencial_com_escrita = true;
             assert!(!tipo.perfil_disponivel(&["ler".into()]));
         }
