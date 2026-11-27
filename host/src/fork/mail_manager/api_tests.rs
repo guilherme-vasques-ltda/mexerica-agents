@@ -521,7 +521,8 @@ async fn enderecos_invalidos_duplicados_campos_desconhecidos_e_ids_vazios_sao_re
 
 #[test]
 fn open_hub_libera_os_cinco_metodos_so_ao_dono_local() {
-    let device = Caller::Device { key: "device".into(), scopes: vec![crate::store::Scope::Control], autoridade: None };
+    use crate::store::Scope;
+    let device = Caller::Device { key: "device".into(), scopes: vec![Scope::Control], autoridade: None };
     for method in METHODS {
         assert!(crate::open_hub::open_allows(&Caller::Local, method, &json!({})), "{method} é do dono local na Open");
         assert!(!crate::open_hub::open_allows(&device, method, &json!({})), "{method} não é de aparelho na Open");
