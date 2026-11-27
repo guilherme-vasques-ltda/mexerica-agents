@@ -123,7 +123,7 @@ fn context_id(hub: &Hub, chat: &Chat, epoch: u32) -> Result<String> {
     Ok(crate::agent::registry::sha256_hex(&serde_json::to_vec(&(scope_id(hub, chat)?, epoch))?))
 }
 
-pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) -> Result<Value> {
+pub(crate) fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) -> Result<Value> {
     devices::permit(caller, "send")?;
     let read: Read = serde_json::from_value(body).map_err(|_| anyhow!("invalid_context_request"))?;
     let chat = resolve(hub, &read)?;

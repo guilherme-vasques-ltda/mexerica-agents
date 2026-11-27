@@ -702,6 +702,7 @@ impl Stream {
 /// Um turno no app-server: retoma ou cria a thread, envia o texto e devolve o id da thread. Recusa qualquer pedido
 /// do servidor e qualquer item que não seja texto, interrompendo o turno. Uma resposta que chegue só no
 /// `item/completed`, sem deltas, também é gravada — uma vez, sem repetir o que os deltas já entregaram.
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn drive(
     rpc: &mut Rpc,
