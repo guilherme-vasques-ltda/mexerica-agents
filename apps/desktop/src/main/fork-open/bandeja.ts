@@ -1,4 +1,5 @@
 import { app, ipcMain, Menu, nativeImage, Tray, type BrowserWindow, type IpcMainEvent } from 'electron'
+import { aoMudarIdiomaDoApp, idiomaDoApp } from '../fork-idioma'
 import type { WindowCommand } from '../../shared/ipc'
 import { openTrayMenu, openTraySummary, type OpenTraySummary } from './bandeja-menu'
 
@@ -19,7 +20,7 @@ export function registerOpenTray(name: string, window: () => BrowserWindow | nul
       window()?.webContents.send('app:command', command)
     },
   }
-  const rebuild = () => tray.setContextMenu(Menu.buildFromTemplate(openTrayMenu(summary, name, actions)))
+  const rebuild = () => tray.setContextMenu(Menu.buildFromTemplate(openTrayMenu(summary, name, idiomaDoApp(), actions)))
   ipcMain.on('app:traySummary', (event, value: unknown) => {
     if (!allowed(event)) return
     const next = openTraySummary(value)
@@ -28,4 +29,5 @@ export function registerOpenTray(name: string, window: () => BrowserWindow | nul
     rebuild()
   })
   rebuild()
+  aoMudarIdiomaDoApp(rebuild)
 }

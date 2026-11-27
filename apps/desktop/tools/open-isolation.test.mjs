@@ -200,3 +200,12 @@ test('a tolerância com os ajudantes vale só no perfil de uma conta, não em qu
   symlinkSync('/usr/bin/true', join(backup, 'apply_patch'))
   assert.throws(() => openPaths(home, appData), undefined, 'cópia de pasta de ajudantes fora do perfil de uma conta segue sendo conferida')
 })
+
+test('a Open segue o idioma do macOS nos menus nativos e só aceita a troca vinda da própria janela', () => {
+  const main = readFileSync(new URL('../src/main/fork-open/main.ts', import.meta.url), 'utf8')
+  assert.match(main, /'app:suggestedLanguage': suggestedLanguage\(\)/)
+  assert.match(main, /iniciarIdiomaDoApp\(\)/)
+  assert.match(main, /aoMudarIdiomaDoApp\(menu\)/)
+  assert.match(main, /traduzir\(idiomaDoApp\(\), 'marca\.menu\.ajustes'\)/)
+  assert.match(main, /ipcMain\.on\('app:setLanguage', \(event, idioma: unknown\) => \{ if \(daJanela\(event\)\) definirIdiomaDoApp\(idioma\) \}\)/)
+})
