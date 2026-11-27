@@ -51,6 +51,29 @@ test('app próprio usa o cofre da ficha e não manda a chave no pedido de conex�
   assert.equal(f.passo, 'pronto')
 })
 
+test('app próprio relê o Space após resposta perdida e não presume que a chave ficou salva', async () => {
+  const s = ficha([])
+  const jeito = { ...s.tipos[0], auth: {
+    modo: 'app_proprio' as const, provedor: s.id, emissor: 'https://auth.example.invalid', guia: [],
+    configuracao: { cadastro: 'https://auth.example.invalid/config' },
+  } }
+  let configurar = false
+  let spaceId = 'fixture-space'
+  const { deps } = montar(({ metodo }) => {
+    if (metodo === 'marketCatalogo') return { spaceId, appsProprios: { [jeito.id]: { configurado: configurar } } }
+    throw new Error('resposta perdida')
+  })
+  const f = new FluxoConectar(s, jeito, deps, { app: { configurado: true }, spaceId, redirects: [] })
+  assert.equal(await f.escreverAppProprio(), false)
+  assert.equal(f.podeContinuar, false)
+  configurar = true
+  assert.equal(await f.escreverAppProprio({ id: 'fixture-id', chave: 'fixture-only' }), false)
+  assert.equal(f.podeContinuar, true)
+  spaceId = 'outro-space'
+  assert.equal(await f.escreverAppProprio(), false)
+  assert.equal(f.podeContinuar, false)
+})
+
 test('1ª conta: não pede nome, manda o padrão seguro e segue do login à conferência até ficar pronta', async () => {
   const s = ficha([])
   const { chamadas, eventos, deps } = montar(() => ({ connector: conta('stripe-1', 'Stripe', 'stripe', { auth: 'signedOut' }), proximoPasso: 'entrar' }))

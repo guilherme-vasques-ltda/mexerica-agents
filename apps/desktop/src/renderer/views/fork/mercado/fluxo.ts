@@ -118,10 +118,15 @@ export class FluxoConectar extends Observable {
       return true
     } catch {
       this.erroAppProprio = true
+      this.appProprio = null
+      try {
+        const catalogo = await mercadoApi.catalogo(await this.deps.cliente())
+        await this.deps.cliente()
+        if (catalogo.spaceId === alvo.spaceId) this.appProprio = catalogo.appsProprios?.[alvo.tipo] ?? null
+      } catch { this.appProprio = null }
       return false
     } finally {
-      this.ocupado = false; this.changed()
-      await this.deps.reler()
+      try { await this.deps.reler() } finally { this.ocupado = false; this.changed() }
     }
   }
 

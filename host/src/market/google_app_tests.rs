@@ -88,6 +88,14 @@ async fn app_proprio_da_ficha_isola_space_e_encerra_apenas_os_logins_daquele_tip
         contas::conectar_em(store, ficha, &pedido(ficha.id, tipo.id, space), hoje).unwrap();
     }
     update_connectors(store, |all| {
+        all.iter_mut().find(|c| c.space == PERSONAL).unwrap().oauth = None;
+        Ok(())
+    })
+    .unwrap();
+    let snapshot = connectors(store).unwrap().into_iter().find(|c| c.space == PERSONAL).unwrap();
+    app.escrever(store, PERSONAL, Some(("outro-id-ficticio", CHAVE))).unwrap();
+    assert!(crate::fork::conectores::oauth_binding::change(store, &snapshot, None, || Ok(()), |_| Ok(())).is_err());
+    update_connectors(store, |all| {
         for c in all {
             c.oauth = Some(oauth::OAuth { access_token: "fixture-access".into(), ..Default::default() });
         }

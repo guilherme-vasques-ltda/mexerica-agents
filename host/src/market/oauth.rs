@@ -74,6 +74,7 @@ impl std::fmt::Debug for OAuth {
         f.debug_struct("OAuth")
             .field("client_id", &oculto(!self.client_id.is_empty()))
             .field("client_secret", &oculto(self.client_secret.is_some()))
+            .field("client_secret_basic", &self.client_secret_basic)
             .field("redirect_uris", &self.redirect_uris)
             .field("token_endpoint", &self.token_endpoint)
             .field("access_token", &oculto(!self.access_token.is_empty()))
@@ -265,6 +266,17 @@ fn emissor_fixado(documento: &Value, emissor: &str) -> Result<String> {
     Ok(emissor.to_owned())
 }
 
+fn emissor_da_ficha(documento: &Value, emissor: &str) -> Result<String> {
+    anyhow::ensure!(
+        !emissor.is_empty()
+            && documento["authorization_servers"]
+                .as_array()
+                .is_some_and(|lista| lista.iter().any(|s| s.as_str() == Some(emissor))),
+        urls::EMISSOR
+    );
+    Ok(emissor.to_owned())
+}
+
 fn cliente_da_ficha(
     config: AppProprioConfig,
     resource: &str,
@@ -287,6 +299,19 @@ fn cliente_da_ficha(
 }
 
 #[cfg(test)]
+#[test]
+fn app_proprio_aceita_emissor_exato_em_qualquer_posicao() {
+    let emissor = "https://auth.example.invalid";
+    assert_eq!(
+        emissor_da_ficha(&json!({"authorization_servers": ["https://outro.example.invalid", emissor]}), emissor)
+            .unwrap(),
+        emissor
+    );
+    for anuncio in [json!({}), json!({"authorization_servers": ["https://auth.example.invalid/"]})] {
+        assert!(emissor_da_ficha(&anuncio, emissor).is_err());
+    }
+}
+
 #[test]
 fn app_proprio_exige_recurso_endpoints_e_autenticacao_anunciados() {
     let tipo = &crate::fork::conectores::catalogo_servicos::fixture_app_proprio().tipos[0];
@@ -358,10 +383,7 @@ pub(crate) async fn start(hub: &Arc<Hub>, intent: StartIntent, callback: Callbac
         // O anúncio do recurso pode trazer uma barra final que o `issuer` dos metadados não tem: só isso se relevia, e o
         // emissor usado daqui em diante é o da ficha.
         Some(Auth::AppProprio { emissor, .. }) if google => emissor_fixado(&resource.documento, emissor)?,
-        Some(Auth::AppProprio { emissor, .. }) => {
-            anyhow::ensure!(resource.documento["authorization_servers"][0].as_str() == Some(*emissor), urls::EMISSOR);
-            (*emissor).to_owned()
-        }
+        Some(Auth::AppProprio { emissor, .. }) => emissor_da_ficha(&resource.documento, emissor)?,
         Some(_) => bail!(urls::EMISSOR),
         None => resource.documento["authorization_servers"][0]
             .as_str()
@@ -481,11 +503,11 @@ pub(crate) async fn start(hub: &Arc<Hub>, intent: StartIntent, callback: Callbac
             .append_pair("code_challenge", &challenge)
             .append_pair("code_challenge_method", "S256")
             .append_pair("state", &state);
-        if !google {
-            q.append_pair("resource", &resource.resource);
-        } else {
+        if google {
             // Sem `offline` e `consent` o Google não devolve o refresh token, e o login expiraria em uma hora.
             q.append_pair("access_type", "offline").append_pair("prompt", "select_account consent");
+        } else {
+            q.append_pair("resource", &resource.resource);
         }
         if !scopes.is_empty() {
             q.append_pair("scope", &scopes.join(" "));

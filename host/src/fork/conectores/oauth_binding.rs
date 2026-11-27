@@ -245,16 +245,23 @@ fn same_config(a: &Connector, b: &Connector) -> bool {
             == b.oauth_binding.as_ref().and_then(|b| b.grant.as_ref())
 }
 
+#[derive(PartialEq)]
+struct OAuthConfig<'a> {
+    client_id: &'a str,
+    client_secret: Option<&'a str>,
+    redirect_uris: &'a [String],
+    token_endpoint: &'a str,
+    client_secret_basic: bool,
+}
+
 /// Exclui somente `access/refresh/expires_at`; cadastro/endpoint/redirect continuam configuração.
-fn oauth_config(o: Option<&market::oauth::OAuth>) -> Option<(&str, Option<&str>, &[String], &str, bool)> {
-    o.map(|o| {
-        (
-            o.client_id.as_str(),
-            o.client_secret.as_deref(),
-            o.redirect_uris.as_slice(),
-            o.token_endpoint.as_str(),
-            o.client_secret_basic,
-        )
+fn oauth_config(o: Option<&market::oauth::OAuth>) -> Option<OAuthConfig<'_>> {
+    o.map(|o| OAuthConfig {
+        client_id: &o.client_id,
+        client_secret: o.client_secret.as_deref(),
+        redirect_uris: &o.redirect_uris,
+        token_endpoint: &o.token_endpoint,
+        client_secret_basic: o.client_secret_basic,
     })
 }
 /// Chamado somente sob `connector_lock`, sem reentrar o loader público.
