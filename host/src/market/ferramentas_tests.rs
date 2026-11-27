@@ -608,6 +608,7 @@ fn conectar_linear(hub: &crate::hub::Hub) -> Connector {
         nome: None,
         nome_primeira: None,
         liberacoes: None,
+        aceita_credencial_com_escrita: false,
     };
     contas::conectar(&hub.store, &pedido).unwrap();
     crate::market::connectors(&hub.store).unwrap().remove(0)
@@ -814,6 +815,32 @@ fn recibo_nao_guarda_nome_estranho_do_fornecedor() {
 
 fn mediada(nomes: &[&str]) -> Value {
     mediar(&json!({"result": {"tools": lista(nomes)}}))
+}
+
+#[test]
+fn perfil_com_filtro_so_expoe_e_executa_o_que_a_pessoa_ligou_neste_bot() {
+    let store = store();
+    let ficha = catalogo_servicos::fixture_filtro();
+    let pol = Politica::para_perfil(&ficha.tipos[0], &["ler".into(), "acoes".into()]);
+    let nomes = ["list_items", "create_item"];
+    let ferramentas = lista(&nomes);
+    let bruto = json!({"result": {"tools": ferramentas}});
+    let filtrar = |bot| {
+        let mut mediado = mediada(&nomes);
+        filtrar_lista_com(&store, bot, "conta", &pol, &json!({}), &bruto, &mut mediado, Some(ger(&store))).unwrap();
+        nomes_mediados(&mediado).unwrap()
+    };
+
+    assert!(filtrar("b").is_empty());
+    for nome in nomes {
+        assert!(chamar(&store, "b", "conta", Some(&pol), nome));
+    }
+    liberar(&store, "b", "create_item", &digest_de(&ferramentas[1]));
+    assert_eq!(filtrar("b"), BTreeSet::from(["create_item".to_owned()]));
+    assert!(!chamar(&store, "b", "conta", Some(&pol), "create_item"));
+    assert!(chamar(&store, "b", "conta", Some(&pol), "list_items"));
+    assert!(filtrar("outro").is_empty());
+    assert!(chamar(&store, "outro", "conta", Some(&pol), "create_item"));
 }
 
 #[test]

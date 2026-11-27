@@ -72,6 +72,11 @@ pub(super) async fn call(
         crate::market::vault::unlock(hub.clone()).await?;
         crate::fork::spaces::connector_context::check(hub, id, body, intent.execution())?;
         let saved = intent.snapshot(hub)?;
+        if !matches!(method, "initialize" | "ping" | "tools/list" | "tools/call" | "notifications/initialized")
+            && crate::market::contas::tipo_da_conta(&saved)?.is_some_and(|tipo| tipo.exige_filtro(&saved.liberacoes))
+        {
+            return Ok(json!({"ruleDenied": true}));
+        }
         let fingerprint = runtime::remote_fingerprint(&saved);
         if body["refreshLease"] == true && !runtime::remote_matches(namespace, connector, id, bridge, &fingerprint) {
             bail!("Lease remota perdida ou configuração alterada");

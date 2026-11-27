@@ -1,0 +1,49 @@
+{
+  "id": "fixture-filtro",
+  "nome": "Serviço fictício",
+  "categoria": "Projetos",
+  "descricao": "Serviço fictício para testar a contenção pelo Hub.",
+  "exemplos": [],
+  "site": "https://filtro.example.invalid",
+  "links": {
+    "privacidade": "https://filtro.example.invalid/privacy",
+    "termos": "https://filtro.example.invalid/terms"
+  },
+  "conferidaEm": "2026-11-27",
+  "fontes": [],
+  "tipos": [
+    {
+      "id": "fixture-filtro.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "OAuth",
+      "mantidoPor": "Serviço fictício",
+      "url": "https://filtro.example.invalid/mcp",
+      "auth": { "modo": "oauth", "registro": "dcr" },
+      "grupos": [
+        {
+          "id": "acoes",
+          "rotulo": "Conectar com acesso de escrita",
+          "escopos": ["items:write"],
+          "ferramentas": ["list_items", "create_item"],
+          "padrao": true,
+          "disponivel": true,
+          "imposicao": "filtro"
+        },
+        {
+          "id": "ler",
+          "rotulo": "Ler",
+          "escopos": ["items:read"],
+          "ferramentas": ["list_items"],
+          "curadas": [
+            { "ferramenta": "list_items", "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }
+          ],
+          "padrao": false,
+          "disponivel": true,
+          "imposicao": "escopo"
+        }
+      ],
+      "recomendado": true,
+      "disponivel": true
+    }
+  ]
+}

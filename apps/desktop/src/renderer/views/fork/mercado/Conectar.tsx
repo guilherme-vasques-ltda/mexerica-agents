@@ -153,7 +153,7 @@ function Configurar({ fluxo, aoCancelar }: { fluxo: FluxoConectar; aoCancelar: (
                   <VStack gap={2} shrink>
                     <HStack gap={8}>
                       <Text size="body" weight="medium" tone="text">{g.rotulo}</Text>
-                      {g.padrao && g.disponivel ? <Text size="caption" weight="medium" className="mercado-etiqueta neutra">{t('mercado.lib.padrao')}</Text> : null}
+                      {g.padrao && g.disponivel && g.imposicao !== 'filtro' ? <Text size="caption" weight="medium" className="mercado-etiqueta neutra">{t('mercado.lib.padrao')}</Text> : null}
                       {!g.disponivel ? <Text size="caption" tone="tertiary">{t('mercado.lib.indisponivel')}</Text> : null}
                     </HStack>
                   </VStack>
@@ -178,11 +178,12 @@ function Configurar({ fluxo, aoCancelar }: { fluxo: FluxoConectar; aoCancelar: (
                 {fluxo.tipo.grupos.map((g) => (
                   <VStack key={g.id} gap={2}>
                     <Text size="callout" weight="semibold" tone="text">{g.rotulo}</Text>
-                    {g.ferramentas.length > 0 ? <Text size="caption" mono className="mercado-mono">{g.ferramentas.join(', ')}</Text> : <Text size="caption" tone="secondary">{t('mercado.lib.ferramentas.fornecedor')}</Text>}
+                    {g.ferramentas.length > 0 ? <Text size="caption" mono className="mercado-mono">{g.ferramentas.join(', ')}</Text> : <Text size="caption" tone="secondary">{t(g.imposicao === 'filtro' ? 'mercado.lib.filtro' : 'mercado.lib.ferramentas.fornecedor')}</Text>}
                   </VStack>
                 ))}
               </div>
             ) : null}
+            {fluxo.credencialComEscrita ? <Aviso alerta icon="exclamationmark.triangle">{t('mercado.lib.filtro')}</Aviso> : null}
             {fluxo.escolhidos.length === 0 ? <Erro>{t('mercado.lib.nenhuma')}</Erro> : null}
           </section>
           {erroGeral ? <Erro>{erroGeral}</Erro> : null}

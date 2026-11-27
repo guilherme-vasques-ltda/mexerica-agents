@@ -274,4 +274,6 @@ export const textos = {
   "mercado.acoes.confirmar.campos": "E o que ele vai ler em cada campo da ação:",
   "mercado.acoes.confirmar.campo": "{campo}: {texto}",
   "mercado.acoes.ocultos": "Atenção: este texto tem caracteres que não aparecem na tela ou que mudam a direção da escrita.",
+  "mercado.lib.filtro": "A conta pode alterar dados no serviço. Na Mexerica, todas as ações começam desligadas. Para usar uma ação, você precisa liberá-la individualmente para cada bot.",
+  "mercado.erro.credencial_com_escrita": "Atualize o app para ver o aviso de acesso de escrita antes de conectar esta conta.",
 } as const
