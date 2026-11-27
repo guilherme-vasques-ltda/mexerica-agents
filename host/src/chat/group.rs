@@ -389,13 +389,16 @@ pub(crate) fn handles(name: &str) -> Vec<String> {
 }
 
 /// `@handle` in `text`, not followed by more of a Latin word (`@al` isn't `@alice`).
-/// CJK names are often followed straight by the message, so only ASCII letters end a match early.
+/// CJK names are often followed straight by the message, so only ASCII and accented Latin letters end a match early.
 pub(crate) fn mentions(text: &str, handle: &str) -> bool {
     let lower = text.to_lowercase();
     let needle = format!("@{handle}");
-    lower
-        .match_indices(&needle)
-        .any(|(i, _)| lower[i + needle.len()..].chars().next().is_none_or(|c| !(c.is_ascii_alphanumeric() || c == '_')))
+    lower.match_indices(&needle).any(|(i, _)| {
+        lower[i + needle.len()..]
+            .chars()
+            .next()
+            .is_none_or(|c| !(c.is_ascii_alphanumeric() || c == '_' || ('\u{c0}'..='\u{24f}').contains(&c)))
+    })
 }
 
 fn member_prompt(

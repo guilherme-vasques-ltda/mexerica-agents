@@ -536,6 +536,11 @@ pub(super) async fn call(
         "stop" => {
             let bot = str_arg(&b, "botId")?;
             match hub.store.bot(bot)? {
+                Some(row) if crate::environment::Environment::is_open() && row.config.is_group() => {
+                    for member in &row.config.members {
+                        crate::fork::open_chat::stop(member);
+                    }
+                }
                 _ if crate::environment::Environment::is_open() => crate::fork::open_chat::stop(bot),
                 Some(row) if row.config.is_group() => {
                     // Gravada antes da confirmação: a mensagem parada nunca é retomada no boot.

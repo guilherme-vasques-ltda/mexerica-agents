@@ -102,6 +102,9 @@ mod tests {
         group.leader = Some("b".into());
         assert_eq!(ids(&group, &members, "E ai pessoal"), ["b"], "sem citação, o líder");
         assert_eq!(ids(&group, &members, "@Berga e @Byte"), ["a", "b"]);
+        let acentos = [bot("a", "Lu"), bot("b", "Luís")];
+        assert_eq!(ids(&group, &acentos, "oi @Luís"), ["b"]);
+        assert_eq!(ids(&group, &acentos, "oi @Lu, tudo bem"), ["a"]);
     }
 
     #[tokio::test]
