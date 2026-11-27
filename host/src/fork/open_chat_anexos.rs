@@ -23,6 +23,9 @@ pub(crate) fn prepare(cfg: &BotConfig, attachments: &Value, text: &str) -> (Stri
     for meta in list {
         let name = meta["name"].as_str().unwrap_or("arquivo");
         let Some(path) = crate::chat::uploads::path_of(&root, meta) else { continue };
+        if !std::fs::symlink_metadata(&path).is_ok_and(|m| m.is_file()) {
+            continue;
+        }
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or_default().to_ascii_lowercase();
         if IMAGE_EXTENSIONS.contains(&ext.as_str()) {
             if images.len() < MAX_IMAGES {
@@ -36,7 +39,6 @@ pub(crate) fn prepare(cfg: &BotConfig, attachments: &Value, text: &str) -> (Stri
         let size = usize::try_from(size).unwrap_or(usize::MAX);
         let content = (size <= MAX_TEXT_FILE && used.saturating_add(size) <= MAX_TEXT_TOTAL)
             .then(|| {
-                std::fs::symlink_metadata(&path).ok()?.is_file().then_some(())?;
                 let mut bytes = Vec::new();
                 File::open(&path).ok()?.take(MAX_TEXT_FILE as u64 + 1).read_to_end(&mut bytes).ok()?;
                 let text = (bytes.len() <= MAX_TEXT_FILE && !bytes.contains(&0)).then_some(bytes)?;
