@@ -193,7 +193,7 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
     assert!(services.iter().any(|s| s["id"] == "linear"));
     assert!(services.iter().all(|s| s["contas"] == json!([])));
     assert_eq!(catalog["appsProprios"]["google"], Value::Null);
-    for method in ["marketContas", "marketConectar", "donnaWhatsapp", "credentialStatus"] {
+    for method in ["donnaWhatsapp", "connectorCall", "importConnectors"] {
         let response = session_client
             .post(format!("http://localhost/api/{method}"))
             .bearer_auth(&credential)
@@ -413,18 +413,14 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
         "requestScreenPermission",
         "setCloud",
         "installHostUpdate",
-        "credentialStatus",
         "donnaWhatsappSave",
         "donnaWhatsappPair",
         "donnaWhatsappWacliRetry",
         "listDirs",
-        "installConnector",
         "importConnectors",
-        "connectorVerify",
         "routineWebhook",
         "routineCall",
         "duplicateRoutine",
-        "credentialSaveLogin",
         "donnaEngineAccountUsage",
         "donnaEngineFallback",
         "donnaEngineFallbackSave",

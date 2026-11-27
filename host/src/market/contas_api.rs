@@ -41,6 +41,14 @@ fn texto_opcional<'a>(b: &'a Value, campo: &str) -> Result<Option<&'a str>> {
     }
 }
 
+/// O tipo existe na ficha e nenhum de seus grupos exige filtro de ações (o filtro é da frente das ferramentas).
+fn sem_filtro(servico: &catalogo::Servico, tipo: &str) -> bool {
+    servico
+        .tipos
+        .iter()
+        .any(|t| t.id == tipo && !t.grupos.iter().any(|g| g.imposicao == Some(catalogo::Imposicao::Filtro)))
+}
+
 /// A ficha como o app a lê: os dados do catálogo mais o que depende do momento e do Space.
 fn ficha(
     servico: &catalogo::Servico,
@@ -95,7 +103,7 @@ pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: &Valu
         return Ok(None);
     }
     let open = crate::environment::Environment::is_open();
-    if open && (!matches!(caller, Caller::Local) || method != "marketCatalogo") {
+    if open && !matches!(caller, Caller::Local) {
         return Err(crate::api::devices::Forbidden.into());
     }
     let store = &hub.store;
@@ -104,7 +112,7 @@ pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: &Valu
     Ok(Some(match method {
         // O catálogo é dado público; a lista de contas do Space só aparece com o cofre aberto.
         "marketCatalogo" => {
-            let todas = if open { Some(Vec::new()) } else { super::connectors(store).ok() };
+            let todas = super::connectors(store).ok();
             let catalogo = catalogo::publico();
             json!({
                 "versao": catalogo.versao,
@@ -113,14 +121,14 @@ pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: &Valu
                 "hoje": hoje.to_string(),
                 "spaceId": space,
                 // O app OAuth da própria pessoa, por Space: só o ID, nunca a chave. Cofre trancado = `null`.
-                "appsProprios": {"google": (!open).then(|| super::google_app::publico(store, &space)).flatten()},
+                "appsProprios": {"google": super::google_app::publico(store, &space)},
                 "servicos": catalogo.servicos.iter().map(|s| ficha(s, hoje, todas.as_deref(), &space, open)).collect::<Vec<_>>(),
             })
         }
         "marketServico" => {
             let servico = catalogo::servico(texto(b, "id")?).ok_or_else(|| anyhow!("servico_desconhecido"))?;
             let todas = super::connectors(store).ok();
-            json!({"servico": ficha(servico, hoje, todas.as_deref(), &space, false), "spaceId": space})
+            json!({"servico": ficha(servico, hoje, todas.as_deref(), &space, open), "spaceId": space})
         }
         "marketContas" => contas::listar(store, &space)?,
         "marketConectar" => {
@@ -134,6 +142,11 @@ pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: &Valu
                 ),
                 Some(_) => bail!("`liberacoes` must be a list"),
             };
+            let tipo_pedido = texto(b, "tipo")?;
+            ensure!(
+                !open || catalogo::servico(texto(b, "servico")?).is_some_and(|s| sem_filtro(s, tipo_pedido)),
+                "tipo_indisponivel: esta edição não conecta contas que alteram dados."
+            );
             let pedido = Pedido {
                 servico: texto(b, "servico")?,
                 tipo: texto(b, "tipo")?,
@@ -150,6 +163,7 @@ pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: &Valu
         // perigosas dele é da fatia 2.
         "marketPersonalizado" => {
             ensure!(b.get("registryName").is_none_or(Value::is_null), "{}", super::REGISTRY_UNAVAILABLE);
+            ensure!(!open || b.get("command").is_none_or(Value::is_null), "command_indisponivel");
             let conta = super::add_custom_connector(store, b).await?;
             let proximo = if conta["auth"] == "none" { "verificar" } else { "entrar" };
             json!({"connector": conta, "proximoPasso": proximo})

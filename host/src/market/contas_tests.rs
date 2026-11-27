@@ -696,26 +696,43 @@ fn conta_com_filtro_exige_confirmacao_de_escrita_antes_de_gravar() {
 }
 
 #[tokio::test]
-async fn catalogo_da_open_e_local_e_nao_expoe_contas_do_cofre() {
+async fn open_so_conecta_para_o_dono_local_e_sem_acao_que_altera_dados() {
     if !crate::environment::Environment::is_open() {
         return;
     }
     let hub = hub();
-    contas::conectar(&hub.store, &pedido(PERSONAL, None, Some("Sentinela do cofre"))).unwrap();
+    contas::conectar(&hub.store, &pedido(PERSONAL, None, Some("Conta do dono"))).unwrap();
     let cat = crate::api::dispatch(&hub, &Caller::Local, "marketCatalogo", json!({})).await.unwrap();
     assert_eq!(cat["spaceId"], PERSONAL);
     let servicos = cat["servicos"].as_array().unwrap();
     assert!(servicos.iter().any(|s| s["id"] == "linear"));
-    assert!(servicos.iter().all(|s| s["contas"] == json!([])));
-    assert_eq!(cat["appsProprios"]["google"], Value::Null);
+    assert!(servicos.iter().any(|s| s["contas"].as_array().is_some_and(|c| !c.is_empty())));
+    let contas = crate::api::dispatch(&hub, &Caller::Local, "marketContas", json!({})).await.unwrap();
+    assert!(!contas.to_string().contains("Bearer"));
     let device =
         Caller::Device { key: "fixture-device".into(), scopes: vec![crate::store::Scope::Control], autoridade: None };
-    for (caller, method) in
-        [(&device, "marketCatalogo"), (&Caller::Local, "marketContas"), (&Caller::Local, "marketConectar")]
-    {
-        let err = crate::api::dispatch(&hub, caller, method, json!({})).await.unwrap_err();
-        assert!(err.is::<crate::api::devices::Forbidden>());
+    for method in [
+        "marketCatalogo",
+        "marketServico",
+        "marketContas",
+        "marketConectar",
+        "marketPersonalizado",
+        "marketContaRenomear",
+        "marketContaDesconectar",
+        "marketGoogleApp",
+        "marketGoogleAppSalvar",
+        "marketGoogleAppRemover",
+    ] {
+        let err = crate::api::dispatch(&hub, &device, method, json!({})).await.unwrap_err();
+        assert!(err.is::<crate::api::devices::Forbidden>(), "{method} fora do dono local");
     }
+    for method in ["marketBotContas", "marketBotContasDefinir", "marketFerramentas", "marketFerramentaLigar"] {
+        let err = crate::api::dispatch(&hub, &device, method, json!({})).await.unwrap_err();
+        assert!(err.is::<crate::api::devices::Forbidden>(), "{method} fora do dono local");
+    }
+    let por_comando = json!({"name": "Servidor", "command": "npx servidor"});
+    let err = crate::api::dispatch(&hub, &Caller::Local, "marketPersonalizado", por_comando).await.unwrap_err();
+    assert!(err.is::<crate::api::devices::Forbidden>());
 }
 
 #[tokio::test]

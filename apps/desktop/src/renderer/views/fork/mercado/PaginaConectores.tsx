@@ -1,7 +1,6 @@
 // A página Extensões → Conectores: "Catálogo | Minhas contas" no topo e, abaixo, o catálogo, a ficha, o conectar ou as
 // contas. Só navega e entrega ao Hub; o MarketplaceView herdado a coloca no lugar do antigo "Meus MCP" (um gancho).
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { extensoesSomenteCatalogo } from '../extensoes/tela'
 import { Button, TabChoice } from '../../../components/Controls'
 import { Text } from '../../../components/Text'
 import { HStack, VStack } from '../../../components/Stack'
@@ -25,7 +24,6 @@ type Vista = { tipo: 'lista' } | { tipo: 'ficha'; id: string } | { tipo: 'conect
 
 export function PaginaConectores({ ativa = true, pedidoAdicionar = 0 }: { ativa?: boolean; pedidoAdicionar?: number }) {
   const store = useStore()
-  const open = extensoesSomenteCatalogo()
   const t = useT()
   const mercado = useMercado(store)
   const [vista, setVista] = useState<Vista>({ tipo: 'lista' })
@@ -33,12 +31,12 @@ export function PaginaConectores({ ativa = true, pedidoAdicionar = 0 }: { ativa?
   // A leitura é uma só por Hub e link: volta ao abrir a página e quando a conexão muda (nunca mostra dado de outra origem).
   useEffect(() => { if (ativa) void mercado.ler() }, [ativa, hub, store.connectedClient, store.principalEpoch, mercado])
   // O botão "Adicionar conector personalizado" de Extensões abre a tela própria (v3 02), não a folha antiga.
-  useEffect(() => { if (!open && pedidoAdicionar > 0) setVista({ tipo: 'personalizado' }) }, [open, pedidoAdicionar])
+  useEffect(() => { if (pedidoAdicionar > 0) setVista({ tipo: 'personalizado' }) }, [pedidoAdicionar])
   // Sair da página no meio de conectar (outra página de Extensões, fechar a tela): a conta pela metade não fica.
   const emAndamento = useRef<FluxoConectar | FluxoGoogle | null>(null)
   emAndamento.current = vista.tipo === 'conectar' || vista.tipo === 'google' ? vista.fluxo : null
   useEffect(() => () => { void emAndamento.current?.cancelar() }, [])
-  const aba = open ? 'catalogo' : mercado.aba
+  const aba = mercado.aba
   const catalogo = mercado.catalogo
   const contas = mercado.contas
   const servicoAberto = useMemo(() => (vista.tipo === 'ficha' ? mercado.servico(vista.id) : null), [vista, mercado, catalogo])
@@ -74,13 +72,13 @@ export function PaginaConectores({ ativa = true, pedidoAdicionar = 0 }: { ativa?
   if (vista.tipo === 'ficha' && servicoAberto && catalogo) {
     return (
       <Ficha servico={servicoAberto} prazoDias={catalogo.prazoConferenciaDias} aoVoltar={() => setVista({ tipo: 'lista' })}
-        aoGerenciar={() => mudarAba('contas')} aoConectar={open ? undefined : (tipo) => conectar(servicoAberto, tipo)} />
+        aoGerenciar={() => mudarAba('contas')} aoConectar={(tipo) => conectar(servicoAberto, tipo)} />
     )
   }
 
   return (
     <div className="mercado">
-      {open ? null : abas}
+      {abas}
       {aba === 'contas' ? <MinhasContas mercado={mercado} aoVerCatalogo={() => mudarAba('catalogo')} aoAdicionar={(s) => {
         const tipo = jeitoRecomendado(s)
         if (tipo) conectar(s, tipo)
@@ -94,7 +92,7 @@ export function PaginaConectores({ ativa = true, pedidoAdicionar = 0 }: { ativa?
           </VStack>
         )
         : !catalogo ? <Carregando texto={t('mercado.catalogo.carregando')} />
-        : <Catalogo catalogo={catalogo} contas={contas} cofreTrancado={mercado.cofreTrancado} contasFalharam={mercado.contasErro !== null} appGoogle={mercado.appGoogle} aoTentar={() => void mercado.ler()} aoAbrir={abrirFicha} aoAbrirGoogle={open ? undefined : abrirGoogle} />
+        : <Catalogo catalogo={catalogo} contas={contas} cofreTrancado={mercado.cofreTrancado} contasFalharam={mercado.contasErro !== null} appGoogle={mercado.appGoogle} aoTentar={() => void mercado.ler()} aoAbrir={abrirFicha} aoAbrirGoogle={abrirGoogle} />
       )}
     </div>
   )
