@@ -185,6 +185,13 @@ impl AppDaFicha {
     }
 
     pub(crate) fn resolver(servico: &str, tipo: &str) -> Result<Self> {
+        #[cfg(test)]
+        {
+            let ficha = catalogo::fixture_app_proprio();
+            if ficha.id == servico && let Some(app) = ficha.tipo(tipo).and_then(|tipo| Self::novo(ficha, tipo)) {
+                return Ok(app);
+            }
+        }
         catalogo::servico(servico)
             .and_then(|ficha| ficha.tipo(tipo).and_then(|tipo| Self::novo(ficha, tipo)))
             .ok_or_else(|| anyhow!("Este jeito de conectar não usa um app OAuth próprio."))
