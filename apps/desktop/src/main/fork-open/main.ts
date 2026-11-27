@@ -9,7 +9,9 @@ import type { SSHState } from '../../shared/ssh'
 import { privateDirectory } from '../../shared/fork-private-files'
 import { bringToFront, isOpenAsset, open, openPaths } from './isolation'
 import { registerOpenHub } from './hub'
+import { registerOpenTray } from './bandeja'
 import { registerReleaseNotice } from '../fork-release-notice'
+import { aoMudarIdiomaDoApp, definirIdiomaDoApp, idiomaDoApp, iniciarIdiomaDoApp, suggestedLanguage } from '../fork-idioma'
 import { arquivoEscolhaEntrada, gravarEscolhaEntrada, lerEscolhaEntrada } from '../fork-modo-entrada'
 import { registerSpeech } from '../speech'
 import { isWindowSender } from '../fork-chat-sender'
@@ -62,7 +64,7 @@ if (!app.requestSingleInstanceLock()) {
     session.defaultSession.on('will-download', (event) => event.preventDefault())
     const sync = {
       'app:name': open.name, 'app:scheme': open.scheme, 'app:hostPort': open.port, 'app:version': app.getVersion(),
-      'app:computerName': open.name, 'app:suggestedLanguage': SOURCE_LANGUAGE, 'app:openedAtLogin': false, 'app:debugOpen': null,
+      'app:computerName': open.name, 'app:suggestedLanguage': suggestedLanguage(), 'app:openedAtLogin': false, 'app:debugOpen': null,
       'island:supported': false,
     }
     for (const [channel, value] of Object.entries(sync)) ipcMain.on(channel, (event) => { event.returnValue = value })
@@ -99,11 +101,16 @@ if (!app.requestSingleInstanceLock()) {
       if (gravou) avisoDeVersao?.refresh()
       return gravou
     })
-    Menu.setApplicationMenu(Menu.buildFromTemplate([
-      { label: open.name, submenu: [{ label: traduzir(SOURCE_LANGUAGE, 'marca.menu.ajustes'), accelerator: 'Cmd+,', click: () => window?.webContents.send('app:command', { kind: 'openSettings' }) }, { role: 'quit' }] },
+    ipcMain.on('app:setLanguage', (event, idioma: unknown) => { if (daJanela(event)) definirIdiomaDoApp(idioma) })
+    iniciarIdiomaDoApp()
+    registerOpenTray(open.name, () => window, daJanela, () => { if (window) bringToFront(window, () => app.focus({ steal: true })); else { openWindow(); app.focus({ steal: true }) } })
+    const menu = () => Menu.setApplicationMenu(Menu.buildFromTemplate([
+      { label: open.name, submenu: [{ label: traduzir(idiomaDoApp(), 'marca.menu.ajustes'), accelerator: 'Cmd+,', click: () => window?.webContents.send('app:command', { kind: 'openSettings' }) }, { role: 'quit' }] },
       { role: 'editMenu', submenu: [{ role: 'undo' }, { role: 'redo' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
       { role: 'windowMenu', submenu: [{ role: 'close' }, { role: 'minimize' }] },
     ]))
+    menu()
+    aoMudarIdiomaDoApp(menu)
     openWindow()
   }).catch(() => app.exit(1))
 }
