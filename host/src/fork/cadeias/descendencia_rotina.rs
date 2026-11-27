@@ -78,6 +78,7 @@ fn same_space(scope: &Escopo, bot: &str, space: &str) -> bool {
         Escopo::ConversaDoBot { bot_id, space_id }
         | Escopo::TurnoMcp { bot_id, space_id, .. }
         | Escopo::PedidoEntreBots { bot_id, space_id, .. } => bot_id == bot && space_id.as_deref() == Some(space),
+        Escopo::TurnoHubOpen { .. } => false,
         Escopo::RotinaDescendente { bot_id, space_id, .. } => bot_id == bot && space_id == space,
     }
 }

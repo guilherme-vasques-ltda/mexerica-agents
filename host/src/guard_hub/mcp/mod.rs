@@ -196,6 +196,7 @@ pub(super) fn observe(
 pub(crate) enum Observation<'a> {
     Legacy { intent: &'a RuntimeIntent, transport: &'a str },
     Curated(&'a contexto::Context),
+    Open(&'a crate::fork::open_turn::LocalTurn),
 }
 
 /// Inspetor e recibo comuns; cada produtor mantém autoridade e gravação transacional próprias.
@@ -206,9 +207,10 @@ pub(crate) fn observe_checked(
     validate: impl Fn() -> Result<()>,
     record: impl Fn(&Value) -> Result<()>,
 ) -> Result<Value> {
-    let (context, transport, late) = match origin {
-        Observation::Legacy { intent, transport } => (intent.context(), transport, intent.late_notification()),
-        Observation::Curated(context) => (Some(context), "http", false),
+    let (context, native, transport, late) = match origin {
+        Observation::Legacy { intent, transport } => (intent.context(), None, transport, intent.late_notification()),
+        Observation::Curated(context) => (Some(context), None, "http", false),
+        Observation::Open(turn) => (None, Some(turn), "http", false),
     };
     let frame = body.get("frame").ok_or_else(|| anyhow!("Mensagem obrigatória"))?;
     let method = body["method"].as_str().unwrap_or("unknown");
@@ -240,8 +242,10 @@ pub(crate) fn observe_checked(
     validate()?;
     let event = json!({
         "receipt":guarded.receipt, "sourceId":guarded.source_id, "origin":"external", "transport":transport,
-        "bot":context.map(|c| &c.bot), "connector":body["connector"], "lane":context.map(|c| &c.lane), "run":context.and_then(|c| c.run.as_deref()),
-        "gatewayContext":body["context"], "session":null, "turn":null, "mode":"observe", "method":match method {
+        "bot":context.map(|c| &c.bot).or_else(|| native.map(|t| &t.lane().chat)), "connector":body["connector"],
+        "lane":context.map(|c| &c.lane).or_else(|| native.map(|t| &t.lane().chat)), "run":context.and_then(|c| c.run.as_deref()),
+        "gatewayContext":body["context"], "session":native.map(|t| t.lane().session_id()), "turn":native.map(|t| t.turn()),
+        "mode":"observe", "method":match method {
         "initialize" | "tools/list" | "tools/call" | "resources/read" | "resources/list" | "resources/templates/list" | "prompts/get" | "prompts/list" | "notification" | "invalid" | "server-request" => method, _ => "other"
     }, "coverage":guarded.coverage,
         "bytes":guarded.bytes, "redactions":guarded.redactions, "wouldWarn":guarded.would_warn,

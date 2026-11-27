@@ -483,7 +483,10 @@ fn change_guarded<T>(
     let (mut all, _) = market::load_connectors(store)?;
     let c = all
         .iter_mut()
-        .find(|c| same_target(c, expected) && c.oauth == expected.oauth)
+        .find(|c| {
+            runtime.map_or_else(|| same_target(c, expected), |intent| intent.matches_target(c, expected))
+                && c.oauth == expected.oauth
+        })
         .ok_or_else(|| anyhow!("Login antigo: o vínculo do conector mudou"))?;
     valid()?;
     let value = f(c)?;
@@ -556,7 +559,9 @@ fn check_guarded<T>(
     }
     let (all, _) = market::load_connectors(store)?;
     ensure!(
-        all.iter().any(|c| same_target(c, expected) && c.oauth == expected.oauth),
+        all.iter()
+            .any(|c| runtime.map_or_else(|| same_target(c, expected), |intent| intent.matches_target(c, expected))
+                && c.oauth == expected.oauth),
         "Login antigo: o vínculo do conector mudou"
     );
     if let Some((hub, origin)) = authority {

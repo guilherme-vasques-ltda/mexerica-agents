@@ -1079,10 +1079,6 @@ pub(crate) fn with_installations<T>(
 }
 
 pub(crate) fn seed(store: &Store) -> Result<()> {
-    // Na Open nem o seed entra sem passar pela lista fechada de skills de texto.
-    if crate::environment::Environment::is_open() && !open::permitida(SEED) {
-        return Ok(());
-    }
     let _guard = MUTATION.locked();
     let _file = root_lock(store)?;
     let (all, mut state) = installation::load_initialized(store)?;

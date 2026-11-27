@@ -280,7 +280,7 @@ pub(super) fn respond(
     Ok(json!({}))
 }
 
-fn check_card(db: &rusqlite::Connection, expected: &Entry) -> Result<()> {
+pub(super) fn check_card(db: &rusqlite::Connection, expected: &Entry) -> Result<()> {
     ensure!(
         Store::entry_on(db, &expected.id)?
             .is_some_and(|entry| entry.rev == expected.rev && entry.data == expected.data),
@@ -306,7 +306,7 @@ impl Drop for Waiting<'_> {
     }
 }
 
-async fn approve(hub: &Arc<Hub>, lane: &Lane, turn: i64, title: &str, detail: &str) -> Result<Entry> {
+pub(super) async fn approve(hub: &Arc<Hub>, lane: &Lane, turn: i64, title: &str, detail: &str) -> Result<Entry> {
     ensure!(
         lane.session.is_none()
             && detail.encode_utf16().count() <= 2000

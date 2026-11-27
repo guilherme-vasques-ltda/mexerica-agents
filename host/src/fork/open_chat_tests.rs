@@ -1,6 +1,9 @@
 #![allow(clippy::unwrap_used)]
 
-use super::{CLOSING, MAX_REPLY, RUNNING, Running, Stream, drive, notice, shutdown, thread_key, with_idle_account};
+use super::{
+    CLOSING, MAX_REPLY, RUNNING, Running, Stream, admit_for_test, drive, notice, shutdown, thread_key, ticket_cancel,
+    with_idle_account,
+};
 use crate::LockExt;
 use crate::fork::engine_setup::process::Rpc;
 use serde_json::Value;
@@ -258,7 +261,13 @@ fn an_account_in_use_by_an_open_reply_refuses_changes_until_it_ends() {
     let (done, done_rx) = watch::channel(());
     RUNNING.locked().get_or_insert_with(Default::default).insert(
         "fence-bot".into(),
-        Running { hub: std::sync::Weak::new(), account: "fence-account".into(), cancel, done: done_rx },
+        Running {
+            hub: std::sync::Weak::new(),
+            account: "fence-account".into(),
+            cancel,
+            done: done_rx,
+            nonce: uuid::Uuid::new_v4(),
+        },
     );
     let busy = with_idle_account("fence-account", || Ok(()));
     assert!(busy.unwrap_err().to_string().starts_with("account_busy"));
@@ -710,6 +719,7 @@ async fn ferramentas_da_open_so_rodam_no_turno_local_e_na_thread_certa() {
     {
         let bot = "bot-de-consulta";
         let (hub, dir) = hub_de_teste(bot);
+        crate::market::turn_on_installed_once(&hub.store).unwrap();
         let other = serde_json::from_value(json!({"id":"bot-outro","name":"Outro","cwd":"/fora-da-conversa"})).unwrap();
         hub.store.save_bot(&other).unwrap();
         let lane = Lane { chat: bot.into(), session: None };
@@ -729,7 +739,8 @@ async fn ferramentas_da_open_so_rodam_no_turno_local_e_na_thread_certa() {
             r.lane = Some(lane.clone());
             r.message = Some(entry.id.clone());
         });
-        let (_tx, mut cancel) = watch::channel(false);
+        let ticket = admit_for_test(&hub, bot, "fixture").unwrap();
+        let mut cancel = ticket_cancel(&ticket);
         let auth = super::super::open_tools::Turn::capture(&hub, &lane, &entry.id, number, cancel.clone());
         assert_eq!(auth.is_some(), ingress == "local");
         let log = dir.join("log");
@@ -768,6 +779,12 @@ async fn ferramentas_da_open_so_rodam_no_turno_local_e_na_thread_certa() {
             assert_eq!(replies.len(), 6);
             assert!(replies[..5].iter().all(|r| r["result"]["success"] == true));
             assert_eq!(replies[5]["result"]["success"], crate::environment::Environment::is_open());
+            let skills: Value =
+                serde_json::from_str(replies[2]["result"]["contentItems"][0]["text"].as_str().unwrap()).unwrap();
+            let installed = skills["items"].as_array().unwrap();
+            assert_eq!(installed.len(), 1);
+            assert_eq!(installed[0]["id"], "find-skills");
+            assert_eq!(installed[0]["enabled"], false);
             let bots: Value =
                 serde_json::from_str(replies[0]["result"]["contentItems"][0]["text"].as_str().unwrap()).unwrap();
             assert_eq!(bots["bots"][0]["id"], "bot-outro");
@@ -793,6 +810,7 @@ async fn o_encerramento_do_hub_espera_a_reserva_viva_em_vez_de_retornar_antes() 
             account: "conta-do-encerramento".into(),
             cancel,
             done: done_rx,
+            nonce: uuid::Uuid::new_v4(),
         },
     );
     // A reserva fictícia só cai depois de ~300 ms; o encerramento precisa esperar ela cair.

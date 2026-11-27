@@ -1104,10 +1104,21 @@ impl Hub {
         execution: Option<&crate::fork::sessoes::ExecutionRef>,
         chain: &crate::fork::cadeias::equipe::Entrada,
     ) -> Result<([Entry; 2], Option<crate::fork::cadeias::modelo::Recibo>)> {
+        self.add_team_notices_with(source, turn, notices, crate::store::TeamOrigin::Actor(execution), chain)
+    }
+
+    pub(crate) fn add_team_notices_with(
+        &self,
+        source: &Lane,
+        turn: Option<i64>,
+        notices: &[Value; 2],
+        origin: crate::store::TeamOrigin<'_>,
+        chain: &crate::fork::cadeias::equipe::Entrada,
+    ) -> Result<([Entry; 2], Option<crate::fork::cadeias::modelo::Recibo>)> {
         #[cfg(test)]
         crate::fork::sessoes::call_tests::before_effect(&self.store, "team_notices_commit");
         let _guard = self.emit_lock.locked();
-        let (pair, receipt) = self.store.insert_team_notices(source, turn, notices, execution, chain)?;
+        let (pair, receipt) = self.store.insert_team_notices(source, turn, notices, origin, chain)?;
         for (marker, entry) in &pair {
             for entry in marker.iter().chain([entry]) {
                 let _ = self.events.send(json!({"type":"entry","rev":entry.rev,"entry":entry}));
