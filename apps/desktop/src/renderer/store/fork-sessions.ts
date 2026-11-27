@@ -72,7 +72,7 @@ export interface SessionFailureNotice { chatId: string; sessionId: string | null
 
 export type CreateResult = { ok: true; session: HubSession } | { ok: false; failure: SessionFailure }
 
-export type SidePanelTab = 'sessions' | 'routines' | 'members' | 'settings' | 'whatsapp'
+export type SidePanelTab = 'sessions' | 'routines' | 'members' | 'settings' | 'whatsapp' | 'time'
 
 /** O que o Hub disse a uma conversa, e em que link e época: vale só enquanto os dois forem os mesmos. */
 interface Learned { client: HostClient; gen: number; actions: ReadonlySet<SessionAction> }
