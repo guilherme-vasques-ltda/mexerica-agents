@@ -54,6 +54,7 @@ fn start_or_queue(guard: &mut Option<HashMap<String, Running>>, queued: Queued) 
         return;
     }
     let Queued { hub, cfg, lane, turn, entry, text } = queued;
+    mark_sending(&hub, &entry.0);
     match admit_locked(guard, &hub, &cfg) {
         Ok(ticket) => run(&hub, ticket, &cfg, lane, turn, entry, text),
         Err(error) => {
@@ -61,6 +62,18 @@ fn start_or_queue(guard: &mut Option<HashMap<String, Running>>, queued: Queued) 
             let code = message.split(':').next().unwrap_or_default();
             mark_unsent(&hub, &entry.0, code, "");
         }
+    }
+}
+
+/// Bot livre: a mensagem sai da lista de espera na hora e aparece na conversa como "enviando" até o Codex aceitar o turno
+/// (`sent`). Só a que espera atrás de uma resposta em curso fica `queued`.
+fn mark_sending(hub: &Hub, entry_id: &str) {
+    if let Some(entry) = hub.store.entry(entry_id)
+        && entry.data["status"] == "queued"
+    {
+        let mut data = entry.data;
+        data["status"] = serde_json::json!("sending");
+        hub.set_entry(entry_id, &data);
     }
 }
 
@@ -91,7 +104,7 @@ pub(crate) fn recover(store: &crate::store::Store) -> anyhow::Result<()> {
         let mut stmt = db
             .prepare(
                 "SELECT id FROM entries WHERE kind = 'user'
-                    AND (CASE WHEN json_valid(data) THEN json_extract(data, '$.status') END) = 'queued'",
+                    AND (CASE WHEN json_valid(data) THEN json_extract(data, '$.status') END) IN ('queued', 'sending')",
             )
             .context("consulta das mensagens da fila da Open")?;
         stmt.query_map([], |row| row.get::<_, String>(0))

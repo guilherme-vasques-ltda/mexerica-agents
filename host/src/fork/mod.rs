@@ -5,6 +5,7 @@ pub mod autoridade;
 pub mod bootstrap;
 pub(crate) mod cadeias;
 pub(crate) mod open_chat;
+pub(crate) mod open_chat_anexos;
 pub(crate) mod open_chat_fila;
 #[cfg(unix)]
 pub(crate) mod open_codex;
