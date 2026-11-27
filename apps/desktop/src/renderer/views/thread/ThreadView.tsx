@@ -652,7 +652,7 @@ const Row = memo(function Row({ item, chat, openTrace, onReply, openRoutine, ope
   if (item.kind === 'exchanges') return <BotMessageRow exchanges={item.exchanges} open={openBotChat} />
   const e = item.entry
   if (e.kind === 'notice' && e.data.routineId) {
-    if (isOpenDesktop(window.codync)) return <ChatRow entry={e} groupStart={item.groupStart} chat={chat} openTrace={openTrace} />
+    if (isOpenDesktop(window.codync)) return <div className="chat-routine-notice">{routineNoticeText(t, e.data.text)}</div>
     return (
       <button className="chat-routine-notice" onClick={() => openRoutine(e.data.routineId!)}>
         <Icon name="clock.arrow.circlepath" size={10} />

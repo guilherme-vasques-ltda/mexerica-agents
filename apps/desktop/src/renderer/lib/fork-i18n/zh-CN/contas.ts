@@ -388,7 +388,7 @@ export const textos: Traducao<typeof fonte> = {
   "contas.apiDireta.estado.recusada": "密钥被拒绝",
   "contas.apiDireta.catalogoNaoProva": "模型列表不能证明余额或对每个模型的使用权限。访问权限要到第一次对话时才能确认。",
   "contas.openModelo.titulo": "Codex 模型",
-  "contas.openModelo.explica": "适用于 Berga 以及尚未选择模型的机器人。之后可以在消息框下方更改。",
+  "contas.openModelo.explica": "适用于 Berga 以及尚未选择引擎的机器人。之后可以在消息框下方更改。",
   "contas.openModelo.padrao": "{modelo}（默认）",
   "contas.openModelo.usar": "使用此模型",
   "contas.openModelo.aplicando": "正在应用…",

@@ -85,6 +85,7 @@ import { WithTimesScreen } from './fork/times/camada'
 import { timesScreen } from './fork/times/navigation'
 import { WithTorreScreen } from './fork/torre/camada'
 import { torreScreen } from './fork/torre/lugar-atual'
+import { FaixaViva } from './fork/faixa/FaixaViva'
 import { RosterSearch, rosterSearch, useRosterFilter } from './sidebar-busca/RosterSearch'
 import { DonnaCard } from './fork/donna/DonnaCard'
 import { useDefaultSelection } from './fork/donna/use-default-selection'
@@ -221,6 +222,7 @@ function ChatShell() {
             onboarding.dismissForComputers()
             settingsScreen.show('computers')
           }}
+          onConnectAi={onboarding.controller.connectAi}
           onSkip={onboarding.closeStep3}
           onContinue={onboarding.closeStep3}
         />
@@ -927,7 +929,7 @@ function ChatSplitView() {
         {spacesStore ? <SpaceSelector app={app} root={spacesStore} active={openSpaceRecord} onOpen={id => openSpace(spacesStore, id)} onPersonal={closeSpace}
           onCreate={() => openSpaceSheet(spacesStore, null)} onEdit={id => openSpaceSheet(spacesStore, id)} open={selectorOpen} setOpen={setSelectorOpen} /> : null}
       </JanelaHeader>
-      <SpaceRail
+      <FaixaViva><SpaceRail
         accountOpen={showAccount}
         onAccount={() => setShowAccount((s) => !s)}
         onSkills={() => openMarketplaceAt('skills')}
@@ -954,7 +956,7 @@ function ChatSplitView() {
           onEdit: (id) => openSpaceSheet(spacesStore, id),
           onMove: (id, delta) => moveRailSpace(spacesStore, id, delta),
         } : null}
-      />
+      /></FaixaViva>
       {collapsed && !peek ? <div className="sidebar-peek-edge" aria-hidden onMouseEnter={() => setPeek(true)} /> : null}
       {asideMounted ? (
       <aside

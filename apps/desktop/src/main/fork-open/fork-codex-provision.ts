@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
-import { chmod, lstat, mkdir, mkdtemp, open, realpath, rm } from 'node:fs/promises'
+import { chmod, link, lstat, mkdir, mkdtemp, open, realpath, rm } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
@@ -182,20 +182,21 @@ async function extractMember(archive: string, asset: Asset, executable: string, 
 }
 
 async function publishSelection(settings: string, executable: string, sha256: string) {
-  const fd = await open(settings, createFlags, 0o600).catch((error: NodeJS.ErrnoException) => {
-    if (error.code === 'EEXIST') throw new CodexPreparationError('open_codex_selection')
-    throw error
-  })
-  let written = false
+  const staged = join(dirname(settings), '.codex-local-' + randomUUID() + '.tmp')
+  const fd = await open(staged, createFlags, 0o600)
   try {
     await fd.chmod(0o600)
     validatePrivateFile(await fd.stat())
     await fd.writeFile(JSON.stringify({ executable, version, sha256 }) + '\n')
     await fd.sync()
-    written = true
-  } finally {
     await fd.close()
-    if (!written) await rm(settings, { force: true })
+    await link(staged, settings).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'EEXIST') throw new CodexPreparationError('open_codex_selection')
+      throw error
+    })
+  } finally {
+    await fd.close().catch(() => {})
+    await rm(staged, { force: true })
   }
 }
 

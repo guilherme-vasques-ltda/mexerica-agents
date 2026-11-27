@@ -341,12 +341,12 @@ pub(super) async fn call(
             {
                 return Ok(ControlFlow::Break(json!({"entry": e})));
             }
-            // Open: a conversa só de texto reserva o turno antes de gravar a mensagem.
-            let open_turn = if crate::environment::Environment::is_open() {
-                Some(crate::fork::open_chat::begin(hub, &row.config)?)
-            } else {
-                None
-            };
+            // Open: recusas que não dependem de resposta em curso saem antes de gravar; com resposta em curso a
+            // mensagem entra na fila do Hub (`fork::open_chat_fila`).
+            let open_turn = crate::environment::Environment::is_open();
+            if open_turn {
+                crate::fork::open_chat::precheck(hub, &row.config)?;
+            }
             // `replyTo`: the message of this chat it answers (`chat::replies`).
             let reply = match quoted {
                 Some(id) => Some(crate::chat::replies::quote(&hub.store, bot, id)?),
@@ -361,13 +361,13 @@ pub(super) async fn call(
             }
             // A group has no agent of its own to queue behind; its message stays pending until the room's first
             // round has passed it to the members (`fork::grupo_entrega`), so a restart in between can resume it.
-            let status = match (row.config.is_group(), open_turn.is_some()) {
+            let status = match (row.config.is_group(), open_turn) {
                 (true, false) => crate::fork::grupo_entrega::PENDING,
                 (true, true) => "sent",
                 (false, _) => "queued",
             };
             let mut data = json!({"text": text, "clientNonce": nonce, "status": status, "attachments": attachments, "intent": intent});
-            if effect_authority.is_some() && status == "queued" && open_turn.is_none() {
+            if effect_authority.is_some() && status == "queued" && !open_turn {
                 data["remoteAdmissionRequired"] = json!(true);
             }
             crate::computers::registry::remember_source(&hub.store, &b, &mut data);
@@ -422,6 +422,7 @@ pub(super) async fn call(
             };
             crate::fork::idioma_app::carimbar(&hub.store, caller, &mut data); // D395
             // MB-1b: a mensagem humana responde, na mesma transação, as perguntas pendentes desta conversa.
+            let _ordem = open_turn.then(crate::fork::open_chat_fila::ordem);
             let e = if let (Some(delivery), Some(authority)) = (&mailbox, &mailbox_authority) {
                 let Some(new) =
                     crate::fork::owner_question::add_mailbox_message(hub, delivery, authority, &lane, &b, &data)?
@@ -452,10 +453,9 @@ pub(super) async fn call(
             if let Err(error) = hub.mark_read_authorized(bot, effect_authority) {
                 tracing::warn!(%error, bot, "couldn't mark bot read after send");
             }
-            if let Some(ticket) = open_turn {
-                crate::fork::open_chat::run(
+            if open_turn {
+                crate::fork::open_chat_fila::submit(
                     hub,
-                    ticket,
                     &row.config,
                     lane,
                     e.turn,

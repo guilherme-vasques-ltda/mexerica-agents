@@ -1,6 +1,6 @@
 // Na Open, o chip do modelo embaixo do compositor lista os modelos que as contas conectadas comprovaram e troca só
 // este bot por `donnaOpenModelSet`. Sem outra opção para escolher, é só leitura (sem botão que não abre).
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as TeclaReact } from 'react'
 import type { Bot } from '@shared/models'
 import { useT } from '../../../lib/fork-i18n/estado'
 import { useSelector } from '../../../lib/observable'
@@ -27,10 +27,14 @@ export function ChipModeloOpen({ bot }: { bot: Bot }) {
     const client = store.client ? clientePessoal(store.client) : null
     if (!client) { setContas([]); return }
     let vivo = true
-    const ler = () => { void engineSetup.accounts(client).then((r) => { if (vivo) setContas(contasEscolhiveis(r.accounts)) }, () => { if (vivo) setContas([]) }) }
+    let repetir: ReturnType<typeof setTimeout> | undefined
+    const ler = () => {
+      clearTimeout(repetir)
+      void engineSetup.accounts(client).then((r) => { if (vivo) setContas(contasEscolhiveis(r.accounts)) }, () => { if (vivo) repetir = setTimeout(ler, 5000) })
+    }
     ler()
     const parar = aoMudarContaOpen(ler)
-    return () => { vivo = false; parar() }
+    return () => { vivo = false; clearTimeout(repetir); parar() }
   }, [store, store.client])
 
   const contaId = bot.forkEditor?.engineAccountId ?? null
@@ -50,6 +54,18 @@ export function ChipModeloOpen({ bot }: { bot: Bot }) {
     return () => { document.removeEventListener('mousedown', fora); document.removeEventListener('keydown', esc) }
   }, [aberto]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const navegar = (e: TeclaReact<HTMLDivElement>) => {
+    const passo = ({ ArrowDown: 1, ArrowUp: -1 } as Record<string, number>)[e.key]
+    const ponta = ({ Home: 0, End: -1 } as Record<string, number>)[e.key]
+    if (passo === undefined && ponta === undefined) return
+    const lista = Array.from(painel.current?.querySelectorAll<HTMLButtonElement>('[role="option"]:not(:disabled)') ?? [])
+    if (!lista.length) return
+    e.preventDefault()
+    const agora = lista.indexOf(document.activeElement as HTMLButtonElement)
+    const alvo = passo !== undefined ? (agora + passo + lista.length) % lista.length : (ponta! + lista.length) % lista.length
+    lista[alvo]?.focus()
+  }
+
   const escolher = async (accountId: string, model: string) => {
     const client = store.client
     if (!client) { setErro(true); return }
@@ -67,6 +83,12 @@ export function ChipModeloOpen({ bot }: { bot: Bot }) {
 
   const pos = usePresaAoChip(aberto, botao, (el) => posicaoLista(ancoraNoCampo(el), { largura: window.innerWidth, altura: window.innerHeight }))
   const estilo: CSSProperties | undefined = pos ? ('top' in pos ? { left: pos.left, top: pos.top, maxHeight: pos.maxHeight } : { left: pos.left, bottom: pos.bottom, maxHeight: pos.maxHeight }) : undefined
+  const posicionado = estilo !== undefined
+  useEffect(() => {
+    if (!aberto || !posicionado) return
+    const opcao = painel.current?.querySelector<HTMLButtonElement>('[role="option"][aria-selected="true"]') ?? painel.current?.querySelector<HTMLButtonElement>('[role="option"]')
+    opcao?.focus()
+  }, [aberto, posicionado])
   if (!editavel) return <span className="chip-modelo" title={modelo}><span className="chip-modelo-nome">{modelo}</span></span>
   return (
     <>
@@ -75,7 +97,7 @@ export function ChipModeloOpen({ bot }: { bot: Bot }) {
         <span className="chip-modelo-nome">{modelo}</span>
       </button>
       {aberto && estilo ? noBody(
-        <div ref={painel} className="chip-modelo-painel chip-modelo-open" style={estilo} role="listbox" aria-label={t('contas.openModelo.chipLista')} aria-busy={gravando || undefined}>
+        <div ref={painel} className="chip-modelo-painel chip-modelo-open" style={estilo} role="listbox" aria-label={t('contas.openModelo.chipLista')} aria-busy={gravando || undefined} onKeyDown={navegar}>
           {contas.map((conta) => (
             <div key={conta.id} className="chip-modelo-open-grupo" role="group" aria-label={conta.label}>
               {contas.length > 1 ? <div className="chip-modelo-open-conta">{conta.label}</div> : null}

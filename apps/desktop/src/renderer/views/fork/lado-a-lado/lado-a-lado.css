@@ -22,7 +22,7 @@
 }
 
 /* Alinha o botão da barra lateral no canto superior esquerdo da barra do quadro. */
-.detail:has(.lado-a-lado) > .detail-sidebar-toggle:not(.beside-floating) {
+.detail:has(.lado-a-lado):has(> .detail-sidebar-toggle:not(.beside-floating)) > .detail-sidebar-toggle {
   top: 7px;
   left: 12px;
 }
@@ -57,7 +57,20 @@ html[data-wallpaper] .lado-a-lado-barra {
 }
 
 .lado-a-lado.com-inset-barra .lado-a-lado-barra {
-  padding-inline-start: 56px;
+  position: relative;
+  padding-inline-start: 62px;
+}
+
+/* Divisor entre o botão da barra lateral e o título do quadro: são controles diferentes. */
+.lado-a-lado.com-inset-barra .lado-a-lado-barra::before {
+  content: '';
+  position: absolute;
+  inset-inline-start: 50px;
+  top: 12px;
+  width: 1.5px;
+  height: 20px;
+  border-radius: 1px;
+  background: var(--line-strong);
 }
 
 .lado-a-lado-barra-inicio {
@@ -65,11 +78,6 @@ html[data-wallpaper] .lado-a-lado-barra {
   align-items: center;
   gap: var(--sp-8);
   min-width: 0;
-}
-
-.lado-a-lado-barra-icone {
-  color: var(--text-secondary, var(--ink-2));
-  flex: none;
 }
 
 .lado-a-lado-contagem {

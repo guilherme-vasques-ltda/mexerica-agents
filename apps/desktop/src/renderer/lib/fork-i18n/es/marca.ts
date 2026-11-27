@@ -70,6 +70,8 @@ export const textos: Traducao<typeof fonte> = {
   'marca.acesso.segundoPlano': 'Permite que Mexerica se ejecute en segundo plano (Ajustes del Sistema → Ítems de inicio).',
   'marca.biblioteca.perfilPronto': 'Perfil listo de Mexerica · versión',
   'marca.biblioteca.faixa': 'Perfiles listos, hechos por Mexerica.',
+  'marca.biblioteca.escolhaConta': 'Elige la cuenta de IA antes de añadir.',
+  'marca.biblioteca.soConta': 'Usa solo la cuenta de IA elegida; sin conectores, skills ni computadora',
   'marca.skills.adaptada': 'Versión adaptada por Mexerica.',
   'marca.motores.node': 'Funciona con Node.js; Mexerica añade una copia propia.',
   'marca.node.copia': 'Algunos motores lo necesitan para funcionar. Mexerica puede añadir una copia solo para ellos.',

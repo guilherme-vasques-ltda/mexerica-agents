@@ -4,6 +4,7 @@ import { Button } from '../../../components/Controls'
 import { Icon } from '../../../components/Icon'
 import { useT } from '../../../lib/fork-i18n/estado'
 import { STARTER_TASKS } from '../../../../shared/fork-onboarding.ts'
+import { isOpenDesktop } from '../../../../shared/fork-capacidades.ts'
 
 /**
  * Etapa 4 (primeira conversa util com o Berga):
@@ -32,7 +33,7 @@ export function FirstChatOnboarding({
       {!hasReadyAi ? (
         <div className="onboarding-no-ai-banner" role="status">
           <Icon name="exclamationmark.triangle" size={15} />
-          <span>{t('onboarding.passo4.semIaAviso')}</span>
+          <span>{t(isOpenDesktop(window.codync) ? 'onboarding.passo4.semIaAvisoOpen' : 'onboarding.passo4.semIaAviso')}</span>
           {onConnectAi ? (
             <Button kind="secondary" onClick={onConnectAi}>{t('onboarding.passo4.conectarAgora')}</Button>
           ) : null}

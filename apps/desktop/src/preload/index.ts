@@ -167,6 +167,7 @@ const bridge: CodyncBridge = {
     check: () => ipcRenderer.invoke('releaseNotice:check') as Promise<ReleaseNoticeState>,
     dismiss: () => ipcRenderer.invoke('releaseNotice:dismiss') as Promise<ReleaseNoticeState>,
     openDownload: () => ipcRenderer.invoke('releaseNotice:openDownload') as Promise<boolean>,
+    setCheckEnabled: (on) => ipcRenderer.invoke('releaseNotice:setCheckEnabled', on) as Promise<ReleaseNoticeState>,
     onChange: (cb) => listen('releaseNotice:change', cb),
   },
   files: {
@@ -186,6 +187,8 @@ const bridge: CodyncBridge = {
     copy: (text) => ipcRenderer.send('app:copy', text),
     pickFiles: () => ipcRenderer.invoke('app:pickFiles'),
     readClipboardFiles: () => ipcRenderer.invoke('app:clipboardFiles'),
+    escolhaEntrada: () => ipcRenderer.invoke('app:escolhaEntrada'),
+    gravarEscolhaEntrada: (escolha) => ipcRenderer.invoke('app:gravarEscolhaEntrada', escolha),
     setTraySummary: (summary: TraySummary) => ipcRenderer.send('app:traySummary', summary),
     setLanguage: (idioma) => ipcRenderer.send('app:setLanguage', idioma),
     onCommand: (cb: (c: WindowCommand) => void) => listen('app:command', cb),

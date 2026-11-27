@@ -55,6 +55,16 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
                 && body.get("source").is_none()
                 && body.get("name").is_none()
         }
+        "donnaTaskProposals" | "donnaTimes" | crate::fork::native_catalog::METHOD => matches!(caller, Caller::Local),
+        crate::fork::native_catalog::ADD_METHOD => {
+            // Fora do Pessoal, só com a conta de IA escolhida; o Hub a confere como na criação manual.
+            matches!(caller, Caller::Local)
+                && match body["spaceId"].as_str() {
+                    Some(crate::fork::spaces::PERSONAL) => true,
+                    Some(_) => body["engineAccountId"].as_str().is_some_and(|id| !id.trim().is_empty()),
+                    None => false,
+                }
+        }
         "hello"
         | crate::fork::workspace::METHOD
         | "refreshBackends"
@@ -98,6 +108,45 @@ mod tests {
     use super::open_allows;
     use crate::{api::devices::Caller, store::Scope};
     use serde_json::json;
+
+    #[test]
+    fn open_libera_propostas_equipes_e_biblioteca_so_ao_dono_local() {
+        let device = Caller::Device { key: "device".into(), scopes: vec![Scope::Control], autoridade: None };
+        for method in ["donnaTaskProposals", "donnaTimes", "donnaNativeCatalog"] {
+            assert!(open_allows(&Caller::Local, method, &json!({})), "{method}");
+            assert!(!open_allows(&device, method, &json!({})), "{method}");
+        }
+        let personal = json!({"spaceId": crate::fork::spaces::PERSONAL});
+        assert!(open_allows(&Caller::Local, "donnaNativeCatalogAdd", &personal));
+        assert!(!open_allows(&device, "donnaNativeCatalogAdd", &personal));
+        let space = json!({"spaceId": "outro-space", "engineAccountId": "conta"});
+        assert!(open_allows(&Caller::Local, "donnaNativeCatalogAdd", &space));
+        assert!(!open_allows(&device, "donnaNativeCatalogAdd", &space));
+        for body in [
+            json!({}),
+            json!({"spaceId": "outro-space"}),
+            json!({"spaceId": "outro-space", "engineAccountId": " "}),
+            json!({"spaceId": "outro-space", "engineAccountId": null}),
+        ] {
+            assert!(!open_allows(&Caller::Local, "donnaNativeCatalogAdd", &body));
+        }
+        for method in [
+            "donnaTaskProposalDecide",
+            "donnaTimesPreview",
+            "donnaTimesSave",
+            "functionModels",
+            "backgroundSpaceSelections",
+            "routines",
+            "routinesOverview",
+            "installSkill",
+            "donnaMailManager",
+            "credentialLogins",
+            "readUpload",
+            "unknownMethod",
+        ] {
+            assert!(!open_allows(&Caller::Local, method, &json!({})), "{method}");
+        }
+    }
 
     #[test]
     fn open_recusa_os_metodos_de_planos_de_codigo_e_de_chaves() {
@@ -435,6 +484,7 @@ mod unix {
         let store = profile.open_store()?;
         let host_id = crate::store_host_id(&store)?;
         crate::chat::manage::recover(&store);
+        crate::fork::open_chat_fila::recover(&store)?;
         let identity = crate::remote::identity::Identity::load_or_create(&profile.data)?;
         let token = crate::new_token();
         let hub = Hub::new(store, host_id, identity, token, port);

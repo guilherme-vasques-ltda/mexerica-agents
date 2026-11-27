@@ -250,6 +250,7 @@ async function appRig({ saved = musgo as unknown, raw = null as string | null, s
     './files': { readClipboardFiles: none, readFiles: none }, ...(!hostInstall?.tray && { './tray': { Tray: MenuBar } }), './dock': dockModule, './account': { AccountService: AccountStub },
     './updates': { Updates: UpdatesStub, yieldsToInstall: () => false },
     './fork-release-notice': { registerReleaseNotice: none },
+    './fork-modo-entrada': { arquivoEscolhaEntrada: none, lerEscolhaEntrada: none, gravarEscolhaEntrada: none },
     './auth': authModule,
     './fork-oauth-loopback-ipc': { registerOAuthLoopbackIPC: none },
     './speech': { registerSpeech: none }, './screen': { registerScreenIPC: none }, './cloud': { registerCloud: () => { startup.push('cloud') } }, './ssh': { registerSSH: none }, './fork-cofre-seguro/janela': { registrarCofreSeguro: none },
