@@ -2,7 +2,7 @@
   "id": "notion",
   "nome": "Notion",
   "categoria": "Produtividade",
-  "descricao": "Base de conhecimento e documentos: busca e lê páginas, cria e edita páginas, bancos de dados e comentários no Notion.",
+  "descricao": "Base de conhecimento: busca e lê páginas, bases e comentários; criar, editar e comentar só depois que você ligar cada ação.",
   "exemplos": [
     "Resuma a página de planejamento do Notion",
     "Quais tarefas do meu banco de dados vencem esta semana?"
@@ -13,10 +13,12 @@
     "privacidade": "https://www.notion.com/privacy",
     "termos": "https://www.notion.com/terms"
   },
-  "conferidaEm": "2026-11-18",
+  "conferidaEm": "2026-11-27",
   "fontes": [
     "https://developers.notion.com/guides/mcp/overview",
-    "https://mcp.notion.com/register",
+    "https://developers.notion.com/guides/mcp/get-started-with-mcp",
+    "https://developers.notion.com/guides/mcp/mcp-supported-tools",
+    "https://mcp.notion.com/.well-known/oauth-protected-resource/mcp",
     "https://mcp.notion.com/.well-known/oauth-authorization-server"
   ],
   "tipos": [
@@ -34,17 +36,18 @@
         {
           "id": "usar",
           "rotulo": "Usar com a sua conta",
-          "escopos": [],
+          "escopos": [
+            "default"
+          ],
           "padrao": true,
-          "disponivel": false
+          "disponivel": true,
+          "imposicao": "filtro"
         }
       ],
       "recomendado": true,
-      "disponivel": false,
-      "motivoIndisponivel": "O Notion não oferece um modo só de leitura; entra depois do filtro de ações perigosas."
+      "disponivel": true
     }
   ],
-  "emBreve": "O fornecedor não impõe leitura: entra depois do filtro de ações perigosas.",
   "skillsOficiais": [
     {
       "url": "https://github.com/makenotion/skills",
