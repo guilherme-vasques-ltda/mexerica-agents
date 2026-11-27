@@ -61,7 +61,7 @@ mod tests {
     #![allow(clippy::unwrap_used)]
     use super::*;
     use crate::LockExt;
-    use codync_mem::store::{Writer, New};
+    use codync_mem::store::{New, Writer};
 
     fn bot(id: &str) -> BotConfig {
         serde_json::from_value(serde_json::json!({"id": id, "name": "Bot", "backend": "codex"})).unwrap()
