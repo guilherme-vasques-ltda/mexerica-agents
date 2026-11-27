@@ -576,3 +576,15 @@ test('adaptador: no 100% local ou sem escolha a busca nasce desligada; com conta
   }
 })
 
+test('desligar durante uma busca não segue redirecionamento: nenhuma requisição nova sai', async () => {
+  let chamadas = 0
+  let aviso: ReturnType<typeof controlador> | undefined
+  const fetcher = (async () => {
+    chamadas += 1
+    aviso!.setCheckEnabled(false)
+    return resposta(302, { location: GITHUB_RELEASES_API_URL }).resposta
+  }) as typeof fetch
+  aviso = controlador({ fetcher, defaultCheckEnabled: () => true })
+  await aviso.check({ manual: true })
+  assert.equal(chamadas, 1, 'o salto não foi seguido depois de desligar')
+})

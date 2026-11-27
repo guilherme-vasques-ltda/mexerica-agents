@@ -46,6 +46,7 @@ export const textos = {
   'onboarding.passo4.bergaTitulo': 'ما أول مهمة تريد التخلص من عبئها؟',
   'onboarding.passo4.bergaSubtitulo': 'اختر بطاقة لتعبئة الحقل أدناه وعدّلها بحرية. لن يُرسل شيء دون ضغطك.',
   'onboarding.passo4.semIaAviso': 'للتحدث مع Berga، اربط حساب ذكاء اصطناعي واختر المحرك والنموذج في المحادثة.',
+  'onboarding.passo4.semIaAvisoOpen': "للتحدث مع Berga، اربط حساب ذكاء اصطناعي.",
   'onboarding.passo4.conectarAgora': 'ربط الذكاء الاصطناعي الآن',
   'onboarding.passo4.prontidaoTitulo': 'جاهز للعمل · {prontos} من {total}',
   'onboarding.passo4.prontidaoSubtitulo': 'مهام الاستعداد الأولية',

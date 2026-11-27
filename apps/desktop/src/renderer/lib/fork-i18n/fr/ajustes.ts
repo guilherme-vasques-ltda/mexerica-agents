@@ -76,7 +76,7 @@ export const textos: Traducao<typeof fonte> = {
   'ajustes.atualizacoes.erro': 'Impossible de vérifier les mises à jour pour le moment.',
   'ajustes.atualizacoes.buscar': "Rechercher les nouvelles versions sur GitHub",
   'ajustes.atualizacoes.buscarDetalhe': "Désactivé, l’app ne fait aucune requête de version.",
-  'ajustes.atualizacoes.buscarErro': "Impossible d’enregistrer ce choix ; il peut revenir à la valeur par défaut à la réouverture de l’app.",
+  'ajustes.atualizacoes.buscarErro': "Impossible d’enregistrer ce choix ; il peut ne pas être conservé à la réouverture de l’app.",
   'ajustes.estado.precisaAtualizar': 'Mise à jour requise',
   'ajustes.estado.conectado': 'Connecté',
   'ajustes.estado.conectando': 'Connexion…',

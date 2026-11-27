@@ -27,7 +27,7 @@ export function Ficha({ servico, prazoDias, aoVoltar, aoConectar, aoGerenciar }:
   /** Os dias que o Hub dá a uma conferência (90). */
   prazoDias: number
   aoVoltar: () => void
-  aoConectar: (tipo: TipoConexao) => void
+  aoConectar?: (tipo: TipoConexao) => void
   aoGerenciar: () => void
 }) {
   const t = useT()
@@ -73,7 +73,7 @@ export function Ficha({ servico, prazoDias, aoVoltar, aoConectar, aoGerenciar }:
             </VStack>
           ) : (
             <>
-              {servico.exemplos.length > 0 ? (
+              {aoConectar && servico.exemplos.length > 0 ? (
                 <section className="mercado-secao">
                   <Titulo titulo={t('mercado.ficha.pedir.titulo')} sub={t('mercado.ficha.pedir.sub')} />
                   <div className="mercado-exemplos">
@@ -82,7 +82,7 @@ export function Ficha({ servico, prazoDias, aoVoltar, aoConectar, aoGerenciar }:
                 </section>
               ) : null}
 
-              <section className="mercado-secao">
+              {aoConectar ? <section className="mercado-secao">
                 <Titulo titulo={t('mercado.ficha.como.titulo')} sub={t('mercado.ficha.como.sub')} />
                 {servico.tipos.length === 0 ? <Text size="callout" tone="secondary">{t('mercado.ficha.semJeito')}</Text> : (
                   <div className="mercado-jeitos" role="radiogroup" aria-label={t('mercado.ficha.como.titulo')}>
@@ -111,13 +111,13 @@ export function Ficha({ servico, prazoDias, aoVoltar, aoConectar, aoGerenciar }:
                   </Button>
                   <Text size="callout" tone="secondary">{t('mercado.ficha.proximo')}</Text>
                 </HStack>
-              </section>
+              </section> : null}
             </>
           )}
         </div>
 
         <aside className="mercado-ficha-lateral">
-          <section className="mercado-secao">
+          {aoConectar ? <section className="mercado-secao">
             <Text as="h3" size="callout" weight="semibold" tone="secondary">{t('mercado.ficha.contas.titulo')}</Text>
             {contas.length === 0 ? <Text size="callout" tone="secondary">{t('mercado.ficha.contas.nenhuma', { servico: servico.nome })}</Text> : (
               <div className="mercado-lista-fina">
@@ -133,9 +133,9 @@ export function Ficha({ servico, prazoDias, aoVoltar, aoConectar, aoGerenciar }:
               </div>
             )}
             {contas.length > 0 ? <button className="mercado-link" onClick={aoGerenciar}><HStack gap={4}><Text size="callout" weight="semibold">{t('mercado.ficha.contas.gerenciar')}</Text><Icon name="chevron.right" size={10} /></HStack></button> : null}
-          </section>
+          </section> : null}
 
-          {liberaveis.length > 0 ? (
+          {aoConectar && liberaveis.length > 0 ? (
             <section className="mercado-secao">
               <Text as="h3" size="callout" weight="semibold" tone="secondary">{t('mercado.ficha.liberar.titulo')}</Text>
               <div className="mercado-lista-fina">
@@ -160,9 +160,9 @@ export function Ficha({ servico, prazoDias, aoVoltar, aoConectar, aoGerenciar }:
             </section>
           ) : null}
 
-          <SkillsSugeridas servico={servico} emBreve={servico.emBreve !== null} />
+          {aoConectar ? <SkillsSugeridas servico={servico} emBreve={servico.emBreve !== null} /> : null}
 
-          {(servico.skillsOficiais ?? []).length > 0 ? (
+          {aoConectar && (servico.skillsOficiais ?? []).length > 0 ? (
             <section className="mercado-secao">
               <Text as="h3" size="callout" weight="semibold" tone="secondary">{t('mercado.ficha.skills.titulo')}</Text>
               <div className="mercado-lista-fina">
@@ -177,10 +177,12 @@ export function Ficha({ servico, prazoDias, aoVoltar, aoConectar, aoGerenciar }:
 
           <section className="mercado-secao">
             <Text as="h3" size="callout" weight="semibold" tone="secondary">{t('mercado.ficha.fornecedor.titulo')}</Text>
+            {aoConectar ? <>
             <button className="mercado-link" onClick={() => abrirFora(servico.links.privacidade)}><HStack gap={4}><Text size="callout">{t('mercado.ficha.privacidade', { servico: servico.nome })}</Text><Icon name="arrow.up.right.square" size={11} /></HStack></button>
             <button className="mercado-link" onClick={() => abrirFora(servico.links.termos)}><HStack gap={4}><Text size="callout">{t('mercado.ficha.termos', { servico: servico.nome })}</Text><Icon name="arrow.up.right.square" size={11} /></HStack></button>
             {servico.site ? <button className="mercado-link" onClick={() => abrirFora(servico.site!)}><HStack gap={4}><Text size="callout">{t('mercado.ficha.site', { servico: servico.nome })}</Text><Icon name="arrow.up.right.square" size={11} /></HStack></button> : null}
             {servico.docs ? <button className="mercado-link" onClick={() => abrirFora(servico.docs!)}><HStack gap={4}><Text size="callout">{t('mercado.ficha.docs')}</Text><Icon name="arrow.up.right.square" size={11} /></HStack></button> : null}
+            </> : null}
             <Text size="caption" tone="secondary">{t('mercado.ficha.conferida', { data })}</Text>
             {tipo ? (
               <>

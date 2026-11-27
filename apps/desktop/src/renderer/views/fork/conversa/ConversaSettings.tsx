@@ -16,6 +16,7 @@ const mod = isMac ? '⌘' : 'Ctrl'
 export function ConversaSettings() {
   const t = useT()
   const idioma = useIdioma()
+  const open = window.codync.appScheme === 'mexerica-open'
   const [sendMode, setSendMode] = usePref(conversaPrefs.sendMode)
   const [slashSkills, setSlashSkills] = usePref(conversaPrefs.slashSkills)
   const options: { id: SendMode; label: string }[] = [
@@ -31,13 +32,13 @@ export function ConversaSettings() {
         </ValueRow>
       </CardSection>
       {/* DON-907 C4: lida e gravada no Hub (docs/reference/design/don-907-c4/README.md). */}
-      <LimitesDeUsoSection />
+      {!open && <LimitesDeUsoSection />}
       {/* DON-907 C5: o prazo é do Hub (docs/reference/design/don-907-c5/README.md). */}
-      <ArquivarSozinhoSection />
-      <ContextoAjuste />
-      <CardSection title={t('conversa.avancado.titulo')}>
+      {!open && <ArquivarSozinhoSection />}
+      {!open && <ContextoAjuste />}
+      {!open && <CardSection title={t('conversa.avancado.titulo')}>
         <SwitchRow title={t('conversa.avancado.skillsMenu')} detail={t('conversa.avancado.skillsMenuDetalhe')} on={slashSkills} onChange={setSlashSkills} />
-      </CardSection>
+      </CardSection>}
     </CardForm></div>
   )
 }

@@ -46,6 +46,7 @@ export const textos = {
   'onboarding.passo4.bergaTitulo': '您最想先交出去处理的第一件事是什么？',
   'onboarding.passo4.bergaSubtitulo': '选择一张卡片即可填入下方输入框，您可自由编辑；点击发送前不会发出任何内容。',
   'onboarding.passo4.semIaAviso': '要与 Berga 对话，请连接 AI 账号，并在对话中选择引擎和模型。',
+  'onboarding.passo4.semIaAvisoOpen': "要和 Berga 对话，请连接一个 AI 账户。",
   'onboarding.passo4.conectarAgora': '立即连接 AI',
   'onboarding.passo4.prontidaoTitulo': '准备就绪 · {prontos} / {total}',
   'onboarding.passo4.prontidaoSubtitulo': '初始准备清单',

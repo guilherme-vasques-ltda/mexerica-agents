@@ -34,6 +34,8 @@ export interface FetchLatestReleaseOptions {
   fetcher?: typeof fetch
   timeoutMs?: number
   maxBytes?: number
+  /** Consultado antes de cada requisição, inclusive de cada salto: falso para a busca sem enviar mais nada. */
+  allowed?: () => boolean
 }
 
 /**
@@ -52,6 +54,7 @@ export async function fetchLatestRelease(options: FetchLatestReleaseOptions): Pr
   let redirects = 0
   let response: Response | undefined
   while (response === undefined) {
+    if (options.allowed && !options.allowed()) return { ok: false }
     let current: Response
     try {
       current = await fetcher(url, {
@@ -349,6 +352,7 @@ export function createReleaseNoticeController(deps: ReleaseNoticeControllerDeps)
           fetcher: deps.fetcher,
           timeoutMs: deps.timeoutMs,
           maxBytes: deps.maxBytes,
+          allowed: checkEnabled,
         })
         if (!outcome.ok) {
           if (inFlightManual) setState({ status: 'error' })

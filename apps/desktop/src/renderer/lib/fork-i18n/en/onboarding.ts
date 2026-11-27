@@ -46,6 +46,7 @@ export const textos = {
   'onboarding.passo4.bergaTitulo': 'What is the first thing you want off your plate?',
   'onboarding.passo4.bergaSubtitulo': 'Pick a starter card to fill the box below and edit it freely. Nothing is sent until you press send.',
   'onboarding.passo4.semIaAviso': 'To chat with Berga, connect an AI account and select the engine and model in the chat.',
+  'onboarding.passo4.semIaAvisoOpen': "To chat with Berga, connect an AI account.",
   'onboarding.passo4.conectarAgora': 'Connect AI now',
   'onboarding.passo4.prontidaoTitulo': 'Ready to work · {prontos} of {total}',
   'onboarding.passo4.prontidaoSubtitulo': 'Initial readiness checklist',

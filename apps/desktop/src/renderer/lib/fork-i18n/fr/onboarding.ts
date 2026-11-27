@@ -46,6 +46,7 @@ export const textos = {
   'onboarding.passo4.bergaTitulo': 'Quelle est la première tâche dont vous voulez vous libérer ?',
   'onboarding.passo4.bergaSubtitulo': 'Choisissez une carte pour préremplir la zone ci-dessous et modifiez-la librement. Rien n’est envoyé sans votre clic.',
   'onboarding.passo4.semIaAviso': 'Pour discuter avec Berga, connectez un compte d’IA et choisissez le moteur et le modèle dans la conversation.',
+  'onboarding.passo4.semIaAvisoOpen': "Pour discuter avec Berga, connectez un compte d'IA.",
   'onboarding.passo4.conectarAgora': 'Connecter une IA maintenant',
   'onboarding.passo4.prontidaoTitulo': 'Prête à travailler · {prontos} sur {total}',
   'onboarding.passo4.prontidaoSubtitulo': 'Missions initiales de préparation',

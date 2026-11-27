@@ -13,14 +13,13 @@ use tokio::process::{Child, Command};
 const SELECTION: &str = "codex-local.json";
 const VERSION: &str = "0.164.0";
 const AUTH_CONFIG: &[u8] = b"cli_auth_credentials_store = \"file\"\n";
-const MAX_EXECUTABLE: u64 = 256 * 1024 * 1024;
+const MAX_EXECUTABLE: u64 = 384 * 1024 * 1024;
 const ADMIN_POLICY: &str = "/private/etc/codex";
 /// Certificados públicos do macOS: o TLS do Codex usa este arquivo em vez do Chaveiro. O `.env` do perfil, que o Codex
 /// leria antes de iniciar e poderia trocar este caminho, fica fora do alcance do processo isolado.
 const CA_BUNDLE: &str = "/private/etc/ssl/cert.pem";
-/// Conversa só de texto: desliga as ferramentas do Codex 0.164.0 antes de qualquer turno. O Seatbelt continua barrando
-/// execução de outro programa e leitura fora do perfil; o turno também recusa qualquer item que não seja texto.
-pub(crate) const CHAT_OVERRIDES: [&str; 19] = [
+/// O chat só admite texto e a busca no índice do provedor. O Seatbelt continua isolando o processo.
+pub(crate) const CHAT_OVERRIDES: [&str; 20] = [
     "sandbox_mode=\"read-only\"",
     "approval_policy=\"never\"",
     "features.shell_tool=false",
@@ -39,7 +38,8 @@ pub(crate) const CHAT_OVERRIDES: [&str; 19] = [
     "features.skill_mcp_dependency_install=false",
     "tools.experimental_request_user_input.enabled=false",
     "mcp_oauth_credentials_store=\"file\"",
-    "web_search=\"disabled\"",
+    "features.standalone_web_search=false",
+    "web_search=\"cached\"",
 ];
 const SANDBOX: &str = "/usr/bin/sandbox-exec";
 const POLICY: &str = r#"(version 1)

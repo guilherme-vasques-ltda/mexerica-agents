@@ -7,6 +7,7 @@ import { AnchoredMenu, type MenuItem } from '../../components/Overlay'
 import { useModel } from '../../lib/observable'
 import { UpdateBadge } from '../UpdateButton'
 import { routinesScreen } from '../rotinas-central/navigation'
+import { isOpenDesktop } from '@shared/fork-capacidades'
 import { timesScreen } from '../fork/times/navigation'
 import { torreScreen } from '../fork/torre/navigation'
 import { TorreRailButton } from '../fork/torre/RailButton'
@@ -84,11 +85,11 @@ export function SpaceRail(props: RailActions) {
     ...(props.approvals > 0 ? [{ title: t('navegacao.barra.faixa.pendencias'), icon: 'bell.badge', detail: String(props.approvals), action: props.onApprovals }] : []),
     { title: t('navegacao.janela.conta.uso'), icon: 'gauge.with.dots.needle.33percent', action: props.onUsage },
     // Times abre no Hub do contexto: o do space aberto; no Pessoal, o do bot selecionado (TimesView decide).
-    ...(spaceAllows(active, 'teams') ? [{ title: t('navegacao.barra.secao.equipes'), icon: 'person.2', action: () => { routinesScreen.close(false); settingsScreen.close(false); timesScreen.show(active, active ? spaces?.computerId ?? null : null, spaces?.computerId ?? null) } }] : []),
-    ...(active && spaceAllows(active, 'routines') ? [{ title: t('navegacao.barra.faixa.rotinas'), icon: 'calendar', action: () => routinesScreen.show() }] : []),
+    ...(!isOpenDesktop(window.codync) && spaceAllows(active, 'teams') ? [{ title: t('navegacao.barra.secao.equipes'), icon: 'person.2', action: () => { routinesScreen.close(false); settingsScreen.close(false); timesScreen.show(active, active ? spaces?.computerId ?? null : null, spaces?.computerId ?? null) } }] : []),
+    ...(!isOpenDesktop(window.codync) && active && spaceAllows(active, 'routines') ? [{ title: t('navegacao.barra.faixa.rotinas'), icon: 'calendar', action: () => routinesScreen.show() }] : []),
     ...(active && spaceAllows(active, 'projects') ? [{ title: t('projetos.entrada'), icon: 'folder', action: () => torreScreen.show(null, spaces?.computerId ?? null) }] : []),
     ...(props.extensionsAvailable ? [
-      ...(spaceAllows(active, 'skills') ? [{ title: t('navegacao.barra.faixa.skills'), icon: 'lightbulb', action: props.onSkills }] : []),
+      ...(!isOpenDesktop(window.codync) && spaceAllows(active, 'skills') ? [{ title: t('navegacao.barra.faixa.skills'), icon: 'lightbulb', action: props.onSkills }] : []),
       ...(spaceAllows(active, 'connectors') ? [{ title: t('navegacao.barra.faixa.conectores'), icon: 'puzzlepiece.extension', action: props.onConnectors }] : []),
     ] : []),
     // D169 (28/10, pedido do dono): the account menu's own place, now that Pessoal on the rail only navigates.
@@ -120,7 +121,7 @@ export function SpaceRail(props: RailActions) {
       {spaceAllows(active, 'projects')
         ? <TorreRailButton store={props.torreStore ?? null} spaceId={active} active={torreOpen} onOpen={() => torreScreen.show(active, spaces?.computerId ?? null)} /> : null}
       {/* `rc-open`: closing Rotinas brings focus back here (rotinas-central/navigation.ts). */}
-      {spaceAllows(active, 'routines') ? <button className="space-rail-button rc-open" title={t('navegacao.barra.faixa.rotinas')} aria-label={t('navegacao.barra.faixa.rotinas')} aria-current={routinesOpen && !timesOpen && !torreOpen ? 'page' : undefined} onClick={() => { timesScreen.close(false); settingsScreen.close(false); routinesScreen.show() }}>
+      {!isOpenDesktop(window.codync) && spaceAllows(active, 'routines') ? <button className="space-rail-button rc-open" title={t('navegacao.barra.faixa.rotinas')} aria-label={t('navegacao.barra.faixa.rotinas')} aria-current={routinesOpen && !timesOpen && !torreOpen ? 'page' : undefined} onClick={() => { timesScreen.close(false); settingsScreen.close(false); routinesScreen.show() }}>
         <Icon name="calendar" size={RAIL_ICON} weight="light" />
       </button> : null}
       <button className="space-rail-button" title={t('navegacao.barra.faixa.conectores')} aria-label={t('navegacao.barra.faixa.conectores')} aria-current={extensions.open && extensions.page === 'connectors' ? 'page' : undefined} disabled={!props.extensionsAvailable} onClick={props.onConnectors}>

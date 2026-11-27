@@ -26,6 +26,7 @@ export const textos: Traducao<typeof fonte> = {
   "extensoes.plugins.voltar": "返回插件列表",
   "extensoes.cred.sobre": "机器人使用的密码、密钥和登录信息。这些值保存在 Hub 中，绝不会显示在屏幕上。",
   "extensoes.conectores.sobre": "让你的机器人使用你常用的服务。每个账号都保留在此 Space 中，并且对机器人默认关闭。",
+  "extensoes.conectores.sobreOpen": "在 Mexerica Open 中，你可以查看连接器详情。此版本不支持将服务连接到机器人。",
   "extensoes.plugins.rodape": "新插件会显示在这里。",
   "extensoes.cred.adicionarLogin": "添加登录信息",
   "extensoes.meusMcp": "我的 MCP",

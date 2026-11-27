@@ -1,6 +1,7 @@
 // Marketplace (fatia 1b): o estado do app sobre o que o Hub diz. A tela só renderiza e chama estes métodos; cada
 // escrita é uma intenção enviada ao Hub, e a lista é relida depois (nunca se presume o resultado).
 import type { HostClient } from '../../../client/host-client'
+import { extensoesSomenteCatalogo } from '../extensoes/tela.ts'
 import { Observable, useModel } from '../../../lib/observable'
 import type { BotStore } from '../../../store/bot-store'
 import { market } from '../../marketplace/market-models'
@@ -47,7 +48,8 @@ export class Mercado extends Observable {
     const meu = ++this.pedido
     const vale = () => meu === this.pedido && mesmaOrigem(this.store, origem)
     try {
-      const [catalogo, contas] = await Promise.allSettled([mercadoApi.catalogo(origem.client), mercadoApi.contas(origem.client)])
+      const [catalogo, contas] = await Promise.allSettled([mercadoApi.catalogo(origem.client),
+        extensoesSomenteCatalogo() ? Promise.resolve([]) : mercadoApi.contas(origem.client)])
       if (!vale()) return
       if (catalogo.status === 'rejected') throw catalogo.reason
       this.lido = { origem, catalogo: catalogo.value, contas: contas.status === 'fulfilled' ? contas.value : [], contasErro: contas.status === 'rejected' ? mensagem(contas.reason) : null }

@@ -351,6 +351,7 @@ pub(crate) const METODOS: &[(&str, Classe)] = &[
     ("donnaOnboardingDetect", LocalOnly),
     ("donnaOnboardingSave", LocalOnly),
     ("donnaOnboardingStatus", LocalOnly),
+    ("donnaOpenModelSet", LocalOnly),
     ("donnaRuleDelete", LocalOnly),
     ("donnaRuleSave", LocalOnly),
     ("donnaRuleSetEnabled", LocalOnly),

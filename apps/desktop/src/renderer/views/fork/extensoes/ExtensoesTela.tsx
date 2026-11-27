@@ -12,7 +12,7 @@ import { useModel } from '../../../lib/observable'
 import { StoreContext, useApp } from '../../../store/context'
 import { MarketplaceView } from '../../marketplace/MarketplaceView'
 import { extensoesScreen } from './lugar-atual'
-import { ehPaginaLoja, PAGINAS_EXTENSOES } from './tela'
+import { ehPaginaLoja, extensoesSomenteCatalogo, PAGINAS_EXTENSOES, paginaDisponivel } from './tela'
 import { CredentialsView } from '../../marketplace/CredentialsView'
 import { PaginaPlugins } from './PaginaPlugins'
 import { settingsScreen } from '../ajustes/tela'
@@ -46,6 +46,7 @@ export function ExtensoesTela() {
   const store = tela.computer ? app.store(tela.computer) : null
   if (!tela.page) ultimaLoja.current = null
   if (!tela.page || !store) return null
+  const somenteCatalogo = extensoesSomenteCatalogo()
   const atual = PAGINAS_EXTENSOES.find((p) => p.id === tela.page)!
   // Velocidade: Aplicativos, Conectores e Skills são UMA instância do MarketplaceView, que fica montada (escondida em
   // Plugins e Credenciais) enquanto a tela está aberta. Trocar de página não remonta nem busca o catálogo de novo.
@@ -64,7 +65,7 @@ export function ExtensoesTela() {
       </header>
       <div className="settings">
         <nav className="settings-sidebar" aria-label={t('extensoes.paginas')}>
-          {PAGINAS_EXTENSOES.map((p) => (
+          {PAGINAS_EXTENSOES.filter((p) => paginaDisponivel(p.id)).map((p) => (
             <Fragment key={p.id}>
             {p.id === 'credentials' ? <div className="ext-lateral-divisor" role="presentation" /> : null}
             <button className={`settings-item ${p.id === tela.page ? 'selected' : ''}`} aria-current={p.id === tela.page ? 'page' : undefined} onClick={() => tela.setPage(p.id)}>
@@ -81,10 +82,10 @@ export function ExtensoesTela() {
               {atual.id === 'connectors' ? (
                 <div className="ext-titulo-linha">
                   <h2 className="settings-title">{t(atual.chave)}</h2>
-                  <Button kind="secondary" onClick={() => setPedidoAdicionar((n) => n + 1)}><Icon name="plus" size={12} />{t('mercado.adicionarPersonalizado')}</Button>
+                  {somenteCatalogo ? null : <Button kind="secondary" onClick={() => setPedidoAdicionar((n) => n + 1)}><Icon name="plus" size={12} />{t('mercado.adicionarPersonalizado')}</Button>}
                 </div>
               ) : <h2 className="settings-title">{t(atual.chave)}</h2>}
-              <p className="ext-subtitulo">{t(SOBRE[atual.id])}</p>
+              <p className="ext-subtitulo">{t(somenteCatalogo && atual.id === 'connectors' ? 'extensoes.conectores.sobreOpen' : SOBRE[atual.id])}</p>
             </div>
           )}
           {loja ? (

@@ -259,6 +259,7 @@ export function Step3Wizard({
     setEtapa(proxima)
   }
   const sair = (acao: () => void) => {
+    if (gravando) return
     etapaLembrada = null
     acao()
   }
@@ -542,12 +543,12 @@ export function Step3Wizard({
 
           <footer className="eg-rodape">
             {indice > 0 ? (
-              <Button kind="secondary" onClick={() => irPara(etapas[indice - 1]!)}>
+              <Button kind="secondary" onClick={() => irPara(etapas[indice - 1]!)} disabled={gravando}>
                 <Icon name="arrow.left" size={14} />
                 {t('onboarding.voltar')}
               </Button>
             ) : (
-              <button type="button" className="eg-link" onClick={() => sair(onSkip)}>{t('onboarding.pularPorEnquanto')}</button>
+              <button type="button" className="eg-link" onClick={() => sair(onSkip)} disabled={gravando}>{t('onboarding.pularPorEnquanto')}</button>
             )}
             {etapa === 'pronto' ? (
               <Button kind="primary" onClick={() => sair(onContinue)}>
@@ -563,7 +564,7 @@ export function Step3Wizard({
           </footer>
           {erroGravar ? <p className="eg-erro" role="alert">{t('onboarding.guia.erroGravar')}</p> : null}
           {indice > 0 && etapa !== 'pronto' ? (
-            <button type="button" className="eg-link eg-pular" onClick={() => sair(onSkip)}>{t('onboarding.pularPorEnquanto')}</button>
+            <button type="button" className="eg-link eg-pular" onClick={() => sair(onSkip)} disabled={gravando}>{t('onboarding.pularPorEnquanto')}</button>
           ) : null}
         </div>
       </div>

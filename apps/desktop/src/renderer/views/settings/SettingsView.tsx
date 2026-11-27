@@ -45,7 +45,7 @@ import { formatarData, type ChaveTexto } from '../../lib/fork-i18n/index.ts'
 import { semParametros, Superficie } from './rotulo'
 import { ltr } from '@shared/bidi'
 import { capacidades } from '@shared/fork-capacidades'
-import { abasVisiveis, paginaDisponivel } from '../fork/ajustes/gates-capacidades'
+import { abasVisiveis, paginaDisponivel, paginaDisponivelNaOpen } from '../fork/ajustes/gates-capacidades'
 
 import { NuncaFazerPagina } from '../fork/nunca-fazer/NuncaFazer'
 import { InstrucoesPage } from '../fork/instrucoes/InstrucoesPage'
@@ -101,14 +101,16 @@ export function SettingsView({ page: requested, aba: abaPedida, onPage, onAba }:
   const app = useApp()
   // Fork: páginas cortadas (Updates; Computer access sem host local, D76) não aparecem nem abrem: caem em Geral.
   const cap = capacidades(window.codync)
-  const shownPages = pages.filter((p) => (p.id !== 'updates' || forkFeatures.updates) && (p.id !== 'access' || showsComputerAccess(app.host.state)) && paginaDisponivel(p.id, cap))
+  const open = window.codync.appScheme === 'mexerica-open'
+  const shownPages = pages.filter((p) => open ? paginaDisponivelNaOpen(p.id) :
+    (p.id !== 'updates' || forkFeatures.updates) && (p.id !== 'access' || showsComputerAccess(app.host.state)) && paginaDisponivel(p.id, cap))
   const page = shownPages.some((p) => p.id === requested) ? requested : 'general'
   const t = useT()
   const idioma = useIdioma()
   const tx = semParametros(t)
   const titulo = (p: (typeof pages)[number]) => tx(p.chave)
   const current = pages.find((p) => p.id === page)!
-  const abas = page === 'ai-accounts' && window.codync.appScheme === 'mexerica-open'
+  const abas = page === 'ai-accounts' && open
     ? undefined : abasVisiveis(page, abasDe[page], cap, app.managedStores.length)
   // Uma aba que este aparelho não mostra (ex.: Chaves na Web) cai na primeira, nunca numa página vazia.
   const aba = abas && abaPedida && !abas.some((a) => a.id === abaPedida) ? abas[0].id : abaPedida
@@ -214,6 +216,7 @@ export function GeneralSettings() {
   const app = useApp()
   const t = useT()
   const cap = capacidades(window.codync)
+  const open = window.codync.appScheme === 'mexerica-open'
   const [showInDock, setShowInDock] = useState(true)
   // A página monta a cada visita: lê estas chaves ao abrir, porque a bandeja também as muda.
   useEffect(() => { if (cap.dock) void window.codync.app.showInDock().then(setShowInDock) }, [cap.dock])
@@ -226,12 +229,12 @@ export function GeneralSettings() {
   return (
     <CardForm>
       {/* D171 (Clerk 6): conta e saída não confirmada em views/fork/account. */}
-      {showsAccountControls() && <AccountSettingsCard />}
+      {!open && showsAccountControls() && <AccountSettingsCard />}
       <ModoUsoAjuste />
-      {app.managedStores.map((store) => <TeamAutonomy key={store.computer.id} store={store} />)}
+      {!open && app.managedStores.map((store) => <TeamAutonomy key={store.computer.id} store={store} />)}
       <IdiomaAjuste />
       <Superficie>
-      <AtalhoBerga />
+      {!open && <AtalhoBerga />}
       {cap.dock || islandSupported || cap.launchAtLogin ? <CardSection title={t('ajustes.geral.sistema')}>
         {cap.dock ? <Switch on={showInDock} onChange={(on) => void window.codync.app.setShowInDock(on).then(setShowInDock)}>{t('ajustes.geral.dock')}</Switch> : null}
         {islandSupported ? (
@@ -247,7 +250,7 @@ export function GeneralSettings() {
       </CardSection> : null}
       </Superficie>
       <AtualizacaoAjuste />
-      {forkFeatures.analytics && <PrivacySettings />}
+      {!open && forkFeatures.analytics && <PrivacySettings />}
     </CardForm>
   )
 }

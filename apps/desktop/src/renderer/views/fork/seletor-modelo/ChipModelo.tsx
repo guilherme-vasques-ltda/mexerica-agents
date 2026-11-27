@@ -18,8 +18,13 @@ import { usoDaConversa } from './uso'
 import { SeletorModelo } from './SeletorModelo'
 import { ancoraNoCampo, posicaoLista } from './posicao'
 import { noBody, usePresaAoChip } from './presa'
+import { ChipModeloOpen } from './fork-open-chip'
 
 export function ChipModelo({ bot, sessionId }: { bot: Bot; sessionId: string | null }) {
+  return window.codync.appScheme === 'mexerica-open' ? <ChipModeloOpen bot={bot} /> : <ChipModeloSessao bot={bot} sessionId={sessionId} />
+}
+
+function ChipModeloSessao({ bot, sessionId }: { bot: Bot; sessionId: string | null }) {
   const store = useStoreRef()
   // Re-render só quando muda o que o chip usa: conexão, época e computador (não a cada evento do Hub).
   useSelector(store, (s) => s.client)
