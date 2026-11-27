@@ -102,8 +102,8 @@ export function SettingsView({ page: requested, aba: abaPedida, onPage, onAba }:
   // Fork: páginas cortadas (Updates; Computer access sem host local, D76) não aparecem nem abrem: caem em Geral.
   const cap = capacidades(window.codync)
   const open = window.codync.appScheme === 'mexerica-open'
-  const shownPages = pages.filter((p) => open ? paginaDisponivelNaOpen(p.id) :
-    (p.id !== 'updates' || forkFeatures.updates) && (p.id !== 'access' || showsComputerAccess(app.host.state)) && paginaDisponivel(p.id, cap))
+  const shownPages = pages.filter((p) => (open ? paginaDisponivelNaOpen(p.id) : p.id !== 'access' || showsComputerAccess(app.host.state)) &&
+    (p.id !== 'updates' || forkFeatures.updates) && paginaDisponivel(p.id, cap))
   const page = shownPages.some((p) => p.id === requested) ? requested : 'general'
   const t = useT()
   const idioma = useIdioma()

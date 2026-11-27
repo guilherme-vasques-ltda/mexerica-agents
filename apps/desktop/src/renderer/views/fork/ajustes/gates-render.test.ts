@@ -218,15 +218,15 @@ test('Open: Dock, início de sessão e ícone não aparecem nem consultam a pont
   } finally { efeitos = undefined }
 })
 
-test('Open: Ajustes remove o Bot de fundo e mantém as preferências locais e as contas de IA', () => {
+test('Open: Ajustes mostra as páginas locais e esconde só Voz e Acesso ao computador', () => {
   aparelho('desktop', { appScheme: 'mexerica-open' })
-  const props = { page: 'background', aba: null, onPage: nada, onAba: nada }
+  const props = { page: 'voice', aba: null, onPage: nada, onAba: nada }
   const html = renderiza(m.SettingsView, props)
   assert.match(html, /<h2[^>]*>Geral<\/h2>/)
-  for (const key of ['ajustes.pagina.botDeFundo', 'ajustes.pagina.acesso', 'ajustes.pagina.computadoresCurto']) {
+  for (const key of ['ajustes.pagina.voz', 'ajustes.pagina.acesso']) {
     assert.ok(!html.includes(pt[key]!), key)
   }
-  for (const key of ['ajustes.pagina.aparencia', 'ajustes.pagina.barraLateral', 'ajustes.pagina.conversa', 'ajustes.pagina.contasIa']) {
+  for (const key of ['ajustes.pagina.aparencia', 'ajustes.pagina.barraLateral', 'ajustes.pagina.conversa', 'ajustes.pagina.contasIa', 'ajustes.pagina.botDeFundo', 'ajustes.pagina.computadoresCurto', 'ajustes.pagina.lugares', 'ajustes.pagina.armazenamento', 'ajustes.pagina.uso']) {
     assert.ok(html.includes(pt[key]!), key)
   }
 })
