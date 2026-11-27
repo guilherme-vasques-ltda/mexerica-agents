@@ -251,6 +251,7 @@ pub(crate) const MATRIZ: &[(&str, Minimo)] = &[
     ("extensaoNovosBotsDefinir", Admin),
     ("botGroupsEdit", Admin),
     ("donnaContextCompact", Admin),
+    ("donnaOpenClear", Admin),
     ("donnaContextSettingsSave", Admin),
     ("donnaConversationMemory", Admin),
     ("donnaConversationStartupOpen", Admin),

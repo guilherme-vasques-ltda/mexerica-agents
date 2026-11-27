@@ -84,6 +84,10 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
         super::custo::METHOD => super::custo::call(hub, caller, body).await.map(ControlFlow::Break),
         super::uso_historico::METHOD => super::uso_historico::call(hub, caller, body).map(ControlFlow::Break),
         super::armazenamento::METHOD => super::armazenamento::call(hub, caller, body).await.map(ControlFlow::Break),
+        m if crate::environment::Environment::is_open() && super::open_contexto::METHODS.contains(&m) => {
+            super::open_contexto::call(hub, caller, method, body).await.map(ControlFlow::Break)
+        }
+        "donnaOpenClear" => super::open_contexto::clear(hub, caller, body).await.map(ControlFlow::Break),
         m if super::contexto::METHODS.contains(&m) => {
             super::contexto::call(hub, caller, method, body).await.map(ControlFlow::Break)
         }

@@ -319,6 +319,7 @@ pub(crate) const CONTROLE: &[&str] = &[
     "donnaContext",
     "donnaAttention",
     "donnaContextCompact",
+    "donnaOpenClear",
     "donnaContextSettings",
     "donnaContextSettingsSave",
     "donnaControlTower",

@@ -440,6 +440,11 @@ export class BotSync extends BotMirror {
         if (this.selection === event.id) this.selection = null
         this.onRosterChanged?.()
         break
+      case 'chatCleared':
+        this.entries.set(event.chatId, [])
+        this.floors.delete(event.chatId)
+        this.bump(event.rev)
+        break
       case 'sessionDeleted': {
         const space = this.spaceId ?? this.spaces?.personalSpaceId
         if (space && event.spaceId !== space) break

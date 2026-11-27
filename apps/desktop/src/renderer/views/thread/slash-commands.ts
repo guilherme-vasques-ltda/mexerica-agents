@@ -7,8 +7,9 @@ import { traduzir, tradutor, type Tradutor } from '../../lib/fork-i18n/index.ts'
 // for all of them, and every skill one of them has. docs/features/marketplace.md, "Commands".
 import { fastModeDetail, fastModeShown, fastModeState, groupFastMode, type FastModeState } from '../../../shared/fast-mode.ts'
 import type { Bot } from '../../../shared/models.ts'
+import { comandoLimpar } from '../fork/contexto/limpar.ts'
 
-export type SlashAction = { kind: 'fast' } | { kind: 'skill'; id: string }
+export type SlashAction = { kind: 'fast' } | { kind: 'clear' } | { kind: 'skill'; id: string }
 
 export interface SlashCommand {
   /** What follows the `/`. */
@@ -32,7 +33,8 @@ function builtIn(bot: Bot, members: Bot[]): SlashCommand[] {
   const idioma = isAppLanguage(lang) ? lang : 'pt-BR'
   const t = tradutor(idioma)
   const fast = bot.kind === 'group' ? groupFastMode(t, members) : ownFastMode(t, bot)
-  return fast ? [{ name: 'fast', icon: 'bolt', title: traduzir(idioma, 'conversa.fastMode'), detail: fast.detail, warning: fast.state === 'refused', action: { kind: 'fast' } }] : []
+  const fastCommand: SlashCommand[] = fast ? [{ name: 'fast', icon: 'bolt', title: traduzir(idioma, 'conversa.fastMode'), detail: fast.detail, warning: fast.state === 'refused', action: { kind: 'fast' } }] : []
+  return [...fastCommand, ...comandoLimpar(bot, idioma)]
 }
 
 /** A bot's own Fast mode, while it shows it. */
