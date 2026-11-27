@@ -1,0 +1,54 @@
+{
+  "id": "coderabbit",
+  "nome": "CodeRabbit",
+  "categoria": "Código",
+  "descricao": "Consulta repositórios acessíveis e pull requests do CodeRabbit, sem solicitar revisões nem alterar dados.",
+  "exemplos": [
+    "Liste os repositórios acessíveis no CodeRabbit",
+    "Consulte os pull requests acessíveis no CodeRabbit"
+  ],
+  "site": "https://www.coderabbit.ai/",
+  "docs": "https://docs.coderabbit.ai/api/mcp",
+  "links": {
+    "privacidade": "https://www.coderabbit.ai/privacy",
+    "termos": "https://www.coderabbit.ai/terms"
+  },
+  "conferidaEm": "2026-11-27",
+  "fontes": [
+    "https://docs.coderabbit.ai/api/mcp",
+    "https://docs.coderabbit.ai/api/mcp/tools",
+    "https://mcp.coderabbit.ai/.well-known/oauth-protected-resource",
+    "https://mcp.coderabbit.ai/.well-known/oauth-authorization-server"
+  ],
+  "tipos": [
+    {
+      "id": "coderabbit.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "CodeRabbit",
+      "url": "https://mcp.coderabbit.ai/",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "ler",
+          "rotulo": "Consultar repositórios e pull requests",
+          "escopos": [
+            "connection",
+            "account:read",
+            "repositories:read",
+            "pull_requests:read"
+          ],
+          "ferramentas": ["list_repositories", "get_repository", "list_pull_requests", "get_pull_request"],
+          "padrao": true,
+          "disponivel": true,
+          "imposicao": "escopo"
+        }
+      ],
+      "recomendado": true,
+      "disponivel": true
+    }
+  ]
+}

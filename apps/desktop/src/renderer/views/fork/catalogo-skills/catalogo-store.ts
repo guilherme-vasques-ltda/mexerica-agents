@@ -1,5 +1,5 @@
 import { passiveSkillsV2, SkillRequestScope, type SkillClient } from '../../../../shared/fork-skills.ts'
-import type { CatalogSkill, InstalledSkillV2, SkillDetailsV2 } from '../../../store/fork-skills.ts'
+import type { CatalogSkill, InstalledSkillV2, InternalSkill, SkillDetailsV2 } from '../../../store/fork-skills.ts'
 import { Observable } from '../../../lib/observable.ts'
 import { codigoDeSkill, ErroFrase, itemDoCatalogo, mensagemDeErro, motivoContraRemocao as motivoContra, type AlvoRemocao } from './regras.ts'
 import { frase, frases, juntas, type Frase } from './textos.ts'
@@ -52,6 +52,8 @@ const SEM_CONEXAO = frase('skills.loja.semConexao')
 export class CatalogoStore extends Observable {
   itens: CatalogSkill[] | null = null
   instaladas: InstalledSkillV2[] | null = null
+  /** As internas da mesma leitura das instaladas: vêm com o Hub, só leitura. */
+  internas: InternalSkill[] | null = null
   /** O catálogo veio com itens fora do contrato D166: eles não aparecem. */
   hubAntigo = false
   /**
@@ -103,6 +105,7 @@ export class CatalogoStore extends Observable {
     this.origemDasListas = null
     this.itens = null
     this.instaladas = null
+    this.internas = null
     this.hubAntigo = false
     this.semProtocolo = false
     this.carregando = false
@@ -198,7 +201,7 @@ export class CatalogoStore extends Observable {
         // ready() pode terminar no link de outro Hub: nada de ler por ele para esta tela.
         if (!this.leituraAtual(origem, inspecao)) return null
         if (this.contexto && client !== origem.cliente) throw new ErroFrase(CONEXAO_MUDOU)
-        return Promise.all([passiveSkillsV2.catalog(client), passiveSkillsV2.installed(client)])
+        return Promise.all([passiveSkillsV2.catalog(client), passiveSkillsV2.installedAndInternal(client)])
       })
       if (!lido.current) return
       if (!this.leituraAtual(origem, inspecao) || !lido.value) {
@@ -206,11 +209,12 @@ export class CatalogoStore extends Observable {
         this.changed()
         return
       }
-      const [catalogo, instaladas] = lido.value
+      const [catalogo, { installed: instaladas, internal: internas }] = lido.value
       this.origemDasListas = origem
       this.itens = catalogo.filter(itemDoCatalogo)
       this.hubAntigo = catalogo.length > this.itens.length
       this.instaladas = instaladas
+      this.internas = internas
       this.semProtocolo = false
       this.erro = null
       this.carregando = false
@@ -227,6 +231,7 @@ export class CatalogoStore extends Observable {
         this.semProtocolo = true
         this.itens = null
         this.instaladas = null
+        this.internas = null
         this.hubAntigo = false
         this.erro = null
       } else this.erro = mensagemDeErro(e)

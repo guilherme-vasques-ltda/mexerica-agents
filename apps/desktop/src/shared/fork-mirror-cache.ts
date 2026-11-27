@@ -100,7 +100,8 @@ import { normalizeBot, unavailableRuntime, type Bot } from './models.ts'
 // Schema 76: `functionModels` inclui a origem da conta de motor.
 // Schema 77: o aviso de conferência da mensagem de grupo interrompida usa `Entry.data.code` (`group_review`) para
 // tradução; cache anterior não tem o código e o aviso cairia no texto gravado.
-export const MIRROR_SCHEMA = 77
+// Schema 78: a lista de skills (`skills`) traz `internas`, as que vêm com o app, só leitura.
+export const MIRROR_SCHEMA = 78
 
 export const mirrorCacheStamp = (appVersion: string, hostVersion: string): string =>
   `donnabot-mirror-v${MIRROR_SCHEMA}/${appVersion}/${hostVersion}`

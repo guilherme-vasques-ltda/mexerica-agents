@@ -1,0 +1,52 @@
+{
+  "id": "bright-data",
+  "nome": "Bright Data",
+  "categoria": "Pesquisa e web",
+  "descricao": "Consulte resultados públicos de busca na web com sua conta Bright Data.",
+  "exemplos": [
+    "Busque fontes públicas sobre um assunto"
+  ],
+  "site": "https://brightdata.com",
+  "docs": "https://docs.brightdata.com/products/mcp-server/remote/oauth",
+  "links": {
+    "privacidade": "https://brightdata.com/privacy",
+    "termos": "https://brightdata.com/license"
+  },
+  "conferidaEm": "2026-11-27",
+  "fontes": [
+    "https://docs.brightdata.com/products/mcp-server/remote/oauth",
+    "https://docs.brightdata.com/products/mcp-server/tools",
+    "https://mcp.brightdata.com/.well-known/oauth-protected-resource/mcp"
+  ],
+  "aviso": "O login não limita a credencial à busca. As buscas podem consumir a franquia da conta; não há ferramentas de navegação ou extração.",
+  "tipos": [
+    {
+      "id": "bright-data.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "Bright Data",
+      "url": "https://mcp.brightdata.com/mcp",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "acoes",
+          "rotulo": "Consultar",
+          "escopos": [
+            "mcp"
+          ],
+          "ferramentas": [
+            "search_engine"
+          ],
+          "padrao": true,
+          "disponivel": true,
+          "imposicao": "filtro"
+        }
+      ],
+      "recomendado": true,
+      "disponivel": true
+    }
+  ]
+}

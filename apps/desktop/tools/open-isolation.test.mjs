@@ -53,6 +53,12 @@ test('a Open usa apenas identificadores próprios, no pacote e em execução', (
   assert.ok(open.port < SANDBOX_PORTS.first || open.port > SANDBOX_PORTS.last)
 })
 
+test('o pacote declara o uso do microfone e do reconhecimento de fala nativo', () => {
+  const { mac } = require('./open-builder.cjs')
+  assert.ok(mac.extendInfo.NSMicrophoneUsageDescription?.trim())
+  assert.ok(mac.extendInfo.NSSpeechRecognitionUsageDescription?.trim())
+})
+
 test('os caminhos da Open não aceitam atalhos para o perfil de outro app', (t) => {
   const home = mkdtempSync(join(realpathSync(tmpdir()), 'mexerica-open-'))
   t.after(() => rmSync(home, { recursive: true, force: true }))
