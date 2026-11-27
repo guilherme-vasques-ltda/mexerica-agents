@@ -188,7 +188,9 @@ impl AppDaFicha {
         #[cfg(test)]
         {
             let ficha = catalogo::fixture_app_proprio();
-            if ficha.id == servico && let Some(app) = ficha.tipo(tipo).and_then(|tipo| Self::novo(ficha, tipo)) {
+            if ficha.id == servico
+                && let Some(app) = ficha.tipo(tipo).and_then(|tipo| Self::novo(ficha, tipo))
+            {
                 return Ok(app);
             }
         }
