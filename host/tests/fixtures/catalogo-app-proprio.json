@@ -1,0 +1,43 @@
+{
+  "id": "fixture-app",
+  "nome": "Serviço fictício",
+  "categoria": "Projetos",
+  "descricao": "Serviço fictício com app OAuth próprio.",
+  "exemplos": [],
+  "site": "https://servico.example.invalid",
+  "links": {
+    "privacidade": "https://servico.example.invalid/privacy",
+    "termos": "https://servico.example.invalid/terms"
+  },
+  "conferidaEm": "2026-11-27",
+  "fontes": [],
+  "tipos": [
+    {
+      "id": "fixture-app.oficial_app",
+      "tipo": "oficial_app",
+      "rotulo": "App próprio",
+      "mantidoPor": "Serviço fictício",
+      "url": "https://servico.example.invalid/mcp",
+      "auth": {
+        "modo": "app_proprio",
+        "emissor": "https://auth.example.invalid",
+        "cadastro": "https://servico.example.invalid/config",
+        "recurso": "https://servico.example.invalid/mcp",
+        "autorizacao": "https://auth.example.invalid/authorize",
+        "token": "https://auth.example.invalid/token"
+      },
+      "grupos": [
+        {
+          "id": "ler",
+          "rotulo": "Ler",
+          "escopos": ["items:read"],
+          "padrao": true,
+          "disponivel": true,
+          "imposicao": "escopo"
+        }
+      ],
+      "recomendado": true,
+      "disponivel": true
+    }
+  ]
+}

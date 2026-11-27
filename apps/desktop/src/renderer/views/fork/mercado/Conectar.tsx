@@ -80,6 +80,52 @@ function Cabecalho({ fluxo }: { fluxo: FluxoConectar }) {
   )
 }
 
+function CartaoAppProprio({ fluxo, cadastro }: { fluxo: FluxoConectar; cadastro: string }) {
+  const t = useT()
+  const [editar, setEditar] = useState(false)
+  const [id, setId] = useState('')
+  const [chave, setChave] = useState('')
+  const salvo = fluxo.appProprio?.configurado === true
+  const escrever = (remover: boolean) => {
+    const dados = remover ? undefined : { id, chave }
+    setId(''); setChave('')
+    void fluxo.escreverAppProprio(dados).then((ok) => { if (ok) setEditar(false) })
+  }
+  return (
+    <section className="mercado-secao">
+      <Titulo titulo={t('mercado.appProprio.titulo')} sub={t('google.cartao.texto')} />
+      {fluxo.appProprio === null ? <Aviso>{t('mercado.appProprio.indisponivel')}</Aviso> :
+        salvo && !editar ? (
+          <Button kind="secondary" onClick={() => setEditar(true)} disabled={fluxo.ocupado}>{t('mercado.appProprio.editar')}</Button>
+        ) : (
+          <div className="mercado-bloco">
+            <div>
+              <Button kind="secondary" onClick={() => {
+                if (URL.canParse(cadastro) && new URL(cadastro).protocol === 'https:') window.codync.app.openExternal(cadastro)
+              }}>{t('mercado.appProprio.portal')}</Button>
+            </div>
+            <Text size="callout" tone="secondary">{t('mercado.appProprio.redirect')}</Text>
+            {fluxo.cadastro?.redirects.map((url) => <Text key={url} as="div" size="caption" mono className="mercado-mono" dir="ltr">{url}</Text>)}
+            {salvo ? <Aviso alerta>{t('mercado.appProprio.aviso')}</Aviso> : null}
+            <label>
+              <Text as="div" size="caption" weight="semibold">{t('google.cartao.id')}</Text>
+              <input className="mercado-campo" value={id} autoComplete="off" spellCheck={false} disabled={fluxo.ocupado} onChange={(e) => setId(e.target.value)} />
+            </label>
+            <label>
+              <Text as="div" size="caption" weight="semibold">{t('google.cartao.chave')}</Text>
+              <input className="mercado-campo" type="password" value={chave} autoComplete="off" spellCheck={false} disabled={fluxo.ocupado} onChange={(e) => setChave(e.target.value)} />
+            </label>
+            <div className="mercado-acoes">
+              <Button onClick={() => escrever(false)} disabled={fluxo.ocupado || !id.trim() || !chave.trim()}>{t('mercado.appProprio.salvar')}</Button>
+              {salvo ? <Button kind="secondary" onClick={() => escrever(true)} disabled={fluxo.ocupado}>{t('mercado.appProprio.remover')}</Button> : null}
+            </div>
+          </div>
+        )}
+      {fluxo.erroAppProprio ? <Erro>{t('mercado.appProprio.erro')}</Erro> : null}
+    </section>
+  )
+}
+
 function Configurar({ fluxo, aoCancelar }: { fluxo: FluxoConectar; aoCancelar: () => void }) {
   const t = useT()
   const [ferramentas, setFerramentas] = useState(false)
@@ -93,12 +139,14 @@ function Configurar({ fluxo, aoCancelar }: { fluxo: FluxoConectar; aoCancelar: (
   const erro = fluxo.erro
   const erroNome = (campo: 'nova' | 'primeira') => erro && erro.campo === campo ? frasesDaRecusa(t, erro.texto, fluxo.nomeDaNova) : null
   const erroGeral = erro && erro.campo === null ? frasesDaRecusa(t, erro.texto) : null
+  const cadastro = fluxo.tipo.auth.modo === 'app_proprio' ? fluxo.tipo.auth.configuracao?.cadastro : undefined
   const continuar = fluxo.tipo.auth.modo !== 'chave' ? t('mercado.rodape.continuarSite', { servico: fluxo.servico.nome }) : t('mercado.rodape.continuar')
   return (
     <>
       <Cabecalho fluxo={fluxo} />
       <div className="mercado-conectar">
         <div className="mercado-ficha-principal">
+          {cadastro ? <CartaoAppProprio fluxo={fluxo} cadastro={cadastro} /> : null}
           <section className="mercado-secao">
             <Titulo titulo={t(nomes.pedeNomeDaNova ? 'mercado.nomes.titulo.dois' : 'mercado.nomes.titulo.um')} sub={nomes.pedeNomeDaNova ? t('mercado.nomes.sub', { servico: fluxo.servico.nome }) : undefined} />
             {nomes.pedeNomeDaNova ? (

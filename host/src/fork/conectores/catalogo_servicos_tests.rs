@@ -448,7 +448,9 @@ fn as_cinco_fichas_do_google_usam_o_app_da_pessoa_e_so_pedem_escopos_do_proprio_
         assert_eq!(tipo.escopos_efetivos(&padroes), anterior.escopos_efetivos(&padroes));
         assert_eq!(tipo.tipo, Tipo::OficialApp);
         assert_eq!(tipo.mantido_por, "Google");
-        let Auth::AppProprio { provedor, emissor, guia } = &tipo.auth else { panic!("{id}: app próprio") };
+        let Auth::AppProprio { provedor, emissor, guia, configuracao: None } = &tipo.auth else {
+            panic!("{id}: app próprio")
+        };
         assert_eq!((*provedor, *emissor), ("google", "https://accounts.google.com"));
         let passos: Vec<_> = guia.iter().map(|p| p.id).collect();
         assert_eq!(passos, ["projeto", "apis", "tela_login", "escopos", "cliente", "campos"]);
