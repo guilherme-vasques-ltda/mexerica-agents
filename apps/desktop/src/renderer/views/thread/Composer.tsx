@@ -340,7 +340,7 @@ function DestinationComposer({ botId, sessionId, reply, cancelReply, onCall, onI
   const [symbol, label] = ({
     interrupt: ['stop.fill', t('conversa.compositor.interromper')],
     stop: ['stop.fill', t('conversa.compositor.parar')],
-    send: ['arrow.up', t('conversa.compositor.enviar')],
+    send: ['mx-enviar', t('conversa.compositor.enviar')],
   } as const)[trailing]
   // Compactando, nem Parar vale: parar cancelaria a compactação e deixaria a conversa cheia sem a pessoa saber por quê.
   const enabled = trailing === 'interrupt' || (!compactando && (trailing !== 'send' || canSend))
@@ -515,12 +515,12 @@ function DestinationComposer({ botId, sessionId, reply, cancelReply, onCall, onI
                 disabled={bloqueado || compactando}
                 onClick={dictation.toggle}
               >
-                <Icon name={dictation.listening ? 'mic.fill' : 'mic'} size={16} weight="medium" />
+                <Icon name="mx-gravar-audio" size={16} weight="medium" />
               </button>
             ) : null}
             {onCall && !editando ? (
               <button className="press composer-mic composer-call" aria-label={t('conversa.compositor.aoVivo')} title={t('conversa.compositor.aoVivo')} onClick={onCall}>
-                <Icon name="waveform" size={16} weight="medium" />
+                <Icon name="mx-voz-ao-vivo" size={16} weight="medium" />
               </button>
             ) : null}
             {editando ? (
@@ -542,9 +542,9 @@ function DestinationComposer({ botId, sessionId, reply, cancelReply, onCall, onI
                 else submit()
               }}
             >
-              {(['stop.fill', 'waveform', 'arrow.up'] as const).map((name) => (
+              {(['stop.fill', 'mx-enviar'] as const).map((name) => (
                 <span key={name} aria-hidden="true" className={`composer-symbol ${name === symbol ? 'active' : ''}`}>
-                  <Icon name={name} size={name === 'stop.fill' ? 13 : name === 'waveform' ? 20 : 18} weight="bold" />
+                  <Icon name={name} size={name === 'stop.fill' ? 13 : 16} weight="bold" />
                 </span>
               ))}
             </button>

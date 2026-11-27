@@ -74,6 +74,11 @@ export const frases = {
   grupoCatalogo: f('skills.grupoCatalogo'),
   grupoSemRecibo: f('skills.grupoSemRecibo'),
   notaSemRecibo: f('skills.notaSemRecibo'),
+  // Internas: vêm com o app e o Hub aplica sozinho; só leitura.
+  grupoInternas: f('skills.grupoInternas'),
+  notaInternas: f('skills.notaInternas'),
+  usoInterna: { todaConversa: f('skills.usoInterna.todaConversa'), criarSkill: f('skills.usoInterna.criarSkill') } as Record<string, Frase>,
+  usoInternaOutro: f('skills.usoInterna.outro'),
   nenhumaInstalada: f('skills.nenhumaInstalada'),
   nenhumaInstaladaDetalhe: f('skills.nenhumaInstaladaDetalhe'),
   escreverHubMudou: f('skills.escreverHubMudou'),

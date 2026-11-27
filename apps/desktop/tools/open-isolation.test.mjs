@@ -53,6 +53,12 @@ test('a Open usa apenas identificadores próprios, no pacote e em execução', (
   assert.ok(open.port < SANDBOX_PORTS.first || open.port > SANDBOX_PORTS.last)
 })
 
+test('o pacote declara o uso do microfone e do reconhecimento de fala nativo', () => {
+  const { mac } = require('./open-builder.cjs')
+  assert.ok(mac.extendInfo.NSMicrophoneUsageDescription?.trim())
+  assert.ok(mac.extendInfo.NSSpeechRecognitionUsageDescription?.trim())
+})
+
 test('os caminhos da Open não aceitam atalhos para o perfil de outro app', (t) => {
   const home = mkdtempSync(join(realpathSync(tmpdir()), 'mexerica-open-'))
   t.after(() => rmSync(home, { recursive: true, force: true }))
@@ -199,4 +205,13 @@ test('a tolerância com os ajudantes vale só no perfil de uma conta, não em qu
   mkdirSync(backup, { recursive: true, mode: 0o700 })
   symlinkSync('/usr/bin/true', join(backup, 'apply_patch'))
   assert.throws(() => openPaths(home, appData), undefined, 'cópia de pasta de ajudantes fora do perfil de uma conta segue sendo conferida')
+})
+
+test('a Open segue o idioma do macOS nos menus nativos e só aceita a troca vinda da própria janela', () => {
+  const main = readFileSync(new URL('../src/main/fork-open/main.ts', import.meta.url), 'utf8')
+  assert.match(main, /'app:suggestedLanguage': suggestedLanguage\(\)/)
+  assert.match(main, /iniciarIdiomaDoApp\(\)/)
+  assert.match(main, /aoMudarIdiomaDoApp\(menu\)/)
+  assert.match(main, /traduzir\(idiomaDoApp\(\), 'marca\.menu\.ajustes'\)/)
+  assert.match(main, /ipcMain\.on\('app:setLanguage', \(event, idioma: unknown\) => \{ if \(daJanela\(event\)\) definirIdiomaDoApp\(idioma\) \}\)/)
 })

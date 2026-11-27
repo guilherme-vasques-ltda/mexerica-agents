@@ -2,7 +2,7 @@
   "id": "resend",
   "nome": "Resend",
   "categoria": "Marketing",
-  "descricao": "Plataforma de e-mail para desenvolvedores: o MCP envia e-mails, gerencia templates, contatos, domínios, broadcasts e chaves de API.",
+  "descricao": "E-mails e domínios: consulta envios, contatos e templates; só envia ou cria depois que você ligar cada ação.",
   "exemplos": [
     "Quais e-mails enviei pelo Resend hoje e como foram entregues?",
     "Quantos e-mails voltaram esta semana?"
@@ -13,12 +13,16 @@
     "privacidade": "https://resend.com/legal/privacy-policy",
     "termos": "https://resend.com/legal/terms-of-service"
   },
-  "conferidaEm": "2026-11-18",
+  "conferidaEm": "2026-11-27",
   "fontes": [
     "https://resend.com/docs/mcp-server",
-    "https://api.resend.com/oauth/register",
+    "https://resend.com/docs/guides/building-a-resend-oauth-client",
+    "https://resend.com/pricing",
+    "https://mcp.resend.com/.well-known/oauth-protected-resource",
+    "https://api.resend.com/.well-known/oauth-protected-resource",
     "https://api.resend.com/.well-known/oauth-authorization-server"
   ],
+  "aviso": "Cada e-mail enviado consome a cota do seu plano no Resend.",
   "tipos": [
     {
       "id": "resend.oficial_oauth",
@@ -34,17 +38,18 @@
         {
           "id": "usar",
           "rotulo": "Usar com a sua conta",
-          "escopos": [],
+          "escopos": [
+            "full_access"
+          ],
           "padrao": true,
-          "disponivel": false
+          "disponivel": true,
+          "imposicao": "filtro"
         }
       ],
       "recomendado": true,
-      "disponivel": false,
-      "motivoIndisponivel": "O Resend não oferece um modo só de leitura; entra depois do filtro de ações perigosas."
+      "disponivel": true
     }
   ],
-  "emBreve": "O fornecedor não impõe leitura: entra depois do filtro de ações perigosas.",
   "skillsOficiais": [
     {
       "url": "https://github.com/resend/resend-skills",

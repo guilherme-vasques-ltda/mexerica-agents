@@ -130,13 +130,23 @@ export class Mercado extends Observable {
   }
 
   fluxo(servico: Servico, tipo: TipoConexao): FluxoConectar {
+    const catalogo = this.catalogo
+    const cadastro = catalogo && tipo.auth.modo === 'app_proprio' && tipo.auth.configuracao
+      ? { app: catalogo.appsProprios?.[tipo.id] ?? null, spaceId: catalogo.spaceId, redirects: catalogo.oauthRedirectUris ?? [] }
+      : undefined
+    const origem = origemDe(this.store)
+    const cliente = async () => {
+      if (!cadastro) return this.store.ready()
+      if (origem && mesmaOrigem(this.store, origem)) return origem.client
+      throw new Error('ficha_indisponivel:')
+    }
     return new FluxoConectar(servico, tipo, {
-      cliente: () => this.store.ready(),
-      entrar: (id) => pluginsFor(this.store).signIn(id),
-      verificar: (id) => this.store.ready().then((c) => market.verifyConnector(c, id)),
-      guardarChave: (id, campos) => this.store.ready().then((c) => market.updateConnectorCredentials(c, id, campos)),
+      cliente,
+      entrar: (id) => pluginsFor(this.store).signIn(id, cadastro ? cliente : undefined),
+      verificar: (id) => cliente().then((c) => market.verifyConnector(c, id)),
+      guardarChave: (id, campos) => cliente().then((c) => market.updateConnectorCredentials(c, id, campos)),
       reler: () => this.ler(),
-    })
+    }, cadastro)
   }
 }
 

@@ -1,0 +1,53 @@
+{
+  "id": "tavily",
+  "nome": "Tavily",
+  "categoria": "Pesquisa e web",
+  "descricao": "Pesquise na web e extraia o conteúdo de páginas com sua conta Tavily.",
+  "exemplos": [
+    "Pesquise as fontes oficiais sobre um assunto"
+  ],
+  "site": "https://www.tavily.com",
+  "docs": "https://docs.tavily.com/documentation/mcp",
+  "links": {
+    "privacidade": "https://www.tavily.com/privacy",
+    "termos": "https://www.tavily.com/terms"
+  },
+  "conferidaEm": "2026-11-27",
+  "fontes": [
+    "https://docs.tavily.com/documentation/mcp",
+    "https://mcp.tavily.com/.well-known/oauth-protected-resource/mcp"
+  ],
+  "aviso": "As consultas podem consumir créditos da sua conta Tavily.",
+  "tipos": [
+    {
+      "id": "tavily.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "Tavily",
+      "url": "https://mcp.tavily.com/mcp",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "acoes",
+          "rotulo": "Pesquisar e extrair páginas",
+          "escopos": [
+            "openid",
+            "offline_access"
+          ],
+          "ferramentas": [
+            "tavily_search",
+            "tavily_extract"
+          ],
+          "padrao": true,
+          "disponivel": true,
+          "imposicao": "filtro"
+        }
+      ],
+      "recomendado": true,
+      "disponivel": true
+    }
+  ]
+}
