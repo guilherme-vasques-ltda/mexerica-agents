@@ -242,6 +242,8 @@ const ERROS = [
   'accounts_unavailable', 'legacy_preserved', 'profile_invalid', 'setup_in_progress', 'api_form_required',
   'operation_expired', 'operation_stale', 'operation_limit', 'auth_code_invalid', 'auth_input_unavailable', 'invalid_field',
   'request_pending', 'logout_failed', 'credential_not_erased',
+  'open_codex_selection', 'open_codex_storage', 'open_codex_download',
+  'open_codex_integrity', 'open_codex_declined', 'open_codex_platform', 'open_codex_timeout',
 ] as const
 /** Motivos da fase final sem sucesso (`errorCode` da operação). */
 const FALHAS = [

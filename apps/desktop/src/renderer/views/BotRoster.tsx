@@ -26,6 +26,7 @@ import { UpdateNeededCard } from './UpdateNeededCard'
 import { TimesSidebarList, type TeamRowOptions } from './fork/times-sidebar/TimesSidebarList'
 import { TeamRoom } from './fork/times-sidebar/TeamRoom'
 import { AgentGroups, agentsAddItems, moveToGroupItems } from './fork/times-sidebar/AgentGroups'
+import { isOpenDesktop } from '@shared/fork-capacidades'
 import { updatePresentation } from './fork/times-sidebar/prefs'
 import { setTimesOpen, teamsToReveal, type TimesGroup } from '../lib/times-roster'
 import { botGroupTarget, groupOf, UNGROUPED } from '../lib/bot-groups'
@@ -315,7 +316,7 @@ export function BotRoster({ roster, compact, onContext, onCreate, onLibrary, onS
           {!parts.channels.length && !quietEmpty ? <p className="sidebar-section-empty">{t('navegacao.barra.semCanais')}</p> : null}
         </SidebarSectionBlock>
       ) : null,
-      teams: projection.groups.length || !filtering ? (
+      teams: !isOpenDesktop(window.codync) && (projection.groups.length || !filtering) ? (
         <SidebarSectionBlock key="teams" id="teams" foldKey={`section|${computer.id}|teams`} title={t('navegacao.barra.secao.equipes')} icon="person.2" count={projection.groups.length} {...sectionFold('teams')}
           onAdd={!filtering ? () => timesScreen.show(null, computer.id) : undefined} addTitle={t('navegacao.barra.novaEquipe')} addDisabled={!spaceAllows(store.spaceId, 'teams')} filtering={filtering}>
           {!spaceAllows(store.spaceId, 'teams') ? <p className="sidebar-section-empty">{t('spaces.selector.unavailable')}</p> : <TimesSidebarList store={store} projection={projection} compact={compact}

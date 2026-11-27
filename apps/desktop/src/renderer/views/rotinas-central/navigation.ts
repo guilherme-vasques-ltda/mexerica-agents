@@ -1,13 +1,15 @@
 // Abre e fecha a tela central "Rotinas" (D85), que ocupa a janela no lugar das conversas.
 import { Observable } from '../../lib/observable'
+import { isOpenDesktop } from '@shared/fork-capacidades'
 
 class RoutinesScreen extends Observable {
   /** `CODYNC_DEBUG_OPEN=rotinas` (builds de desenvolvimento) abre a tela ao iniciar, para prints. */
-  open = window.codync?.debugOpen === 'rotinas'
+  open = !isOpenDesktop(window.codync) && window.codync?.debugOpen === 'rotinas'
   /** O bot já filtrado ao abrir (o atalho da lista de rotinas de um bot). */
   botId: string | null = null
 
   show(botId: string | null = null) {
+    if (isOpenDesktop(window.codync)) return
     this.open = true
     this.botId = botId
     this.changed()

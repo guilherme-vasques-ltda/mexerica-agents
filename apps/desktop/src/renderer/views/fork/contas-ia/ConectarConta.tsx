@@ -20,6 +20,8 @@ import { TerminalDeSetup } from '../sob-demanda/telas'
 import { useTextosContas } from './use-textos'
 import type { TextosContas } from './textos'
 import { superficieIdioma, tradutor, useIdioma } from '../../../lib/fork-i18n/estado'
+import { aplicarModeloOpen, avisarContaOpen, modelosDaConta, padraoDaConta } from './fork-open-modelo'
+import { clientePessoal } from './fork-open-cliente'
 import './contas-ia.css'
 
 /**
@@ -41,27 +43,64 @@ export function ConectarConta({ contas, account, reconnect, forBot, onKey, onClo
   const idioma = useIdioma()
   const store = useStore()
   const [session, setSession] = useState<SetupSession | null>(null)
+  const activeSession = useRef<SetupSession | null>(null)
+  const applyingFor = useRef<SetupSession | null>(null)
   // A sessão nasce e morre com o painel (inclusive se o efeito rodar duas vezes): fechar apaga desafio e saída.
   useEffect(() => {
     // Preparar sempre vem antes: reaproveita o programa compatível ou instala o fixado, sem login.
     const created = new SetupSession(account.id, () => contas.account(account.id)?.revision ?? account.revision, () => store.ready(), engineSetup, {
       installFirst: window.codync.appScheme !== 'mexerica-open',
       onRef: (ref) => contas.rememberOperation(account.id, ref),
-      onFinished: () => void contas.load(),
+      onFinished: () => { void contas.load().then(avisarContaOpen, avisarContaOpen) },
     })
+    activeSession.current = created
     setSession(created)
     const ref = contas.operationFor(account.id)
     if (ref) created.resume(ref)
     else if (!reconnect) created.begin()
-    return () => created.dispose()
+    return () => {
+      activeSession.current = null
+      created.dispose()
+    }
   }, [store, contas, account.id])
   useModel(session)
+  // Open: ao conectar, o modelo vem já marcado (o padrão do Codex) e vale para o Berga e os bots sem escolha.
+  const [modeloOpen, setModeloOpen] = useState<string | null>(null)
+  const [aplicacao, setAplicacao] = useState<{ session: SetupSession; status: 'saving' | 'failed' } | null>(null)
   if (!session) return null
+  const aplicando = aplicacao?.session === session && aplicacao.status === 'saving'
+  const falhaAplicar = aplicacao?.session === session && aplicacao.status === 'failed'
 
   const engine = account.backend
   const op = session.operation
   const phase = op?.phase ?? null
   const live = contas.account(account.id) ?? account
+  const open = window.codync.appScheme === 'mexerica-open'
+  const modelos = open && !forBot && phase === 'connected' && session.step !== 'install' && live.state === 'connected' ? modelosDaConta(live) : []
+  const escolhido = modeloOpen && modelos.includes(modeloOpen) ? modeloOpen : modelos[0] ?? null
+  const aplicar = escolhido ? {
+    label: aplicando ? tradutor(idioma)('contas.openModelo.aplicando') : tradutor(idioma)('contas.openModelo.usar'),
+    disabled: aplicando,
+    run: () => {
+      if (applyingFor.current === session) return
+      applyingFor.current = session
+      setAplicacao({ session, status: 'saving' })
+      void store.ready()
+        .then((client) => aplicarModeloOpen(clientePessoal(client), { accountId: account.id, model: escolhido }))
+        .then(() => {
+          if (activeSession.current !== session) return
+          setAplicacao(null)
+          onClose()
+        }, () => {
+          if (activeSession.current !== session) return
+          setAplicacao({ session, status: 'failed' })
+          void contas.load()
+        })
+        .finally(() => { if (applyingFor.current === session) applyingFor.current = null })
+    },
+  } : null
+  // Enquanto o modelo é gravado, fechar fica para depois: o pedido termina e só então o painel sai.
+  const fechar = () => { if (!aplicando) onClose() }
   const status = statusText(session, engine, textos, idioma)
   const title = reconnect ? textos.reconectarTitulo(account.label) : textos.conectarTitulo(account.label)
 
@@ -71,7 +110,7 @@ export function ConectarConta({ contas, account, reconnect, forBot, onKey, onClo
         icon={<AgentTile registry={engineRegistry(engine)} icon={18} tile={32} radius={9} />}
         title={title}
         subtitle={textos.ondeRoda(engineName(engine), store.hostName)}
-        onClose={onClose}
+        onClose={fechar}
         closeTitle={textos.fechar}
       />
       <div className="contas-panel-body">
@@ -89,7 +128,11 @@ export function ConectarConta({ contas, account, reconnect, forBot, onKey, onClo
           {op?.phase === 'awaiting_authorization' && op.challenge ? (
             <Desafio key={`${op.operationId}/${op.generation}`} session={session} operation={op} engine={engine} />
           ) : null}
-          {phase === 'connected' ? <Conectada account={live} /> : null}
+          {phase === 'connected' ? <Conectada account={live} open={open} /> : null}
+          {modelos.length > 0 && escolhido ? (
+            <EscolhaDoModelo modelos={modelos} padrao={padraoDaConta(live)} escolhido={escolhido} onEscolher={setModeloOpen} disabled={aplicando} />
+          ) : null}
+          {falhaAplicar ? <Text tone="danger" role="alert">{tradutor(idioma)('contas.openModelo.erro')}</Text> : null}
           {phase === 'failed' && op?.errorCode ? <Text size="caption" tone="tertiary" className="selectable">{tradutor(idioma)('contas.detalheTecnico', { detalhe: op.errorCode })}</Text> : null}
           {session.stalled && !session.error ? <Text size="caption" tone="attention">{textos.semResposta}</Text> : null}
           {session.error ? <Text tone="danger" className="selectable" role="alert">{errorMessage(session.error, idioma)}</Text> : null}
@@ -99,7 +142,7 @@ export function ConectarConta({ contas, account, reconnect, forBot, onKey, onClo
         </VStack>
         </CardForm>
       </div>
-      <Rodape session={session} reconnect={reconnect} forBot={forBot} onClose={onClose} accountId={account.id} />
+      <Rodape session={session} reconnect={reconnect} forBot={forBot} onClose={fechar} accountId={account.id} aplicar={aplicar} />
     </div></SheetPage>
   )
 
@@ -240,10 +283,30 @@ function Desafio({ session, operation, engine }: { session: SetupSession; operat
   )
 }
 
-function Conectada({ account }: { account: ManagedAccount }) {
+/** Open: os modelos que a conta comprovou, com o padrão do Codex já marcado. */
+function EscolhaDoModelo({ modelos, padrao, escolhido, onEscolher, disabled }: { modelos: string[]; padrao: string | null; escolhido: string; onEscolher: (id: string) => void; disabled: boolean }) {
+  const t = tradutor(useIdioma())
+  return (
+    <fieldset className="contas-open-modelo" disabled={disabled}>
+      <legend><Text tone="text" weight="semibold">{t('contas.openModelo.titulo')}</Text></legend>
+      <Text size="caption" tone="secondary">{t('contas.openModelo.explica')}</Text>
+      <VStack gap={4}>
+        {modelos.map((id) => (
+          <label key={id} className="contas-open-modelo-opcao">
+            <input type="radio" name="contas-open-modelo" value={id} checked={id === escolhido} onChange={() => onEscolher(id)} />
+            <Text mono dir="ltr">{id === padrao ? t('contas.openModelo.padrao', { modelo: id }) : id}</Text>
+          </label>
+        ))}
+      </VStack>
+    </fieldset>
+  )
+}
+
+function Conectada({ account, open }: { account: ManagedAccount; open: boolean }) {
   const textos = useTextosContas()
   const idioma = useIdioma()
   const view = accountView(account, 'cli', idioma)
+  const semCatalogo = open && account.state === 'connected' && modelosDaConta(account).length === 0
   return (
     <VStack gap={6} className="contas-conectada fade-in">
       <HStack gap={8}>
@@ -251,18 +314,21 @@ function Conectada({ account }: { account: ManagedAccount }) {
         <Text tone="text" weight="semibold">{account.state === 'connected' ? `${view.state} · ${view.billing}` : view.state}</Text>
       </HStack>
       {account.state === 'connected' ? null : <Text size="caption" tone="secondary">{view.detail}</Text>}
-      <Text size="caption" tone="secondary">{textos.escolhaNoBot}</Text>
+      {open ? (semCatalogo ? <Text size="caption" tone="secondary">{tradutor(idioma)('contas.openModelo.semCatalogo')}</Text> : null)
+        : <Text size="caption" tone="secondary">{textos.escolhaNoBot}</Text>}
       {account.backend === 'grok' ? <Text size="caption" tone="secondary">{tradutor(idioma)('contas.grokAviso')}</Text> : null}
     </VStack>
   )
 }
 
-function Rodape({ session, reconnect, forBot, onClose, accountId }: {
+function Rodape({ session, reconnect, forBot, onClose, accountId, aplicar }: {
   session: SetupSession
   reconnect: boolean
   forBot?: { name: string; use: (accountId: string) => void }
   onClose: () => void
   accountId: string
+  /** Open: aplicar o modelo marcado ao Berga e aos bots sem escolha. */
+  aplicar: { label: string; run: () => void; disabled?: boolean } | null
 }) {
   const textos = useTextosContas()
   const idioma = useIdioma()
@@ -278,6 +344,8 @@ function Rodape({ session, reconnect, forBot, onClose, accountId }: {
       : { label: reconnect ? textos.reconectar : textos.comecar, run: () => session.begin() }
   } else if (active && session.error) {
     primary = { label: textos.tentarDeNovo, run: () => session.retryReading() }
+  } else if (phase === 'connected' && session.step !== 'install' && aplicar) {
+    primary = aplicar
   } else if (phase === 'connected' && session.step !== 'install') {
     primary = forBot
       ? { label: tradutor(idioma)('contas.usarEm', { nome: forBot.name }), run: () => { forBot.use(accountId); onClose() } }
@@ -305,7 +373,7 @@ function Rodape({ session, reconnect, forBot, onClose, accountId }: {
           {session.cancelling ? textos.faseCancelando : textos.cancelar}
         </Button>
       ) : null}
-      {phase === 'connected' && session.step !== 'install' && forBot ? <Button kind="secondary" onClick={onClose}>{textos.concluir}</Button> : null}
+      {phase === 'connected' && session.step !== 'install' && (forBot || aplicar) ? <Button kind="secondary" onClick={onClose} disabled={aplicar?.disabled}>{textos.concluir}</Button> : null}
       {/* Fechar sempre à mão, menos quando Concluir já fecha. */}
       {phase === 'connected' && session.step !== 'install' ? null : <Button kind="secondary" onClick={onClose}>{textos.fechar}</Button>}
       {primary ? <Button disabled={primary.disabled} onClick={primary.run}>{primary.label}</Button> : null}

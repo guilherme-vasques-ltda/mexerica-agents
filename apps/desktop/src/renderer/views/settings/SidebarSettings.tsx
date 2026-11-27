@@ -1,4 +1,5 @@
 import { useRef, useState, type KeyboardEvent } from 'react'
+import { isOpenDesktop } from '@shared/fork-capacidades'
 import { CardForm, CardSection, Switch } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
 import { Text } from '../../components/Text'
@@ -27,10 +28,16 @@ export function SidebarSettings() {
   const [tagSaved, setTags] = usePref(appearancePrefs.sidebarTagColors)
   const tags = readTagColors(tagSaved)
   const [dragging, setDragging] = useState<SidebarSection | null>(null)
-  const order = sectionOrder(saved)
+  const open = isOpenDesktop(window.codync)
+  const fullOrder = sectionOrder(saved)
+  const order = open ? fullOrder.filter((id) => id !== 'teams') : fullOrder
   const dragged = useRef<SidebarSection | null>(null)
   const label = (id: SidebarSection) => tx(SIDEBAR_SECTIONS.find((s) => s.id === id)!.labelKey)
-  const move = (id: SidebarSection, offset: number) => setOrder(moveSection(order, id, offset))
+  const move = (id: SidebarSection, offset: number) => {
+    const visible = order.indexOf(id) + offset
+    const target = order[visible]
+    if (target) setOrder(moveSection(fullOrder, id, fullOrder.indexOf(target) - fullOrder.indexOf(id)))
+  }
   // The row keeps its node (keyed rows in CardSection); if moving it took focus away, it comes back to
   // the same control, so the next ⌥↑/⌥↓ keeps working (D165 revisão C, C5).
   const keepFocus = (id: SidebarSection, control: 'handle' | 'up' | 'down') => requestAnimationFrame(() => {
@@ -65,7 +72,7 @@ export function SidebarSettings() {
                   if (!current || !target || target === current) return
                   const from = order.indexOf(current)
                   const to = order.indexOf(target)
-                  if (from >= 0 && to >= 0) setOrder(moveSection(order, current, to - from))
+                  if (from >= 0 && to >= 0) move(current, to - from)
                 },
                 drop: () => { dragged.current = null; setDragging(null) },
                 cancel: () => { dragged.current = null; setDragging(null) },

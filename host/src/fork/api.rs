@@ -26,6 +26,9 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
     if method == super::personal_bootstrap::STATUS_METHOD {
         return super::personal_bootstrap::status(caller, &body).map(ControlFlow::Break);
     }
+    if method == super::open_modelo::SET_METHOD {
+        return super::open_modelo::call(hub, caller, body).await.map(ControlFlow::Break);
+    }
     if super::onboarding::METHODS.contains(&method) {
         let body = super::onboarding::call(hub, caller, method, body).await?;
         return Ok(ControlFlow::Break(body));

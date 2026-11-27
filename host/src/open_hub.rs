@@ -67,6 +67,8 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
         | "donnaEngineAccess"
         | "donnaOnboardingStatus"
         | "donnaOnboardingDetect"
+        | "marketCatalogo"
+        | crate::fork::open_modelo::SET_METHOD
         | "donnaBotEditor"
         | "donnaBotEditorSave"
         | "donnaConversations"
@@ -133,6 +135,18 @@ mod tests {
         assert!(open_allows(&Caller::Local, "hello", &json!({})));
         assert!(open_allows(&Caller::Local, "donnaOnboardingStatus", &json!({})));
         assert!(open_allows(&Caller::Local, "donnaOnboardingDetect", &json!({})));
+        assert!(open_allows(&Caller::Local, "marketCatalogo", &json!({})));
+        for method in [
+            "marketServico",
+            "marketContas",
+            "marketConectar",
+            "marketPersonalizado",
+            "skills",
+            "donnaWhatsapp",
+            "credentialStatus",
+        ] {
+            assert!(!open_allows(&Caller::Local, method, &json!({})));
+        }
         assert!(!open_allows(&Caller::Local, "donnaOnboardingSave", &json!({})));
         assert!(open_allows(&Caller::Local, "createBot", &json!({})));
         assert!(!open_allows(&Caller::Local, "createBot", &json!({"cwd": "/tmp"})));

@@ -307,6 +307,7 @@ pub(crate) const MATRIZ: &[(&str, Minimo)] = &[
     ("donnaOnboardingDetect", Nenhum),
     ("donnaOnboardingSave", Nenhum),
     ("donnaOnboardingStatus", Nenhum),
+    ("donnaOpenModelSet", Nenhum),
     ("nuncaFazer", Nenhum),
     ("nuncaFazerAdicionar", Nenhum),
     ("nuncaFazerEditar", Nenhum),

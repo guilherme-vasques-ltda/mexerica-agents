@@ -13,6 +13,7 @@ import { useStore } from '../../../store/context'
 import { useScreenViewed } from '../../../store/analytics'
 import type { SidePanelTab } from '../../../store/fork-sessions'
 import { RoutinesView } from '../../routines/RoutinesView'
+import { isOpenDesktop } from '@shared/fork-capacidades'
 import { HoldButton } from '../../thread/cards/HoldButton'
 import { sortedOptions } from '../../thread/PermissionCard'
 import { useOpenBotSettings } from '../bot-settings/bot-settings-entry'
@@ -77,9 +78,9 @@ export function DetailsPanel(props: PanelProps) {
 // As abas de cada painel (D335): uma aba extra condicional entra só aqui, com `visible(bot)`, e o corpo dela no
 // `body` do painel. A aba guardada que sumir volta para a primeira (Sessões).
 // WhatsApp R5c: a aba só para bot com número conectado (a leitura `donnaWhatsapp` do Hub). Nada na barra esquerda.
-type BotTabCtx = { bot: Bot; wa: BotWhatsapp | null; plugin: boolean }
+type BotTabCtx = { bot: Bot; wa: BotWhatsapp | null; plugin: boolean; routines: boolean }
 // `chave` é a chave do catálogo (bots.painel.aba.*); o texto sai no idioma do app em PanelTabs.
-const BOT_TABS: PanelTabDef<BotTabCtx>[] = [{ id: 'sessions', chave: 'bots.painel.aba.sessoes' }, { id: 'routines', chave: 'bots.painel.aba.rotinas' }, { id: 'whatsapp', chave: 'bots.painel.aba.whatsapp', visible: ({ wa, plugin }) => mostraAba(plugin, wa) }]
+const BOT_TABS: PanelTabDef<BotTabCtx>[] = [{ id: 'sessions', chave: 'bots.painel.aba.sessoes' }, { id: 'routines', chave: 'bots.painel.aba.rotinas', visible: ({ routines }) => routines }, { id: 'whatsapp', chave: 'bots.painel.aba.whatsapp', visible: ({ wa, plugin }) => mostraAba(plugin, wa) }]
 const CHANNEL_TABS: PanelTabDef<Bot>[] = [{ id: 'sessions', chave: 'bots.painel.aba.sessoes' }, { id: 'members', chave: 'bots.painel.aba.membros' }, { id: 'settings', chave: 'bots.painel.aba.configuracoes' }]
 
 /**
@@ -143,7 +144,7 @@ function BotPanel({ bot, routineId, tab, setTab, sessions, openSession, onOpenSe
   const state = sessions.combined
   const role = principal.id === bot.id ? t('bots.painel.principal') : bot.title?.trim() || bot.description?.trim() || ''
   const model = `${store.backendName(bot.backend)}${bot.model ? ` · ${bot.model}` : ''}`
-  const tabs = visibleTabs(BOT_TABS, { bot, wa, plugin: caixa.leitura.leitura?.plugin.enabled === true })
+  const tabs = visibleTabs(BOT_TABS, { bot, wa, plugin: caixa.leitura.leitura?.plugin.enabled === true, routines: !isOpenDesktop(window.codync) })
   const current = currentTab(tabs, tab)
   // A3: a aba guardada sumiu (WhatsApp com o plugin desligado ou sem número): grava Sessões como seleção, para a aba não
   // voltar selecionada sozinha; se o foco caiu (estava nela), vai para Sessões. Só com a leitura do Hub em mãos.

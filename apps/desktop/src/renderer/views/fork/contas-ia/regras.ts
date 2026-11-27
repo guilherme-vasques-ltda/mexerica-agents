@@ -208,7 +208,10 @@ const rawMessage = (error: unknown) => typeof error === 'object' && error !== nu
 const CODE = /^(?:Error: )?([a-z][a-z0-9_]{2,40}): /
 
 export function errorCode(error: unknown): string | null {
-  return CODE.exec(rawMessage(error))?.[1] ?? null
+  const parsed = CODE.exec(rawMessage(error))?.[1]
+  if (parsed) return parsed
+  if (typeof error === 'object' && error !== null && 'code' in error && typeof error.code === 'string') return error.code
+  return null
 }
 
 /** DON-917: guarde o erro cru (estado é dado) e traduza ao desenhar, no idioma de agora. */

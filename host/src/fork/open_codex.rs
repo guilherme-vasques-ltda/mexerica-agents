@@ -13,7 +13,7 @@ use tokio::process::{Child, Command};
 const SELECTION: &str = "codex-local.json";
 const VERSION: &str = "0.164.0";
 const AUTH_CONFIG: &[u8] = b"cli_auth_credentials_store = \"file\"\n";
-const MAX_EXECUTABLE: u64 = 256 * 1024 * 1024;
+const MAX_EXECUTABLE: u64 = 384 * 1024 * 1024;
 const ADMIN_POLICY: &str = "/private/etc/codex";
 /// Certificados públicos do macOS: o TLS do Codex usa este arquivo em vez do Chaveiro. O `.env` do perfil, que o Codex
 /// leria antes de iniciar e poderia trocar este caminho, fica fora do alcance do processo isolado.

@@ -8,6 +8,7 @@ import test from 'node:test'
 import { build, type Plugin } from 'esbuild'
 import { CATALOGOS } from '../../../lib/fork-i18n/index.ts'
 import { islandLabel } from '../../../../shared/island.ts'
+import { catalogo, servico } from '../mercado/dados-de-teste.ts'
 
 const pt = CATALOGOS['pt-BR'] as Record<string, string>
 let efeitos: (() => void)[] | undefined
@@ -35,6 +36,8 @@ const bundle = await build({
       export { ContasIaPage } from './views/fork/contas-ia/ContasIaPage';
       export { ContaDetalhe } from './views/fork/contas-ia/ContasDoHub';
       export { BotSettingsPage } from './views/fork/bot-settings/BotSettingsPage';
+      export { Catalogo } from './views/fork/mercado/Catalogo';
+      export { Ficha } from './views/fork/mercado/Ficha';
       export { idiomaAtual, idiomaPref } from './lib/fork-i18n/estado';
       export { AppContext, StoreContext } from './store/context';
       export { account } from './store/account';
@@ -74,6 +77,8 @@ const m = module.exports as {
   ContasIaPage: typeof import('../contas-ia/ContasIaPage').ContasIaPage
   ContaDetalhe: typeof import('../contas-ia/ContasDoHub').ContaDetalhe
   BotSettingsPage: typeof import('../bot-settings/BotSettingsPage').BotSettingsPage
+  Catalogo: typeof import('../mercado/Catalogo').Catalogo
+  Ficha: typeof import('../mercado/Ficha').Ficha
   idiomaAtual: typeof import('../../../lib/fork-i18n/estado').idiomaAtual
   idiomaPref: typeof import('../../../lib/fork-i18n/estado').idiomaPref
   AppContext: typeof import('../../../store/context').AppContext
@@ -211,6 +216,33 @@ test('Open: Dock, início de sessão e ícone não aparecem nem consultam a pont
     assert.ok(!direto.includes(pt['aparencia.icone.pagina']!))
     assert.match(direto, /<h2[^>]*>Geral<\/h2>/)
   } finally { efeitos = undefined }
+})
+
+test('Open: Ajustes remove o Bot de fundo e mantém as preferências locais e as contas de IA', () => {
+  aparelho('desktop', { appScheme: 'mexerica-open' })
+  const props = { page: 'background', aba: null, onPage: nada, onAba: nada }
+  const html = renderiza(m.SettingsView, props)
+  assert.match(html, /<h2[^>]*>Geral<\/h2>/)
+  for (const key of ['ajustes.pagina.botDeFundo', 'ajustes.pagina.acesso', 'ajustes.pagina.computadoresCurto']) {
+    assert.ok(!html.includes(pt[key]!), key)
+  }
+  for (const key of ['ajustes.pagina.aparencia', 'ajustes.pagina.barraLateral', 'ajustes.pagina.conversa', 'ajustes.pagina.contasIa']) {
+    assert.ok(html.includes(pt[key]!), key)
+  }
+})
+
+test('Catálogo somente de leitura conserva a ficha e não oferece ações de conexão', () => {
+  aparelho('desktop', { appScheme: 'mexerica-open' })
+  const ficha = servico('sintetico', 'Serviço de teste')
+  const props = { catalogo: catalogo([ficha]), contas: [], cofreTrancado: false, contasFalharam: false, appGoogle: null, aoTentar: nada, aoAbrir: nada }
+  const lista = renderiza(m.Catalogo, props)
+  assert.match(lista, /Abrir Serviço de teste/)
+  assert.doesNotMatch(lista, /mercado-capsula/)
+  assert.match(renderiza(m.Catalogo, { ...props, aoAbrirGoogle: nada }), /mercado-capsula/)
+  const detalhes = { servico: ficha, prazoDias: 90, aoVoltar: nada, aoGerenciar: nada }
+  assert.match(renderiza(m.Ficha, detalhes), /Serviço de teste de teste/)
+  assert.doesNotMatch(renderiza(m.Ficha, detalhes), /Como conectar|Conectar Serviço|Política de privacidade/)
+  assert.match(renderiza(m.Ficha, { ...detalhes, aoConectar: nada }), /Como conectar/)
 })
 
 test('Open limpa começa no idioma da sua ponte sem gravar uma escolha', () => {

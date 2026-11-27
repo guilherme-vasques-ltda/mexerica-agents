@@ -14,6 +14,10 @@ export function paginaDisponivel(id: SettingsPage, cap: Pick<Capacidades, 'appIc
   return id !== 'app-icon' || cap.appIcon
 }
 
+export function paginaDisponivelNaOpen(id: SettingsPage): boolean {
+  return id === 'general' || id === 'appearance' || id === 'sidebar' || id === 'conversation' || id === 'ai-accounts'
+}
+
 /** Em Voz, a aba Chaves só tem o que mostrar com o cofre do computador ou com algum Hub gerenciado. */
 export function abasVisiveis<A extends { id: string }>(page: SettingsPage, abas: readonly A[] | undefined, cap: Pick<Capacidades, 'cofreLocal'>, hubs: number): readonly A[] | undefined {
   return page === 'voice' && !cap.cofreLocal && hubs === 0 ? abas?.filter((a) => a.id !== 'chaves') : abas
