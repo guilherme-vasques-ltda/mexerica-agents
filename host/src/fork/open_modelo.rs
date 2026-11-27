@@ -19,6 +19,10 @@ pub(crate) const SET_METHOD: &str = "donnaOpenModelSet";
 struct Set {
     account_id: String,
     model: String,
+    /// Raciocínio e velocidade do modelo (`reasoning_effort`, `service_tier`), só para um bot. Sem este campo, o bot
+    /// mantém as escolhas se o modelo não mudou. Cada valor tem de constar no `model/list` da conta (`validate_selection`).
+    #[serde(default)]
+    options: Option<std::collections::BTreeMap<String, String>>,
     #[serde(default)]
     bot_id: Option<String>,
     /// O Space do cliente vinculado. Com `botId`, o bot tem de ser desse Space (sem Space, do Pessoal); o lote sem
@@ -53,6 +57,14 @@ fn check_scope(hub: &Hub, request: &Set) -> Result<String> {
     ensure!(request.hub_id.as_deref().is_none_or(|id| id == hub.host_id), "cross_hub_reference: pedido de outro Hub.");
     let personal = hub.store.spaces()?.personal_space_id;
     let space = request.space_id.clone().unwrap_or_else(|| personal.clone());
+    ensure!(
+        request
+            .options
+            .as_ref()
+            .is_none_or(|o| request.bot_id.is_some()
+                && o.keys().all(|k| matches!(k.as_str(), "reasoning_effort" | "service_tier"))),
+        "invalid_field: opções só valem para um bot, de raciocínio ou velocidade."
+    );
     ensure!(
         request.bot_id.is_some() || space == personal,
         "space_not_personal: a escolha para todos os bots é feita no Pessoal."
@@ -102,10 +114,16 @@ fn apply(
         let mut planned = Vec::with_capacity(targets.len());
         for row in targets {
             let mut cfg = row.config.clone();
+            let same_choice = row.config.model.as_deref() == Some(request.model.as_str())
+                && row.config.fork_editor.engine_account_id.as_deref() == Some(account.id.as_str());
             cfg.model = Some(request.model.clone());
             cfg.fork_editor.engine_account_id = Some(account.id.clone());
             cfg.command = None;
-            cfg.model_options.clear();
+            match &request.options {
+                Some(options) => cfg.model_options.clone_from(options),
+                None if !same_choice => cfg.model_options.clear(),
+                None => {}
+            }
             crate::fork::lider_canal::validate(&mut cfg, Some(&row.config))?;
             crate::hub::validate_update(&mut cfg, &row.config)?;
             crate::market::contas::validar_vinculo(&hub.store, Some(&row.config), &mut cfg)?;

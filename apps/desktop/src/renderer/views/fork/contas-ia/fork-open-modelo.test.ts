@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { aoMudarContaOpen, aplicarModeloOpen, contasEscolhiveis, modelosDaConta, padraoDaConta } from './fork-open-modelo.ts'
+import { aoMudarContaOpen, aplicarModeloOpen, contasEscolhiveis, modelosDaConta, opcoesDoModelo, padraoDaConta, valorDaOpcao } from './fork-open-modelo.ts'
 
 const conta = (over: Record<string, unknown> = {}) => ({
   backend: 'codex' as const,
@@ -40,6 +40,26 @@ test('aplicar sem bot não manda botId; com bot manda; e avisa quem mostra pront
   ])
   assert.ok(chamadas.every(([m]) => m === 'donnaOpenModelSet'))
   assert.equal(avisos, 2)
+})
+
+test('opções do modelo vêm só do catálogo da conta e o valor mostrado respeita o que ela aceita', () => {
+  const opcoes = [{ id: 'reasoning_effort', values: ['low', 'high'], default: 'low' }, { id: 'service_tier', values: ['fast'], default: null }, { id: 'context', values: ['1m'], default: null }, { id: 'vazia', values: [], default: null }]
+  const c = { models: [{ id: 'gpt-mini', options: opcoes }, { id: 'gpt-padrao', options: [] }] } as never
+  const lista = opcoesDoModelo(c, 'gpt-mini')
+  assert.deepEqual(lista.map((o) => o.id), ['reasoning_effort', 'service_tier'])
+  assert.deepEqual(opcoesDoModelo(c, 'gpt-padrao'), [])
+  assert.deepEqual(opcoesDoModelo(c, 'outro'), [])
+  assert.equal(valorDaOpcao(lista[0]!, { reasoning_effort: 'high' }), 'high')
+  assert.equal(valorDaOpcao(lista[0]!, { reasoning_effort: 'ultra' }), 'low')
+  assert.equal(valorDaOpcao(lista[1]!, undefined), null)
+})
+
+test('opções vão ao Hub só com bot', async () => {
+  const chamadas: unknown[] = []
+  const client = { call: async <T>(_m: string, body?: unknown) => { chamadas.push(body); return { applied: [] } as T } }
+  await aplicarModeloOpen(client, { accountId: 'a1', model: 'm', botId: 'b', options: { service_tier: 'fast' } })
+  await aplicarModeloOpen(client, { accountId: 'a1', model: 'm', options: { service_tier: 'fast' } })
+  assert.deepEqual(chamadas, [{ accountId: 'a1', model: 'm', botId: 'b', options: { service_tier: 'fast' } }, { accountId: 'a1', model: 'm' }])
 })
 
 test('falha do Hub não avisa mudança', async () => {

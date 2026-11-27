@@ -11,6 +11,23 @@ export interface EscolhaOpen {
   model: string
   /** Sem bot: vale para o Berga e os bots que ainda não escolheram. Com bot: troca só nele. */
   botId?: string
+  /** Raciocínio e velocidade do modelo, só com bot. Sem o campo, o Hub mantém as escolhas do mesmo modelo. */
+  options?: Record<string, string>
+}
+
+/** As únicas opções que o Hub leva ao Codex no turno. */
+export const OPCOES_OPEN = ['reasoning_effort', 'service_tier'] as const
+
+/** Opções que o `model/list` da conta comprovou para o modelo (raciocínio e velocidade), sem inventar nenhuma. */
+export function opcoesDoModelo(conta: Pick<EngineAccount, 'models'> | null | undefined, model: string | null | undefined) {
+  const entrada = conta?.models.find((m) => m.id === model)
+  return (entrada?.options ?? []).filter((o) => (OPCOES_OPEN as readonly string[]).includes(o.id) && o.values.length > 0)
+}
+
+/** Valor mostrado: o escolhido no bot se a conta ainda o aceita; senão o padrão que o Codex informou (ou nenhum). */
+export function valorDaOpcao(opcao: { id: string; values: string[]; default: string | null }, escolhidas: Record<string, string> | undefined): string | null {
+  const escolhido = escolhidas?.[opcao.id]
+  return escolhido && opcao.values.includes(escolhido) ? escolhido : opcao.default
 }
 
 /** Modelos que a conta comprovou, na ordem do Hub (o padrão do Codex vem primeiro), sem os ocultos pelo dono. */

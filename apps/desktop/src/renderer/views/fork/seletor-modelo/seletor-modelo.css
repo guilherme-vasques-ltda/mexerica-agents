@@ -344,5 +344,6 @@ div.seletor-conta.seletor-conta-funcao { height: auto; flex-direction: column; a
 .chip-modelo-open-conta { padding: 4px 8px; font-size: 0.85em; color: var(--ink-3); }
 .chip-modelo-open-opcao { display: flex; width: 100%; padding: 6px 8px; font: inherit; text-align: start; color: var(--ink); background: none; border: 0; border-radius: var(--radius-s, 6px); cursor: pointer; }
 .chip-modelo-open-opcao:hover:not(:disabled) { background: var(--field); }
+.chip-modelo-open-opcao[aria-pressed='true'],
 .chip-modelo-open-opcao[aria-selected='true'] { font-weight: 600; background: var(--field); cursor: default; }
 .chip-modelo-open-erro { padding: 4px 8px; font-size: 0.85em; color: var(--danger, var(--ink)); }

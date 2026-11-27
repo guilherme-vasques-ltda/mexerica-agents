@@ -8,7 +8,7 @@ use crate::store::{BotConfig, EntryKind, Lane};
 use anyhow::{Result, anyhow, bail, ensure};
 use serde_json::{Value, json};
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     path::PathBuf,
     sync::{Arc, Mutex, MutexGuard, Weak},
     time::{Duration, Instant},
@@ -53,6 +53,7 @@ pub(crate) struct Ticket {
     account: String,
     directory: PathBuf,
     model: Option<String>,
+    options: BTreeMap<String, String>,
     cancel: watch::Receiver<bool>,
     done: watch::Sender<()>,
 }
@@ -79,6 +80,23 @@ pub(crate) fn account_profile(hub: &Hub, cfg: &BotConfig) -> Result<(String, Pat
     let LaunchReference::CliProfile { directory, .. } = &account.launch else { bail!("open_chat_account_required") };
     let model = cfg.model.clone().filter(|model| account.models.iter().any(|known| known.id == *model));
     Ok((account.id.clone(), directory.clone(), model))
+}
+
+/// As escolhas de raciocínio e velocidade do bot que o `model/list` da conta comprovou para o modelo dele. O que não
+/// consta no catálogo é descartado: o motor recebe só o que a conta aceita.
+fn proven_options(hub: &Hub, cfg: &BotConfig, account: &str, model: Option<&str>) -> BTreeMap<String, String> {
+    let Some(model) = model else { return BTreeMap::new() };
+    let Ok(registry) = Registry::load(&hub.store) else { return BTreeMap::new() };
+    let Some(known) =
+        registry.accounts.iter().find(|a| a.id == account).and_then(|a| a.models.iter().find(|m| m.id == model))
+    else {
+        return BTreeMap::new();
+    };
+    cfg.model_options
+        .iter()
+        .filter(|(key, value)| known.options.iter().any(|o| o.id == **key && o.values.contains(value)))
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect()
 }
 
 /// Cerca das mutações de conta: recusa enquanto um turno da Open usa a conta e impede um turno novo até o fim do efeito.
@@ -116,7 +134,8 @@ pub(crate) fn admit_locked(
     cfg: &BotConfig,
 ) -> Result<Ticket> {
     let (account, directory, model) = account_profile(hub, cfg)?;
-    admit(guard, hub, &cfg.id, account, directory, model)
+    let options = proven_options(hub, cfg, &account, model.as_deref());
+    admit(guard, hub, &cfg.id, (account, directory, model, options))
 }
 
 /// Reserva o turno sob `RUNNING`, a mesma trava em que a reconexão da conta abre a operação: uma conta em reconexão
@@ -127,9 +146,7 @@ fn admit(
     guard: &mut Option<HashMap<String, Running>>,
     hub: &Arc<Hub>,
     bot: &str,
-    account: String,
-    directory: PathBuf,
-    model: Option<String>,
+    (account, directory, model, options): (String, PathBuf, Option<String>, BTreeMap<String, String>),
 ) -> Result<Ticket> {
     ensure!(!CLOSING.locked().iter().any(|h| h.ptr_eq(&Arc::downgrade(hub))), "open_chat_unavailable");
     ensure!(!crate::fork::engine_setup::in_setup(&hub.store, &account), "open_chat_reconnecting");
@@ -143,12 +160,12 @@ fn admit(
         bot.to_owned(),
         Running { hub: Arc::downgrade(hub), account: account.clone(), cancel: cancel_tx, done: done_rx },
     );
-    Ok(Ticket { bot: bot.to_owned(), account, directory, model, cancel, done })
+    Ok(Ticket { bot: bot.to_owned(), account, directory, model, options, cancel, done })
 }
 
 #[cfg(test)]
 pub(crate) fn admit_for_test(hub: &Arc<Hub>, bot: &str, account: &str) -> Result<Ticket> {
-    admit(&mut RUNNING.locked(), hub, bot, account.to_owned(), PathBuf::new(), None)
+    admit(&mut RUNNING.locked(), hub, bot, (account.to_owned(), PathBuf::new(), None, BTreeMap::new()))
 }
 
 pub(crate) fn stop(bot: &str) {
@@ -259,7 +276,7 @@ pub(crate) fn run(
     let instructions = instructions(&hub, cfg);
     tokio::spawn(async move {
         let (entry_id, authority) = entry;
-        let Ticket { bot, account, directory, model, mut cancel, done } = ticket;
+        let Ticket { bot, account, directory, model, options, mut cancel, done } = ticket;
         if let Err(error) = Autoridade::no_efeito(&hub, authority.as_ref(), || Ok(())) {
             if error.is::<crate::fork::autoridade::AutorizacaoEncerrada>()
                 || error.is::<crate::fork::autoridade::EpochDaRequisicaoEncerrado>()
@@ -291,6 +308,7 @@ pub(crate) fn run(
             &account,
             &lane,
             (&instructions, model.as_deref()),
+            &options,
             (&text, TURN_LIMIT),
             (&entry_id, authority.as_ref()),
             &mut cancel,
@@ -341,7 +359,7 @@ pub(crate) async fn routine_turn(
     prompt: String,
     timeout: Duration,
 ) -> Result<String> {
-    let Ticket { bot, account, directory, model, mut cancel, done } = ticket;
+    let Ticket { bot, account, directory, model, options, mut cancel, done } = ticket;
     let instructions = instructions(hub, cfg);
     let outcome = async {
         let turn = hub.store.alloc_turn(&cfg.id)?;
@@ -353,6 +371,7 @@ pub(crate) async fn routine_turn(
                 &account,
                 &lane,
                 (&instructions, model.as_deref()),
+                &options,
                 (&prompt, timeout),
                 ("", None),
                 &mut cancel,
@@ -384,6 +403,7 @@ async fn turn_in_profile(
     account: &str,
     lane: &Lane,
     (instructions, model): (&str, Option<&str>),
+    options: &BTreeMap<String, String>,
     (text, limit): (&str, Duration),
     (entry_id, authority): (&str, Option<&Autoridade>),
     cancel: &mut watch::Receiver<bool>,
@@ -432,6 +452,7 @@ async fn turn_in_profile(
         &mut rpc,
         saved.as_deref(),
         (instructions, model),
+        options,
         text,
         limit,
         cancel,
@@ -598,6 +619,7 @@ pub(crate) async fn drive(
     rpc: &mut Rpc,
     thread: Option<&str>,
     (instructions, model): (&str, Option<&str>),
+    options: &BTreeMap<String, String>,
     text: &str,
     limit: Duration,
     cancel: &mut watch::Receiver<bool>,
@@ -613,6 +635,9 @@ pub(crate) async fn drive(
             json!({"sandbox": "read-only", "approvalPolicy": "never", "developerInstructions": instructions});
         if let Some(model) = model {
             session["model"] = model.into();
+        }
+        if let Some(tier) = options.get("service_tier") {
+            session["serviceTier"] = tier.as_str().into();
         }
         let resumed = match thread.filter(|id| valid_id(id)) {
             Some(id) => {
@@ -641,7 +666,13 @@ pub(crate) async fn drive(
             .ok_or_else(|| anyhow!("open_chat_failed"))?
             .to_owned();
         before_text(&thread)?;
-        let params = json!({"threadId": thread, "input": [{"type": "text", "text": text, "text_elements": []}]});
+        let mut params = json!({"threadId": thread, "input": [{"type": "text", "text": text, "text_elements": []}]});
+        if let Some(effort) = options.get("reasoning_effort") {
+            params["effort"] = effort.as_str().into();
+        }
+        if let Some(tier) = options.get("service_tier") {
+            params["serviceTier"] = tier.as_str().into();
+        }
         let turn = match authority {
             Some((hub, proof)) => {
                 rpc.call_guarded(4, "turn/start", params, |effect| {

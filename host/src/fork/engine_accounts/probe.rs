@@ -400,7 +400,9 @@ pub(crate) fn codex_models(catalog: &Value) -> Vec<Model> {
         let Some(id) = model["id"].as_str().filter(|id| safe_model_id(id)) else {
             continue;
         };
-        if model["hidden"] == true || models.iter().any(|known: &Model| known.id == id) {
+        // Modelo com `upgrade` foi substituído por outro do catálogo: não é oferecido como escolha nova.
+        if model["hidden"] == true || model["upgrade"].is_string() || models.iter().any(|known: &Model| known.id == id)
+        {
             continue;
         }
         let values: Vec<String> = model["supportedReasoningEfforts"]
@@ -415,11 +417,30 @@ pub(crate) fn codex_models(catalog: &Value) -> Vec<Model> {
             .as_str()
             .filter(|value| values.iter().any(|known| known == value))
             .map(str::to_owned);
-        let options = if values.is_empty() {
-            Vec::new()
-        } else {
-            vec![ModelOption { id: "reasoning_effort".into(), values, default }]
-        };
+        let mut options = Vec::new();
+        if !values.is_empty() {
+            options.push(ModelOption { id: "reasoning_effort".into(), values, default });
+        }
+        let tiers: Vec<String> = model["serviceTiers"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|tier| tier["id"].as_str())
+            .filter(|id| tier_id(id))
+            .map(str::to_owned)
+            .fold(Vec::new(), |mut all, id| {
+                if !all.contains(&id) {
+                    all.push(id);
+                }
+                all
+            });
+        if !tiers.is_empty() {
+            let default = model["defaultServiceTier"]
+                .as_str()
+                .filter(|id| tiers.iter().any(|known| known == id))
+                .map(str::to_owned);
+            options.push(ModelOption { id: "service_tier".into(), values: tiers, default });
+        }
         // O padrão do Codex vem primeiro: é o modelo já marcado quando a Open pede a escolha.
         let entry = Model { id: id.into(), options };
         if model["isDefault"] == true {
@@ -439,6 +460,12 @@ fn safe_model_id(id: &str) -> bool {
             || id.starts_with("o3")
             || id.starts_with("o4"))
         && id.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"-._".contains(&byte))
+}
+
+fn tier_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 32
+        && value.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
 }
 
 fn effort(value: &str) -> bool {

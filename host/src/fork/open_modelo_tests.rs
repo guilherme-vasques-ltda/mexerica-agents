@@ -75,6 +75,7 @@ fn set(account: &str, model: &str, bot: Option<&str>) -> Set {
     Set {
         account_id: account.into(),
         model: model.into(),
+        options: None,
         bot_id: bot.map(str::to_owned),
         space_id: None,
         hub_id: None,
@@ -156,6 +157,61 @@ fn padrao_do_codex_vem_primeiro_no_catalogo() {
         {"id": "gpt-a"}, {"id": "gpt-b", "isDefault": true}, {"id": "gpt-c"}
     ]}));
     assert_eq!(models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["gpt-b", "gpt-a", "gpt-c"]);
+}
+
+#[test]
+fn catalogo_oferece_so_o_que_a_conta_aceita_com_raciocinio_e_velocidade() {
+    let models = crate::fork::engine_accounts::probe::codex_models(&json!({"data": [
+        {"id": "gpt-novo", "isDefault": true, "defaultReasoningEffort": "medium",
+         "supportedReasoningEfforts": [{"reasoningEffort": "low"}, {"reasoningEffort": "medium"}],
+         "serviceTiers": [{"id": "fast", "name": "Fast", "description": ""}, {"id": "FAST!", "name": "x", "description": ""}],
+         "defaultServiceTier": null},
+        {"id": "gpt-velho", "upgrade": "gpt-novo"},
+        {"id": "gpt-oculto", "hidden": true}
+    ]}));
+    assert_eq!(models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["gpt-novo"]);
+    let options: Vec<_> =
+        models[0].options.iter().map(|o| (o.id.as_str(), o.values.clone(), o.default.clone())).collect();
+    assert_eq!(
+        options,
+        [
+            ("reasoning_effort", vec!["low".to_owned(), "medium".to_owned()], Some("medium".to_owned())),
+            ("service_tier", vec!["fast".to_owned()], None)
+        ]
+    );
+}
+
+#[tokio::test]
+async fn escolha_de_raciocinio_e_velocidade_so_com_bot_e_so_o_que_a_conta_comprovou() {
+    let mut conta = conta(CONTA, State::Connected);
+    conta.models[0].options = vec![
+        crate::fork::engine_accounts::ModelOption {
+            id: "reasoning_effort".into(),
+            values: vec!["low".into(), "high".into()],
+            default: Some("low".into()),
+        },
+        crate::fork::engine_accounts::ModelOption {
+            id: "service_tier".into(),
+            values: vec!["fast".into()],
+            default: None,
+        },
+    ];
+    let env = env(vec![conta]);
+    let principal = berga(&env.hub).id;
+    let com = |bot: Option<&str>, options: &[(&str, &str)]| Set {
+        options: Some(options.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect()),
+        ..set(CONTA, "gpt-padrao", bot)
+    };
+    assert!(check_scope(&env.hub, &com(None, &[("reasoning_effort", "high")])).is_err(), "lote global sem opções");
+    assert!(check_scope(&env.hub, &com(Some(&principal), &[("context", "1m")])).is_err(), "só raciocínio e velocidade");
+    assert!(run(&env.hub, &com(Some(&principal), &[("reasoning_effort", "ultra")])).is_err(), "valor não comprovado");
+    assert!(berga(&env.hub).model_options.is_empty());
+    run(&env.hub, &com(Some(&principal), &[("reasoning_effort", "high"), ("service_tier", "fast")])).unwrap();
+    assert_eq!(berga(&env.hub).model_options.get("service_tier").map(String::as_str), Some("fast"));
+    run(&env.hub, &set(CONTA, "gpt-padrao", Some(&principal))).unwrap();
+    assert_eq!(berga(&env.hub).model_options.len(), 2, "mesmo modelo sem options mantém as escolhas");
+    run(&env.hub, &set(CONTA, "gpt-outro", Some(&principal))).unwrap();
+    assert!(berga(&env.hub).model_options.is_empty(), "outro modelo começa sem opções");
 }
 
 #[tokio::test]
