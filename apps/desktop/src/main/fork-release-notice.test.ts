@@ -515,6 +515,25 @@ test('a escolha de Ajustes vence o padrão, fica gravada e desligar cancela a bu
   }
 })
 
+test('desligar com falha de gravação avisa quem chamou e a sessão fica desligada, sem busca', async () => {
+  const rede = fetchDe([PAYLOAD_NOVO])
+  const agendadas: unknown[] = []
+  const canceladas: unknown[] = []
+  const relogio = { setTimer: (cb: () => void) => { agendadas.push(cb); return cb }, clearTimer: (h: unknown) => { canceladas.push(h) } }
+  const gravado: ReleaseNoticeStoreData = { checkEnabled: true, dismissedVersion: null, lastCheckAt: null, cachedRelease: null }
+  const store: ReleaseNoticeStore = { load: () => gravado, save: () => { throw new Error('disco cheio') } }
+  const aviso = controlador({ fetcher: rede.fetcher, store, defaultCheckEnabled: () => true, ...relogio })
+  aviso.start()
+  assert.equal(agendadas.length, 1)
+  assert.throws(() => aviso.setCheckEnabled(false), /not saved/, 'a falha chega a quem chamou, não aparece como salva')
+  assert.equal(aviso.getState().checkEnabled, false)
+  assert.deepEqual(canceladas, agendadas, 'a busca agendada foi cancelada mesmo sem gravar')
+  await aviso.check({ manual: true })
+  aviso.start()
+  assert.equal(agendadas.length, 1, 'nada novo agendado nesta sessão')
+  assert.equal(rede.chamadas(), 0, 'nenhuma requisição saiu')
+})
+
 test('adaptador: no 100% local ou sem escolha a busca nasce desligada; com conta liga; o IPC só aceita booleano autorizado', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'release-notice-'))
   try {

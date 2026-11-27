@@ -76,6 +76,7 @@ export const textos: Traducao<typeof fonte> = {
   'ajustes.atualizacoes.erro': "Couldn't check for updates right now.",
   'ajustes.atualizacoes.buscar': "Check GitHub for new versions",
   'ajustes.atualizacoes.buscarDetalhe': "When off, the app makes no version requests.",
+  'ajustes.atualizacoes.buscarErro': "Couldn't save this choice; it may return to the default when the app reopens.",
   'ajustes.estado.precisaAtualizar': 'Needs an update',
   'ajustes.estado.conectado': 'Connected',
   'ajustes.estado.conectando': 'Connecting…',

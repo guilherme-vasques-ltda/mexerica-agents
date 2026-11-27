@@ -117,6 +117,7 @@ export const textos = {
   'onboarding.guia.modo.conta.titulo': 'Avec un compte',
   'onboarding.guia.modo.conta.desc': 'Tout le 100 % local, plus la version web et l’app mobile.',
   'onboarding.guia.emBreve': 'Bientôt',
+  'onboarding.guia.erroGravar': "Impossible d’enregistrer votre choix. Réessayez.",
   'onboarding.guia.nuvem.titulo': 'Où Mexerica va-t-elle tourner ?',
   'onboarding.guia.nuvem.texto': 'Avec le compte, vous choisissez qui s’occupe des serveurs.',
   'onboarding.guia.nuvem.propria.titulo': 'Sur votre infrastructure',

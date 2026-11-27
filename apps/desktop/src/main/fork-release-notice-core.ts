@@ -238,6 +238,7 @@ export interface ReleaseNoticeController {
   check(options?: { manual?: boolean }): Promise<ReleaseNoticeState>
   dismiss(): ReleaseNoticeState
   openDownload(): Promise<boolean>
+  /** Vale já nesta sessão; se não conseguir gravar, lança para quem chamou avisar que pode não durar à reabertura. */
   setCheckEnabled(on: boolean): ReleaseNoticeState
   /** Reavalia o padrão (o modo de uso mudou): agenda a busca se ligou, cancela se desligou. */
   refresh(): void
@@ -300,7 +301,10 @@ export function createReleaseNoticeController(deps: ReleaseNoticeControllerDeps)
   const persist = (cachedRelease: CachedRelease | null) => {
     try {
       deps.store.save({ checkEnabled: checkPreference, dismissedVersion: state.dismissedVersion, lastCheckAt: state.lastCheckAt, cachedRelease })
-    } catch {}
+      return true
+    } catch {
+      return false
+    }
   }
   const cachedFromState = (): CachedRelease | null =>
     state.availableVersion !== null && state.availableTag !== null && state.releaseUrl !== null
@@ -387,8 +391,9 @@ export function createReleaseNoticeController(deps: ReleaseNoticeControllerDeps)
     },
     setCheckEnabled(on: boolean) {
       checkPreference = on
-      persist(cachedFromState())
+      const saved = persist(cachedFromState())
       this.refresh()
+      if (!saved) throw new Error('release-notice: preference not saved')
       return { ...state }
     },
     refresh() {

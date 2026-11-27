@@ -117,6 +117,7 @@ export const textos = {
   'onboarding.guia.modo.conta.titulo': 'مع حساب',
   'onboarding.guia.modo.conta.desc': 'كل ما في الوضع المحلي 100%، مع نسخة الويب وتطبيق الهاتف.',
   'onboarding.guia.emBreve': 'قريبًا',
+  'onboarding.guia.erroGravar': "تعذّر حفظ اختيارك. حاول مرة أخرى.",
   'onboarding.guia.nuvem.titulo': 'أين ستعمل Mexerica؟',
   'onboarding.guia.nuvem.texto': 'مع الحساب، تختار من يتولى الخوادم.',
   'onboarding.guia.nuvem.propria.titulo': 'على بنيتك التحتية',

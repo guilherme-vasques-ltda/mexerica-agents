@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useIdioma, useT } from '../../../lib/fork-i18n/estado'
 import { formatarData } from '../../../lib/fork-i18n/index.ts'
 import { ltr } from '@shared/bidi'
@@ -14,8 +15,9 @@ import './aviso-atualizacao.css'
  * última verificação achou. A view pura recebe o estado e as ações; a montada lê da ponte e some
  * quando o app não tem o serviço (web, demo, builds sem o handler).
  */
-export function AtualizacaoAjusteView({ state, onCheck, onOpenDownload, onCheckEnabled }: {
+export function AtualizacaoAjusteView({ state, onCheck, onOpenDownload, onCheckEnabled, checkSaveFailed = false }: {
   state: ReleaseNoticeState
+  checkSaveFailed?: boolean
   onCheck: () => void
   onOpenDownload: () => void
   onCheckEnabled: (on: boolean) => void
@@ -52,6 +54,9 @@ export function AtualizacaoAjusteView({ state, onCheck, onOpenDownload, onCheckE
         {!releaseAvailable && state.status === 'up-to-date' ? (
           <Text size="footnote" tone="secondary">{t('ajustes.atualizacoes.atualizado')}</Text>
         ) : null}
+        {checkSaveFailed ? (
+          <Text size="footnote" tone="attention" dir="auto">{t('ajustes.atualizacoes.buscarErro')}</Text>
+        ) : null}
         {state.status === 'error' ? (
           <Text size="footnote" tone="attention" dir="auto">{t('ajustes.atualizacoes.erro')}</Text>
         ) : null}
@@ -62,13 +67,17 @@ export function AtualizacaoAjusteView({ state, onCheck, onOpenDownload, onCheckE
 
 export function AtualizacaoAjuste() {
   const state = useReleaseNotice()
+  const [checkSaveFailed, setCheckSaveFailed] = useState(false)
   if (!state?.supported) return null
   return (
     <AtualizacaoAjusteView
       state={state}
       onCheck={() => { void window.codync?.releaseNotice?.check() }}
       onOpenDownload={() => { void window.codync?.releaseNotice?.openDownload() }}
-      onCheckEnabled={(on) => { void window.codync?.releaseNotice?.setCheckEnabled(on) }}
+      checkSaveFailed={checkSaveFailed}
+      onCheckEnabled={(on) => {
+        void window.codync?.releaseNotice?.setCheckEnabled(on).then(() => setCheckSaveFailed(false), () => setCheckSaveFailed(true))
+      }}
     />
   )
 }

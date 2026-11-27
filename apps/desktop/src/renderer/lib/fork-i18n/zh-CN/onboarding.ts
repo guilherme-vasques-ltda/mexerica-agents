@@ -117,6 +117,7 @@ export const textos = {
   'onboarding.guia.modo.conta.titulo': '使用账号',
   'onboarding.guia.modo.conta.desc': '包含 100% 本地的全部功能，另加网页版和手机应用。',
   'onboarding.guia.emBreve': '即将推出',
+  'onboarding.guia.erroGravar': "无法保存你的选择，请重试。",
   'onboarding.guia.nuvem.titulo': 'Mexerica 在哪里运行？',
   'onboarding.guia.nuvem.texto': '有了账号，你可以选择由谁管理服务器。',
   'onboarding.guia.nuvem.propria.titulo': '在你的基础设施上',

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
 import test from 'node:test'
+import { fileURLToPath } from 'node:url'
 import { build } from 'esbuild'
 import { chromium, type Browser } from 'playwright-core'
 
@@ -38,10 +39,10 @@ const bundle = pular ? null : await build({
         rotinas: () => routinesScreen.show(),
         conectores: () => extensoesScreen.show('connectors', 'c'),
       };`,
-    resolveDir: new URL('../../../', import.meta.url).pathname, loader: 'ts',
+    resolveDir: fileURLToPath(new URL('../../../', import.meta.url)), loader: 'ts',
   },
   bundle: true, platform: 'browser', format: 'iife', write: false, jsx: 'automatic',
-  alias: { '@shared': new URL('../../../../shared', import.meta.url).pathname },
+  alias: { '@shared': fileURLToPath(new URL('../../../../shared', import.meta.url)) },
   loader: { '.css': 'empty', '.jpg': 'empty', '.png': 'empty', '.svg': 'empty', '.webp': 'empty', '.mp4': 'empty', '.json': 'json' },
   define: { 'process.env.NODE_ENV': '"production"', 'import.meta': '__importMeta' },
   logLevel: 'silent',

@@ -73,6 +73,7 @@ export const textos = {
   'ajustes.atualizacoes.erro': 'Não foi possível verificar atualizações agora.',
   'ajustes.atualizacoes.buscar': "Procurar novas versões no GitHub",
   'ajustes.atualizacoes.buscarDetalhe': "Desligado, o app não faz nenhuma consulta de versão.",
+  'ajustes.atualizacoes.buscarErro': "Não foi possível salvar esta escolha; ao reabrir o app ela pode voltar ao padrão.",
   'ajustes.estado.precisaAtualizar': 'Precisa atualizar',
   'ajustes.estado.conectado': 'Conectado',
   'ajustes.estado.conectando': 'Conectando…',

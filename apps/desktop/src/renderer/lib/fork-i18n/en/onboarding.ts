@@ -117,6 +117,7 @@ export const textos = {
   'onboarding.guia.modo.conta.titulo': 'With an account',
   'onboarding.guia.modo.conta.desc': 'Everything in 100% local, plus the web version and the phone app.',
   'onboarding.guia.emBreve': 'Coming soon',
+  'onboarding.guia.erroGravar': "Couldn't save your choice. Try again.",
   'onboarding.guia.nuvem.titulo': 'Where will Mexerica run?',
   'onboarding.guia.nuvem.texto': 'With an account, you choose who takes care of the servers.',
   'onboarding.guia.nuvem.propria.titulo': 'On your infrastructure',

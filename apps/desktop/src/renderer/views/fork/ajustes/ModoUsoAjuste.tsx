@@ -36,16 +36,17 @@ export function ModoUsoAjusteView({ escolha, contaDisponivel, onEntrar }: {
 
 export function ModoUsoAjuste() {
   const ponte = window.codync.app
-  const [escolha, setEscolha] = useState<EscolhaEntrada | null>(null)
+  const [leitura, setLeitura] = useState<{ escolha: EscolhaEntrada | null } | null>(null)
   useEffect(() => {
     let ativo = true
-    ponte.escolhaEntrada?.().then((lida) => { if (ativo) setEscolha(lida) }, () => {})
+    ponte.escolhaEntrada?.().then((lida) => { if (ativo) setLeitura({ escolha: lida }) }, () => {})
     return () => { ativo = false }
   }, [ponte])
-  if (!ponte.escolhaEntrada) return null
+  if (!ponte.escolhaEntrada || !leitura) return null
+  const escolha = leitura.escolha
   const entrar = () => {
     const comConta: EscolhaEntrada = { modo: 'conta', infraestrutura: 'propria' }
-    void ponte.gravarEscolhaEntrada?.(comConta).then((ok) => { if (ok) setEscolha(comConta) }, () => {})
+    void ponte.gravarEscolhaEntrada?.(comConta).then((ok) => { if (ok) setLeitura({ escolha: comConta }) }, () => {})
   }
   return <ModoUsoAjusteView escolha={escolha} contaDisponivel={showsAccountControls()} onEntrar={entrar} />
 }

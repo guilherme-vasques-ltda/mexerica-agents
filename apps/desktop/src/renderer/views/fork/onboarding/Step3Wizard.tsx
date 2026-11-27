@@ -76,13 +76,26 @@ export function Step3Wizard({
   const contaDisponivel = showsAccountControls()
   const [perguntaModo, setPerguntaModo] = useState(etapa === 'modo' || etapa === 'nuvem')
   const [modo, setModo] = useState<ModoEntrada>(etapa === 'nuvem' ? 'conta' : 'local')
+  const [escolhaLida, setEscolhaLida] = useState(() => perguntaModo || !window.codync.app?.escolhaEntrada)
+  const [erroGravar, setErroGravar] = useState(false)
+  const [gravando, setGravando] = useState(false)
   useEffect(() => {
+    if (escolhaLida) return
     let ativo = true
-    window.codync.app.escolhaEntrada?.().then((escolha) => { if (ativo && escolha === null) setPerguntaModo(true) }, () => {})
+    window.codync.app!.escolhaEntrada!().then(
+      (escolha) => { if (ativo) { if (escolha === null) setPerguntaModo(true); setEscolhaLida(true) } },
+      () => { if (ativo) { setPerguntaModo(true); setEscolhaLida(true) } },
+    )
     return () => { ativo = false }
   }, [])
-  const gravarEscolha = (escolha: EscolhaEntrada) => {
-    void window.codync.app.gravarEscolhaEntrada?.(escolha).catch(() => {})
+  const gravarEscolha = async (escolha: EscolhaEntrada) => {
+    const gravar = window.codync.app?.gravarEscolhaEntrada
+    if (!gravar) return true
+    try {
+      return (await gravar(escolha)) === true
+    } catch {
+      return false
+    }
   }
   const [consentGiven, setConsentGiven] = useState(false)
   const [detecting, setDetecting] = useState(false)
@@ -198,9 +211,18 @@ export function Step3Wizard({
     'onde', 'ia', 'pronto',
   ]
   const indice = etapas.indexOf(etapa)
-  const avancar = () => {
-    if (etapa === 'modo' && modo === 'local') gravarEscolha({ modo: 'local', infraestrutura: null })
-    if (etapa === 'nuvem') gravarEscolha({ modo: 'conta', infraestrutura: 'propria' })
+  const avancar = async () => {
+    if (!escolhaLida || gravando) return
+    const escolhaFinal: EscolhaEntrada | null = etapa === 'modo' && modo === 'local'
+      ? { modo: 'local', infraestrutura: null }
+      : etapa === 'nuvem' ? { modo: 'conta', infraestrutura: 'propria' } : null
+    if (escolhaFinal) {
+      setGravando(true)
+      const ok = await gravarEscolha(escolhaFinal)
+      setGravando(false)
+      setErroGravar(!ok)
+      if (!ok) return
+    }
     irPara(etapas[indice + 1]!)
   }
   const escolha = ({ selecionada, emBreve = false, icone, titulo, desc, onEscolher }: {
@@ -533,12 +555,13 @@ export function Step3Wizard({
                 {t('onboarding.guia.pronto.conversar')}
               </Button>
             ) : (
-              <Button kind="primary" onClick={avancar}>
+              <Button kind="primary" onClick={() => { void avancar() }} disabled={!escolhaLida || gravando}>
                 {t(etapa === 'boasVindas' ? 'onboarding.guia.boasVindas.comecar' : 'onboarding.continuar')}
                 <Icon name="arrow.right" size={14} />
               </Button>
             )}
           </footer>
+          {erroGravar ? <p className="eg-erro" role="alert">{t('onboarding.guia.erroGravar')}</p> : null}
           {indice > 0 && etapa !== 'pronto' ? (
             <button type="button" className="eg-link eg-pular" onClick={() => sair(onSkip)}>{t('onboarding.pularPorEnquanto')}</button>
           ) : null}

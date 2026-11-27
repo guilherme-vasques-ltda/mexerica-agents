@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -29,6 +29,23 @@ test('a escolha da entrada é gravada uma vez em userData, só do dono, e só no
       assert.equal(lerEscolhaEntrada(link), null)
       assert.equal(gravarEscolhaEntrada(link, { modo: 'local', infraestrutura: null }), false)
     }
+  } finally {
+    rmSync(pasta, { recursive: true, force: true })
+  }
+})
+
+test('falha ao gravar não apaga a escolha anterior e não deixa temporário', () => {
+  const pasta = mkdtempSync(join(tmpdir(), 'escolha-entrada-'))
+  try {
+    const arquivo = arquivoEscolhaEntrada(join(pasta, 'userData'))
+    assert.equal(gravarEscolhaEntrada(arquivo, { modo: 'conta', infraestrutura: 'propria' }), true)
+    mkdirSync(`${arquivo}.${process.pid}.tmp`)
+    assert.equal(gravarEscolhaEntrada(arquivo, { modo: 'local', infraestrutura: null }), false)
+    assert.deepEqual(lerEscolhaEntrada(arquivo), { modo: 'conta', infraestrutura: 'propria' })
+    rmSync(`${arquivo}.${process.pid}.tmp`, { recursive: true })
+    assert.equal(gravarEscolhaEntrada(arquivo, { modo: 'local', infraestrutura: null }), true)
+    assert.deepEqual(lerEscolhaEntrada(arquivo), { modo: 'local', infraestrutura: null })
+    assert.deepEqual(readdirSync(join(pasta, 'userData')), ['escolha-entrada.json'])
   } finally {
     rmSync(pasta, { recursive: true, force: true })
   }
