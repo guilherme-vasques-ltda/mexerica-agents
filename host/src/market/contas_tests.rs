@@ -689,7 +689,7 @@ fn conta_com_filtro_exige_confirmacao_de_escrita_antes_de_gravar() {
     let mut p = Pedido { servico: ficha.id, tipo: ficha.tipos[0].id, ..pedido(PERSONAL, None, None) };
     let hoje = chrono::NaiveDate::parse_from_str(ficha.conferida_em, "%Y-%m-%d").unwrap();
     assert!(erro(contas::conectar_em(&hub.store, ficha, &p, hoje)).starts_with("credencial_com_escrita"));
-    assert!(connectors(&hub.store).unwrap().is_empty());
+    assert_eq!(connectors(&hub.store).unwrap(), Vec::<Connector>::new());
     p.aceita_credencial_com_escrita = true;
     assert_eq!(contas::conectar_em(&hub.store, ficha, &p, hoje).unwrap()["proximoPasso"], "entrar");
     assert_eq!(connectors(&hub.store).unwrap()[0].liberacoes, ["acoes"]);
