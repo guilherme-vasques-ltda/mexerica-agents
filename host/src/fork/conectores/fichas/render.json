@@ -2,10 +2,9 @@
   "id": "render",
   "nome": "Render",
   "categoria": "Infraestrutura",
-  "descricao": "Consulte os serviços do workspace selecionado na Render, usando uma chave de API.",
+  "descricao": "Consulte os serviços da Render usando uma chave de leitura e o ID do workspace.",
   "exemplos": [
-    "Liste os serviços do meu workspace na Render",
-    "Confira quais serviços estão cadastrados nesse workspace"
+    "Liste os serviços da Render usando o ID do workspace que copiei em Settings"
   ],
   "site": "https://render.com",
   "docs": "https://render.com/docs/mcp-server",
@@ -16,8 +15,11 @@
   "conferidaEm": "2026-11-27",
   "fontes": [
     "https://render.com/docs/mcp-server",
-    "https://render.com/docs/api-keys"
+    "https://render.com/docs/api-keys",
+    "https://render.com/docs/sandboxes",
+    "https://github.com/render-oss/skills/tree/main/skills/render-mcp"
   ],
+  "aviso": "Copie o ID no topo de Settings do workspace, no painel da Render. Informe esse ID na consulta para preencher workspaceId.",
   "tipos": [
     {
       "id": "render.oficial_chave",
