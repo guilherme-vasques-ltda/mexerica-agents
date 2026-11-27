@@ -1308,8 +1308,9 @@ fn instalar_para_bot(
     completa: bool,
     geracao: Option<i64>,
 ) -> Result<BTreeSet<String>> {
-    let mediados_ref = mediados.clone().unwrap_or_default();
-    let instalada = instalar_em(tx, conta, tools, &mediados_ref, textos, completa && mediados.is_some(), geracao)?;
+    let completa = completa && mediados.is_some();
+    let mediados_ref = mediados.unwrap_or_default();
+    let instalada = instalar_em(tx, conta, tools, &mediados_ref, textos, completa, geracao)?;
     let passam: BTreeSet<String> = if instalada {
         let linhas = linhas(tx, conta)?;
         let liberadas = liberacoes(tx, bot, conta)?;

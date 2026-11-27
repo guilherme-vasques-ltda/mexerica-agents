@@ -508,7 +508,7 @@ mod tests {
         let (installed, ()) =
             tokio::join!(call(&hub, &lane, 1, "install_skill", &install, revalidate), accept_next(&hub, &mut events));
         assert_eq!(installed.unwrap(), json!({"id":"grilling","installed":true}));
-        assert!(revalidate().unwrap().skills.is_empty());
+        assert_eq!(revalidate().unwrap().skills, [] as [String; 0]);
         let enable = json!({"id":"grilling"});
         let (enabled, ()) =
             tokio::join!(call(&hub, &lane, 1, "enable_skill", &enable, revalidate), accept_next(&hub, &mut events));

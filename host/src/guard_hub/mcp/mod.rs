@@ -244,7 +244,7 @@ pub(crate) fn observe_checked(
         "receipt":guarded.receipt, "sourceId":guarded.source_id, "origin":"external", "transport":transport,
         "bot":context.map(|c| &c.bot).or_else(|| native.map(|t| &t.lane().chat)), "connector":body["connector"],
         "lane":context.map(|c| &c.lane).or_else(|| native.map(|t| &t.lane().chat)), "run":context.and_then(|c| c.run.as_deref()),
-        "gatewayContext":body["context"], "session":native.map(|t| t.lane().session_id()), "turn":native.map(|t| t.turn()),
+        "gatewayContext":body["context"], "session":native.map(|t| t.lane().session_id()), "turn":native.map(crate::fork::open_turn::LocalTurn::turn),
         "mode":"observe", "method":match method {
         "initialize" | "tools/list" | "tools/call" | "resources/read" | "resources/list" | "resources/templates/list" | "prompts/get" | "prompts/list" | "notification" | "invalid" | "server-request" => method, _ => "other"
     }, "coverage":guarded.coverage,

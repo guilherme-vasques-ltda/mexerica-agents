@@ -57,7 +57,9 @@ impl std::fmt::Display for EffectUnknown {
 impl std::error::Error for EffectUnknown {}
 
 fn rpc(id: i64, method: &str, params: Value) -> Value {
-    json!({"jsonrpc":"2.0","id":id,"method":method,"params":params})
+    let mut frame = json!({"jsonrpc":"2.0","id":id,"method":method});
+    frame["params"] = params;
+    frame
 }
 
 pub(super) async fn call(hub: &Arc<Hub>, turn: &LocalTurn, name: &str, args: &Value) -> Result<Value> {
@@ -179,7 +181,7 @@ async fn run(
 }
 
 async fn exchange(session: &mut Session<OpenMediation<'_>>, frame: Value) -> Result<Value> {
-    session.exchange(frame).await.map(|frame| frame.unwrap_or_default()).map_err(|_| anyhow!("Sessão MCP indisponível"))
+    session.exchange(frame).await.map(Option::unwrap_or_default).map_err(|_| anyhow!("Sessão MCP indisponível"))
 }
 
 struct Invocation {
@@ -335,6 +337,7 @@ impl Mediation for OpenMediation<'_> {
         Ok(())
     }
 
+    #[allow(clippy::unused_async_trait_impl)]
     async fn observe(&mut self, frame: Value, method: &str) -> Result<Option<Value>> {
         self.secrets.sort_unstable_by_key(|s| std::cmp::Reverse(s.len()));
         let mut body = json!({"method":method,"connector":self.saved.id});

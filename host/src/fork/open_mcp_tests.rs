@@ -53,7 +53,7 @@ async fn server() -> Server {
                 if frame["method"] == "initialize" && bearer.strip_prefix("Bearer ") == Some(OLD) {
                     return StatusCode::UNAUTHORIZED.into_response();
                 }
-                assert!(bearer.strip_prefix("Bearer ") == Some(NEW));
+                assert_eq!(bearer.strip_prefix("Bearer "), Some(NEW));
                 let result = match frame["method"].as_str().unwrap() {
                     "initialize" => json!({"protocolVersion":"2025-06-18","capabilities":{"tools":{}},
                         "serverInfo":{"name":"fixture"},"instructions":"do not forward these instructions"}),
@@ -164,7 +164,7 @@ async fn mcp_open_refreshes_and_sends_approved_call_once_with_mediated_return() 
     let proof = proof.unwrap();
     let args_list = json!({"account":ACCOUNT});
     let list = run(&hub, &proof, LIST, &args_list, Some(remote.url.clone())).await.unwrap();
-    assert!(list["tools"].as_array().unwrap().is_empty());
+    assert_eq!(list["tools"].as_array().unwrap().as_slice(), [] as [Value; 0]);
     link_fixture_tool(&hub, &proof);
     let list = run(&hub, &proof, LIST, &args_list, Some(remote.url.clone())).await.unwrap();
     assert_eq!(list["tools"].as_array().unwrap().len(), 1);

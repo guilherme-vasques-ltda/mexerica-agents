@@ -799,14 +799,13 @@ async fn drive_inner(
             }
             None => None,
         };
-        let started = match resumed {
-            Some(value) => value,
-            None => {
-                if let Some(tools) = tools {
-                    session["dynamicTools"] = tools.catalog();
-                }
-                rpc.call(3, "thread/start", session).await?
+        let started = if let Some(value) = resumed {
+            value
+        } else {
+            if tools.is_some() {
+                session["dynamicTools"] = super::open_tools::Turn::catalog();
             }
+            rpc.call(3, "thread/start", session).await?
         };
         if started["approvalPolicy"] != "never" || started["sandbox"]["type"] != "readOnly" {
             tracing::warn!(approval = %started["approvalPolicy"], sandbox = %started["sandbox"]["type"], "conversa da Open recusada pela política do Codex");
@@ -856,7 +855,7 @@ async fn drive_inner(
                     && valid_id(&turn_id)
                     && params["namespace"].is_null()
                     && let Some(call) = params["callId"].as_str().filter(|id| valid_id(id))
-                    && let Some(name) = params["tool"].as_str().filter(|name| tools.offered(name))
+                    && let Some(name) = params["tool"].as_str().filter(|name| super::open_tools::Turn::offered(name))
                     && called.len() < 32
                     && called.insert(call.to_owned())
                 {
@@ -900,9 +899,8 @@ async fn drive_inner(
                                 && params["turnId"] == turn_id
                                 && valid_id(&turn_id)
                                 && params["item"]["namespace"].is_null()
-                                && tools.is_some_and(|tools| {
-                                    params["item"]["tool"].as_str().is_some_and(|name| tools.offered(name))
-                                }))) =>
+                                && tools.is_some()
+                                && params["item"]["tool"].as_str().is_some_and(super::open_tools::Turn::offered))) =>
                 {
                     tracing::warn!("item não admitido do Codex encerrou a conversa");
                     interrupt(rpc, &thread, &turn_id).await;

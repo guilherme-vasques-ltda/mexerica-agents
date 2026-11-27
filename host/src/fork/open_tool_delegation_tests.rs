@@ -143,12 +143,13 @@ async fn authorizes_exact_live_local_request_and_allocates_siblings_atomically()
     assert_eq!(ar.chain_id, br.chain_id);
     assert_eq!(br.ordinal, ar.ordinal + 1);
     assert_eq!(request_state(&f, &ar.run_id).0, "accepted");
-    let db = f.source.hub.store.db.locked();
-    let count = |sql: &str| db.query_row(sql, [], |row| row.get::<_, i64>(0)).unwrap();
-    assert_eq!(count("SELECT COUNT(*) FROM entries WHERE kind='notice'"), 4);
-    assert_eq!(count("SELECT used FROM donna_chain_roots"), 3);
-    db.execute("UPDATE donna_chain_roots SET used=50", []).unwrap();
-    drop(db);
+    {
+        let db = f.source.hub.store.db.locked();
+        let count = |sql: &str| db.query_row(sql, [], |row| row.get::<_, i64>(0)).unwrap();
+        assert_eq!(count("SELECT COUNT(*) FROM entries WHERE kind='notice'"), 4);
+        assert_eq!(count("SELECT used FROM donna_chain_roots"), 3);
+        db.execute("UPDATE donna_chain_roots SET used=50", []).unwrap();
+    }
     let c = ApprovedAsk { source: &f.source, intent: &intent, card: approved(&f, &intent).await };
     assert!(admit(&c, false).unwrap_err().is::<equipe::RecusaEquipe>());
     assert_eq!(

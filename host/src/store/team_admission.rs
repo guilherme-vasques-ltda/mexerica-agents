@@ -128,7 +128,7 @@ impl Store {
             TeamOrigin::Open(_) => {
                 let (session, reference) = open.as_ref().ok_or_else(|| anyhow!("team_origin_required"))?;
                 let base = pedido(receipt.as_ref().ok_or_else(|| anyhow!("retorno_cadeia_invalida"))?);
-                retornos::aceitar_open_na(&tx, &base.com_execucao((session, reference.as_ref())))?;
+                retornos::aceitar_open_na(&tx, &base.com_execucao((session, reference)))?;
             }
         }
         check(&tx, source, notices, origin)?;

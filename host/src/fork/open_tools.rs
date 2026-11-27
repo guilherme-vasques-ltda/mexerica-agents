@@ -46,7 +46,7 @@ impl<'a> Turn<'a> {
         self.proof.check(self.hub)
     }
 
-    pub(super) fn catalog(&self) -> Value {
+    pub(super) fn catalog() -> Value {
         let mut catalog: Vec<_> = TOOLS
             .iter()
             .map(|(name, description)| {
@@ -62,7 +62,7 @@ impl<'a> Turn<'a> {
         Value::Array(catalog)
     }
 
-    pub(super) fn offered(&self, name: &str) -> bool {
+    pub(super) fn offered(name: &str) -> bool {
         TOOLS.iter().any(|(tool, _)| *tool == name)
             || super::open_tool_actions::offered(name)
             || matches!(name, team::ASK | team::STATUS)
@@ -97,7 +97,7 @@ impl<'a> Turn<'a> {
             .await;
         }
         if open_mcp::offered(name) {
-            return open_mcp::call(self.hub, &self.proof, name, args).await;
+            return Box::pin(open_mcp::call(self.hub, &self.proof, name, args)).await;
         }
         ensure!(args.as_object().is_some_and(serde_json::Map::is_empty), "open_tools_invalid_arguments");
         let cfg = self.check()?;

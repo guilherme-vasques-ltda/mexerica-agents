@@ -95,12 +95,12 @@ impl RuntimeIntent {
         let current = all.iter().find(|c| self.matches_target(c, expected)).ok_or_else(denied)?;
         let mut db = hub.store.db.locked();
         let bot = turn.check_db(&db)?;
-        self.validate_open_account(current, &bot)?;
+        Self::validate_open_account(current, &bot)?;
         self.validate_db(&db)?;
         action(&mut db, current)
     }
 
-    fn validate_open_account(&self, saved: &Connector, bot: &crate::store::BotConfig) -> Result<()> {
+    fn validate_open_account(saved: &Connector, bot: &crate::store::BotConfig) -> Result<()> {
         market::contas::exigir_mesmo_space(saved, &bot.space_id)?;
         let tipo = market::contas::tipo_da_conta(saved)?.ok_or_else(denied)?;
         let connected = match &tipo.auth {
@@ -332,7 +332,7 @@ impl RuntimeIntent {
                 market::contas::exigir_mesmo_space(saved, &bot.config.space_id)?;
             }
             if let Original::Open { turn, .. } = &self.original {
-                self.validate_open_account(saved, &turn.check_db(&store.db.locked())?)?;
+                Self::validate_open_account(saved, &turn.check_db(&store.db.locked())?)?;
             }
             let saved = saved.clone();
             if migrated {

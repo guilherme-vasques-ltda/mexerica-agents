@@ -546,7 +546,7 @@ async fn open_cortada_antes_do_inicio_marca_falha_sem_iniciar_motor() {
         };
         let e =
             hub.store.insert_entry(&lane, EntryKind::User, 0, &json!({"text":"Fixture","status":"queued"})).unwrap();
-        let ticket = super::admit_for_test(&hub, bot, "fixture").unwrap();
+        let ticket = admit_for_test(&hub, bot, "fixture").unwrap();
         if cut {
             workspace::bump(&hub, Motivo::RoleChanged).unwrap();
         }
@@ -695,8 +695,8 @@ async fn o_encerramento_mata_o_descendente_que_ficou_no_grupo_sem_o_lider() {
 
 /// Hub real para os testes da reserva e do limite de resposta, no padrão dos testes de abertura da Open.
 fn hub_de_teste(bot: &str) -> (std::sync::Arc<crate::hub::Hub>, std::path::PathBuf) {
-    let dados = std::env::temp_dir().join(format!("open-chat-{}", uuid::Uuid::new_v4()));
     use std::os::unix::fs::DirBuilderExt;
+    let dados = std::env::temp_dir().join(format!("open-chat-{}", uuid::Uuid::new_v4()));
     std::fs::DirBuilder::new().mode(0o700).create(&dados).unwrap();
     let store = crate::store::Store::open(&dados.join("hub.db")).unwrap();
     let cfg: crate::store::BotConfig =
