@@ -2,7 +2,7 @@
   "id": "tinyfish",
   "nome": "TinyFish",
   "categoria": "IA e automação",
-  "descricao": "Agente web: busca e extrai conteúdo de páginas grátis e executa automações, pesquisas, monitores e datasets pagos.",
+  "descricao": "Agente web: busca e extrai páginas; navegar, clicar e rodar automações só depois que você ligar cada ação.",
   "exemplos": [
     "Pesquise preços de um produto em três sites",
     "Colete a lista de vagas abertas desta empresa"
@@ -13,11 +13,12 @@
     "privacidade": "https://www.tinyfish.ai/privacy-policy",
     "termos": "https://www.tinyfish.ai/terms"
   },
-  "conferidaEm": "2026-11-18",
+  "conferidaEm": "2026-11-27",
   "fontes": [
     "https://docs.tinyfish.ai/mcp-integration",
     "https://agent.tinyfish.ai/.well-known/oauth-protected-resource/mcp"
   ],
+  "aviso": "Busca e leitura têm cota grátis diária; as outras ações gastam o saldo em dinheiro da sua conta, e o agente navega e clica em sites por você.",
   "tipos": [
     {
       "id": "tinyfish.oficial_oauth",
@@ -33,17 +34,21 @@
         {
           "id": "usar",
           "rotulo": "Usar com a sua conta",
-          "escopos": [],
+          "escopos": [
+            "openid",
+            "profile",
+            "email",
+            "offline_access"
+          ],
           "padrao": true,
-          "disponivel": false
+          "disponivel": true,
+          "imposicao": "filtro"
         }
       ],
       "recomendado": true,
-      "disponivel": false,
-      "motivoIndisponivel": "O TinyFish não oferece um modo só de leitura; entra depois do filtro de ações perigosas."
+      "disponivel": true
     }
   ],
-  "emBreve": "O fornecedor não impõe leitura: entra depois do filtro de ações perigosas.",
   "skillsOficiais": [
     {
       "url": "https://github.com/tinyfish-io/tinyfish-web-agent-integrations/tree/main/skills",

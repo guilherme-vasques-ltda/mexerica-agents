@@ -2,7 +2,7 @@
   "id": "stripe",
   "nome": "Stripe",
   "categoria": "Finanças e pagamentos",
-  "descricao": "Acessa a API do Stripe para consultar pagamentos, assinaturas e clientes e executar ações de cobrança e movimentação de dinheiro.",
+  "descricao": "Consulte pagamentos, assinaturas e clientes do Stripe; as ações que mexem com dinheiro só rodam depois que você liga.",
   "exemplos": [
     "Quanto recebi no Stripe esta semana?",
     "Liste as assinaturas que cancelaram este mês"
@@ -13,13 +13,13 @@
     "privacidade": "https://stripe.com/privacy",
     "termos": "https://stripe.com/legal"
   },
-  "conferidaEm": "2026-11-18",
+  "conferidaEm": "2026-11-27",
   "fontes": [
     "https://docs.stripe.com/mcp",
-    "https://access.stripe.com/mcp/oauth2/register",
+    "https://mcp.stripe.com/.well-known/oauth-protected-resource",
     "https://access.stripe.com/.well-known/oauth-authorization-server/mcp"
   ],
-  "aviso": "Mexe com dinheiro (cobranças, reembolsos e transferências); só entra com o filtro de ações perigosas.",
+  "aviso": "Mexe com dinheiro (cobranças, reembolsos e transferências); cada ação só age depois que você liga.",
   "tipos": [
     {
       "id": "stripe.oficial_oauth",
@@ -34,18 +34,19 @@
       "grupos": [
         {
           "id": "usar",
-          "rotulo": "Usar com a sua conta",
-          "escopos": [],
+          "rotulo": "Usar a conta (ações desligadas)",
+          "escopos": [
+            "mcp"
+          ],
           "padrao": true,
-          "disponivel": false
+          "disponivel": true,
+          "imposicao": "filtro"
         }
       ],
       "recomendado": true,
-      "disponivel": false,
-      "motivoIndisponivel": "O Stripe não oferece um modo só de leitura; entra depois do filtro de ações perigosas."
+      "disponivel": true
     }
   ],
-  "emBreve": "O fornecedor não impõe leitura: entra depois do filtro de ações perigosas.",
   "skillsOficiais": [
     {
       "url": "https://github.com/stripe/ai/tree/main/skills",
