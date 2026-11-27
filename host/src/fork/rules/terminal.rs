@@ -3,6 +3,8 @@ use super::{
     floor::Efeito,
     rule::{ApprovalLevel, Campo, Effect, Rule},
 };
+#[cfg(unix)]
+pub(crate) mod executor;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Action {
@@ -17,7 +19,7 @@ pub(crate) enum Action {
     Send,
     Pay,
     Commit,
-    Push,
+    PushFastForward,
     OpenPullRequest,
 }
 
@@ -35,13 +37,13 @@ impl Action {
             Self::Send => ("enviar", Efeito::EnviarNoComputadorDoDono),
             Self::Pay => ("pagar", Efeito::MoverDinheiro),
             Self::Commit => ("git_commit", Efeito::ComumComprovado),
-            Self::Push => ("git_push", Efeito::ComumComprovado),
+            Self::PushFastForward => ("git_push", Efeito::ComumComprovado),
             Self::OpenPullRequest => ("abrir_pr", Efeito::ComumComprovado),
         }
     }
 
     pub(crate) const fn allows_persistent_rule(self) -> bool {
-        matches!(self, Self::Commit | Self::Push | Self::OpenPullRequest)
+        matches!(self, Self::Commit | Self::PushFastForward | Self::OpenPullRequest)
     }
 }
 
@@ -110,7 +112,7 @@ mod tests {
         let rules = [rule("ferramenta", TOOL), rule("acao", "git_commit")];
         for (action, expected) in [
             (Action::Commit, Decisao::Permitir),
-            (Action::Push, Decisao::Perguntar),
+            (Action::PushFastForward, Decisao::Perguntar),
             (Action::OpenPullRequest, Decisao::Perguntar),
             (Action::Opaque, Decisao::Perguntar),
         ] {
