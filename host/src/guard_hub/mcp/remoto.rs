@@ -82,8 +82,15 @@ pub(super) async fn call(
     }
     if action == "donnaGuardRuntime" {
         if let Some((saved, _)) = local_snapshot {
-            if !matches!(method, "initialize" | "ping" | "tools/list" | "tools/call" |
-                "notifications/initialized" | "notifications/cancelled") {
+            if !matches!(
+                method,
+                "initialize"
+                    | "ping"
+                    | "tools/list"
+                    | "tools/call"
+                    | "notifications/initialized"
+                    | "notifications/cancelled"
+            ) {
                 return Ok(json!({"ruleDenied":true}));
             }
             if let Some(context) = &context {
@@ -108,11 +115,14 @@ pub(super) async fn call(
                     bridge,
                     request,
                     runtime::LocalDiscovery::Start { generation, paginated: !body["params"]["cursor"].is_null() },
-                )?.is_none() {
+                )?
+                .is_none()
+                {
                     return Ok(json!({"ruleDenied":true}));
                 }
             } else if method == "notifications/cancelled" {
-                let request = body["params"]["requestId"].as_str()
+                let request = body["params"]["requestId"]
+                    .as_str()
                     .filter(|id| uuid::Uuid::parse_str(id).is_ok())
                     .ok_or_else(|| anyhow!("Cancelamento MCP local inválido"))?;
                 runtime::local_discovery(namespace, connector, id, bridge, request, runtime::LocalDiscovery::Cancel)?;

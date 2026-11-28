@@ -704,15 +704,25 @@ async fn catalog_local_guard_filtra_descoberta_e_revalida_admissao() {
         let concurrent = request(fields.clone(), json!({"requestId":another}));
         assert_eq!(call(&hub, &Caller::Local, "donnaGuardRuntime", concurrent).await.unwrap()["ruleDenied"], true);
         for cancelled in [&another, &request_id] {
-            let cancellation = request(base.clone(), json!({
-                "method":"notifications/cancelled","params":{"requestId":cancelled},
-            }));
+            let cancellation = request(
+                base.clone(),
+                json!({
+                    "method":"notifications/cancelled","params":{"requestId":cancelled},
+                }),
+            );
             assert_eq!(call(&hub, &Caller::Local, "donnaGuardRuntime", cancellation).await.unwrap()["valid"], true);
             if cancelled == &another {
-                assert_eq!(call(&hub, &Caller::Local, "donnaGuardRuntime", fields.clone()).await.unwrap()["ruleDenied"], true);
+                assert_eq!(
+                    call(&hub, &Caller::Local, "donnaGuardRuntime", fields.clone()).await.unwrap()["ruleDenied"],
+                    true
+                );
             }
         }
-        assert!(call(&hub, &Caller::Local, "donnaGuardObserve", request(fields.clone(), json!({"frame":frame}))).await.is_err());
+        assert!(
+            call(&hub, &Caller::Local, "donnaGuardObserve", request(fields.clone(), json!({"frame":frame})))
+                .await
+                .is_err()
+        );
         assert_eq!(call(&hub, &Caller::Local, "donnaGuardRuntime", fields.clone()).await.unwrap()["valid"], true);
         let observed =
             call(&hub, &Caller::Local, "donnaGuardObserve", request(fields, json!({"frame":frame}))).await.unwrap();
