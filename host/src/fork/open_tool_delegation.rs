@@ -603,7 +603,13 @@ async fn work(
     };
     hub.set_runtime(&cfg.id, |r| r.status = BotStatus::Working);
     hub.emit_bot(&cfg.id);
-    let outcome = open_chat::delegated_turn(&ticket, &cfg.description, &prompt, &dispatch, stopped).await;
+    let outcome = match crate::fork::teto::open_gate(hub, "ask") {
+        Ok(()) => open_chat::delegated_turn(&ticket, &cfg.description, &prompt, &dispatch, stopped).await,
+        Err(error) => {
+            drop(stopped);
+            Err(error)
+        }
+    };
     let result =
         settle(&dispatch, &entries, outcome.ok(), || !source.background && sender.is_closed()).unwrap_or_else(|_| {
             tracing::warn!("conclusão da delegação local não registrada");

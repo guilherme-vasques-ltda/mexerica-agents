@@ -32,7 +32,7 @@ export function ConversaSettings() {
         </ValueRow>
       </CardSection>
       {/* DON-907 C4: lida e gravada no Hub (docs/reference/design/don-907-c4/README.md). */}
-      {!open && <LimitesDeUsoSection />}
+      <LimitesDeUsoSection />
       {/* DON-907 C5: o prazo é do Hub (docs/reference/design/don-907-c5/README.md). */}
       {!open && <ArquivarSozinhoSection />}
       {!open && <ContextoAjuste />}

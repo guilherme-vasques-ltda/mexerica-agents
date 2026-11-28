@@ -83,6 +83,7 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.avisos.open.politica": "The engine didn’t confirm the required isolation. Reply canceled.",
   "conversa.avisos.open.indisponivel": "Couldn’t open Codex in the Open profile. Check the account in AI accounts.",
   "conversa.avisos.open.falhou": "Codex couldn’t reply. If you asked it to take an action, check whether it happened before sending the request again.",
+  "conversa.avisos.open.teto": "The spending ceiling was reached or couldn’t be checked, so the reply didn’t start. Review the ceiling in Settings or try again.",
   "conversa.avisos.grupo.bloqueado": "The Hub couldn’t check this group’s pending messages when it restarted. The group stays blocked and nothing was delivered again. Restart the Hub after fixing the problem.",
   "conversa.avisos.grupo.emConferencia": "The Hub restarted before confirming delivery of this message to the group. It may already have reached some members and wasn’t resumed; check before sending it again.",
   "conversa.avisos.falha.cabecalho.naoSei": "Account: couldn't confirm",

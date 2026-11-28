@@ -413,6 +413,14 @@ pub(crate) fn run(
             crate::fork::open_chat_fila::finish(&hub, &bot);
             return;
         }
+        if let Err(error) = crate::fork::teto::conversation_gate(&hub) {
+            tracing::warn!(%error, "open turn recusado pelo teto");
+            let (code, text) = notice("open_chat_ceiling");
+            hub.add_entry(&lane, EntryKind::Notice, turn, &json!({"text": text, "code": code, "author": bot}));
+            mark_unsent(&hub, &entry_id, code, &account);
+            crate::fork::open_chat_fila::finish(&hub, &bot);
+            return;
+        }
         let alive = || matches!(hub.store.bot(&bot), Ok(Some(row)) if !row.deleted);
         if !alive() {
             crate::fork::open_chat_fila::finish(&hub, &bot);
@@ -505,6 +513,7 @@ pub(crate) async fn routine_turn(
     let Ticket { bot, account, directory, model, options, mut cancel, done, .. } = ticket;
     let instructions = instructions(hub, cfg);
     let outcome = async {
+        crate::fork::teto::open_gate(hub, "routine")?;
         let turn = hub.store.alloc_turn(&cfg.id)?;
         let mut reply = Stream::new(hub, &lane, turn, &bot);
         let result = {
@@ -579,6 +588,7 @@ async fn turn_in_profile(
     let stopped = cancel.clone();
     let cursor_key = format!("{key}.usage");
     let mut cursor = None;
+    let parcial = Mutex::<Parcial>::default();
     // O ponto em que o texto passa a ser entregue ao Codex: um `stop` aterrissado durante o lançamento e uma
     // exclusão que tenha passado são conferidos aqui, antes de o `turn/start` seguir.
     let before_text = |thread: &str| {
@@ -636,6 +646,7 @@ async fn turn_in_profile(
         authority.map(|proof| (hub.as_ref(), proof)),
         tools.as_ref(),
         browser.is_some(),
+        &parcial,
     )
     .await;
     drop(browser);
@@ -651,14 +662,19 @@ async fn turn_in_profile(
                 let mut efetivo = cfg.clone();
                 efetivo.model = concluido.model;
                 efetivo.fork_editor.engine_account_id = Some(account.to_owned());
-                if cursor.gravar(&hub.store, &efetivo, lane, reply.turn, concluido.thread, concluido.uso).is_err() {
-                    tracing::warn!("não foi possível gravar o uso do turno local");
+                if let Err(error) =
+                    cursor.gravar(&hub.store, &efetivo, lane, reply.turn, concluido.thread, concluido.uso)
+                {
+                    tracing::error!(%error, "não foi possível gravar o uso do turno local");
                 }
             }
             Ok(())
         }
         Err(error) => {
             reap(&mut rpc).await;
+            if let Some(cursor) = cursor {
+                gravar_parcial(hub, cfg, account, lane, reply.turn, cursor, &parcial);
+            }
             Err(error)
         }
     }
@@ -790,6 +806,7 @@ pub(super) async fn drive_delegated(
             true
         },
         Delivery::Delegated(dispatch),
+        &Mutex::default(),
     )
     .await?;
     let tokens = concluido.uso.and_then(|total| total.depois_de(uso::Contagem::default())).map(|usage| {
@@ -838,8 +855,9 @@ async fn turn_in_profile(
     bail!("open_codex_platform")
 }
 
-const NOTICE_CODES: [&str; 7] = [
+const NOTICE_CODES: [&str; 8] = [
     "open_chat_cancelled",
+    "open_chat_ceiling",
     "open_chat_too_long",
     "open_chat_tool_refused",
     "open_chat_timeout",
@@ -857,6 +875,9 @@ fn notice(message: &str) -> (&'static str, &'static str) {
         "open_chat_tool_refused" => "O motor tentou usar uma ferramenta indisponível neste turno. Resposta encerrada.",
         "open_chat_timeout" => {
             "O Codex demorou demais para responder. Se você pediu uma ação, confira se ela aconteceu antes de reenviar."
+        }
+        "open_chat_ceiling" => {
+            "O teto de gasto foi atingido ou não foi possível conferi-lo, então a resposta não foi iniciada. Revise o teto em Ajustes ou tente de novo."
         }
         "open_chat_too_long" => "A resposta passou do tamanho máximo e foi encerrada.",
         "open_chat_policy" => "A configuração do motor não confirmou o isolamento exigido. Resposta cancelada.",
@@ -923,6 +944,36 @@ impl Stream {
     }
 }
 
+/// O que um turno já informou quando termina antes de concluir: o último total de tokens, a thread e o modelo.
+#[derive(Default)]
+struct Parcial {
+    uso: Option<uso::Contagem>,
+    thread: Option<String>,
+    model: Option<String>,
+}
+
+/// Grava o consumo medido de um turno que terminou em erro ou cancelamento, para o teto contar o que já foi gasto.
+fn gravar_parcial(
+    hub: &Hub,
+    cfg: &BotConfig,
+    account: &str,
+    lane: &Lane,
+    turn: i64,
+    cursor: uso::Cursor<'_>,
+    parcial: &Mutex<Parcial>,
+) {
+    let parcial = parcial.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let (Some(total), Some(thread)) = (parcial.uso, parcial.thread.clone()) else {
+        return;
+    };
+    let mut efetivo = cfg.clone();
+    efetivo.model.clone_from(&parcial.model);
+    efetivo.fork_editor.engine_account_id = Some(account.to_owned());
+    if let Err(error) = cursor.gravar(&hub.store, &efetivo, lane, turn, thread, Some(total)) {
+        tracing::error!(%error, "não foi possível gravar o uso do turno interrompido");
+    }
+}
+
 #[derive(Debug)]
 struct TurnoConcluido {
     thread: String,
@@ -966,6 +1017,7 @@ async fn drive(
         authority,
         tools,
         browser,
+        &Mutex::default(),
     )
     .await
 }
@@ -986,6 +1038,7 @@ async fn drive_input(
     authority: Option<(&Hub, &Autoridade)>,
     tools: Option<&super::open_tools::Turn<'_>>,
     browser: bool,
+    parcial: &Mutex<Parcial>,
 ) -> Result<TurnoConcluido> {
     drive_inner(
         rpc,
@@ -999,6 +1052,7 @@ async fn drive_input(
         on_sent,
         on_delta,
         Delivery::Chat(authority, tools, browser),
+        parcial,
     )
     .await
 }
@@ -1022,6 +1076,7 @@ async fn drive_inner(
     on_sent: impl FnOnce(),
     mut on_delta: impl FnMut(&str) -> bool,
     delivery: Delivery<'_>,
+    parcial: &Mutex<Parcial>,
 ) -> Result<TurnoConcluido> {
     let delegated = matches!(&delivery, Delivery::Delegated(_));
     let (tools, browser) = match &delivery {
@@ -1111,6 +1166,11 @@ async fn drive_inner(
             .ok_or_else(|| anyhow!("open_chat_failed"))?
             .to_owned();
         let model = started["model"].as_str().filter(|id| !id.is_empty() && id.len() <= 128).map(str::to_owned);
+        {
+            let mut parcial = parcial.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            parcial.thread = Some(thread.clone());
+            parcial.model.clone_from(&model);
+        }
         before_text(&thread)?;
         let mut params = json!({"threadId": thread, "input": input});
         if let Some(effort) =
@@ -1204,6 +1264,7 @@ async fn drive_inner(
             match message["method"].as_str().unwrap_or_default() {
                 "thread/tokenUsage/updated" if params["threadId"] == thread && params["turnId"] == turn_id => {
                     uso = uso::Contagem::do_protocolo(&params["tokenUsage"]["total"]);
+                    parcial.lock().unwrap_or_else(std::sync::PoisonError::into_inner).uso = uso;
                 }
                 "account/rateLimits/updated" if params["rateLimits"]["limitId"] == "codex" => {
                     let now = crate::store::now_ms();
