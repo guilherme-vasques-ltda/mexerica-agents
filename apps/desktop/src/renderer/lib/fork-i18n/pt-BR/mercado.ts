@@ -168,6 +168,7 @@ export const textos = {
   "mercado.salva.titulo": "{conta}: chave salva, não verificada",
   "mercado.salva.sub": "A chave está guardada no cofre do Hub, mas nada a testou ainda. A conta continua desligada em todos os bots.",
   "mercado.salva.concluir": "Concluir",
+  "mercado.aviso.botNaoAtualizado": "A chave foi salva, mas não deu para avisar todos os bots agora. Eles pegam a chave na próxima atualização das ferramentas.",
   "mercado.minhas.entrou": "Entrou com a conta",
   "mercado.minhas.chave": "Chave de acesso",
   "mercado.minhas.mcp": "Seu, não verificado",

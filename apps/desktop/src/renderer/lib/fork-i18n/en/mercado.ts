@@ -171,6 +171,7 @@ export const textos: Traducao<typeof fonte> = {
   "mercado.salva.titulo": "{conta}: key saved, not verified",
   "mercado.salva.sub": "The key is stored in the Hub vault, but nothing has tested it yet. The account stays off in all bots.",
   "mercado.salva.concluir": "Done",
+  "mercado.aviso.botNaoAtualizado": "The key was saved, but not every bot could be notified right now. They pick it up on the next tools refresh.",
   "mercado.minhas.entrou": "Signed in with the account",
   "mercado.minhas.chave": "Access key",
   "mercado.minhas.mcp": "Yours, unverified",

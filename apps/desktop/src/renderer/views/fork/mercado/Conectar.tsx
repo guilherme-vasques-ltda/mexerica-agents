@@ -60,6 +60,7 @@ function Salva({ fluxo, aoConcluir }: { fluxo: FluxoConectar; aoConcluir: () => 
               <Text size="callout" tone="secondary">{t('mercado.salva.sub')}</Text>
             </VStack>
           </div>
+          {fluxo.aviso ? <Aviso>{t('mercado.aviso.botNaoAtualizado')}</Aviso> : null}
         </div>
       </div>
       <div className="mercado-rodape">
@@ -401,6 +402,7 @@ function Pronto({ fluxo, conta, usarNosBots, aoConcluir }: { fluxo: FluxoConecta
               <Text size="callout" tone="secondary">{conta?.identidade ? t('mercado.pronto.sub', { identidade: conta.identidade }) : t('mercado.pronto.subSem')}</Text>
             </VStack>
           </div>
+          {fluxo.aviso ? <Aviso>{t('mercado.aviso.botNaoAtualizado')}</Aviso> : null}
           <SkillsSugeridas servico={fluxo.servico} />
         </div>
         <aside className="mercado-ficha-lateral">

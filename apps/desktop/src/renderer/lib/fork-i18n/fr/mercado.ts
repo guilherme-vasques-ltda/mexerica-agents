@@ -171,6 +171,7 @@ export const textos: Traducao<typeof fonte> = {
   "mercado.salva.titulo": "{conta} : clé enregistrée, non vérifiée",
   "mercado.salva.sub": "La clé est stockée dans le coffre du Hub, mais personne ne l'a encore testée. Le compte reste désactivé pour tous les bots.",
   "mercado.salva.concluir": "Terminer",
+  "mercado.aviso.botNaoAtualizado": "La clé est enregistrée, mais tous les bots n'ont pas pu être prévenus pour l'instant. Ils la prendront à la prochaine actualisation des outils.",
   "mercado.minhas.entrou": "Connecté avec le compte",
   "mercado.minhas.chave": "Clé d’accès",
   "mercado.minhas.mcp": "À vous, non vérifié",

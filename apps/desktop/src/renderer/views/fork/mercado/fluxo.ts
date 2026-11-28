@@ -15,7 +15,7 @@ export interface Dependencias {
   /** `connectorVerify`: devolve o estado que o Hub achou. */
   verificar(id: string): Promise<{ status: string }>
   /** `credentialUpdateConnector`: guarda a chave no cofre do Hub (nunca na tela); verified: false é chave só guardada. */
-  guardarChave(id: string, campos: Record<string, string>): Promise<{ verified?: boolean } | null | undefined>
+  guardarChave(id: string, campos: Record<string, string>): Promise<{ verified?: boolean; aviso?: string | null } | null | undefined>
   /** Relê catálogo e contas depois de cada escrita. */
   reler(): Promise<void>
 }
@@ -53,6 +53,8 @@ export class FluxoConectar extends Observable {
   /** A chave que o fornecedor recusou, ou o login que falhou: o passo de "Entrar" fala disso. */
   falhaDeEntrada: string | null = null
   conta: Conta | null = null
+  /** A chave ficou salva, mas o Hub não conseguiu avisar algum bot: a tela diz isso em vez de falhar. */
+  aviso: string | null = null
   ocupado = false
   appProprio: AppProprio | null = null
   erroAppProprio = false
@@ -187,6 +189,7 @@ export class FluxoConectar extends Observable {
       return
     }
     this.ocupado = false
+    this.aviso = guardada?.aviso ?? null
     if (guardada?.verified === false) {
       await this.deps.reler().catch(() => undefined)
       this.passo = 'salva'; this.changed()

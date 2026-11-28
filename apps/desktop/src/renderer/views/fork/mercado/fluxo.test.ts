@@ -259,3 +259,18 @@ test('chave salva sem verificação (verified: false) vai a "salva", nunca a "pr
   await f.cancelar()
   assert.equal(chamadas.some((c) => c.metodo === 'marketContaDesconectar'), false)
 })
+
+test('aviso do Hub depois de gravar a chave aparece no fluxo sem virar erro de gravação', async () => {
+  const s = ficha([])
+  const { deps } = montar(
+    (c) => (c.metodo === 'marketConectar' ? { connector: conta('stripe-5', 'Stripe', 'stripe', { auth: 'signedOut' }), proximoPasso: 'chave' } : { removed: true, bots: [], revogadoNoFornecedor: false }),
+    { guardarChave: async () => ({ verified: false, aviso: 'bot_nao_atualizado' }) },
+  )
+  const tipo = { ...s.tipos[0], auth: { modo: 'chave', nome: 'Authorization', prefixo: 'Bearer ' } } as unknown as typeof s.tipos[0]
+  const f = new FluxoConectar(s, tipo, deps)
+  await f.confirmar()
+  await f.enviarChave('segredo-de-teste')
+  assert.equal(f.passo, 'salva')
+  assert.equal(f.aviso, 'bot_nao_atualizado')
+  assert.equal(f.falhaDeEntrada, null)
+})

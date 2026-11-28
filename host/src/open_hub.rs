@@ -126,8 +126,6 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
         | "marketAppProprioSalvar"
         | "marketAppProprioRemover"
         | "connectors"
-        | "connectorSignIn"
-        | "connectorSignInFinish"
         | "credentialUpdateConnector"
         | "removeConnector"
         | "marketBotContas"
@@ -427,7 +425,7 @@ mod tests {
         }
     }
 
-    const CONECTORES: [&str; 25] = [
+    const CONECTORES: [&str; 23] = [
         "marketPersonalizado",
         "marketServico",
         "marketContas",
@@ -440,8 +438,6 @@ mod tests {
         "marketAppProprioSalvar",
         "marketAppProprioRemover",
         "connectors",
-        "connectorSignIn",
-        "connectorSignInFinish",
         "credentialUpdateConnector",
         "installConnector",
         "marketBotContas",
@@ -472,9 +468,15 @@ mod tests {
                 assert!(!open_allows(&Caller::Local, method, &body), "{method} por comando é shell: {body}");
             }
         }
-        for method in
-            ["importConnectors", "connectorTarget", "connectorCall", "connectorVerify", "credentialSetOnePassword"]
-        {
+        for method in [
+            "importConnectors",
+            "connectorTarget",
+            "connectorCall",
+            "connectorVerify",
+            "connectorSignIn",
+            "connectorSignInFinish",
+            "credentialSetOnePassword",
+        ] {
             assert!(!open_allows(&Caller::Local, method, &json!({})), "{method} continua fechado");
         }
     }

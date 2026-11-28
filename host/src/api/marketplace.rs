@@ -46,7 +46,12 @@ pub(super) async fn call(
             })?;
             // A chave já está gravada: falha ao avisar um bot é aviso, nunca erro de gravação.
             let mut aviso = None;
-            for row in hub.store.bots()? {
+            let bots = hub.store.bots().unwrap_or_else(|error| {
+                tracing::warn!(%error, "chave salva; lista de bots indisponível para atualizar as ferramentas");
+                aviso = Some("bot_nao_atualizado");
+                Vec::new()
+            });
+            for row in bots {
                 if !row.deleted
                     && !row.config.is_group()
                     && row.config.connectors.iter().any(|c| c == id)

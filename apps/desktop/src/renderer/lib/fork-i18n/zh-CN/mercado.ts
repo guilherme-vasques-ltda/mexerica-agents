@@ -171,6 +171,7 @@ export const textos: Traducao<typeof fonte> = {
   "mercado.salva.titulo": "{conta}：密钥已保存，未验证",
   "mercado.salva.sub": "密钥已存入 Hub 保险库，但尚未经过测试。该账户对所有机器人仍保持关闭。",
   "mercado.salva.concluir": "完成",
+  "mercado.aviso.botNaoAtualizado": "密钥已保存，但暂时无法通知所有机器人。它们会在下次刷新工具时获取。",
   "mercado.minhas.entrou": "通过账号登录",
   "mercado.minhas.chave": "访问密钥",
   "mercado.minhas.mcp": "你自己的，未验证",

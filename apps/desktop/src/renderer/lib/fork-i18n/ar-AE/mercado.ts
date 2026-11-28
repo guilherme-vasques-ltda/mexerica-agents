@@ -171,6 +171,7 @@ export const textos: Traducao<typeof fonte> = {
   "mercado.salva.titulo": "{conta}: تم حفظ المفتاح دون التحقق منه",
   "mercado.salva.sub": "المفتاح محفوظ في خزنة الـ Hub لكن لم يُختبر بعد. يبقى الحساب متوقفًا لدى كل الروبوتات.",
   "mercado.salva.concluir": "إنهاء",
+  "mercado.aviso.botNaoAtualizado": "تم حفظ المفتاح، لكن تعذّر إخطار كل الروبوتات الآن. ستحصل عليه عند التحديث التالي للأدوات.",
   "mercado.minhas.entrou": "دخل بالحساب",
   "mercado.minhas.chave": "مفتاح وصول",
   "mercado.minhas.mcp": "خاص بك وغير موثّق",
