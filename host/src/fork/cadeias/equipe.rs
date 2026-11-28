@@ -5,8 +5,8 @@ use super::{
     modelo::{Escopo, Origem, Pedido, Recibo, Recusa, Tipo},
     store,
 };
-use crate::fork::sessoes::{ExecutionRef, bindings};
-use anyhow::{Result, anyhow};
+use crate::fork::sessoes::{ExecutionRef, bindings, store::SessionRef};
+use anyhow::{Result, anyhow, ensure};
 use rusqlite::{Connection, OptionalExtension, params};
 
 /// Preparada fora da Tx: IDs candidatos e digest da intenção. O recibo anterior vem
@@ -100,6 +100,28 @@ pub(crate) fn admitir_na(
         (None, Some(execution)) => raiz(c, e, space_id, execution)?,
         (None, None) => return Ok(None),
     };
+    Ok(Some(admitir_filho(c, e, space_id, anterior)?))
+}
+
+pub(crate) fn admitir_open_na(
+    c: &Connection,
+    e: &Entrada,
+    space: &str,
+    session: &SessionRef,
+    reference: &str,
+) -> Result<Recibo> {
+    ensure!(e.anterior.is_none() && e.espera, "retorno_origem_invalida");
+    let escopo = Escopo::TurnoHubOpen {
+        bot_id: e.de.clone(),
+        space_id: space.into(),
+        chat_id: session.chat_id.clone(),
+        session_id: session.id.clone(),
+    };
+    let anterior = admitir_raiz(c, e, reference.to_owned(), escopo)?;
+    admitir_filho(c, e, Some(space), anterior)
+}
+
+fn admitir_filho(c: &Connection, e: &Entrada, space_id: Option<&str>, anterior: Recibo) -> Result<Recibo> {
     // O repasse conserva a fonte real da raiz (Rotina agendada/manual ou turno interno).
     let sql = "SELECT source FROM donna_chain_roots WHERE id=?1 AND version=1";
     let source: Option<String> = c.query_row(sql, [&anterior.chain_id], |row| row.get(0)).optional()?;
@@ -125,7 +147,7 @@ pub(crate) fn admitir_na(
             de: e.de.clone(),
         },
     };
-    Ok(Some(store::admit(c, &pedido)?.map_err(RecusaEquipe)?))
+    Ok(store::admit(c, &pedido)?.map_err(RecusaEquipe)?)
 }
 
 /// Uma raiz por execução ACP: chamadas irmãs do mesmo turno reencontram o mesmo
@@ -140,6 +162,10 @@ fn raiz(c: &Connection, e: &Entrada, space_id: Option<&str>, execution: &Executi
         chat_id: session.chat_id,
         session_id: session.id,
     };
+    admitir_raiz(c, e, ocorrencia, escopo)
+}
+
+fn admitir_raiz(c: &Connection, e: &Entrada, ocorrencia: String, escopo: Escopo) -> Result<Recibo> {
     let pedido = Pedido {
         tipo: Tipo::Raiz,
         evento: ocorrencia.clone(),
@@ -160,6 +186,40 @@ fn raiz(c: &Connection, e: &Entrada, space_id: Option<&str>, execution: &Executi
     Ok(store::admit(c, &pedido)?.map_err(RecusaEquipe)?)
 }
 
+pub(crate) fn despachar_open_na(c: &Connection, r: &Recibo) -> Result<()> {
+    ensure!(store::receipt(c, &r.admission_id)?.as_ref() == Some(r), Recusa::ReciboInvalido);
+    let changed = c.execute(
+        "UPDATE donna_chain_admissions AS a SET phase='sending'
+         WHERE a.id=?1 AND a.phase='reserved' AND a.kind='delegation' AND a.routine_id IS NULL
+           AND json_extract(a.scope,'$.kind')='pedido_entre_bots'
+           AND EXISTS(SELECT 1 FROM donna_chain_roots root JOIN donna_session_requests req ON req.chain_id=root.id
+               WHERE root.id=a.chain_id AND root.version=1 AND root.source='internal'
+                 AND json_extract(root.scope,'$.kind')='turno_hub_open'
+                 AND req.schema_version=1 AND req.state='accepted' AND req.attempt=1 AND req.fence=1
+                 AND req.requester_execution_ref=root.run_id AND req.requester_bot_id=root.bot_id
+                 AND req.requester_bot_id=json_extract(a.scope,'$.de')
+                 AND req.id=a.run_id AND req.admission_id=a.id AND req.target_bot_id=a.bot_id)",
+        [&r.admission_id],
+    )?;
+    ensure!(changed == 1, Recusa::EnvioPossivel);
+    Ok(())
+}
+
+pub(crate) fn recuperar_open_na(c: &Connection) -> Result<()> {
+    c.execute(
+        "UPDATE donna_chain_admissions AS a SET phase='finished'
+         WHERE a.phase IN ('reserved','sending') AND a.kind='delegation'
+           AND EXISTS(SELECT 1 FROM donna_chain_roots root JOIN donna_session_requests req ON req.chain_id=root.id
+               WHERE root.id=a.chain_id AND root.version=1
+                 AND json_extract(root.scope,'$.kind')='turno_hub_open'
+                 AND req.schema_version=1 AND req.id=a.run_id AND req.admission_id=a.id
+                 AND req.target_bot_id=a.bot_id AND req.state='interrupted'
+                 AND req.end_reason IN ('restart_before_start','restart_uncertain'))",
+        [],
+    )?;
+    Ok(())
+}
+
 /// Predecessor aceito no ramo MCP: recibo coerente de Rotina/raiz (consulta original
 /// do produtor) ou repasse MCP exato. Sempre do próprio remetente; nunca de Rotina nova.
 pub(super) fn predecessor_valido(c: &Connection, r: &Recibo, p: &Pedido) -> Result<bool> {
@@ -172,14 +232,16 @@ pub(super) fn predecessor_valido(c: &Connection, r: &Recibo, p: &Pedido) -> Resu
     {
         return Ok(false);
     }
-    if store::contexto(c, r)?.is_some() {
-        return Ok(true);
+    if let Some(context) = store::contexto(c, r)? {
+        return Ok(!matches!(context.escopo, Escopo::TurnoHubOpen { .. })
+            || (p.origem == Origem::Interna && r.run_id.starts_with("hub-open:")));
     }
     Ok(c.query_row(
         "SELECT EXISTS(SELECT 1 FROM donna_chain_admissions a
          JOIN donna_chain_roots root ON root.id=a.chain_id AND root.version=1
          WHERE a.id=?1 AND a.chain_id=?2 AND a.run_id=?3 AND a.bot_id=?4 AND a.level=?5 AND a.ordinal=?6
            AND a.kind='delegation' AND a.routine_id IS NULL
+           AND json_extract(root.scope,'$.kind')<>'turno_hub_open'
            AND json_extract(a.scope,'$.kind')='pedido_entre_bots' AND json_extract(a.scope,'$.bot_id')=a.bot_id)",
         params![r.admission_id, r.chain_id, r.run_id, r.bot_id, r.level, r.ordinal],
         |row| row.get(0),

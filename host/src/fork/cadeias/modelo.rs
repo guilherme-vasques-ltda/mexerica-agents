@@ -64,6 +64,12 @@ pub(crate) enum Escopo {
         chat_id: String,
         session_id: String,
     },
+    TurnoHubOpen {
+        bot_id: String,
+        space_id: String,
+        chat_id: String,
+        session_id: String,
+    },
     /// Rotina criada durante execução ancestral; só o consumidor especializado admite.
     RotinaDescendente {
         bot_id: String,

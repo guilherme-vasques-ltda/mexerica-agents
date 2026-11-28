@@ -188,15 +188,30 @@ impl Produtor {
 }
 
 /// Pedido capturado na Tx da admissão Team.
-pub(crate) struct NovoPedido<'a> {
+pub(crate) struct NovoPedido<'a, E = &'a ExecutionRef> {
     pub id: &'a str,
     pub modo: Modo,
     pub de: &'a str,
     pub para: &'a str,
-    pub execucao: &'a ExecutionRef,
+    pub execucao: E,
     pub recibo: &'a Recibo,
     pub aviso_origem: &'a str,
     pub aviso_destino: &'a str,
+}
+
+impl<'a, E> NovoPedido<'a, E> {
+    pub(crate) fn com_execucao<T>(self, execucao: T) -> NovoPedido<'a, T> {
+        NovoPedido {
+            id: self.id,
+            modo: self.modo,
+            de: self.de,
+            para: self.para,
+            execucao,
+            recibo: self.recibo,
+            aviso_origem: self.aviso_origem,
+            aviso_destino: self.aviso_destino,
+        }
+    }
 }
 
 /// Como o turno do destinatário terminou, a partir da resposta final do `session/prompt`.
@@ -233,11 +248,24 @@ pub(crate) fn aceitar_na(c: &Connection, p: &NovoPedido<'_>) -> Result<()> {
     let origem = bindings::assert_execution_live(c, p.execucao)?;
     let binding = p.execucao.acp_binding().ok_or_else(|| anyhow!("chamada vencida"))?;
     ensure!(bindings::resolve(c, binding, p.de)?.session_ref == origem, "retorno_origem_invalida");
+    aceitar_validado_na(c, p, &origem, &referencia(binding, p.execucao.turn_token())?)
+}
+
+pub(crate) fn aceitar_open_na(c: &Connection, p: &NovoPedido<'_, (&SessionRef, &str)>) -> Result<()> {
+    let (origem, referencia) = p.execucao;
+    ensure!(
+        origem.id == p.de && origem.chat_id == p.de && referencia.starts_with("hub-open:"),
+        "retorno_origem_invalida"
+    );
+    aceitar_validado_na(c, p, origem, referencia)
+}
+
+fn aceitar_validado_na<E>(c: &Connection, p: &NovoPedido<'_, E>, origem: &SessionRef, reference: &str) -> Result<()> {
     let alvo = sessoes::get(c, p.para)?
         .filter(|s| s.principal && s.chat_id == p.para && s.state == "open" && s.runs_on.is_none())
         .map(|s| SessionRef { id: s.id, chat_id: s.chat_id })
         .ok_or_else(|| anyhow!("retorno_destino_indisponivel"))?;
-    ensure!(sessoes::session_ref_of_entry(c, &origem.chat_id, p.aviso_origem)? == origem, "retorno_aviso_invalido");
+    ensure!(&sessoes::session_ref_of_entry(c, &origem.chat_id, p.aviso_origem)? == origem, "retorno_aviso_invalido");
     ensure!(sessoes::session_ref_of_entry(c, &alvo.chat_id, p.aviso_destino)? == alvo, "retorno_aviso_invalido");
     ensure!(p.recibo.bot_id == p.para && p.recibo.run_id == p.id, "retorno_cadeia_invalida");
     let now = now_ms();
@@ -253,7 +281,7 @@ pub(crate) fn aceitar_na(c: &Connection, p: &NovoPedido<'_>) -> Result<()> {
             p.de,
             origem.chat_id,
             origem.id,
-            referencia(binding, p.execucao.turn_token())?,
+            reference,
             p.para,
             alvo.chat_id,
             alvo.id,
@@ -323,6 +351,19 @@ pub(crate) enum Conclusao {
 /// Conclusão real com CAS por estado, tentativa e cerca. Repetição idêntica devolve o mesmo
 /// recibo; divergente conflita. Callback vencido ou pedido decidido não altera nada.
 pub(crate) fn concluir_na(c: &Connection, t: &Termino) -> Result<Conclusao> {
+    concluir_com_produtor_na(c, t, None)
+}
+
+pub(crate) fn concluir_open_na(
+    c: &Connection,
+    t: &Termino,
+    produtor: &crate::fork::open_tool_delegation::OpenProducer<'_>,
+) -> Result<Conclusao> {
+    let reference = produtor.reference_on(c, t)?;
+    concluir_com_produtor_na(c, t, Some(reference))
+}
+
+fn concluir_com_produtor_na(c: &Connection, t: &Termino, open: Option<String>) -> Result<Conclusao> {
     let aberto = c
         .query_row(
             "SELECT r.state,r.fence,r.attempt,r.target_bot_id,r.target_chat_id,r.target_session_id,p.delivery_state
@@ -356,7 +397,7 @@ pub(crate) fn concluir_na(c: &Connection, t: &Termino) -> Result<Conclusao> {
             .filter(|b| b.session_ref == alvo)
             .map(|b| referencia(b.id.as_str(), &p.turn_token))
             .transpose()?,
-        None => None,
+        None => open,
     };
     let (conteudo, entrada) = match &t.fim.conteudo {
         Conteudo::Entrada(id) => {
@@ -440,6 +481,8 @@ pub(crate) fn recuperar_na(c: &Connection) -> Result<usize> {
            updated_at=?1 WHERE schema_version=1 AND state='running'",
         [now],
     )?;
+    super::cadeias::equipe::recuperar_open_na(c)?;
+    super::open_tool_delegation::recover_notices_on(c)?;
     Ok(antes + incertos)
 }
 
@@ -540,7 +583,7 @@ fn gravar(store: &Store, pedido: &str, bot: &str, fence: i64, fim: Encerramento)
     })
 }
 
-fn com_tx<T>(store: &Store, change: impl FnOnce(&Connection) -> Result<T>) -> Result<T> {
+pub(crate) fn com_tx<T>(store: &Store, change: impl FnOnce(&Connection) -> Result<T>) -> Result<T> {
     let mut c = store.db.locked();
     let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let out = change(&tx)?;

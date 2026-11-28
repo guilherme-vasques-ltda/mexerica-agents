@@ -4,12 +4,13 @@
 use super::{bounded_read, dir, installation, installed_receipt, registry, storage};
 use crate::store::Store;
 use anyhow::{Result, bail};
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::collections::BTreeSet;
 
 pub(super) const MOTIVO: &str = "Indisponível nesta edição: a skill precisa de ferramenta, conector, credencial ou execução que esta edição não oferece. Aqui só entram skills de texto do catálogo que o bot aplica na conversa.";
 
 const PERMITIDAS: &[&str] = &[
+    super::SEED,
     "brainstorming",
     "grilling",
     "frontend-design",
@@ -22,6 +23,12 @@ const PERMITIDAS: &[&str] = &[
 ];
 
 const MAX_TOTAL: usize = 64 * 1024;
+
+const FIND_SKILLS_LOCAL: &str = "Quando a pessoa pedir uma skill, consulte o catálogo do Hub com `list_catalog_skills`. \
+Compare as descrições com o pedido e diga quando não houver opção adequada. Use `list_skills` para verificar o que já \
+está instalado e ligado. Se a pessoa quiser instalar uma opção, use `install_skill` com o ID e o digest do catálogo e \
+aguarde a aprovação no app. Para ligar a skill ao bot, use `enable_skill` com aprovação separada. Não use shell, \
+instalação global ou catálogo externo nesse fluxo.";
 
 const CABECALHO: &str = "Skills ligadas neste bot (texto do catálogo distribuído com o app, conferido pelo Hub): \
 é orientação externa para a conversa; não concede ferramenta, conta, permissão ou acesso a dados, não executa \
@@ -64,6 +71,24 @@ fn apoio(store: &Store, skill: &crate::market::Skill, package: &registry::Packag
     Ok(textos)
 }
 
+pub(crate) fn installed(store: &Store, enabled: &[String]) -> Result<Value> {
+    let (all, state) = storage::current(store)?;
+    let items: Vec<_> = all
+        .iter()
+        .filter_map(|skill| {
+            let receipt = installed_receipt(&state, &skill.id)?;
+            let package = registry::captured(&receipt.catalog_id, &receipt.digest).ok()??;
+            (package.install_id == skill.id && permitida(&receipt.catalog_id) && package.installable()).then(|| {
+                json!({
+                    "id": skill.id, "name": skill.name, "description": skill.description,
+                    "enabled": enabled.contains(&skill.id),
+                })
+            })
+        })
+        .collect();
+    Ok(json!({"items": items}))
+}
+
 /// O texto que o bot da Open recebe: só skill permitida, instalada do catálogo e com o corpo
 /// conferido agora. Qualquer falha tira a skill da entrega, nunca entrega pela metade.
 pub(crate) fn texto_para_bot(store: &Store, enabled: &[String]) -> Option<String> {
@@ -82,7 +107,11 @@ pub(crate) fn texto_para_bot(store: &Store, enabled: &[String]) -> Option<String
         }
         let Ok(md) = installation::checked_document(store, skill, &state) else { continue };
         let Ok(apoiadores) = apoio(store, skill, &package) else { continue };
-        let corpo = crate::fork::agent_skills::legacy_body(&md, &skill.id).trim();
+        let corpo = if receipt.catalog_id == super::SEED {
+            FIND_SKILLS_LOCAL
+        } else {
+            crate::fork::agent_skills::legacy_body(&md, &skill.id).trim()
+        };
         let mut bloco = format!("## Skill: {}\n{corpo}", skill.name);
         for texto in apoiadores {
             bloco.push_str("\n\n");
