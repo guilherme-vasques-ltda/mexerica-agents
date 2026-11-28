@@ -7,6 +7,7 @@ import { Icon } from '../../../components/Icon'
 import { HStack, VStack } from '../../../components/Stack'
 import { Text } from '../../../components/Text'
 import { useT } from '../../../lib/fork-i18n/estado'
+import { extensoesSomenteCatalogo } from '../extensoes/tela.ts'
 import type { PedidoPersonalizado } from './api.ts'
 import { pedidoDoPersonalizado, type ModoPersonalizado as Modo } from './regras.ts'
 import { Aviso, Erro, frasesDaRecusa } from './pecas'
@@ -51,7 +52,7 @@ export function Personalizado({ adicionar, aoCancelar, aoAdicionado }: {
             <Text as="h3" size="headline" weight="semibold" tone="text">{t('personalizado.oque')}</Text>
             <HStack gap={12}>
               <div className="mercado-segmentos" role="radiogroup" aria-label={t('personalizado.modo.rotulo')}>
-                {(['link', 'comando'] as const).map((m) => (
+                {(extensoesSomenteCatalogo() ? ['link'] as const : ['link', 'comando'] as const).map((m) => (
                   <button key={m} role="radio" aria-checked={modo === m} className="mercado-segmento" onClick={() => { setModo(m); setErro(null) }}>
                     <Text size="callout" weight="medium">{t(m === 'link' ? 'personalizado.modo.link' : 'personalizado.modo.comando')}</Text>
                   </button>
