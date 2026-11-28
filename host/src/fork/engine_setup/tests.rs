@@ -54,8 +54,10 @@ struct Fixture {
 }
 impl Fixture {
     fn new() -> Self {
+        Self::with_store(Store::open(std::path::Path::new(":memory:")).unwrap())
+    }
+    fn with_store(store: Store) -> Self {
         use crate::remote::identity::Identity;
-        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
         let root = store.engine_setup_root.clone();
         std::fs::create_dir_all(&root).unwrap();
         let identity = Identity::load_or_create(&root).unwrap();
@@ -1893,11 +1895,13 @@ async fn mx6_modelos_ocultos_pela_intencao_com_revisao_idempotencia_e_remocao() 
     assert!(registry.accounts.iter().all(|a| a.hidden_model_ids.is_empty()));
 }
 
-/// Perfil antigo (sem conta gerenciada): "Excluir" só vale desconectado e só tira o registro da lista; o diretório do
-/// perfil do computador (login) não é tocado, e conectado/revisão errada/cofre seguem preservados.
 #[tokio::test]
 async fn remover_conta_apaga_so_o_uso_e_as_cotas_dela() {
-    let f = Fixture::new();
+    use crate::fork::{custo, teto};
+
+    let dir = tempfile::tempdir().unwrap();
+    let caminho = dir.path().join("contas.db");
+    let f = Fixture::with_store(Store::open(&caminho).unwrap());
     let conta = f.create("codex", "cli", "remover-uso").await;
     let preservada = f.create("codex", "cli", "manter-uso").await;
     let id = conta["id"].as_str().unwrap();
@@ -1914,12 +1918,19 @@ async fn remover_conta_apaga_so_o_uso_e_as_cotas_dela() {
     crate::fork::uso_historico::record_open_codex(&f.hub, outro, &janelas);
     crate::fork::uso_historico::record(&f.hub, "codex", &janelas);
     let db = &f.hub.store.db;
-    for (linha, conta) in [("a", Some(id)), ("b", Some(outro)), ("sem-conta", None)] {
+    let (_, inicio, _) = custo::month(None).unwrap();
+    for (linha, conta, instante) in [
+        ("a", Some(id), inicio),
+        ("b", Some(outro), inicio),
+        ("sem-conta", None, inicio),
+        ("anterior", Some(id), inicio - 1),
+    ] {
         db.locked()
             .execute(
-                "INSERT INTO donna_turn_usage(id,bot_id,chat_id,session_id,account_id,at,input_tokens,source)
-                 VALUES(?1,'bot','chat','main',?2,1,10,'medido')",
-                rusqlite::params![linha, conta],
+                "INSERT INTO donna_turn_usage(id,bot_id,chat_id,session_id,account_id,at,input_tokens,
+                 output_tokens,amount,currency,source)
+                 VALUES(?1,'bot','chat','main',?2,?3,10,5,0.5,'USD','motor')",
+                rusqlite::params![linha, conta, instante],
             )
             .unwrap();
     }
@@ -1935,6 +1946,24 @@ async fn remover_conta_apaga_so_o_uso_e_as_cotas_dela() {
     };
     let provedor = format!("codex:{id}");
     let outro_provedor = format!("codex:{outro}");
+    let recibo = custo::begin_background_on(&db.locked(), "bot", "titles", Some("gpt-5.4"), Some(id)).unwrap();
+    let ajustes = serde_json::from_value(json!({
+        "enabled":true,"money":[{"currency":"USD","limit":10.0}],"tokens":1000
+    }))
+    .unwrap();
+    let medir = || {
+        teto::gate_on(&db.locked(), &ajustes)
+            .unwrap()
+            .metrics
+            .into_iter()
+            .map(|m| (m.used, m.verified))
+            .collect::<Vec<_>>()
+    };
+    let contagem = medir();
+    assert_eq!(contagem, [(1.5, false), (45.0, false)]);
+    let transferidas = || -> i64 {
+        db.locked().query_row("SELECT COUNT(*) FROM donna_ceiling_detached_usage", [], |r| r.get(0)).unwrap()
+    };
     let desconectada = call(
         &f.hub,
         &Caller::Local,
@@ -1943,7 +1972,7 @@ async fn remover_conta_apaga_so_o_uso_e_as_cotas_dela() {
     )
     .await
     .unwrap();
-    assert_eq!((uso(Some(id)), cotas(&provedor)), (1, 2));
+    assert_eq!((uso(Some(id)), cotas(&provedor), transferidas()), (3, 2, 0));
     let pedido = json!({"engineAccountId": id, "expectedRevision": desconectada["revision"]});
     db.locked()
         .execute_batch(
@@ -1953,7 +1982,7 @@ async fn remover_conta_apaga_so_o_uso_e_as_cotas_dela() {
         .unwrap();
     assert!(call(&f.hub, &Caller::Local, "donnaEngineAccountRemove", pedido.clone()).await.is_err());
     assert!(Registry::load(&f.hub.store).unwrap().account(id).is_ok());
-    assert_eq!((uso(Some(id)), cotas(&provedor)), (1, 2));
+    assert_eq!((uso(Some(id)), cotas(&provedor), transferidas()), (3, 2, 0));
     db.locked().execute_batch("DROP TRIGGER recusar_limpeza").unwrap();
 
     call(&f.hub, &Caller::Local, "donnaEngineAccountRemove", pedido).await.unwrap();
@@ -1961,8 +1990,43 @@ async fn remover_conta_apaga_so_o_uso_e_as_cotas_dela() {
     assert_eq!((uso(Some(id)), cotas(&provedor)), (0, 0));
     assert_eq!((uso(Some(outro)), cotas(&outro_provedor)), (1, 2));
     assert_eq!((uso(None), cotas("codex")), (1, 2));
+    assert_eq!(transferidas(), 3);
+    assert_eq!(medir(), contagem);
+    assert!(custo::begin_background_on(&db.locked(), "bot", "titles", None, Some(id)).is_err());
+
+    let antes = teto::probe_on(&db.locked()).unwrap();
+    custo::complete_background(
+        &f.hub.store,
+        &recibo,
+        Some("gpt-5.4"),
+        Some(custo::UsoFundo { input: 10, output: 5, read: Some(0), write: Some(0), ..Default::default() }),
+    )
+    .unwrap();
+    let depois = medir();
+    assert!(depois[0].0 > 1.5 && depois[0].1);
+    assert_eq!(depois[1], (60.0, true));
+    assert_ne!(teto::probe_on(&db.locked()).unwrap(), antes);
+    assert_eq!((uso(Some(id)), transferidas()), (0, 3));
+    assert!(
+        !db.locked()
+            .query_row("SELECT EXISTS(SELECT 1 FROM donna_ceiling_detached_usage WHERE receipt IS NOT NULL)", [], |r| r
+                .get::<_, bool>(0))
+            .unwrap()
+    );
+
+    let relatorio = custo::call(&f.hub, &Caller::Local, json!({})).await.unwrap();
+    assert_eq!(relatorio["total"]["turns"], 2);
+    assert!(!relatorio.to_string().contains(id));
+    assert!(!relatorio.to_string().contains("background:titles"));
+    drop(f);
+
+    let reaberto = Store::open(&caminho).unwrap();
+    assert!(Registry::load(&reaberto).unwrap().account(id).is_err());
+    let guardado = teto::gate_on(&reaberto.db.locked(), &ajustes).unwrap();
+    assert_eq!(guardado.metrics.into_iter().map(|m| (m.used, m.verified)).collect::<Vec<_>>(), depois);
 }
 
+/// Perfil antigo sem conta gerenciada: só o registro desconectado sai; o diretório de login fica.
 #[tokio::test]
 async fn remover_perfil_antigo_desconectado_tira_so_o_registro() {
     use crate::fork::engine_accounts::{Account, AuthorizedScope};

@@ -97,6 +97,7 @@ impl Authority {
                     "account_in_use: remova os vínculos dos bots primeiro."
                 );
                 crate::fork::uso_historico::remover_conta(db, account)?;
+                crate::fork::teto::preservar_uso_e_remover_historico(db, account)?;
             }
             if let Some(slot) = slot {
                 db.execute("DELETE FROM kv WHERE k=?1", [slot])?;

@@ -126,7 +126,6 @@ pub(crate) fn record_open_codex(hub: &Hub, account: &str, windows: &[Window]) {
 
 pub(crate) fn remover_conta(db: &Connection, account: &str) -> Result<()> {
     db.execute("DELETE FROM donna_usage_samples WHERE provider=?1", [format!("codex:{account}")])?;
-    db.execute("DELETE FROM donna_turn_usage WHERE account_id=?1", [account])?;
     Ok(())
 }
 

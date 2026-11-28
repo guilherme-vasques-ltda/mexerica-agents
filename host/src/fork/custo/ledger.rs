@@ -139,6 +139,7 @@ pub(crate) fn record_background(
 /// Evidência do ENVIO: a linha nasce antes do `session/prompt` (tokens NULL =
 /// não conferido). Cancelar o trabalho depois disso (timeout, heartbeat, queda)
 /// nunca tira o envio do ledger; `complete_background` só acrescenta o uso.
+#[cfg(test)]
 pub(crate) fn begin_background(
     store: &Store,
     bot: &str,
@@ -156,6 +157,9 @@ pub(crate) fn begin_background_on(
     model: Option<&str>,
     account: Option<&str>,
 ) -> Result<String> {
+    if let Some(account) = account {
+        crate::fork::engine_accounts::Registry::load_db(db)?.account(account)?;
+    }
     let id = uuid::Uuid::new_v4().to_string();
     db.execute(
         "INSERT INTO donna_turn_usage(id,bot_id,chat_id,session_id,parent_session_id,account_id,model,at,
@@ -207,22 +211,23 @@ pub(crate) fn complete_background(
             super::precos::estimar(base, &tokens, politica)
         })
     });
-    store.db.locked().execute(
+    let db = store.db.locked();
+    let amount = estimado.as_ref().map(|c| c.amount);
+    let currency = estimado.as_ref().map(|c| &c.currency);
+    let updated = db.execute(
         "UPDATE donna_turn_usage SET model=COALESCE(?2,model), input_tokens=?3, cached_read_tokens=?4,
          cached_write_tokens=?5, output_tokens=?6, amount=?7, currency=?8,
          source=CASE WHEN ?7 IS NULL THEN 'fundo' ELSE 'estimado' END
          WHERE id=?1 AND source='fundo'",
-        params![
-            id,
-            model,
-            input,
-            read,
-            write,
-            output,
-            estimado.as_ref().map(|c| c.amount),
-            estimado.as_ref().map(|c| &c.currency)
-        ],
+        params![id, model, input, read, write, output, amount, currency],
     )?;
+    if updated == 0 {
+        db.execute(
+            "UPDATE donna_ceiling_detached_usage SET receipt=NULL,input_tokens=?2,output_tokens=?3,amount=?4,currency=?5
+             WHERE receipt=?1",
+            params![id, input, output, amount, currency],
+        )?;
+    }
     Ok(())
 }
 
@@ -388,6 +393,23 @@ impl Pending {
         }
         let mut db = store.db.locked();
         let tx = db.transaction()?;
+        if let Some(account) = self.account.as_deref()
+            && crate::fork::engine_accounts::Registry::load_db(&tx)?.accounts.iter().all(|row| row.id != account)
+        {
+            tx.execute(
+                "INSERT INTO donna_ceiling_detached_usage(at,input_tokens,output_tokens,amount,currency)
+                 VALUES(?1,?2,?3,?4,?5)",
+                params![
+                    now_ms(),
+                    tokens.input,
+                    tokens.output,
+                    priced.as_ref().map(|(c, _)| c.amount),
+                    priced.as_ref().map(|(c, _)| &c.currency)
+                ],
+            )?;
+            tx.commit()?;
+            return Ok(());
+        }
         if let (true, Some(last)) = (limpo, ultimo) {
             tx.execute("INSERT INTO donna_cost_cursors(bot_id,acp_session,amount,currency) VALUES(?1,?2,?3,?4)
                 ON CONFLICT(bot_id,acp_session) DO UPDATE SET amount=excluded.amount,currency=excluded.currency,valid=1",
