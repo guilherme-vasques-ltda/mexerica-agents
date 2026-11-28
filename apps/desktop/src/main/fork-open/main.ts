@@ -16,7 +16,7 @@ import { arquivoEscolhaEntrada, gravarEscolhaEntrada, lerEscolhaEntrada } from '
 import { registerSpeech } from '../speech'
 import { PORTA_PRINCIPAL } from '../fork-oauth-loopback'
 import { registrarRetornoDoLogin } from '../fork-oauth-loopback-registro'
-import { consumirPlano } from './plano-login'
+import { consumirPlano, descartarPlano, ligarOuvinte } from './plano-login'
 import { isWindowSender } from '../fork-chat-sender'
 
 if (process.platform !== 'darwin' || !app.isPackaged || app.getName() !== open.name ||
@@ -92,7 +92,13 @@ if (!app.requestSingleInstanceLock()) {
     const daJanela = (event: IpcMainInvokeEvent | IpcMainEvent) =>
       isWindowSender(event, window, chatURL) && event.senderFrame?.url === chatURL
     registerSpeech(daJanela)
-    registrarRetornoDoLogin({ porta: PORTA_PRINCIPAL, allowed: daJanela, autorizar: consumirPlano })
+    const retornoDoLogin = registrarRetornoDoLogin({
+      porta: PORTA_PRINCIPAL,
+      allowed: daJanela,
+      autorizar: consumirPlano,
+      aoFechar: (tentativa) => descartarPlano({ tentativa }),
+    })
+    ligarOuvinte(() => retornoDoLogin.nonceVivo())
     const avisoDeVersao = registerReleaseNotice({
       windows: () => (window && !window.isDestroyed() && window.webContents.getURL() === chatURL ? [window] : []),
       userDataDir: userData,

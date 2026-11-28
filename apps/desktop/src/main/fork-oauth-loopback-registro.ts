@@ -8,10 +8,11 @@ import { openExternalURL } from './navigation'
 export function registrarRetornoDoLogin(opcoes: {
   porta: number
   allowed: (event: IpcMainEvent | IpcMainInvokeEvent) => boolean
-  autorizar?: (url: string) => boolean
+  autorizar?: (url: string, nonce: string | null) => boolean
+  aoFechar?: (nonce: string | null) => void
 }) {
-  const retorno = new RetornoDoLogin({ porta: opcoes.porta, abrir: openExternalURL, idioma: idiomaDoApp, autorizar: opcoes.autorizar })
-  ipcMain.handle('login-retorno:abrir', (e) => (opcoes.allowed(e) ? retorno.abrir() : null))
+  const retorno = new RetornoDoLogin({ porta: opcoes.porta, abrir: openExternalURL, idioma: idiomaDoApp, autorizar: opcoes.autorizar, aoFechar: opcoes.aoFechar })
+  ipcMain.handle('login-retorno:abrir', (e, nonce: unknown) => (opcoes.allowed(e) ? retorno.abrir(nonce) : null))
   ipcMain.handle('login-retorno:esperar', (e, tentativa: unknown, url: unknown) => {
     if (!opcoes.allowed(e)) return Promise.reject(new Error('Contexto indisponível.')) // textos-ok: erro técnico interno; o renderer só fecha o ouvinte e não o mostra
     return retorno.esperar(tentativa, url)
@@ -24,4 +25,5 @@ export function registrarRetornoDoLogin(opcoes: {
   ipcMain.on('login-retorno:fechar', (e, tentativa: unknown) => {
     if (opcoes.allowed(e)) retorno.encerrar(tentativa)
   })
+  return retorno
 }

@@ -154,7 +154,7 @@ export class Plugins extends Observable {
     const retorno = window.codync.app.loginRetorno
     const meu = { id, nonce: crypto.randomUUID(), tentativa: null as number | null }
     this.login = meu
-    const ouvinte = await retorno.abrir().catch(() => null)
+    const ouvinte = await retorno.abrir(meu.nonce).catch(() => null)
     meu.tentativa = ouvinte?.tentativa ?? null
     if (this.login !== meu) { if (ouvinte) retorno.fechar(ouvinte.tentativa); return false }
     let plan: Awaited<ReturnType<typeof market.connectorSignIn>>

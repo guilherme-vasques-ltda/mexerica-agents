@@ -6,16 +6,21 @@
 use crate::LockExt;
 use anyhow::{Result, bail};
 use serde_json::Value;
+use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 pub(crate) const CANCELADA: &str = "Este login foi cancelado. Inicie o login de novo.";
 const RECUSA: &str = "O identificador da tentativa de login é inválido.";
 const VALE_POR: Duration = Duration::from_secs(30 * 60);
-const LIMITE: usize = 1024;
 
-static CANCELADAS: Mutex<Option<HashMap<String, Instant>>> = Mutex::new(None);
+type Marcas = Option<HashMap<String, Instant>>;
+
+/// A trava da lista de marcas, segurada de ponto a ponto por quem vai gravar a credencial.
+pub(crate) type Trava = RefCell<Option<MutexGuard<'static, Marcas>>>;
+
+static CANCELADAS: Mutex<Marcas> = Mutex::new(None);
 
 /// `tentativa` do pedido: ausente ou `null` é ausência; texto curto de letras, números, hífen e sublinhado vale; o resto recusa.
 pub(crate) fn do_pedido(b: &Value) -> Result<Option<String>> {
@@ -35,20 +40,27 @@ pub(crate) fn cancelar(tentativa: &str) {
     let mut marcas = CANCELADAS.locked();
     let mapa = marcas.get_or_insert_with(HashMap::new);
     mapa.retain(|_, desde| desde.elapsed() < VALE_POR);
-    if mapa.len() >= LIMITE
-        && let Some(velha) = mapa.iter().min_by_key(|(_, desde)| **desde).map(|(t, _)| t.clone())
-    {
-        mapa.remove(&velha);
-    }
     mapa.insert(tentativa.to_owned(), Instant::now());
+}
+
+fn conferir(marcas: &Marcas, tentativa: &str) -> Result<()> {
+    let cancelada = marcas.as_ref().and_then(|m| m.get(tentativa)).is_some_and(|desde| desde.elapsed() < VALE_POR);
+    anyhow::ensure!(!cancelada, CANCELADA);
+    Ok(())
 }
 
 pub(crate) fn viva(tentativa: Option<&str>) -> Result<()> {
     let Some(tentativa) = tentativa else { return Ok(()) };
-    let cancelada =
-        CANCELADAS.locked().as_ref().and_then(|m| m.get(tentativa)).is_some_and(|desde| desde.elapsed() < VALE_POR);
-    anyhow::ensure!(!cancelada, CANCELADA);
-    Ok(())
+    conferir(&CANCELADAS.locked(), tentativa)
+}
+
+/// Confere a marca e a mantém travada em `trava`: quem cancela espera quem grava terminar, então a gravação ou
+/// vem antes do cancelamento ou nunca acontece. A trava cai quando `trava` sai de escopo.
+pub(crate) fn viva_travando(tentativa: Option<&str>, trava: &Trava) -> Result<()> {
+    let Some(tentativa) = tentativa else { return Ok(()) };
+    let mut guarda = trava.borrow_mut();
+    let marcas = guarda.get_or_insert_with(|| CANCELADAS.locked());
+    conferir(marcas, tentativa)
 }
 
 #[cfg(test)]

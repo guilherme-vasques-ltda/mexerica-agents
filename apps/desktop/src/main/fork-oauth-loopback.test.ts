@@ -313,6 +313,22 @@ test('com autorização do Hub, só abre a URL que o Hub devolveu para a tentati
   assert.equal(await recusada(ouvinte.porta), true, 'a recusa fecha o ouvinte')
 })
 
+test('o ouvinte entrega à autorização o identificador da tentativa viva e avisa quando deixa de valer', async () => {
+  const vistos: Array<string | null> = []
+  const fechados: Array<string | null> = []
+  const { retorno } = montar({ autorizar: (_url, nonce) => { vistos.push(nonce); return false }, aoFechar: (nonce) => fechados.push(nonce) })
+  const ouvinte = (await retorno.abrir('tentativa-do-hub-0001'))!
+  assert.equal(retorno.nonceVivo(), 'tentativa-do-hub-0001')
+  await assert.rejects(retorno.esperar(ouvinte.tentativa, pedido(ouvinte.porta)))
+  assert.deepEqual(vistos, ['tentativa-do-hub-0001'])
+  assert.equal(retorno.nonceVivo(), null, 'a recusa fecha o ouvinte e a tentativa deixa de valer')
+  const outro = (await retorno.abrir('tentativa-do-hub-0002'))!
+  assert.equal(retorno.nonceVivo(), 'tentativa-do-hub-0002')
+  retorno.encerrar(outro.tentativa)
+  assert.equal(retorno.nonceVivo(), null)
+  assert.ok(fechados.includes('tentativa-do-hub-0001') && fechados.includes('tentativa-do-hub-0002'))
+})
+
 test('com autorização do Hub, a URL do Hub abre uma única vez', async () => {
   let plano: string | null = null
   const { retorno, abertas } = montar({ autorizar: (url) => { const igual = plano === url; plano = null; return igual } })

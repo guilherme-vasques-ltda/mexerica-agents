@@ -512,6 +512,31 @@ async fn upstream02_cancelar_depois_do_callback_vale_ate_a_gravacao_sem_depender
 }
 
 #[tokio::test]
+async fn upstream02_cancelar_durante_a_gravacao_espera_a_gravacao_e_nunca_a_deixa_pela_metade() {
+    use crate::fork::conectores::oauth_tentativa as marca;
+    let f = Fixture::new().await;
+    let tentativa = "cancelada-durante-a-gravacao-03";
+    let state = f.start_com(Some(tentativa)).await;
+    let trava = marca::Trava::default();
+    marca::viva_travando(Some(tentativa), &trava).unwrap();
+    let cancelou = Arc::new(AtomicBool::new(false));
+    let fio = {
+        let cancelou = cancelou.clone();
+        std::thread::spawn(move || {
+            marca::cancelar(tentativa);
+            cancelou.store(true, Ordering::SeqCst);
+        })
+    };
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    assert!(!cancelou.load(Ordering::SeqCst), "cancelar passou por cima de quem estava gravando");
+    drop(trava);
+    fio.join().unwrap();
+    let before = f.saved();
+    assert!(!f.callback(&state).await.contains("notes conectado"));
+    assert_eq!(f.saved(), before);
+}
+
+#[tokio::test]
 async fn upstream02_nova_tentativa_invalida_a_anterior_e_so_a_atual_conclui() {
     let f = Fixture::new().await;
     let antiga = f.start_com(Some("tentativa-antiga-00000000001")).await;
