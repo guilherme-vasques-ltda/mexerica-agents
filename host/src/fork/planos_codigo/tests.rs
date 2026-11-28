@@ -1030,6 +1030,7 @@ async fn testar_a_chave_guardada_nao_aceita_texto_claro_no_slot() {
 
 #[tokio::test]
 async fn catalogo_do_opencode_so_leva_os_modelos_dos_planos_ao_dono_local() {
+    use crate::store::Scope;
     let hub = hub_de_prova();
     let (url, _) = servidor(http("200 OK", "", CORPO_OK)).await;
     salvar(&hub, &PLANOS[0], Some(&url), Zeroizing::new(CHAVE.into())).await.unwrap();
@@ -1039,7 +1040,6 @@ async fn catalogo_do_opencode_so_leva_os_modelos_dos_planos_ao_dono_local() {
     assert!(dono.to_string().contains("opencode-go/glm-5.3"), "{dono}");
     assert!(!dono.to_string().contains(CHAVE));
 
-    use crate::store::Scope;
     let aparelho = Caller::Device { key: "k".into(), scopes: vec![Scope::Control], autoridade: None };
     let visto =
         crate::api::dispatch(&hub, &aparelho, "agentModels", corpo).await.map(|v| v.to_string()).unwrap_or_default();
