@@ -26,6 +26,8 @@ use crate::LockExt;
 use crate::api::devices::{Caller, Forbidden};
 use crate::hub::Hub;
 use crate::market;
+#[cfg(target_os = "macos")]
+use anyhow::Context;
 use anyhow::{Result, anyhow};
 use axum::http::StatusCode;
 use serde_json::Value;
@@ -278,6 +280,13 @@ async fn dispatch_pedido(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
             crate::fork::spaces::tool_context::route_in_execution(hub, method, &b, execution.as_ref()).await?
     {
         return Ok(answer);
+    }
+    #[cfg(target_os = "macos")]
+    if method == "computerCall" && crate::screen::fork_mac_local::is_private(hub) {
+        anyhow::ensure!(matches!(caller, Caller::Ponte { .. }), "screen actions require the original bot connection");
+        let original = observation.context("missing screen action origin")?;
+        let args = b.get("arguments").cloned().context("missing screen arguments")?;
+        return crate::screen::fork_mac_actions::call(hub, original, str_arg(&b, "name")?, args).await;
     }
     let observation = if let Some(original) = observation { Some(original.authorize(None).await?) } else { None };
     let observed = crate::analytics::observe_call(hub, caller, method, &b);

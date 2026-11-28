@@ -265,6 +265,22 @@ pub(crate) fn servico(id: &str) -> Option<&'static Servico> {
         });
         return Some(&FICHA);
     }
+    #[cfg(all(test, target_os = "linux"))]
+    if id == "fixture-stdio" {
+        static FICHA: std::sync::LazyLock<Option<Servico>> = std::sync::LazyLock::new(|| {
+            let mut ficha: serde_json::Value =
+                serde_json::from_str(include_str!("../../../tests/fixtures/catalogo-filtro.json")).ok()?;
+            ficha["id"] = "fixture-stdio".into();
+            ficha["conferidaEm"] = hoje().to_string().into();
+            ficha["tipos"][0]["id"] = "fixture-stdio.local".into();
+            ficha["tipos"][0]["tipo"] = "local".into();
+            ficha["tipos"][0]["url"] = "".into();
+            ficha["tipos"][0]["grupos"][1]["ferramentas"] = serde_json::json!(["list_issues"]);
+            ficha["tipos"][0]["grupos"][1]["curadas"] = serde_json::json!([]);
+            super::catalogo_json::ler(&ficha.to_string()).ok()
+        });
+        return FICHA.as_ref();
+    }
     super::catalogo_fichas::servicos().iter().find(|s| s.id == id)
 }
 
