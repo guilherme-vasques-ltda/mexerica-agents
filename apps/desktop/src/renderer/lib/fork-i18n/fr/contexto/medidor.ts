@@ -123,6 +123,7 @@ export const textos: Traducao<typeof fonte> = {
   'contexto.limpar.texto': 'Mexerica résume la conversation, enregistre les faits durables dans la mémoire du bot, puis seulement supprime les messages. Le résumé devient le point de départ de la nouvelle conversation. Action irréversible.',
   'contexto.limpar.confirmar': 'Résumer et effacer',
   'contexto.limpar.nao': 'Pas maintenant',
+  'contexto.limpar.fechar': 'Fermer le message',
   'contexto.limpar.andamento': 'Résumé et effacement de la conversation…',
   'contexto.limpar.feito': 'Conversation effacée. Le résumé sert de point de départ.',
   'contexto.limpar.erro.resumo': 'Impossible de résumer la conversation. Rien n’a été supprimé.',

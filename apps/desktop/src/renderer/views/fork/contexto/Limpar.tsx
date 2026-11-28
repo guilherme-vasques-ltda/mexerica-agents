@@ -37,9 +37,10 @@ export function useLimparConversa(botId: string) {
         cancel={t('contexto.limpar.nao')} onClose={() => setFase((f) => (f.id === 'confirmando' ? { id: 'parado' } : f))}
         actions={[{ title: t('contexto.limpar.confirmar'), destructive: true, action: () => void confirmar() }]} />
       {fase.id === 'parado' || fase.id === 'confirmando' ? null : (
-        <div className="limpar-estado" role="status" aria-live="polite" onClick={() => fase.id !== 'andamento' && setFase({ id: 'parado' })}>
+        <div className="limpar-estado">
           {fase.id === 'andamento' ? <Spinner size={13} /> : null}
-          <span>{fase.id === 'andamento' ? t('contexto.limpar.andamento') : fase.id === 'feito' ? t('contexto.limpar.feito') : t(`contexto.limpar.erro.${fase.falha}`)}</span>
+          <span role="status" aria-live="polite">{fase.id === 'andamento' ? t('contexto.limpar.andamento') : fase.id === 'feito' ? t('contexto.limpar.feito') : t(`contexto.limpar.erro.${fase.falha}`)}</span>
+          {fase.id === 'andamento' ? null : <button type="button" className="limpar-fechar" aria-label={t('contexto.limpar.fechar')} onClick={() => setFase({ id: 'parado' })}>×</button>}
         </div>
       )}
     </>

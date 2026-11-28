@@ -44,6 +44,31 @@ fn state_key(chat: &str, account: &str) -> String {
     format!("open_chat.thread.{chat}.ctx.{account}")
 }
 
+fn cleared_key(chat: &str) -> String {
+    format!("open_chat.cleared.{chat}")
+}
+
+fn chat_cleared(chat: &str, rev: i64, cutoff: i64) -> Value {
+    json!({"type": "chatCleared", "chatId": chat, "rev": rev, "cutoff": cutoff})
+}
+
+/// Limpezas depois de `since`, para o cliente que estava desconectado: o catch-up não carrega entradas apagadas.
+pub(crate) fn cleared_since(hub: &Hub, since: i64) -> Vec<Value> {
+    let db = hub.store.db.locked();
+    let Ok(mut statement) = db.prepare("SELECT k, v FROM kv WHERE k LIKE 'open_chat.cleared.%'") else { return vec![] };
+    let Ok(rows) = statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))) else {
+        return vec![];
+    };
+    rows.flatten()
+        .filter_map(|(key, value)| {
+            let chat = key.strip_prefix("open_chat.cleared.")?;
+            let value: Value = serde_json::from_str(&value).ok()?;
+            let (rev, cutoff) = (value["rev"].as_i64()?, value["cutoff"].as_i64()?);
+            (rev > since).then(|| chat_cleared(chat, rev, cutoff))
+        })
+        .collect()
+}
+
 fn summary_key(chat: &str) -> String {
     format!("open_chat.thread.{chat}.resumo")
 }
@@ -191,6 +216,12 @@ pub(crate) async fn clear(hub: &Arc<Hub>, caller: &Caller, body: Value) -> Resul
 
 async fn clear_chat(hub: &Arc<Hub>, ticket: &mut open_chat::Ticket, chat: &Chat) -> Result<Value> {
     let lane = Lane::main(&chat.id);
+    let cutoff: i64 = hub.store.db.locked().query_row(
+        "SELECT COALESCE(MAX(seq), 0) FROM entries WHERE bot_id = ?1",
+        [&chat.id],
+        |row| row.get(0),
+    )?;
+    let previous = hub.store.kv_get(&summary_key(&chat.id)).filter(|text| !text.trim().is_empty());
     let mut summary = None;
     if chat.thread.is_some() {
         let text = open_chat::silent_turn(hub, ticket, &chat.cfg, &lane, SUMMARY_PROMPT, SUMMARY_LIMIT).await.map_err(
@@ -207,18 +238,25 @@ async fn clear_chat(hub: &Arc<Hub>, ticket: &mut open_chat::Ticket, chat: &Chat)
         tokio::task::spawn_blocking(move || save_facts(&hub, &cfg, &facts)).await??;
     }
     let prefix = format!("open_chat.thread.{}.", chat.id);
+    let rev: i64;
     {
         let db = hub.store.db.locked();
         let tx = db.unchecked_transaction()?;
-        tx.execute("DELETE FROM entries WHERE bot_id = ?1", [&chat.id])?;
+        tx.execute("DELETE FROM entries WHERE bot_id = ?1 AND seq <= ?2", rusqlite::params![&chat.id, cutoff])?;
         tx.execute("DELETE FROM kv WHERE substr(k, 1, length(?1)) = ?1", [&prefix])?;
-        if let Some((text, _)) = &summary {
+        let kept = summary.as_ref().map(|(text, _)| text).or(previous.as_ref());
+        if let Some(text) = kept {
             tx.execute("INSERT INTO kv(k, v) VALUES(?1, ?2)", [&summary_key(&chat.id), text])?;
         }
+        rev = crate::store::next_rev(&tx)?;
+        tx.execute("UPDATE bots SET rev = ?2 WHERE id = ?1", rusqlite::params![&chat.id, rev])?;
+        tx.execute(
+            "INSERT INTO kv(k, v) VALUES(?1, ?2) ON CONFLICT(k) DO UPDATE SET v = excluded.v",
+            [&cleared_key(&chat.id), &json!({"rev": rev, "cutoff": cutoff}).to_string()],
+        )?;
         tx.commit()?;
     }
-    let rev = hub.store.touch_bot(&chat.id)?;
-    let _ = hub.events.send(json!({"type": "chatCleared", "chatId": chat.id, "rev": rev}));
+    let _ = hub.events.send(chat_cleared(&chat.id, rev, cutoff));
     hub.emit_bot(&chat.id);
     Ok(json!({"cleared": true, "summarized": summary.is_some(), "memorySaved": facts}))
 }

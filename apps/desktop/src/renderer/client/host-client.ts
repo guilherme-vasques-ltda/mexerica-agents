@@ -73,7 +73,7 @@ export type HostEvent =
   | { type: 'bot'; bot: Bot }
   | { type: 'botDeleted'; id: string; rev: number }
   /** Open: o /clear apagou a conversa no Hub; o app esvazia a janela carregada dela (fork/open_contexto). */
-  | { type: 'chatCleared'; chatId: string; rev: number }
+  | { type: 'chatCleared'; chatId: string; rev: number; cutoff: number }
   | { type: 'entry'; entry: Entry }
   | { type: 'usage'; usage: Usage }
   | { type: 'screen'; screen: ScreenState; spaceId?: string }
@@ -168,7 +168,9 @@ export function parseEvent(line: string): HostEvent | null {
     case 'times':
       return typeof raw.spaceId === 'string' && typeof raw.revision === 'number' ? { type, spaceId: raw.spaceId, revision: raw.revision } : null
     case 'chatCleared':
-      return typeof raw.chatId === 'string' && raw.chatId && Number.isSafeInteger(raw.rev) && (raw.rev as number) > 0 ? { type, chatId: raw.chatId, rev: raw.rev as number } : { type: 'undecodable', kind: 'chatCleared' }
+      return typeof raw.chatId === 'string' && raw.chatId && Number.isSafeInteger(raw.rev) && (raw.rev as number) > 0 && Number.isSafeInteger(raw.cutoff) && (raw.cutoff as number) >= 0
+        ? { type, chatId: raw.chatId, rev: raw.rev as number, cutoff: raw.cutoff as number }
+        : { type: 'undecodable', kind: 'chatCleared' }
     case 'sessionDeleted':
       return sessionDeletedOf(raw) ?? { type: 'undecodable', kind: 'sessionDeleted' }
     case 'session': {

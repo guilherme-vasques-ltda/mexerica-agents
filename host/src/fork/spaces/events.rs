@@ -47,6 +47,7 @@ pub fn filter_event(hub: &Hub, space: &str, mut event: Value) -> Option<Value> {
         "session" => event["session"]["chatId"].as_str(),
         // Caixa do WhatsApp do bot: só no Space do bot (o dono é conferido em api/events.rs).
         "whatsappChanged" => event["botId"].as_str(),
+        "chatCleared" => event["chatId"].as_str(),
         _ => None,
     };
     if let Some(chat) = chat.map(str::to_owned) {

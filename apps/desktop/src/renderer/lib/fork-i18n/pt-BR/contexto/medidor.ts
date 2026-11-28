@@ -121,6 +121,7 @@ export const textos = {
   'contexto.limpar.texto': 'A Mexerica resume a conversa, guarda os fatos duradouros na memória do bot e só então apaga as mensagens. O resumo vira o ponto de partida da conversa nova. Não dá para desfazer.',
   'contexto.limpar.confirmar': 'Resumir e limpar',
   'contexto.limpar.nao': 'Agora não',
+  'contexto.limpar.fechar': 'Fechar aviso',
   'contexto.limpar.andamento': 'Resumindo e limpando a conversa…',
   'contexto.limpar.feito': 'Conversa limpa. O resumo ficou como ponto de partida.',
   'contexto.limpar.erro.resumo': 'Não deu para resumir a conversa. Nada foi apagado.',

@@ -123,6 +123,7 @@ export const textos: Traducao<typeof fonte> = {
   'contexto.limpar.texto': 'Mexerica resume la conversación, guarda los datos duraderos en la memoria del bot y solo entonces borra los mensajes. El resumen será el punto de partida de la conversación nueva. No se puede deshacer.',
   'contexto.limpar.confirmar': 'Resumir y limpiar',
   'contexto.limpar.nao': 'Ahora no',
+  'contexto.limpar.fechar': 'Cerrar aviso',
   'contexto.limpar.andamento': 'Resumiendo y limpiando la conversación…',
   'contexto.limpar.feito': 'Conversación limpia. El resumen quedó como punto de partida.',
   'contexto.limpar.erro.resumo': 'No se pudo resumir la conversación. No se borró nada.',

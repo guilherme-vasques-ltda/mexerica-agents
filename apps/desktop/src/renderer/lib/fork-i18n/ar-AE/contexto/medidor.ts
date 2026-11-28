@@ -123,6 +123,7 @@ export const textos: Traducao<typeof fonte> = {
   'contexto.limpar.texto': 'تلخّص Mexerica المحادثة وتحفظ الوقائع الدائمة في ذاكرة الروبوت ثم تحذف الرسائل. يصبح الملخص نقطة بداية المحادثة الجديدة. لا يمكن التراجع.',
   'contexto.limpar.confirmar': 'لخّص وامسح',
   'contexto.limpar.nao': 'ليس الآن',
+  'contexto.limpar.fechar': 'إغلاق الرسالة',
   'contexto.limpar.andamento': 'جارٍ تلخيص المحادثة ومسحها…',
   'contexto.limpar.feito': 'تم مسح المحادثة. بقي الملخص نقطة بداية.',
   'contexto.limpar.erro.resumo': 'تعذّر تلخيص المحادثة. لم يُحذف شيء.',

@@ -123,6 +123,7 @@ export const textos: Traducao<typeof fonte> = {
   'contexto.limpar.texto': 'Mexerica 会先总结对话，把长期有用的事实存入机器人的记忆，然后才删除消息。总结会成为新对话的起点。此操作无法撤销。',
   'contexto.limpar.confirmar': '总结并清空',
   'contexto.limpar.nao': '暂不',
+  'contexto.limpar.fechar': '关闭提示',
   'contexto.limpar.andamento': '正在总结并清空对话…',
   'contexto.limpar.feito': '对话已清空，总结已作为起点保留。',
   'contexto.limpar.erro.resumo': '无法总结对话，未删除任何内容。',

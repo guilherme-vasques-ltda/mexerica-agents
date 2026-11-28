@@ -33,6 +33,8 @@ const ALLOWED_ITEMS: [&str; 6] = ["userMessage", "agentMessage", "reasoning", "p
 #[derive(Clone, Copy)]
 pub(crate) enum Input<'a> {
     Text(&'a str),
+    /// Como `Text`, mas só vale numa thread retomada: o resumo do /clear nunca roda numa thread vazia.
+    Summary(&'a str),
     Compact,
 }
 
@@ -369,7 +371,7 @@ pub(crate) async fn silent_turn(
         &ticket.account,
         lane,
         (&instructions, ticket.model.as_deref()),
-        (Input::Text(prompt), timeout),
+        (Input::Summary(prompt), timeout),
         ("", None),
         &mut ticket.cancel,
         &mut reply,
@@ -791,7 +793,7 @@ pub(crate) async fn drive_usage(
                 Err(error) if error["code"] == METHOD_NOT_FOUND => bail!("context_cannot_compact"),
                 Err(_) => bail!("open_chat_failed"),
             },
-            Input::Text(text) => {
+            Input::Text(text) | Input::Summary(text) => {
                 let params =
                     json!({"threadId": thread, "input": [{"type": "text", "text": text, "text_elements": []}]});
                 let turn = match authority {

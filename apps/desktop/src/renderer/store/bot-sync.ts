@@ -93,6 +93,11 @@ export class BotSync extends BotMirror {
   /** The `since` the current events connection asked for, and the per-bot floors snapshotted at its `hello`. */
   private requestedSince = 0
   private floors = new Map<string, number>()
+  /** Quantas vezes o /clear esvaziou cada conversa: leitura de histórico em voo que atravessa um /clear é descartada. */
+  private clearGeneration = new Map<string, number>()
+  clearedGeneration(chatId: string) {
+    return this.clearGeneration.get(chatId) ?? 0
+  }
   private readingViews = new Map<string, string>()
 
   // MARK: lifecycle
@@ -441,8 +446,9 @@ export class BotSync extends BotMirror {
         this.onRosterChanged?.()
         break
       case 'chatCleared':
-        this.entries.set(event.chatId, [])
+        this.entries.set(event.chatId, (this.entries.get(event.chatId) ?? []).filter((entry) => entry.seq > event.cutoff))
         this.floors.delete(event.chatId)
+        this.clearGeneration.set(event.chatId, this.clearedGeneration(event.chatId) + 1)
         this.bump(event.rev)
         break
       case 'sessionDeleted': {
