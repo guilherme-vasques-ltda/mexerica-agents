@@ -1,6 +1,7 @@
 // Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import type { Leitor } from '../fork/voz/leitores'
 import { pediuEncerramento, pediuSilencio } from '../fork/voz/encerrar'
+import { limparRuidoDeDitado } from '../fork/voz/limpar-ruido'
 import { errorMessage, micPCM16k, SPEECH_CHUNK, spokenText, VoiceEngine, VoiceSettings, wav, type VoiceProvider } from './voice'
 
 export interface CloudSpeech {
@@ -161,7 +162,7 @@ export class CloudSpeechEngine extends VoiceEngine {
       // voz-03: a fila não sai depois do fim da chamada (nem cobra).
       if (this.ended) return
       try {
-        const text = (await this.speech.transcribe(audio)).trim()
+        const text = limparRuidoDeDitado(await this.speech.transcribe(audio))
         if (!this.ended && pediuEncerramento(text, VoiceSettings.language() || navigator.language)) {
           this.onClosing?.()
           this.end()
