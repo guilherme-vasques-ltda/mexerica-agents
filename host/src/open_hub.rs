@@ -46,9 +46,7 @@ pub(crate) fn check_request(caller: &Caller, method: &str, body: &Value) -> Resu
 
 /// Métodos das páginas de Ajustes religadas na Open (memória, Nunca fazer, Instruções, Delegação, Bot de fundo,
 /// Atividade, Armazenamento, Uso, Computadores e dispositivos e Lugares de trabalho), todos só do dono local.
-const SETTINGS_LOCAL: [&str; 35] = [
-    "approveMemorySuggestion",
-    "discardMemorySuggestion",
+const SETTINGS_LOCAL: [&str; 31] = [
     "restoreFunctionModel",
     "restoreFunctionModels",
     "donnaUsageHistory",
@@ -59,8 +57,6 @@ const SETTINGS_LOCAL: [&str; 35] = [
     "setApproval",
     "accessRequests",
     "decideAccessRequest",
-    "memory",
-    "undoMemory",
     "memoryProfile",
     "saveMemoryProfile",
     "memoryLearning",
@@ -122,11 +118,13 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
         }
         "donnaTaskProposals"
         | "donnaTimes"
+        | crate::fork::pedidos_time::METHOD
         | crate::fork::native_catalog::METHOD
         | "skills"
         | "marketSkills"
         | "skillDetails"
         | "removeSkill"
+        | "donnaSpaceBirth"
         | "routines"
         | "routinesOverview"
         | "routineSchedule"
@@ -135,7 +133,18 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
         | "setRoutineEnabled"
         | "deleteRoutine"
         | "setRoutinesPaused"
-        | "runRoutine" => matches!(caller, Caller::Local),
+        | "runRoutine"
+        // Manuais e notas do bot (aba Memória): só o dono local; o texto escrito entra nas instruções do turno.
+        | "memory"
+        | "memoryFile"
+        | "saveMemoryFile"
+        | "deleteMemoryFile"
+        | "restoreMemoryFile"
+        | "saveMemory"
+        | "pinMemory"
+        | "archiveMemory"
+        | "forgetMemory"
+        | "clearMemory" => matches!(caller, Caller::Local),
         // Ajustes completos e Plugins (WhatsApp): só o dono local, sem conta Mexerica, chave, SSH nem tela.
         m if SETTINGS_LOCAL.contains(&m)
             || WHATSAPP_LOCAL.contains(&m)
@@ -143,6 +152,7 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
         {
             matches!(caller, Caller::Local)
         }
+
         crate::fork::native_catalog::ADD_METHOD => {
             // Fora do Pessoal, só com a conta de IA escolhida; o Hub a confere como na criação manual.
             matches!(caller, Caller::Local)
@@ -197,9 +207,17 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn open_libera_criar_space_com_principal_so_ao_dono_local() {
+        let device = Caller::Device { key: "device".into(), scopes: vec![Scope::Control], autoridade: None };
+        let body = json!({"name": "Space", "principal": {"backend": "codex", "engineAccountId": "conta"}});
+        assert!(open_allows(&Caller::Local, "donnaSpaceBirth", &body));
+        assert!(!open_allows(&device, "donnaSpaceBirth", &body));
+    }
+
+    #[test]
     fn open_libera_propostas_equipes_e_biblioteca_so_ao_dono_local() {
         let device = Caller::Device { key: "device".into(), scopes: vec![Scope::Control], autoridade: None };
-        for method in ["donnaTaskProposals", "donnaTimes", "donnaNativeCatalog"] {
+        for method in ["donnaTaskProposals", "donnaTimes", "donnaNativeCatalog", "donnaTeamRequests"] {
             assert!(open_allows(&Caller::Local, method, &json!({})), "{method}");
             assert!(!open_allows(&device, method, &json!({})), "{method}");
         }
@@ -294,6 +312,29 @@ mod tests {
         "setRoutinesPaused",
         "runRoutine",
     ];
+
+    #[test]
+    fn open_so_deixa_o_dono_local_ler_e_escrever_manuais_do_bot() {
+        let device = Caller::Device { key: "aparelho".into(), scopes: vec![Scope::Control], autoridade: None };
+        for method in [
+            "memory",
+            "memoryFile",
+            "saveMemoryFile",
+            "deleteMemoryFile",
+            "restoreMemoryFile",
+            "saveMemory",
+            "pinMemory",
+            "archiveMemory",
+            "forgetMemory",
+            "clearMemory",
+        ] {
+            assert!(open_allows(&Caller::Local, method, &json!({})), "{method} é do dono local");
+            assert!(!open_allows(&device, method, &json!({})), "{method} não é de aparelho");
+        }
+        for method in ["undoDream", "answerMemory", "undoMemory", "releaseMemoryRefusal", "approveMemorySuggestion"] {
+            assert!(!open_allows(&Caller::Local, method, &json!({})), "{method} continua fechado");
+        }
+    }
 
     #[test]
     fn open_so_deixa_este_computador_gerir_rotinas() {

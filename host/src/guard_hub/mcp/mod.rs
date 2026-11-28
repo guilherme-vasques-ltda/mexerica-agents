@@ -21,6 +21,30 @@ use serde_json::{Value, json};
 use std::{path::Path, sync::Arc};
 use zeroize::Zeroizing;
 
+fn catalog_local(body: &Value) -> bool {
+    body["transport"] == "catalog-local"
+}
+
+fn chamada_recusada(
+    hub: &Hub,
+    context: &contexto::Context,
+    conta: Option<&Connector>,
+    method: &str,
+    params: &Value,
+) -> bool {
+    match crate::fork::rules::mcp::check(&hub.store, &context.bot, &context.connector, method, params) {
+        Ok(false) => {}
+        Ok(true) => return true,
+        Err(error) => {
+            tracing::error!(%error, "política MCP indisponível; chamada recusada");
+            return true;
+        }
+    }
+    conta.is_some_and(|conta| {
+        crate::market::ferramentas::recusar_chamada(&hub.store, &context.bot, conta, method, params)
+    })
+}
+
 #[allow(clippy::too_many_arguments)] // Encaixe curto do vínculo no construtor MCP existente.
 pub fn definition(
     store: &Store,
@@ -71,9 +95,19 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
         let mcp_method = body["method"].as_str().ok_or_else(|| anyhow!("Método MCP obrigatório"))?;
         let intent = RuntimeIntent::capture(hub, id, connector, mcp_method)?;
         // Marketplace, fatia 2: a conta é lida antes do lock de memória (o cofre pode esperar).
-        let conta_final = if body["transport"] == "http" && mcp_method == "tools/call" {
+        let conta_final = if catalog_local(&body) || (body["transport"] == "http" && mcp_method == "tools/call") {
             crate::market::vault::unlock(hub.clone()).await?;
-            Some(intent.snapshot(hub)?)
+            let saved = intent.snapshot(hub)?;
+            if catalog_local(&body) {
+                let bridge = bridge.ok_or_else(|| anyhow!("Ponte MCP local obrigatória"))?;
+                if crate::fork::conectores::catalogo_local::da_conta(&saved).is_none()
+                    || !runtime::remote_matches(&namespace, connector, id, bridge, &runtime::remote_fingerprint(&saved))
+                {
+                    bail!("Lease MCP local indisponível ou alterada");
+                }
+                crate::market::ferramentas::politica(&saved)?.ok_or_else(|| anyhow!("Ficha MCP local indisponível"))?;
+            }
+            Some(saved)
         } else {
             None
         };
@@ -81,39 +115,14 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
         crate::fork::spaces::connector_context::check(hub, id, &body, intent.execution())?;
         intent.validate_live(hub)?;
         intent.validate_db(&hub.store.db.locked())?;
-        if let Some(context) = intent.context() {
-            match crate::fork::rules::mcp::check(
-                &hub.store,
-                &context.bot,
-                &context.connector,
-                mcp_method,
-                &body["params"],
-            ) {
-                Ok(false) => {}
-                Ok(true) => return Ok(json!({"valid":false,"ruleDenied":true})),
-                Err(error) => {
-                    tracing::error!(%error, "política MCP indisponível; chamada recusada");
-                    return Ok(json!({"valid":false,"ruleDenied":true}));
-                }
-            }
-            // Marketplace, fatia 2: admissão final do envio. A ponte remota pede esta conferência imediatamente
-            // antes do POST; uma ação desligada depois da decisão do alvo é recusada aqui, sem enviar nada. Pedido
-            // já admitido (enviado) antes do desligamento segue em voo: o Hub não desfaz efeito de fornecedor.
-            if let Some(conta) = &conta_final
-                && crate::market::ferramentas::recusar_chamada(
-                    &hub.store,
-                    &context.bot,
-                    conta,
-                    mcp_method,
-                    &body["params"],
-                )
-            {
-                return Ok(json!({"valid":false,"ruleDenied":true}));
-            }
+        if let Some(context) = intent.context()
+            && chamada_recusada(hub, context, conta_final.as_ref(), mcp_method, &body["params"])
+        {
+            return Ok(json!({"valid":false,"ruleDenied":true}));
         }
         return Ok(json!({"valid":true}));
     }
-    if body["transport"] == "http" {
+    if body["transport"] == "http" || catalog_local(&body) {
         return remoto::call(hub, method, &body, id, connector, bridge, &namespace).await;
     }
     let intent = if method == "donnaGuardRuntime" {
@@ -232,7 +241,10 @@ pub(crate) fn observe_checked(
         }
         guarded
     };
-    if late || (transport == "http" && matches!(method, "notification" | "server-request" | "invalid")) {
+    if late
+        || (matches!(transport, "http" | "catalog-local")
+            && matches!(method, "notification" | "server-request" | "invalid"))
+    {
         // A sessão remota não anuncia canais reversos nem entrega ruído não correlacionado.
         guarded.message = None;
     }

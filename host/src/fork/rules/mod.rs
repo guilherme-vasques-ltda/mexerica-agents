@@ -19,3 +19,5 @@ mod provas;
 #[path = "contrato.rs"]
 pub mod rule;
 pub mod store;
+#[allow(dead_code, reason = "a integração ao adaptador local é feita separadamente")]
+pub(crate) mod terminal;

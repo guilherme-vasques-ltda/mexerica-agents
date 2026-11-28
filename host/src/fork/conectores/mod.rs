@@ -5,6 +5,7 @@ mod catalogo;
 mod catalogo_fichas;
 mod catalogo_google;
 mod catalogo_json;
+pub(crate) mod catalogo_local;
 pub(crate) mod catalogo_servicos;
 #[cfg(test)]
 mod catalogo_servicos_tests;

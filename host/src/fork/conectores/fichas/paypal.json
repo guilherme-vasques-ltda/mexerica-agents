@@ -2,7 +2,7 @@
   "id": "paypal",
   "nome": "PayPal",
   "categoria": "Finanças e pagamentos",
-  "descricao": "Pagamentos e faturamento: cria e envia faturas, consulta transações e disputas e processa cobranças, reembolsos e assinaturas.",
+  "descricao": "Faturas, pagamentos e disputas do PayPal: consulta com a sua conta e, só depois que você ligar cada ação, cobra e reembolsa.",
   "exemplos": [
     "Quais pagamentos recebi no PayPal esta semana?",
     "Liste as transações da última semana"
@@ -13,13 +13,14 @@
     "privacidade": "https://www.paypal.com/legalhub/privacy-full",
     "termos": "https://www.paypal.com/legalhub/useragreement-full"
   },
-  "conferidaEm": "2026-11-18",
+  "conferidaEm": "2026-11-27",
   "fontes": [
     "https://developer.paypal.com/ai-tools/mcp-server",
-    "https://mcp.paypal.com/register",
+    "https://github.com/paypal/agent-toolkit",
+    "https://mcp.paypal.com/.well-known/oauth-protected-resource",
     "https://mcp.paypal.com/.well-known/oauth-authorization-server"
   ],
-  "aviso": "Mexe com dinheiro (cobranças, reembolsos e transferências); só entra com o filtro de ações perigosas.",
+  "aviso": "Mexe com dinheiro: cobranças, reembolsos e faturas só saem depois que você ligar aquela ação no bot.",
   "tipos": [
     {
       "id": "paypal.oficial_oauth",
@@ -34,17 +35,16 @@
       "grupos": [
         {
           "id": "usar",
-          "rotulo": "Usar com a sua conta",
+          "rotulo": "Usar a conta e liberar cada ação",
           "escopos": [],
           "padrao": true,
-          "disponivel": false
+          "disponivel": true,
+          "imposicao": "filtro"
         }
       ],
       "recomendado": true,
-      "disponivel": false,
-      "motivoIndisponivel": "O PayPal não oferece um modo só de leitura; entra depois do filtro de ações perigosas."
+      "disponivel": true
     }
   ],
-  "emBreve": "O fornecedor não impõe leitura: entra depois do filtro de ações perigosas.",
   "skillsOficiais": []
 }

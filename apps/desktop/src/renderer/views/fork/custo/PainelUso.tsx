@@ -20,6 +20,7 @@ import { dinheiro, mesDe, mesVizinho, nomeDoMes, parcial, rotuloDaConta, type Ab
 import type { EstadoCusto } from './useCusto'
 import type { EstadoCadastro } from './useCadastroContas'
 import { parcialDe, tokensDe, valorDe } from './textos'
+import { HistoricoCota, type HistoricoProps } from './HistoricoCota'
 import './custo.css'
 
 const P = 'conversa.custo'
@@ -39,6 +40,8 @@ export interface PainelProps {
   cadastro: EstadoCadastro
   bot: (botId: string) => Bot | undefined
   limites: readonly LimitesItem[]
+  /** O histórico das cotas (aba Conta); ausente = a seção não existe (quem monta o painel não o liga). */
+  historico?: HistoricoProps
 }
 
 export function PainelUso(p: PainelProps) {
@@ -79,6 +82,7 @@ export function PainelUso(p: PainelProps) {
       </CardSection>
       {relatorio && relatorio.total.turns > 0 ? <Aba relatorio={relatorio} aba={p.aba} cadastro={p.cadastro} bot={p.bot} /> : null}
       <LimitesDoPlano itens={p.limites} />
+      {p.historico && p.aba === 'conta' ? <HistoricoCota historico={p.historico} cadastro={p.cadastro} /> : null}
     </>
   )
 }

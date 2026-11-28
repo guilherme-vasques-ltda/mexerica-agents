@@ -354,7 +354,7 @@ impl Actor {
         } else {
             options
         };
-        if antigravity && options.is_empty() {
+        if (antigravity || codex) && options.is_empty() {
             if let Some(conn) = &self.conn {
                 let _ = conn.acp.respond(rpc_id, json!({"outcome":{"outcome":"cancelled"}})).await;
             }
