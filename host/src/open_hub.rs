@@ -91,6 +91,7 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
         | "marketSkills"
         | "skillDetails"
         | "removeSkill"
+        | "donnaSpaceBirth"
         | "routines"
         | "routinesOverview"
         | "routineSchedule"
@@ -152,6 +153,14 @@ mod tests {
     use super::open_allows;
     use crate::{api::devices::Caller, store::Scope};
     use serde_json::json;
+
+    #[test]
+    fn open_libera_criar_space_com_principal_so_ao_dono_local() {
+        let device = Caller::Device { key: "device".into(), scopes: vec![Scope::Control], autoridade: None };
+        let body = json!({"name": "Space", "principal": {"backend": "codex", "engineAccountId": "conta"}});
+        assert!(open_allows(&Caller::Local, "donnaSpaceBirth", &body));
+        assert!(!open_allows(&device, "donnaSpaceBirth", &body));
+    }
 
     #[test]
     fn open_libera_propostas_equipes_e_biblioteca_so_ao_dono_local() {

@@ -12,6 +12,9 @@ export function groupRoster<T extends { bot: { id: string } }>(items: T[], snaps
   ]
 }
 
+/** O que um grupo recolhido continua mostrando: a conversa aberta e as que esperam o dono (`needsInput`). */
+export const stayVisibleWhenClosed = (bot: { status: string }, selected: boolean): boolean => selected || bot.status === 'needsInput'
+
 export function inGroup(snapshot: BotGroupsSnapshot, botId: string, groupId: string): boolean {
   return (groupOf(snapshot, botId) ?? UNGROUPED) === groupId
 }
