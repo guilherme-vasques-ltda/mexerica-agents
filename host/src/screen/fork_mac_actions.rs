@@ -6,8 +6,7 @@ use crate::{
     hub::Hub,
     store::{Entry, EntryKind, Lane, Store},
 };
-use anyhow::{Context, Result, bail, ensure};
-use serde::Deserialize;
+use anyhow::{Context, Result, ensure};
 use serde_json::{Value, json};
 use std::{
     collections::HashMap,
@@ -22,42 +21,25 @@ pub(crate) const CARD: &str = "mac_local_screen_action";
 const DENIED: &str = "A ação de tela não foi autorizada para este turno.";
 const WAIT: Duration = Duration::from_secs(120);
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Point {
-    x: u16,
-    y: u16,
+fn monotonic_ns() -> Result<u64> {
+    let mut time = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    // SAFETY: clock_gettime writes to a valid timespec and does not retain it.
+    ensure!(unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC_RAW, &raw mut time) } == 0, DENIED);
+    ensure!((0..1_000_000_000).contains(&time.tv_nsec), DENIED);
+    u64::try_from(time.tv_sec)?
+        .checked_mul(1_000_000_000)
+        .and_then(|ns| ns.checked_add(time.tv_nsec.cast_unsigned()))
+        .context(DENIED)
 }
 
-enum Action {
-    Capture,
-    Click(Point),
+fn before_deadline(deadline_ns: u64) -> Result<()> {
+    ensure!(monotonic_ns()? < deadline_ns, DENIED);
+    Ok(())
 }
 
-impl Action {
-    fn parse(name: &str, args: Value) -> Result<Self> {
-        match name {
-            "screenshot" if args.as_object().is_some_and(serde_json::Map::is_empty) => Ok(Self::Capture),
-            "click" => Ok(Self::Click(serde_json::from_value(args).context("Informe x e y inteiros.")?)),
-            _ => bail!("Ação de tela indisponível neste Mac."),
-        }
-    }
-
-    fn title(&self, display: u32) -> String {
-        match self {
-            Self::Capture => format!("screenshot(display={display})"),
-            Self::Click(point) => format!("click(display={display}, x={}, y={})", point.x, point.y),
-        }
-    }
-
-    fn payload(&self, instance: &str, display: u32) -> Value {
-        match self {
-            Self::Capture => json!({"method":"screenshot","instance":instance,"display":display}),
-            Self::Click(point) => {
-                json!({"method":"input","instance":instance,"display":display,"action":{"type":"click","x":point.x,"y":point.y}})
-            }
-        }
-    }
+fn capture_request(name: &str, args: &Value) -> Result<()> {
+    ensure!(name == "screenshot" && args.as_object().is_some_and(serde_json::Map::is_empty), DENIED);
+    Ok(())
 }
 
 pub(crate) async fn catalog(hub: &Arc<Hub>, caller: &Caller) -> Value {
@@ -79,10 +61,7 @@ pub(crate) async fn catalog(hub: &Arc<Hub>, caller: &Caller) -> Value {
 
     json!({"tools": [
         {"name":"screenshot","description":"Capture the main display, with the local owner's approval. Returns an image and the logical display size in points.",
-         "inputSchema":{"type":"object","properties":{},"additionalProperties":false},"annotations":{"readOnlyHint":true}},
-        {"name":"click","description":"Click the exact point on the main display, with the local owner's approval. Use logical display coordinates, not image pixels.",
-         "inputSchema":{"type":"object","properties":{"x":{"type":"integer","minimum":0,"maximum":65535},"y":{"type":"integer","minimum":0,"maximum":65535}},
-                        "required":["x","y"],"additionalProperties":false}}
+         "inputSchema":{"type":"object","properties":{},"additionalProperties":false},"annotations":{"readOnlyHint":true}}
     ]})
 }
 
@@ -90,7 +69,7 @@ struct Waiting {
     hub: Weak<Hub>,
     attempt: Arc<Attempt>,
     card: Entry,
-    deadline: Instant,
+    deadline_ns: u64,
     answer: oneshot::Sender<Entry>,
 }
 static PENDING: LazyLock<Mutex<HashMap<String, Waiting>>> = LazyLock::new(Mutex::default);
@@ -175,7 +154,7 @@ pub(crate) fn respond(
             Weak::ptr_eq(&current.hub, &Arc::downgrade(hub))
                 && current.card.rev == revision
                 && current.card.data == entry.data
-                && Instant::now() < current.deadline,
+                && before_deadline(current.deadline_ns).is_ok(),
             DENIED
         );
         pending.remove(&entry.id).context(DENIED)?
@@ -185,7 +164,7 @@ pub(crate) fn respond(
             waiting.attempt.check_waiting()?;
         }
         commit(hub, &waiting.card, option, origin, |db| {
-            ensure!(Instant::now() < waiting.deadline, DENIED);
+            before_deadline(waiting.deadline_ns)?;
             if option == Some("allow") {
                 check_turn(db, &waiting.attempt)?;
             }
@@ -219,7 +198,7 @@ async fn helper_target(xpc: &Xpc) -> Result<(String, u32)> {
 }
 
 pub(crate) async fn call(hub: &Arc<Hub>, attempt: Attempt, name: &str, args: Value) -> Result<Value> {
-    let action = Action::parse(name, args)?;
+    capture_request(name, &args)?;
     let xpc = hub.screen.mac_xpc.get().context("O helper autenticado não está disponível.")?;
     ensure!(attempt.private_consent.is_some(), DENIED);
     let (instance, display) = helper_target(xpc).await?;
@@ -238,6 +217,7 @@ pub(crate) async fn call(hub: &Arc<Hub>, attempt: Attempt, name: &str, args: Val
     let id = uuid::Uuid::new_v4().to_string();
     let (send, receive) = oneshot::channel();
     let deadline = Instant::now() + WAIT;
+    let deadline_ns = monotonic_ns()?.checked_add(u64::try_from(WAIT.as_nanos())?).context(DENIED)?;
     let card = {
         let mut pending = PENDING.locked();
         let (card, _) = hub.add_entry_once(
@@ -246,7 +226,7 @@ pub(crate) async fn call(hub: &Arc<Hub>, attempt: Attempt, name: &str, args: Val
             EntryKind::Permission,
             turn,
             &json!({
-                "toolKind": CARD, "author": attempt.bot, "title": action.title(display),
+                "toolKind": CARD, "author": attempt.bot, "title": format!("screenshot(display={display})"),
                 "status":"pending",
                 "options":[
                     {"optionId":"allow","kind":"allow_once","name":"Allow once"},
@@ -256,36 +236,60 @@ pub(crate) async fn call(hub: &Arc<Hub>, attempt: Attempt, name: &str, args: Val
         )?;
         pending.insert(
             id,
-            Waiting { hub: Arc::downgrade(hub), attempt: attempt.clone(), card: card.clone(), deadline, answer: send },
+            Waiting {
+                hub: Arc::downgrade(hub),
+                attempt: attempt.clone(),
+                card: card.clone(),
+                deadline_ns,
+                answer: send,
+            },
         );
         card
     };
     let _cancel = Cancel(hub, &card);
     let approved = tokio::time::timeout_at(deadline, receive).await??;
     ensure!(approved.data["status"] == "answered" && approved.data["selected"] == "allow", DENIED);
-    let request = action.payload(&instance, display);
-    let sent = attempt.with_private_screen_send(
-        |db| {
-            ensure!(Instant::now() < deadline && hub.screen.enabled(), DENIED);
-            check_card(db, &approved)?;
-            check_turn(db, &attempt)?;
-            Ok(())
-        },
-        || xpc.send(&request),
-    )?;
-    let reply = tokio::task::spawn_blocking(move || sent.wait(12))
-        .await?
-        .context("O pedido foi enviado, mas não foi possível confirmar o efeito.")?;
-    let result = reply.get("result").context("O helper recusou a ação ou as permissões mudaram.")?;
-    attempt.check_waiting().context("O pedido foi enviado, mas a autorização mudou.")?;
-    match action {
-        Action::Click(_) => Ok(json!({"content":[{"type":"text","text":"Clique enviado."}]})),
-        Action::Capture => {
-            let data = result["data"].as_str().context("A captura não trouxe uma imagem.")?;
-            Ok(json!({"content":[
-                {"type":"image","data":data,"mimeType":"image/jpeg"},
-                {"type":"text","text":format!("Tela principal: {} × {} pontos.", result["width"], result["height"])}
-            ]}))
-        }
+    let request = json!({
+        "method":"screenshot","instance":instance,"display":display,"deadlineNs":deadline_ns.to_string()
+    });
+    let check = |db: &rusqlite::Connection| {
+        before_deadline(deadline_ns)?;
+        ensure!(hub.screen.enabled(), DENIED);
+        check_card(db, &approved)?;
+        check_turn(db, &attempt)?;
+        Ok(())
+    };
+    let sent = attempt.with_private_screen_send(check, || {
+        before_deadline(deadline_ns)?;
+        xpc.send(&request)
+    })?;
+    let reply = tokio::time::timeout_at(deadline, tokio::task::spawn_blocking(move || sent.wait(12))).await???;
+    let reply = reply.get("result").context("O helper recusou a captura ou as permissões mudaram.")?;
+    let data = reply["data"].as_str().context("A captura não trouxe uma imagem.")?;
+    let response = json!({"content":[
+        {"type":"image","data":data,"mimeType":"image/jpeg"},
+        {"type":"text","text":format!("Tela principal: {} × {} pontos.", reply["width"], reply["height"])}
+    ]});
+    attempt.with_private_screen_send(check, || {
+        before_deadline(deadline_ns)?;
+        Ok(response)
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_capture_without_arguments_is_supported() {
+        assert!(capture_request("screenshot", &json!({})).is_ok());
+        assert!(capture_request("screenshot", &json!({"display": 1})).is_err());
+        assert!(capture_request("click", &json!({"x": 1, "y": 1})).is_err());
+    }
+
+    #[test]
+    fn capture_admission_rejects_expired_deadlines() {
+        assert!(before_deadline(monotonic_ns().unwrap()).is_err());
+        assert!(before_deadline(monotonic_ns().unwrap() + 1_000_000_000).is_ok());
     }
 }

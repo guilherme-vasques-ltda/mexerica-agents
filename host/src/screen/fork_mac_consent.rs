@@ -62,6 +62,24 @@ pub(crate) fn set_on(db: &Connection, bot: &str, enabled: bool) -> Result<()> {
 mod tests {
     use super::*;
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn revocation_cannot_readmit_an_inflight_capture() {
+        let db = Connection::open_in_memory().unwrap();
+        db.execute("CREATE TABLE kv(k TEXT PRIMARY KEY,v TEXT)", []).unwrap();
+        set_on(&db, "a", true).unwrap();
+        let first = Consent::read(&db, "a").unwrap().unwrap();
+        set_global_on(&db, false).unwrap();
+        assert!(Consent::read(&db, "a").unwrap().is_none());
+        set_global_on(&db, true).unwrap();
+        let second = Consent::read(&db, "a").unwrap().unwrap();
+        assert!(first != second);
+        set_on(&db, "a", false).unwrap();
+        assert!(Consent::read(&db, "a").unwrap().is_none());
+        set_on(&db, "a", true).unwrap();
+        assert!(second != Consent::read(&db, "a").unwrap().unwrap());
+    }
+
     #[test]
     fn consent_is_per_bot_and_reenable_cannot_reuse_old_consent() {
         let mut db = Connection::open_in_memory().unwrap();

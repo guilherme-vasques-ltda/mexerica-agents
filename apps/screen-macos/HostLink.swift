@@ -2,6 +2,7 @@
 import AppKit
 import ApplicationServices
 import CoreGraphics
+import Darwin
 import Foundation
 import Network
 @preconcurrency import ScreenCaptureKit
@@ -143,7 +144,6 @@ final class ForkLocalScreenXPC {
     static let service = "app.donnabot.dev.screen.xpc"
     private var listener: xpc_connection_t?
     private var peers: [ObjectIdentifier: xpc_connection_t] = [:]
-    private let input = InputInjector()
     private let instance = UUID().uuidString
 
     func start() {
@@ -221,11 +221,11 @@ final class ForkLocalScreenXPC {
             let display = try authorize(message)
             let bounds = CGDisplayBounds(display)
             let filter = try await Capture.filter(display)
-            _ = try authorize(message)
             let config = SCStreamConfiguration()
             let scale = min(1, 1280 / max(bounds.width, bounds.height))
             config.width = max(1, Int(bounds.width * scale))
             config.height = max(1, Int(bounds.height * scale))
+            _ = try authorize(message)
             let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
             _ = try authorize(message)
             guard bounds == CGDisplayBounds(display) else { throw HelperError("The display changed.") }
@@ -233,27 +233,18 @@ final class ForkLocalScreenXPC {
             guard let jpeg = bitmap.representation(using: .jpeg, properties: [.compressionFactor: 0.75]) else {
                 throw HelperError("Screen capture could not be encoded.")
             }
-            return ["data": jpeg.base64EncodedString(), "width": bounds.width, "height": bounds.height]
-        case "input":
-            let display = try authorize(message)
-            guard let action = message["action"] as? [String: Any],
-                  action["type"] as? String == "click",
-                  action.count == 3,
-                  let x = InputInjector.number(action["x"]),
-                  let y = InputInjector.number(action["y"])
-            else { throw HelperError("Unsupported screen input.") }
-            let bounds = CGDisplayBounds(display)
-            guard x >= 0, y >= 0, x < Double(bounds.width), y < Double(bounds.height) else {
-                throw HelperError("The click is outside the main display.")
-            }
-            try await input.perform(action, display: display)
-            return [:]
+            let data = jpeg.base64EncodedString()
+            _ = try authorize(message)
+            return ["data": data, "width": bounds.width, "height": bounds.height]
         default:
             throw HelperError("Unsupported screen request.")
         }
     }
 
     private func authorize(_ message: [String: Any]) throws -> CGDirectDisplayID {
+        let now = clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW)
+        guard let raw = message["deadlineNs"] as? String, let deadline = UInt64(raw),
+              now > 0, now < deadline else { throw HelperError("Screen capture approval expired.") }
         guard message["instance"] as? String == instance, CGPreflightScreenCaptureAccess(), AXIsProcessTrusted(),
               let display = message["display"] as? UInt32, display != 0, display == CGMainDisplayID() else {
             throw HelperError("The helper or display changed, or screen permissions are missing.")

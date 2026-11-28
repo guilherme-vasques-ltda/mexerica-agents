@@ -13,7 +13,7 @@ import { useJanelaBaixa } from '../../lib/janela-baixa'
 import { useStoreRef } from '../../store/context'
 import { useSelector } from '../../lib/observable'
 import { emQueda } from '../../store/fork-queda-curta'
-import { actionLabel, memoryPermissionNote, permissionDetail, permissionTitle } from './permission-copy'
+import { actionLabel, capturePermissionNote, memoryPermissionNote, permissionDetail, permissionTitle } from './permission-copy'
 import { superficieIdioma, useIdioma, tradutor, type Tradutor } from '../../lib/fork-i18n/estado'
 export { permissionHeadline, permissionTitle } from './permission-copy'
 
@@ -84,6 +84,7 @@ export function PermissionCard({ entry, hostName, answering, respond }: { entry:
   const allowed = (!screen || d.screenAccess?.effect === true) && !pending && d.status === 'answered' && !!d.options?.find((o) => o.optionId === d.selected)?.kind.startsWith('allow')
   const refused = !pending && d.status === 'answered' && !allowed
   const title = screen ? t('conversa.aprovacao.tela.titulo') : permissionTitle(t, d.toolKind, d.author ? store.bots.get(d.author)?.name : null)
+  const captureNote = capturePermissionNote(t, d.toolKind)
   const memoryNote = memoryPermissionNote(t, d.toolKind)
   const detail = screen ? null : permissionDetail(t, d.toolKind, d.title)
   const facts = (
@@ -118,6 +119,7 @@ export function PermissionCard({ entry, hostName, answering, respond }: { entry:
           <p className="approval-note">{t('conversa.aprovacao.tela.celular')}</p>
           {!pending && d.screenAccess?.effect === false ? <p className="approval-note">{t('conversa.aprovacao.tela.semEfeito')}</p> : null}
         </> : null}
+        {captureNote && pending ? <p className="approval-note">{captureNote}</p> : null}
         {memoryNote ? <p className="approval-note">{memoryNote}</p> : null}
         {hasDetail || baixa ? (
           <Disclosure expanded={expanded} onToggle={() => setExpanded((e) => !e)} label={<Text size="caption" weight="medium" tone="secondary">{t('conversa.aprovacao.detalhes')}</Text>}>
