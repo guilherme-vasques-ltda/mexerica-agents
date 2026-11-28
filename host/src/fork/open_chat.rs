@@ -5,10 +5,10 @@ use crate::fork::engine_accounts::{LaunchReference, Registry, State};
 use crate::fork::engine_setup::process::Rpc;
 use crate::hub::{BotStatus, Hub};
 use crate::store::{BotConfig, EntryKind, Lane};
-use anyhow::{Result, anyhow, bail, ensure};
+use anyhow::{Context, Result, anyhow, bail, ensure};
 use serde_json::{Value, json};
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     path::PathBuf,
     sync::{Arc, Mutex, MutexGuard, Weak},
     time::{Duration, Instant},
@@ -65,6 +65,7 @@ pub(crate) struct Ticket {
     account: String,
     directory: PathBuf,
     model: Option<String>,
+    options: Options,
     cancel: watch::Receiver<bool>,
     done: watch::Sender<()>,
     #[cfg(unix)]
@@ -120,6 +121,49 @@ pub(crate) fn chosen_account<'a>(
     .ok_or_else(|| anyhow!("open_chat_account_required"))
 }
 
+/// Raciocínio e velocidade do turno: `Chosen` é a escolha do bot e vai sempre; `Default` é o padrão do catálogo e só
+/// vai numa conversa retomada, para desfazer o override que um turno anterior deixou valendo (`None` vira `null`).
+enum Pick {
+    Chosen(String),
+    Default(Option<String>),
+}
+
+impl Pick {
+    fn to_send(&self, was_resumed: bool) -> Option<Value> {
+        match self {
+            Pick::Chosen(value) => Some(value.as_str().into()),
+            Pick::Default(value) => was_resumed.then(|| value.as_deref().into()),
+        }
+    }
+}
+
+type Options = BTreeMap<String, Pick>;
+
+/// As escolhas do bot que o `model/list` da conta comprovou para o modelo dele; o que não consta no catálogo é
+/// descartado. Sem escolha, o turno volta ao padrão que o catálogo informa, porque o override de um turno vale para os
+/// seguintes da conversa retomada.
+fn proven_options(hub: &Hub, cfg: &BotConfig, account: &str, model: Option<&str>) -> Result<Options> {
+    let Some(model) = model else { return Ok(BTreeMap::new()) };
+    let registry = Registry::load(&hub.store).context("open_chat_failed")?;
+    let Some(known) =
+        registry.accounts.iter().find(|a| a.id == account).and_then(|a| a.models.iter().find(|m| m.id == model))
+    else {
+        return Ok(BTreeMap::new());
+    };
+    Ok(known
+        .options
+        .iter()
+        .map(|option| {
+            let chosen = cfg.model_options.get(&option.id).filter(|value| option.values.contains(value));
+            let pick = match chosen {
+                Some(value) => Pick::Chosen(value.clone()),
+                None => Pick::Default(option.default.clone()),
+            };
+            (option.id.clone(), pick)
+        })
+        .collect())
+}
+
 /// Cerca das mutações de conta: recusa enquanto um turno da Open usa a conta e impede um turno novo até o fim do efeito.
 pub(crate) fn with_idle_account<T>(account: &str, effect: impl FnOnce() -> Result<T>) -> Result<T> {
     let guard = RUNNING.locked();
@@ -162,7 +206,8 @@ pub(crate) fn admit_locked(
     cfg: &BotConfig,
 ) -> Result<Ticket> {
     let (account, directory, model) = account_profile(hub, cfg)?;
-    admit(guard, hub, &cfg.id, account, directory, model)
+    let options = proven_options(hub, cfg, &account, model.as_deref())?;
+    admit(guard, hub, &cfg.id, (account, directory, model, options))
 }
 
 /// Reserva o turno sob `RUNNING`, a mesma trava em que a reconexão da conta abre a operação: uma conta em reconexão
@@ -173,9 +218,7 @@ fn admit(
     guard: &mut Option<HashMap<String, Running>>,
     hub: &Arc<Hub>,
     bot: &str,
-    account: String,
-    directory: PathBuf,
-    model: Option<String>,
+    (account, directory, model, options): (String, PathBuf, Option<String>, Options),
 ) -> Result<Ticket> {
     ensure!(!CLOSING.locked().iter().any(|h| h.ptr_eq(&Arc::downgrade(hub))), "open_chat_unavailable");
     ensure!(!crate::fork::engine_setup::in_setup(&hub.store, &account), "open_chat_reconnecting");
@@ -200,6 +243,7 @@ fn admit(
         account,
         directory,
         model,
+        options,
         cancel,
         done,
         #[cfg(unix)]
@@ -209,7 +253,7 @@ fn admit(
 
 #[cfg(test)]
 pub(crate) fn admit_for_test(hub: &Arc<Hub>, bot: &str, account: &str) -> Result<Ticket> {
-    admit(&mut RUNNING.locked(), hub, bot, account.to_owned(), PathBuf::new(), None)
+    admit(&mut RUNNING.locked(), hub, bot, (account.to_owned(), PathBuf::new(), None, BTreeMap::new()))
 }
 
 #[cfg(test)]
@@ -356,7 +400,7 @@ pub(crate) fn run(
         let (entry_id, authority) = entry;
         #[cfg(unix)]
         let browser = ticket.browser;
-        let Ticket { bot, account, directory, model, mut cancel, done, .. } = ticket;
+        let Ticket { bot, account, directory, model, options, mut cancel, done, .. } = ticket;
         if let Err(error) = Autoridade::no_efeito(&hub, authority.as_ref(), || Ok(())) {
             if error.is::<crate::fork::autoridade::AutorizacaoEncerrada>()
                 || error.is::<crate::fork::autoridade::EpochDaRequisicaoEncerrado>()
@@ -397,6 +441,7 @@ pub(crate) fn run(
             (&account, member_thread_key(&lane, &account, &bot)),
             (&lane, &cfg),
             (&instructions, model.as_deref()),
+            &options,
             (&text, TURN_LIMIT, &images),
             (&entry_id, authority.as_ref()),
             &mut cancel,
@@ -457,7 +502,7 @@ pub(crate) async fn routine_turn(
     prompt: String,
     timeout: Duration,
 ) -> Result<String> {
-    let Ticket { bot, account, directory, model, mut cancel, done, .. } = ticket;
+    let Ticket { bot, account, directory, model, options, mut cancel, done, .. } = ticket;
     let instructions = instructions(hub, cfg);
     let outcome = async {
         let turn = hub.store.alloc_turn(&cfg.id)?;
@@ -469,6 +514,7 @@ pub(crate) async fn routine_turn(
                 (&account, routine_thread_key(&bot, &account)),
                 (&lane, cfg),
                 (&instructions, model.as_deref()),
+                &options,
                 (&prompt, timeout, &[]),
                 ("", None),
                 &mut cancel,
@@ -502,6 +548,7 @@ async fn turn_in_profile(
     (account, history_key): (&str, String),
     (lane, cfg): (&Lane, &BotConfig),
     (instructions, model): (&str, Option<&str>),
+    options: &Options,
     (text, limit, images): (&str, Duration, &[PathBuf]),
     (entry_id, authority): (&str, Option<&Autoridade>),
     cancel: &mut watch::Receiver<bool>,
@@ -579,6 +626,7 @@ async fn turn_in_profile(
         &mut rpc,
         saved.as_deref(),
         (instructions, model),
+        options,
         input,
         limit,
         cancel,
@@ -728,6 +776,7 @@ pub(super) async fn drive_delegated(
         rpc,
         None,
         (&instructions, ticket.model.as_deref()),
+        &ticket.options,
         vec![json!({"type": "text", "text": text, "text_elements": []})],
         TURN_LIMIT,
         &mut cancel,
@@ -773,12 +822,14 @@ pub(super) async fn delegated_turn(
 }
 
 #[cfg(not(unix))]
+#[allow(clippy::too_many_arguments)]
 async fn turn_in_profile(
     _: &Arc<Hub>,
     _: &std::path::Path,
     _: (&str, String),
     _: (&Lane, &BotConfig),
     _: (&str, Option<&str>),
+    _: &Options,
     _: (&str, Duration, &[PathBuf]),
     _: (&str, Option<&Autoridade>),
     _: &mut watch::Receiver<bool>,
@@ -889,6 +940,7 @@ async fn drive(
     rpc: &mut Rpc,
     thread: Option<&str>,
     model: (&str, Option<&str>),
+    options: &Options,
     text: &str,
     limit: Duration,
     cancel: &mut watch::Receiver<bool>,
@@ -900,8 +952,22 @@ async fn drive(
     browser: bool,
 ) -> Result<TurnoConcluido> {
     let input = vec![json!({"type": "text", "text": text, "text_elements": []})];
-    drive_input(rpc, thread, model, input, limit, cancel, before_text, on_sent, on_delta, authority, tools, browser)
-        .await
+    drive_input(
+        rpc,
+        thread,
+        model,
+        options,
+        input,
+        limit,
+        cancel,
+        before_text,
+        on_sent,
+        on_delta,
+        authority,
+        tools,
+        browser,
+    )
+    .await
 }
 
 /// O mesmo turno com a entrada já montada: o texto e, quando houver, as imagens anexadas.
@@ -910,6 +976,7 @@ async fn drive_input(
     rpc: &mut Rpc,
     thread: Option<&str>,
     (instructions, model): (&str, Option<&str>),
+    options: &Options,
     input: Vec<Value>,
     limit: Duration,
     cancel: &mut watch::Receiver<bool>,
@@ -924,6 +991,7 @@ async fn drive_input(
         rpc,
         thread,
         (instructions, model),
+        options,
         input,
         limit,
         cancel,
@@ -946,6 +1014,7 @@ async fn drive_inner(
     rpc: &mut Rpc,
     thread: Option<&str>,
     (instructions, model): (&str, Option<&str>),
+    options: &Options,
     input: Vec<Value>,
     limit: Duration,
     cancel: &mut watch::Receiver<bool>,
@@ -991,6 +1060,9 @@ async fn drive_inner(
         if let Some(model) = model {
             session["model"] = model.into();
         }
+        if let Some(Pick::Chosen(tier)) = options.get("service_tier") {
+            session["serviceTier"] = tier.as_str().into();
+        }
         if delegated {
             session["ephemeral"] = true.into();
         }
@@ -1010,6 +1082,7 @@ async fn drive_inner(
             }
             None => None,
         };
+        let was_resumed = resumed.is_some();
         let started = if let Some(value) = resumed {
             value
         } else {
@@ -1039,7 +1112,15 @@ async fn drive_inner(
             .to_owned();
         let model = started["model"].as_str().filter(|id| !id.is_empty() && id.len() <= 128).map(str::to_owned);
         before_text(&thread)?;
-        let params = json!({"threadId": thread, "input": input});
+        let mut params = json!({"threadId": thread, "input": input});
+        if let Some(effort) =
+            options.get("reasoning_effort").and_then(|pick| pick.to_send(was_resumed)).filter(|v| !v.is_null())
+        {
+            params["effort"] = effort;
+        }
+        if let Some(tier) = options.get("service_tier").and_then(|pick| pick.to_send(was_resumed)) {
+            params["serviceTier"] = tier;
+        }
         let turn = match delivery {
             Delivery::Chat(Some((hub, proof)), _, _) => {
                 rpc.call_guarded(4, "turn/start", params, |effect| {

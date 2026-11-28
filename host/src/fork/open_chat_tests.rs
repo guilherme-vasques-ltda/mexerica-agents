@@ -7,6 +7,7 @@ use super::{
 use crate::LockExt;
 use crate::fork::engine_setup::process::Rpc;
 use serde_json::Value;
+use std::collections::BTreeMap;
 use std::process::Stdio;
 use std::time::Duration;
 use tokio::sync::watch;
@@ -162,7 +163,16 @@ async fn turn_with_model(
     thread: Option<&str>,
     model: Option<&str>,
 ) -> (anyhow::Result<String>, String, Vec<Value>, Option<String>) {
-    let (result, text, sent, kept) = fixture_turn(mode, thread, model, None).await;
+    turn_with_options(mode, thread, model, &BTreeMap::new()).await
+}
+
+async fn turn_with_options(
+    mode: &str,
+    thread: Option<&str>,
+    model: Option<&str>,
+    options: &BTreeMap<String, super::Pick>,
+) -> (anyhow::Result<String>, String, Vec<Value>, Option<String>) {
+    let (result, text, sent, kept) = fixture_turn(mode, thread, model, options, None).await;
     (result.map(|concluido| concluido.thread), text, sent, kept)
 }
 
@@ -172,7 +182,7 @@ pub(crate) async fn turn_with_bridge(
     bridge: &crate::fork::browser::turn::Bridge,
     page: &str,
 ) -> (anyhow::Result<String>, String, Vec<Value>, Option<String>) {
-    let (result, text, sent, kept) = fixture_turn(mode, thread, None, Some((bridge, page))).await;
+    let (result, text, sent, kept) = fixture_turn(mode, thread, None, &BTreeMap::new(), Some((bridge, page))).await;
     (result.map(|concluido| concluido.thread), text, sent, kept)
 }
 
@@ -180,6 +190,7 @@ async fn fixture_turn(
     mode: &str,
     thread: Option<&str>,
     model: Option<&str>,
+    options: &BTreeMap<String, super::Pick>,
     bridge: Option<(&crate::fork::browser::turn::Bridge, &str)>,
 ) -> (anyhow::Result<super::TurnoConcluido>, String, Vec<Value>, Option<String>) {
     let dir = std::env::temp_dir().join(format!("open-chat-{}", uuid::Uuid::new_v4()));
@@ -209,6 +220,7 @@ async fn fixture_turn(
         &mut rpc,
         thread,
         ("Fixture instructions", model),
+        options,
         "Oi",
         Duration::from_secs(600),
         &mut cancel,
@@ -242,11 +254,11 @@ async fn fixture_turn(
 
 #[tokio::test]
 async fn uso_respeita_conversa_turno_e_cotas_esparsas() {
-    let (result, _, _, _) = fixture_turn("metrics", None, None, None).await;
+    let (result, _, _, _) = fixture_turn("metrics", None, None, &BTreeMap::new(), None).await;
     let turno = result.unwrap();
     let total = turno.uso.unwrap();
     assert_eq!((total.entrada, total.cache_lido, total.cache_gravado, total.saida, total.raciocinio), (15, 6, 2, 4, 1));
-    let cotas: std::collections::BTreeMap<_, _> = turno.cotas.into_iter().map(|w| (w.id, w.percent)).collect();
+    let cotas: BTreeMap<_, _> = turno.cotas.into_iter().map(|w| (w.id, w.percent)).collect();
     assert_eq!(cotas, [("primary".into(), 33.0), ("secondary".into(), 45.0)].into());
 }
 
@@ -347,6 +359,42 @@ async fn text_turn_streams_reply_without_tools_or_approvals() {
     let input = &find(&sent, "turn/start").unwrap()["params"];
     assert_eq!(input["threadId"], "thread-1");
     assert_eq!(input["input"][0]["text"], "Oi");
+}
+
+#[tokio::test]
+async fn reasoning_and_speed_choices_go_to_the_engine_and_absence_changes_nothing() {
+    let options = BTreeMap::from([
+        ("reasoning_effort".to_owned(), super::Pick::Chosen("high".to_owned())),
+        ("service_tier".to_owned(), super::Pick::Chosen("fast".to_owned())),
+    ]);
+    let (result, _, sent, _) = turn_with_options("ok", None, Some("gpt-test-model"), &options).await;
+    assert_eq!(result.unwrap(), "thread-1");
+    assert_eq!(find(&sent, "thread/start").unwrap()["params"]["serviceTier"], "fast");
+    let turn = &find(&sent, "turn/start").unwrap()["params"];
+    assert_eq!((&turn["effort"], &turn["serviceTier"]), (&Value::from("high"), &Value::from("fast")));
+    let (_, _, sent, _) = turn_with_model("ok", None, Some("gpt-test-model")).await;
+    let turn = &find(&sent, "turn/start").unwrap()["params"];
+    assert!(turn.get("effort").is_none() && turn.get("serviceTier").is_none());
+    assert!(find(&sent, "thread/start").unwrap()["params"].get("serviceTier").is_none());
+    let reset = BTreeMap::from([
+        ("reasoning_effort".to_owned(), super::Pick::Default(Some("low".to_owned()))),
+        ("service_tier".to_owned(), super::Pick::Default(None)),
+    ]);
+    let (_, _, sent, _) = turn_with_options("resume", Some("thread-9"), Some("gpt-test-model"), &reset).await;
+    let turn = &find(&sent, "turn/start").unwrap()["params"];
+    assert_eq!(turn["effort"], "low");
+    assert_eq!(turn.get("serviceTier"), Some(&Value::Null));
+    assert!(find(&sent, "thread/resume").unwrap()["params"].get("serviceTier").is_none());
+    let (_, _, sent, _) = turn_with_options("ok", None, Some("gpt-test-model"), &reset).await;
+    let turn = &find(&sent, "turn/start").unwrap()["params"];
+    assert!(turn.get("effort").is_none() && turn.get("serviceTier").is_none(), "a new thread gets no catalog defaults");
+    let (_, _, sent, _) = turn_with_options("ok", Some("thread-9"), Some("gpt-test-model"), &reset).await;
+    assert!(find(&sent, "thread/resume").is_some() && find(&sent, "thread/start").is_some());
+    let turn = &find(&sent, "turn/start").unwrap()["params"];
+    assert!(
+        turn.get("effort").is_none() && turn.get("serviceTier").is_none(),
+        "a fallback thread gets no catalog defaults"
+    );
 }
 
 #[tokio::test]
@@ -486,6 +534,7 @@ async fn a_completed_only_reply_past_the_limit_stops_the_turn() {
         &mut rpc,
         None,
         ("Fixture instructions", None),
+        &BTreeMap::new(),
         "Oi",
         Duration::from_secs(600),
         &mut cancel,
@@ -530,6 +579,7 @@ async fn the_message_is_marked_sent_only_after_the_codex_accepts_the_turn() {
             &mut rpc,
             None,
             ("Fixture instructions", None),
+            &BTreeMap::new(),
             "Oi",
             Duration::from_secs(600),
             &mut cancel,
@@ -603,6 +653,7 @@ async fn a_reply_past_the_limit_stops_the_turn_instead_of_dropping_pieces() {
         &mut rpc,
         None,
         ("Fixture instructions", None),
+        &BTreeMap::new(),
         "Oi",
         Duration::from_secs(600),
         &mut cancel,
@@ -669,6 +720,7 @@ async fn text_is_not_delivered_when_authority_ends_after_thread_start() {
         &mut rpc,
         None,
         ("Fixture instructions", None),
+        &BTreeMap::new(),
         "texto que não pode chegar",
         Duration::from_secs(600),
         &mut cancel,
@@ -993,6 +1045,7 @@ async fn ferramentas_da_open_so_rodam_no_turno_local_e_na_thread_certa() {
             &mut rpc,
             None,
             ("Fixture", None),
+            &BTreeMap::new(),
             "Consultar",
             Duration::from_secs(15),
             &mut cancel,
@@ -1244,11 +1297,13 @@ async fn desligar_comandos_aceita_apenas_a_conclusao_da_chamada_admitida() {
             .spawn()
             .unwrap();
         let mut rpc = Rpc::from_child(crate::fork::motor_exec::fixture(child)).unwrap();
+        let no_options = BTreeMap::new();
         let (result, ()) = tokio::join!(
             drive(
                 &mut rpc,
                 None,
                 ("Fixture", None),
+                &no_options,
                 "Teste",
                 Duration::from_secs(15),
                 &mut cancel,

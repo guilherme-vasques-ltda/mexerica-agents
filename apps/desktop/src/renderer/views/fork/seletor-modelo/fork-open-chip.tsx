@@ -2,15 +2,29 @@
 // este bot por `donnaOpenModelSet`. Sem outra opção para escolher, é só leitura (sem botão que não abre).
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as TeclaReact } from 'react'
 import type { Bot } from '@shared/models'
-import { useT } from '../../../lib/fork-i18n/estado'
+import { useT, type Tradutor } from '../../../lib/fork-i18n/estado'
 import { useSelector } from '../../../lib/observable'
 import { useStoreRef } from '../../../store/context'
 import { engineSetup } from '../../../store/fork-engine-setup'
 import type { ManagedAccount } from '../../../../shared/fork-engine-accounts'
 import { clientePessoal } from '../contas-ia/fork-open-cliente'
-import { aoMudarContaOpen, aplicarModeloOpen, contasEscolhiveis, modelosDaConta, padraoDaConta } from '../contas-ia/fork-open-modelo'
+import { alvoDaTecla, aoMudarContaOpen, aplicarModeloOpen, contasEscolhiveis, modelosDaConta, opcoesDoModelo, padraoDaConta, valorDaOpcao } from '../contas-ia/fork-open-modelo'
 import { ancoraNoCampo, posicaoLista } from './posicao'
 import { noBody, usePresaAoChip } from './presa'
+
+const ROTULO_ESFORCO: Record<string, (t: Tradutor) => string> = {
+  none: (t) => t('contas.openModelo.esforco.none'),
+  minimal: (t) => t('contas.openModelo.esforco.minimal'),
+  low: (t) => t('contas.openModelo.esforco.low'),
+  medium: (t) => t('contas.openModelo.esforco.medium'),
+  high: (t) => t('contas.openModelo.esforco.high'),
+  xhigh: (t) => t('contas.openModelo.esforco.xhigh'),
+  max: (t) => t('contas.openModelo.esforco.max'),
+  ultra: (t) => t('contas.openModelo.esforco.ultra'),
+}
+const ROTULO_VELOCIDADE: Record<string, (t: Tradutor) => string> = {
+  fast: (t) => t('contas.openModelo.velocidadeRapida'),
+}
 
 export function ChipModeloOpen({ bot }: { bot: Bot }) {
   const store = useStoreRef()
@@ -55,24 +69,21 @@ export function ChipModeloOpen({ bot }: { bot: Bot }) {
   }, [aberto]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const navegar = (e: TeclaReact<HTMLDivElement>) => {
-    const passo = ({ ArrowDown: 1, ArrowUp: -1 } as Record<string, number>)[e.key]
-    const ponta = ({ Home: 0, End: -1 } as Record<string, number>)[e.key]
-    if (passo === undefined && ponta === undefined) return
-    const lista = Array.from(painel.current?.querySelectorAll<HTMLButtonElement>('[role="option"]:not(:disabled)') ?? [])
-    if (!lista.length) return
+    const lista = Array.from(painel.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [])
+    const alvo = alvoDaTecla(e.key, lista.length, lista.indexOf(document.activeElement as HTMLButtonElement))
+    if (alvo === null) return
     e.preventDefault()
-    const agora = lista.indexOf(document.activeElement as HTMLButtonElement)
-    const alvo = passo !== undefined ? (agora + passo + lista.length) % lista.length : (ponta! + lista.length) % lista.length
     lista[alvo]?.focus()
   }
 
-  const escolher = async (accountId: string, model: string) => {
+  const opcoesAtuais = opcoesDoModelo(atual?.conta, atual?.model)
+  const escolher = async (accountId: string, model: string, options?: Record<string, string>) => {
     const client = store.client
     if (!client) { setErro(true); return }
     setGravando(true)
     setErro(false)
     try {
-      await aplicarModeloOpen(client, { accountId, model, botId: bot.id })
+      await aplicarModeloOpen(client, { accountId, model, botId: bot.id, ...(options ? { options } : {}) })
       fechar()
     } catch {
       setErro(true)
@@ -100,7 +111,7 @@ export function ChipModeloOpen({ bot }: { bot: Bot }) {
         <div ref={painel} className="chip-modelo-painel chip-modelo-open" style={estilo} role="listbox" aria-label={t('contas.openModelo.chipLista')} aria-busy={gravando || undefined} onKeyDown={navegar}>
           {contas.map((conta) => (
             <div key={conta.id} className="chip-modelo-open-grupo" role="group" aria-label={conta.label}>
-              {contas.length > 1 ? <div className="chip-modelo-open-conta">{conta.label}</div> : null}
+              <div className="chip-modelo-open-conta">{contas.length > 1 ? `${conta.brand} · ${conta.label}` : conta.brand}</div>
               {modelosDaConta(conta).map((model) => {
                 const marcado = conta.id === contaId && model === bot.model
                 const nomeModelo = model === padraoDaConta(conta) ? t('contas.openModelo.padrao', { modelo: model }) : model
@@ -113,6 +124,29 @@ export function ChipModeloOpen({ bot }: { bot: Bot }) {
               })}
             </div>
           ))}
+          {atual && opcoesAtuais.map((opcao) => {
+            const atualValor = valorDaOpcao(opcao, bot.modelOptions)
+            const rotulo = (valor: string) => (opcao.id === 'reasoning_effort' ? ROTULO_ESFORCO[valor] : ROTULO_VELOCIDADE[valor])?.(t) ?? valor
+            const gravar = (valor: string | null) => {
+              const { [opcao.id]: _antes, ...resto } = bot.modelOptions ?? {}
+              void escolher(atual.conta.id, atual.model, valor === null ? resto : { ...resto, [opcao.id]: valor })
+            }
+            return (
+              <div key={opcao.id} className="chip-modelo-open-grupo" role="group" aria-label={opcao.id === 'reasoning_effort' ? t('contas.openModelo.raciocinio') : t('contas.openModelo.velocidade')}>
+                <div className="chip-modelo-open-conta">{opcao.id === 'reasoning_effort' ? t('contas.openModelo.raciocinio') : t('contas.openModelo.velocidade')}</div>
+                {opcao.default === null ? (
+                  <button type="button" className="press chip-modelo-open-opcao" aria-pressed={atualValor === null} disabled={gravando} onClick={() => { if (atualValor !== null) gravar(null) }}>{t('contas.openModelo.padraoDoMotor')}</button>
+                ) : null}
+                {opcao.values.map((valor) => (
+                  <button key={valor} type="button" className="press chip-modelo-open-opcao" aria-pressed={atualValor === valor} disabled={gravando} onClick={() => {
+                    if (valor === opcao.default) { if (bot.modelOptions?.[opcao.id] !== undefined) gravar(null) } else if (atualValor !== valor) gravar(valor)
+                  }}>
+                    <span dir="ltr">{valor === opcao.default ? t('contas.openModelo.padrao', { modelo: rotulo(valor) }) : rotulo(valor)}</span>
+                  </button>
+                ))}
+              </div>
+            )
+          })}
           {erro ? <div className="chip-modelo-open-erro" role="alert">{t('contas.openModelo.chipErro')}</div> : null}
         </div>,
       ) : null}
