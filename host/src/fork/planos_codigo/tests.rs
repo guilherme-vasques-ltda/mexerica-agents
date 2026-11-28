@@ -1016,3 +1016,14 @@ async fn os_metodos_de_chave_do_app_no_mac_vao_so_para_os_quatro_planos_e_so_do_
         chaves_do_app(&hub, &Caller::Local, "motorChaveTestar", json!({"fornecedor": "google"})).await.unwrap();
     assert_eq!(sem_chave["erro"], "sem_chave");
 }
+
+#[tokio::test]
+async fn testar_a_chave_guardada_nao_aceita_texto_claro_no_slot() {
+    let hub = hub_de_prova();
+    hub.store.kv_set(&slot_chave(por_id("anthropic-chave")), CHAVE).unwrap();
+    let erro = call(&hub, &Caller::Local, "planoCodigoTestar", json!({"plano": "anthropic-chave"}))
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(!erro.contains(CHAVE), "{erro}");
+}

@@ -286,7 +286,13 @@ pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Va
             }
             let _operacao = OPERACAO.lock().await;
             crate::market::vault::unlock(hub.clone()).await?;
-            let Some(guardada) = crate::market::vault::read(&hub.store, &slot_chave(plano))?.map(Zeroizing::new) else {
+            let slot = slot_chave(plano);
+            let guardada = hub.store.kv_read(&slot)?;
+            let Some(guardada) = guardada
+                .map(|selada| crate::market::vault::open_ciphertext(&hub.store, &slot, &selada))
+                .transpose()?
+                .map(Zeroizing::new)
+            else {
                 return Ok(json!({"ok": false, "erro": "sem_chave", "estado": "nao_verificado"}));
             };
             let acesso = consultar(plano, plano.lista, &guardada).await;

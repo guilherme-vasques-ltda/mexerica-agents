@@ -166,9 +166,10 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
                     crate::agent::auth::models_with_env(&hub.store, backend, &env).await
                 };
                 // Os planos de código ligados pela chave também aparecem na escolha de modelo do OpenCode, só no Space
-                // pessoal (nos demais o bot é recusado). Se a descoberta do OpenCode falha, os modelos do plano ainda
+                // pessoal e só ao dono neste computador (nos demais o bot é recusado). Se a descoberta do OpenCode falha, os modelos do plano ainda
                 // valem; sem nenhum deles, o erro da descoberta segue para a tela.
                 let planos = backend == "opencode"
+                    && matches!(caller, Caller::Local)
                     && b["spaceId"].as_str().unwrap_or(crate::fork::spaces::PERSONAL) == crate::fork::spaces::PERSONAL;
                 let (mut catalog, falha) = match descoberta {
                     Ok(catalog) => (catalog, None),
