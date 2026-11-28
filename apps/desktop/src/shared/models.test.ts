@@ -128,7 +128,7 @@ test('preferência de navegador antiga assume integrado e PC persiste em normali
 
 test('o schema atual invalida caches 29 até o anterior e conserva preferência sem transformar cache em autorização', () => {
   const stamp = mirrorCacheStamp('fixture-app', 'fixture-hub')
-  assert.equal(stamp, 'donnabot-mirror-v81/fixture-app/fixture-hub')
+  assert.equal(stamp, 'donnabot-mirror-v82/fixture-app/fixture-hub')
   assert.equal(isCurrentMirrorSchema('donnabot-mirror-v79/fixture-app/fixture-hub'), false)
   assert.equal(isCurrentMirrorSchema('donnabot-mirror-v78/fixture-app/fixture-hub'), false)
   assert.equal(isCurrentMirrorSchema('donnabot-mirror-v77/fixture-app/fixture-hub'), false)
