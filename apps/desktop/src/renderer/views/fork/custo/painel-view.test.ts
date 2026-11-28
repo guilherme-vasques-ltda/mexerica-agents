@@ -223,3 +223,54 @@ test('estimativas aparecem separadas do motor em todas as abas e sem inventar pr
   assert.match(html, /Estimado: US\$\s1,25/)
   assert.doesNotMatch(html, /Sem preço/)
 })
+
+const janelaH = (o: Record<string, unknown> = {}) => ({ provider: 'codex', accountId: 'acc-1', windowId: 'primary', resetsAt: Date.UTC(2026, 10, 28, 12), buckets: [{ start: 0, percent: 40 }, { start: 10800000, percent: 55.4 }], forecast: { exhausted: false, exhaustsAt: null }, ...o })
+const hist = (windows: unknown[], o: Record<string, unknown> = {}) => ({ range: '7d', bucketMs: 3600000, measuredAt: 64800000, truncated: false, windows, ...o })
+const historico = (estado: unknown, o: Record<string, unknown> = {}) => ({ estado, lendo: false, online: true, faixa: '7d', onFaixa() {}, onAtualizar() {}, ...o }) as never
+
+test('histórico de cotas: só na aba Conta, por conta, sem misturar com tokens nem dinheiro', () => {
+  const pronto = { kind: 'pronto', historico: hist([janelaH(), janelaH({ accountId: null, windowId: 'secondary' })]) }
+  const html = render({ historico: historico(pronto) })
+  assert.match(html, /Histórico das cotas/)
+  assert.match(html, /Só o percentual usado das cotas do plano[^<]*Não são tokens nem cobrança\./)
+  assert.match(html, /Último valor: 55%/)
+  assert.match(html, /Conta não identificada/)
+  assert.match(html, /codex[^<]*Janela principal/)
+  assert.match(html, /codex[^<]*Janela secundária/)
+  assert.equal(barras(html), 1, 'o histórico não cria barra de progresso dos limites')
+  for (const aba of ['modelo', 'bot'] as const) assert.doesNotMatch(render({ aba, historico: historico(pronto) }), /Histórico das cotas/)
+  assert.doesNotMatch(render(), /Histórico das cotas/)
+})
+
+test('histórico de cotas: o gráfico conserva as bordas vazias e expõe cada leitura sem ponteiro', () => {
+  const pronto = { kind: 'pronto', historico: hist([janelaH()], { range: '24h' }) }
+  const html = render({ historico: historico(pronto, { faixa: '24h' }) })
+  assert.match(html, /inset-inline-start:min\(25%, calc\(100% - 1px\)\);inline-size:3\.333[^;]*%;height:40%/)
+  assert.match(html, /inset-inline-start:min\(37\.5%, calc\(100% - 1px\)\);inline-size:3\.333[^;]*%;height:55\.4%/)
+  assert.match(html, /class="custo-historico-barras" aria-hidden="true"/)
+  assert.match(html, /role="list" aria-label="[^"]*Janela principal"/)
+  assert.match(html, /role="listitem">[^<]* · 40%<\/span><span role="listitem">[^<]* · 55%<\/span>/)
+})
+
+test('histórico de cotas: vazio, sem leitura, previsão e truncado nunca viram zero', () => {
+  const vazio = render({ historico: historico({ kind: 'pronto', historico: hist([]) }) })
+  assert.match(vazio, /Nenhuma leitura de cota neste período\./)
+  assert.match(vazio, /Isso não significa uso zero/)
+  const semLeitura = render({ historico: historico({ kind: 'pronto', historico: hist([janelaH({ buckets: [] })]) }) })
+  assert.match(semLeitura, /Sem leituras/)
+  assert.doesNotMatch(semLeitura, /0%/)
+  const esgotada = render({ historico: historico({ kind: 'pronto', historico: hist([janelaH({ forecast: { exhausted: true, exhaustsAt: null } })], { truncated: true }) }) })
+  assert.match(esgotada, /Cota esgotada/)
+  assert.match(esgotada, /Mostrando só parte das janelas ou do período\./)
+  assert.match(render({ historico: historico({ kind: 'pronto', historico: hist([janelaH({ forecast: null, resetsAt: null })]) }) }), /Reinício desconhecido · Previsão indisponível/)
+})
+
+test('histórico de cotas: lendo, falhas e sem conexão têm mensagem própria', () => {
+  assert.match(render({ historico: historico({ kind: 'lendo' }) }), /Lendo…/)
+  assert.match(render({ historico: historico({ kind: 'falha', falha: 'antigo' }) }), /Atualize o Hub para ver o histórico das cotas\./)
+  assert.match(render({ historico: historico({ kind: 'falha', falha: 'soDono' }) }), /Só o dono vê o histórico das cotas\./)
+  assert.match(render({ historico: historico({ kind: 'falha', falha: 'invalida' }) }), /formato que o app não entende/)
+  assert.match(render({ historico: historico({ kind: 'falha', falha: 'falha' }) }), /Não foi possível ler o histórico das cotas\./)
+  assert.match(render({ historico: historico({ kind: 'lendo' }, { online: false }) }), /Sem conexão com este computador/)
+  assert.match(render({ historico: historico({ kind: 'lendo' }) }, 'en'), /Quota history/)
+})

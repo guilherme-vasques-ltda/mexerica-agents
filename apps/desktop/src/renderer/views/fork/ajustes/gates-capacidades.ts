@@ -14,8 +14,11 @@ export function paginaDisponivel(id: SettingsPage, cap: Pick<Capacidades, 'appIc
   return id !== 'app-icon' || cap.appIcon
 }
 
+/** Ajustes na Open (só o dono local): tudo, menos Voz e Acesso ao computador (voz e controle do computador são de outra frente). */
+const FORA_DA_OPEN: ReadonlySet<SettingsPage> = new Set<SettingsPage>(['voice', 'access'])
+
 export function paginaDisponivelNaOpen(id: SettingsPage): boolean {
-  return id === 'general' || id === 'appearance' || id === 'sidebar' || id === 'conversation' || id === 'ai-accounts'
+  return !FORA_DA_OPEN.has(id)
 }
 
 /** Em Voz, a aba Chaves só tem o que mostrar com o cofre do computador ou com algum Hub gerenciado. */

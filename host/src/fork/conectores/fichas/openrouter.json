@@ -2,7 +2,7 @@
   "id": "openrouter",
   "nome": "OpenRouter",
   "categoria": "IA e automação",
-  "descricao": "Roteador de 600+ modelos de IA: o MCP busca catálogo, preços, benchmarks e créditos e envia mensagens de teste.",
+  "descricao": "Catálogo de modelos, preços, rankings e créditos do OpenRouter; testes e imagens gastam créditos só depois de você ligar.",
   "exemplos": [
     "Quais modelos estão disponíveis no OpenRouter e quanto custam?",
     "Quanto gastei em créditos este mês?"
@@ -13,13 +13,13 @@
     "privacidade": "https://openrouter.ai/privacy",
     "termos": "https://openrouter.ai/terms"
   },
-  "conferidaEm": "2026-11-18",
+  "conferidaEm": "2026-11-27",
   "fontes": [
     "https://openrouter.ai/docs/guides/overview/mcp-server",
-    "https://mcp.openrouter.ai/oauth/register",
+    "https://mcp.openrouter.ai/.well-known/oauth-protected-resource",
     "https://mcp.openrouter.ai/.well-known/oauth-authorization-server"
   ],
-  "aviso": "Usar modelos gasta créditos da sua conta do OpenRouter.",
+  "aviso": "Cada teste e imagem gasta créditos; o login cria uma chave de até US$ 10, válida por 7 dias.",
   "tipos": [
     {
       "id": "openrouter.oficial_oauth",
@@ -37,15 +37,14 @@
           "rotulo": "Usar com a sua conta",
           "escopos": [],
           "padrao": true,
-          "disponivel": false
+          "disponivel": true,
+          "imposicao": "filtro"
         }
       ],
       "recomendado": true,
-      "disponivel": false,
-      "motivoIndisponivel": "O OpenRouter não oferece um modo só de leitura; entra depois do filtro de ações perigosas."
+      "disponivel": true
     }
   ],
-  "emBreve": "O fornecedor não impõe leitura: entra depois do filtro de ações perigosas.",
   "skillsOficiais": [
     {
       "url": "https://github.com/OpenRouterTeam/skills",

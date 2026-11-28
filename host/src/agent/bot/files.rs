@@ -93,12 +93,14 @@ impl Actor {
             .map_or_else(|| self.hub.runtime(&self.cfg.id).memory_turn_token, |c| c.turn.memory_turn_token.clone());
         let root = files::root(&chat);
         let cwd = PathBuf::from(&self.cfg.cwd);
+        let hub = self.hub.clone();
         let tx = self.files.tx.clone();
         tokio::spawn(async move {
             let flag = cancelled.clone();
-            let result =
-                tokio::task::spawn_blocking(move || files::snapshot(&root, &cwd, &source, name.as_deref(), &flag))
-                    .await;
+            let result = tokio::task::spawn_blocking(move || {
+                files::snapshot_for_share(&root, &cwd, &source, name.as_deref(), &flag, &hub.store)
+            })
+            .await;
             let result = result.map_err(anyhow::Error::from).and_then(std::convert::identity);
             let _ =
                 tx.send(Completed { epoch, chat, binding, execution, turn_token, context, cancelled, reply, result });

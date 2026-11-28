@@ -16,17 +16,18 @@ test('cada atalho abre a sua página; sem computador não abre', () => {
   assert.equal(tela.page, 'skills')
 })
 
-test('Open mantém Conectores, Skills e Credenciais acessíveis e recusa Plugins', (t) => {
+test('Open abre Conectores, Skills, Plugins e Credenciais', (t) => {
   const mockWindow = { codync: { appScheme: 'mexerica-open' } }
   Object.defineProperty(globalThis, 'window', { configurable: true, value: mockWindow })
   t.after(() => { Reflect.deleteProperty(globalThis, 'window') })
   const tela = new TelaExtensoes()
-  tela.show('plugins', 'hub-1', 'whatsapp')
+  tela.show('credentials', 'hub-1')
   assert.equal(tela.open, false)
-  tela.show('skills', 'hub-1')
+  tela.show('plugins', 'hub-1', 'whatsapp')
+  assert.equal(tela.page, 'plugins')
+  assert.equal(tela.plugin, 'whatsapp')
+  tela.setPage('skills')
   assert.equal(tela.page, 'skills', 'a tela de Skills abre na Open')
-  tela.setPage('plugins')
-  assert.equal(tela.page, 'skills')
   tela.setPage('credentials')
   assert.equal(tela.page, 'credentials')
   tela.setPage('connectors')
