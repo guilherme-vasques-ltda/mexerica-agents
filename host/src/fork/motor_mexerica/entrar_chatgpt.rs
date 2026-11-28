@@ -13,7 +13,7 @@
 //! descartado. Nenhum método devolve token, e nenhum erro repete o código, o verificador nem o
 //! `state`. A renovação é serializada e
 //! grava o refresh novo antes de devolver o access; o «Sair» revoga e apaga os tokens de qualquer
-//! jeito. Só este computador, e só com o motor ligado.
+//! jeito. Só este computador, fora da edição Open; não depende do Motor Mexerica estar ligado.
 
 use crate::LockExt;
 use crate::api::devices::Caller;
@@ -65,14 +65,11 @@ const MAX_CORPO: usize = 64 * 1024;
 /// Um ano em segundos: teto de qualquer validade declarada pelo emissor.
 const ANO_EM_SEGUNDOS: i64 = 31_536_000;
 /// Renova o access quando faltam menos de cinco minutos para expirar.
-#[cfg(test)]
 const MARGEM_RENOVACAO: i64 = 5 * 60;
-#[cfg(test)]
 pub(super) static TENTATIVAS_RENOVACAO: AtomicU64 = AtomicU64::new(0);
 /// Recusa fixa do `state`: nunca ecoa o valor recebido.
 const ENTRADA_INVALIDA: &str = "entrada_invalida: comece o login de novo neste computador.";
 /// Erros do emissor que invalidam o refresh: apagam os tokens, a sessão precisa entrar de novo.
-#[cfg(test)]
 const INVALIDANTES: [&str; 6] = [
     "invalid_grant",
     "invalid_refresh_token",
@@ -160,14 +157,32 @@ struct Troca {
     escopos: String,
 }
 
-/// Métodos do app. Só este computador, e só com o motor ligado.
+/// Métodos do app. Só este computador, fora da edição Open.
 pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) -> Result<Value> {
     crate::fork::engine_setup::require_local(caller)?;
-    ensure!(super::enabled(), "motor_desligado: o Motor Mexerica está desligado neste computador.");
+    ensure!(
+        !crate::environment::Environment::is_open(),
+        "edicao_open: o login com `ChatGPT` não existe na edição Open."
+    );
     match method {
         "chatgptEntrar" => entrar(hub, &body).await,
         "chatgptEntrarConcluir" => concluir(hub, &body).await,
-        "chatgptEstado" => estado(hub),
+        "chatgptEstado" => {
+            // O pedido da tela confere a sessão: renova o que faltar e descarta o access, que nunca sai do Hub.
+            if body.get("verificar") != Some(&Value::Bool(true)) {
+                return estado(hub);
+            }
+            assegurar_space_pessoal(&body)?;
+            if token_fresco(hub).await.is_err() {
+                tracing::warn!("a renovação da sessão do `ChatGPT` não terminou");
+                let mut inconclusivo = estado(hub)?;
+                inconclusivo["conectado"] = json!(false);
+                inconclusivo["precisaEntrar"] = json!(false);
+                inconclusivo["inconclusivo"] = json!(true);
+                return Ok(inconclusivo);
+            }
+            estado(hub)
+        }
         "chatgptSair" => sair(hub).await,
         _ => bail!("{method} não é um método de entrada com `ChatGPT`"),
     }
@@ -513,7 +528,6 @@ pub(super) fn estado(hub: &Arc<Hub>) -> Result<Value> {
 /// Devolve o access token válido, renovando se faltar menos de cinco minutos; `None` sem sessão
 /// conectada (registro ausente, tokens apagados ou refresh invalidado nesta chamada). Erro é rede,
 /// 5xx ou `invalid_client`: nada foi apagado. Para o motor usar a conta nas chamadas de uso.
-#[cfg(test)]
 pub(crate) async fn token_fresco(hub: &Arc<Hub>) -> Result<Option<Zeroizing<String>>> {
     let Some(conta) = ler_conta_destravada(hub).await? else { return Ok(None) };
     let agora = crate::store::now_ms() / 1000;
@@ -527,7 +541,6 @@ pub(crate) async fn token_fresco(hub: &Arc<Hub>) -> Result<Option<Zeroizing<Stri
 /// «Sair» apagou a sessão), uma troca só, e o refresh novo fica gravado ANTES do access voltar.
 /// Erros que invalidam o refresh apagam os tokens e marcam «precisa entrar de novo»; `invalid_client`
 /// e rede/5xx são erro explícito sem apagar nada.
-#[cfg(test)]
 async fn renovar(hub: &Arc<Hub>) -> Result<Option<Zeroizing<String>>> {
     TENTATIVAS_RENOVACAO.fetch_add(1, Ordering::SeqCst);
     let _serie = RENOVACAO.lock().await;
