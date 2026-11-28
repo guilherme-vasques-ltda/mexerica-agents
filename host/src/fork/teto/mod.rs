@@ -1081,11 +1081,18 @@ pub(crate) fn background_gate(hub: &Hub, bot: &str, job: &str) -> Result<()> {
 /// Fronteira da conversa do dono na Open: sem fila de despacho, o turno confere o teto aqui, antes de abrir o Codex.
 /// Só vale com `applyToConversations`; teto atingido ou não conferido (`Err`) recusa o turno, e nada fica estacionado.
 pub(crate) fn conversation_gate(hub: &Hub) -> Result<()> {
+    open_gate(hub, "human")
+}
+
+/// A mesma fronteira para uma origem da Open (`human`, `routine`, `ask`), com a política de `covers`: o trabalho
+/// autônomo sempre é conferido. Como no despacho comum, a decisão compara o gasto já registrado com o limite no
+/// momento da admissão; não há reserva de saldo para turnos concorrentes.
+pub(crate) fn open_gate(hub: &Hub, origin: &str) -> Result<()> {
     let (changed, blocked) = {
         let db = hub.store.db.locked();
         let tx = db.unchecked_transaction()?;
         let settings = settings_on(&tx)?;
-        if !covers("human", &settings) {
+        if !covers(origin, &settings) {
             return Ok(());
         }
         let eval = evaluate_on(&tx, settings)?;

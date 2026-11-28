@@ -457,6 +457,7 @@ pub(crate) async fn routine_turn(
     let Ticket { bot, account, directory, model, mut cancel, done, .. } = ticket;
     let instructions = instructions(hub, cfg);
     let outcome = async {
+        crate::fork::teto::open_gate(hub, "routine")?;
         let turn = hub.store.alloc_turn(&cfg.id)?;
         let mut reply = Stream::new(hub, &lane, turn, &bot);
         let result = {
@@ -603,8 +604,10 @@ async fn turn_in_profile(
                 let mut efetivo = cfg.clone();
                 efetivo.model = concluido.model;
                 efetivo.fork_editor.engine_account_id = Some(account.to_owned());
-                if cursor.gravar(&hub.store, &efetivo, lane, reply.turn, concluido.thread, concluido.uso).is_err() {
-                    tracing::warn!("não foi possível gravar o uso do turno local");
+                if let Err(error) =
+                    cursor.gravar(&hub.store, &efetivo, lane, reply.turn, concluido.thread, concluido.uso)
+                {
+                    tracing::error!(%error, "não foi possível gravar o uso do turno local");
                 }
             }
             Ok(())
@@ -616,8 +619,8 @@ async fn turn_in_profile(
             if let (Some(cursor), Some(total), Some(thread)) = (cursor, total, thread) {
                 let mut efetivo = cfg.clone();
                 efetivo.fork_editor.engine_account_id = Some(account.to_owned());
-                if cursor.gravar(&hub.store, &efetivo, lane, reply.turn, thread, Some(total)).is_err() {
-                    tracing::warn!("não foi possível gravar o uso do turno interrompido");
+                if let Err(error) = cursor.gravar(&hub.store, &efetivo, lane, reply.turn, thread, Some(total)) {
+                    tracing::error!(%error, "não foi possível gravar o uso do turno interrompido");
                 }
             }
             Err(error)

@@ -1471,3 +1471,38 @@ async fn o_uso_de_um_turno_interrompido_entra_no_teto_do_proximo() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[tokio::test]
+async fn o_teto_atingido_barra_rotina_e_delegacao_mesmo_sem_aplicar_as_conversas() {
+    use crate::store::Lane;
+    use serde_json::json;
+    let bot = "open-fixture-teto-autonomo";
+    let (hub, root) = hub_de_teste(bot);
+    let cfg = hub.store.bot(bot).unwrap().unwrap().config;
+    hub.store
+        .kv_set(
+            "donna.spend-ceiling.v1",
+            &json!({"enabled": true, "tokens": 100, "applyToConversations": false}).to_string(),
+        )
+        .unwrap();
+    hub.store
+        .db
+        .locked()
+        .execute(
+            "INSERT INTO donna_turn_usage(id,bot_id,chat_id,session_id,at,input_tokens,output_tokens,source)
+             VALUES('u1',?1,?1,'s',?2,200,0,'motor')",
+            rusqlite::params![bot, crate::fork::custo::month(None).unwrap().1 + 1],
+        )
+        .unwrap();
+    assert!(crate::fork::teto::open_gate(&hub, "human").is_ok());
+    for origin in ["routine", "ask"] {
+        let error = crate::fork::teto::open_gate(&hub, origin).unwrap_err();
+        assert_eq!(error.to_string(), "open_chat_ceiling");
+    }
+    let ticket = admit_for_test(&hub, bot, "fixture").unwrap();
+    let error = super::routine_turn(&hub, ticket, &cfg, Lane::main(bot), "Fixture".into(), Duration::from_secs(5))
+        .await
+        .unwrap_err();
+    assert_eq!(error.to_string(), "open_chat_ceiling");
+    std::fs::remove_dir_all(root).unwrap();
+}
