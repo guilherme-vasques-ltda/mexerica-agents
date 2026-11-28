@@ -9,8 +9,8 @@ use crate::{
         stdio::{Frame, Frames},
     },
 };
-use anyhow::{Context, Result, ensure};
-use serde_json::Value;
+use anyhow::{Context, Result};
+use serde_json::{Value, json};
 use std::{
     future::poll_fn,
     sync::Arc,
@@ -65,18 +65,21 @@ impl<'a> Session<'a> {
             return Ok(None);
         }
         let ids = [serde_json::to_string(&id)?];
-        let Some(Frame::Message(response)) =
-            tokio::time::timeout(Duration::from_secs(60), self.output.read(&ids)).await??
-        else {
-            anyhow::bail!("Resposta MCP ausente ou inválida");
+        let response = match tokio::time::timeout(Duration::from_secs(60), self.output.read(&ids)).await?? {
+            Some(Frame::Message(response))
+                if response["jsonrpc"] == "2.0"
+                    && response["id"] == id
+                    && response.get("method").is_none()
+                    && (response.get("result").is_some() != response.get("error").is_some()) =>
+            {
+                response
+            }
+            Some(_) => {
+                mediation.observe(json!({}), "invalid").await?;
+                anyhow::bail!("Resposta MCP inválida ou não correlacionada");
+            }
+            None => anyhow::bail!("Resposta MCP ausente"),
         };
-        ensure!(
-            response["jsonrpc"] == "2.0"
-                && response["id"] == id
-                && response.get("method").is_none()
-                && (response.get("result").is_some() != response.get("error").is_some()),
-            "Resposta MCP não correlacionada"
-        );
         let version = (mcp_method == "initialize").then(|| Perfil::BridgeLegacy.resultado(&response["result"]));
         let observed = mediation.observe(response, &mcp_method).await?;
         if let Some(version) = version {

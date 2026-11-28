@@ -194,6 +194,8 @@ async fn mcp_open_stale_discovery_cannot_replace_or_invalidate_newer_inventory()
 #[cfg(target_os = "linux")]
 #[tokio::test]
 async fn mcp_open_catalog_stdio_requires_owner_approval_and_records_receipt() {
+    use crate::fork::conectores::catalogo_local::da_conta;
+
     if !Environment::is_open() {
         return;
     }
@@ -208,7 +210,8 @@ async fn mcp_open_catalog_stdio_requires_owner_approval_and_records_receipt() {
     let artifacts = temp.path().join("mcp-artifacts");
     std::fs::create_dir(&artifacts).unwrap();
     let file = artifacts.join("fixture-stdio");
-    std::fs::write(&file, include_bytes!("../../tests/fixtures/catalogo-stdio.sh")).unwrap();
+    let artifact = include_bytes!("../../tests/fixtures/catalogo-stdio.sh");
+    std::fs::write(&file, artifact).unwrap();
     let root = Some(temp.path());
     let list_args = json!({"account":ACCOUNT});
     let first = run(&hub, &proof, LIST, &list_args, None, root).await.unwrap();
@@ -254,10 +257,23 @@ async fn mcp_open_catalog_stdio_requires_owner_approval_and_records_receipt() {
         });
         assert!(result.unwrap_err().is::<EffectUnknown>());
     }
+    let (receipts, _) = hub.store.guard_test_snapshot().unwrap();
+    let refused: Vec<Value> = receipts
+        .into_iter()
+        .map(|line| serde_json::from_str(&line).unwrap())
+        .filter(|event: &Value| event["method"] == "invalid" && event["transport"] == "catalog-local")
+        .collect();
+    assert_eq!(refused.len(), 3);
+    assert!(refused.iter().all(|event| event["decision"] == "retained" && event["bytes"] == 2));
+
     std::fs::write(&file, b"modified").unwrap();
     assert!(run(&hub, &proof, LIST, &list_args, None, root).await.is_err());
-    let mut modified = account.clone();
+    std::fs::write(&file, artifact).unwrap();
+    assert!(run(&hub, &proof, LIST, &list_args, None, root).await.is_ok());
+    assert!(da_conta(&account).is_some());
+    let mut modified = account;
     modified.command = Some("not-a-catalog-executable".into());
+    assert!(da_conta(&modified).is_none());
     market::save_connectors(&hub.store, &[modified]).unwrap();
     assert!(run(&hub, &proof, LIST, &list_args, None, root).await.is_err());
 }
