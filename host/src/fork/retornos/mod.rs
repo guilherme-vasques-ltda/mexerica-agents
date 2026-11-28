@@ -15,6 +15,7 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
 /// R2a: consulta só leitura do estado do próprio pedido pelo solicitante.
 pub(crate) mod consulta;
+pub(crate) mod entrega;
 /// Leitura canônica dos pedidos R1 (Mission Board, VG-03b).
 pub(crate) mod pendentes;
 pub(crate) mod privacidade;
@@ -55,6 +56,7 @@ pub(crate) fn migrate(c: &Connection) -> Result<()> {
            CHECK(content<>'final_entry' OR (outcome='completed' AND producer_execution_ref IS NOT NULL)));",
     )?;
     privacidade::migrate_na(&tx)?;
+    entrega::migrate(&tx)?;
     tx.commit()?;
     Ok(())
 }
@@ -483,6 +485,7 @@ pub(crate) fn recuperar_na(c: &Connection) -> Result<usize> {
     )?;
     super::cadeias::equipe::recuperar_open_na(c)?;
     super::open_tool_delegation::recover_notices_on(c)?;
+    entrega::recover_on(c)?;
     Ok(antes + incertos)
 }
 
@@ -552,7 +555,14 @@ pub(crate) fn fim_do_turno(
 }
 
 /// Grava o término antes do oneshot/avisos finais. Erro é registrado sem texto do usuário.
-pub(crate) fn registrar_fim(store: &Store, pedido: &str, bot: &str, andamento: Andamento, fim: Fim) -> Registro {
+pub(crate) fn registrar_fim(
+    store: &Store,
+    pedido: &str,
+    bot: &str,
+    andamento: Andamento,
+    fim: Fim,
+    corpo: Option<&str>,
+) -> Registro {
     let encerrar = |decisao| {
         encerrar(store, pedido, decisao).map(|gravado| if gravado { Registro::Gravado } else { Registro::Decidido })
     };
@@ -562,9 +572,9 @@ pub(crate) fn registrar_fim(store: &Store, pedido: &str, bot: &str, andamento: A
         (Andamento::Aceito, Fim::FalhaInicio) => encerrar(Decisao::FalhaInicio),
         (Andamento::Aceito, Fim::Turno(_)) => encerrar(Decisao::NaoIniciado).map(|_| Registro::Decidido),
         (Andamento::EmExecucao(fence), Fim::FalhaInicio) => {
-            gravar(store, pedido, bot, fence, Encerramento::falha_inicio())
+            gravar(store, pedido, bot, fence, Encerramento::falha_inicio(), None)
         }
-        (Andamento::EmExecucao(fence), Fim::Turno(fim)) => gravar(store, pedido, bot, fence, fim),
+        (Andamento::EmExecucao(fence), Fim::Turno(fim)) => gravar(store, pedido, bot, fence, fim, corpo),
     };
     gravado.unwrap_or_else(|_| {
         tracing::error!(request = pedido, error_code = "retorno_gravacao_falhou", "conclusão do pedido não registrada");
@@ -572,12 +582,23 @@ pub(crate) fn registrar_fim(store: &Store, pedido: &str, bot: &str, andamento: A
     })
 }
 
-fn gravar(store: &Store, pedido: &str, bot: &str, fence: i64, fim: Encerramento) -> Result<Registro> {
+fn gravar(
+    store: &Store,
+    pedido: &str,
+    bot: &str,
+    fence: i64,
+    fim: Encerramento,
+    corpo: Option<&str>,
+) -> Result<Registro> {
     let termino = Termino { pedido: pedido.into(), bot: bot.into(), attempt: 1, fence, fim };
     com_tx(store, |c| {
         Ok(match concluir_na(c, &termino)? {
             Conclusao::CorpoRetido => Registro::CorpoRetido,
-            Conclusao::Gravada(_) => Registro::Gravado,
+            Conclusao::Gravada(_) => {
+                let corpo = corpo.filter(|_| termino.fim.desfecho == Desfecho::Concluiu);
+                entrega::stage_on(c, pedido, corpo)?;
+                Registro::Gravado
+            }
             Conclusao::Vencida => Registro::Decidido,
         })
     })

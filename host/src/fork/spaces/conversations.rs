@@ -356,7 +356,10 @@ fn history(hub: &Hub, c: &Conversation, b: &Value, web: bool) -> Result<Value> {
         values.reverse();
         values
     } else if web {
-        hub.store.web_history(&c.id, None, before, limit + 1)?
+        let session = crate::environment::Environment::is_open().then_some(c.id.as_str());
+        hub.store.web_history(&c.id, session, before, limit + 1)?
+    } else if crate::environment::Environment::is_open() {
+        hub.store.history_in_session(&c.id, Some(&c.id), before, limit + 1)?
     } else {
         hub.store.history(&c.id, before, limit + 1)?
     };

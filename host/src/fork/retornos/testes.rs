@@ -118,6 +118,32 @@ pub(crate) fn despejo(c: &Connection) -> String {
 }
 
 #[test]
+fn resultado_acp_sobrevive_ao_reinicio_antes_da_publicacao() {
+    let f = Fixture::new();
+    let id = f.aceitar().unwrap();
+    let space = crate::fork::spaces::PERSONAL;
+    entrega::add_on(&f.hub.store.db.locked(), &id, space, 1).unwrap();
+    let fence = despachar(&f.hub.store, &id).unwrap().unwrap();
+    let entry = f.entrada(&Lane::main("b"), EntryKind::Agent);
+    let t = f.termino(&id, fence, MotivoFim::FimDoTurno, Conteudo::Entrada(entry));
+    let text = "Resultado da tarefa fictícia.";
+    assert_eq!(
+        registrar_fim(&f.hub.store, &id, "b", Andamento::EmExecucao(fence), Fim::Turno(t.fim), Some(text)),
+        Registro::Gravado
+    );
+    let path = f.dir.join("r1.db");
+    for _ in 0..2 {
+        let reopened = Store::open(&path).unwrap();
+        recuperar(&reopened).unwrap();
+        let entries = reopened.history("a", i64::MAX, 10).unwrap();
+        assert_eq!(
+            entries.iter().filter(|e| e.data["text"] == format!("Retorno dos pedidos\n\nb:\n{text}")).count(),
+            1
+        );
+    }
+}
+
+#[test]
 fn aceite_usa_sessoes_exatas_e_recusa_aviso_de_outra_sessao_ou_binding_revogado() {
     let f = Fixture::new();
     let id = f.aceitar().unwrap();

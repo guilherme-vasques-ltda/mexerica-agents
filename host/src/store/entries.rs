@@ -44,6 +44,13 @@ const WEB_TEXT: &str = "CASE WHEN json_valid(data) THEN
     AND (kind = 'user' OR (kind = 'agent' AND json_type(data,'$.final') = 'true'))
     ELSE 0 END";
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SpaceEntryAudience {
+    Local,
+    Device,
+    Web,
+}
+
 /// Consulta pura na transação do chamador; mantém o parser e a autoria canônicos.
 pub(crate) fn entry_on(c: &rusqlite::Connection, id: &str) -> Result<Option<Entry>> {
     Ok(c.query_row(&format!("SELECT {ENTRY_COLS} FROM entries WHERE id=?1"), [id], row_entry).optional()?)
@@ -333,15 +340,25 @@ impl Store {
         Ok(st.query_map(params![since, cap], row_entry)?.collect::<rusqlite::Result<_>>()?)
     }
 
-    pub fn entries_since_in_space(&self, space: &str, since: i64, cap: i64, web: bool) -> Result<Vec<Entry>> {
+    pub(crate) fn entries_since_in_space(
+        &self,
+        space: &str,
+        since: i64,
+        cap: i64,
+        audience: SpaceEntryAudience,
+    ) -> Result<Vec<Entry>> {
         let c = self.db.locked();
+        let main_only = crate::environment::Environment::is_open() && audience != SpaceEntryAudience::Local;
+        let web = audience == SpaceEntryAudience::Web;
         let sql = format!(
             "SELECT {ENTRY_COLS} FROM (SELECT e.*,ROW_NUMBER() OVER (PARTITION BY bot_id ORDER BY seq DESC) AS rn
-            FROM entries e WHERE EXISTS(SELECT 1 FROM donna_space_conversations c WHERE c.id=e.bot_id AND c.space_id=?1)
-            AND (?4=0 OR ({WEB_TEXT})))
+            FROM entries e WHERE (?4=0 OR COALESCE(e.session,e.bot_id)=e.bot_id) AND (?5=0 OR ({WEB_TEXT}))
+                AND EXISTS(SELECT 1 FROM donna_space_conversations c WHERE c.id=e.bot_id AND c.space_id=?1))
             WHERE rev>?2 AND (?2>0 OR rn<=?3) ORDER BY seq"
         );
-        Ok(c.prepare(&sql)?.query_map(params![space, since, cap, web], row_entry)?.collect::<rusqlite::Result<_>>()?)
+        Ok(c.prepare(&sql)?
+            .query_map(params![space, since, cap, main_only, web], row_entry)?
+            .collect::<rusqlite::Result<_>>()?)
     }
 
     /// Older entries of a chat.
@@ -410,6 +427,9 @@ impl Store {
             "SELECT {ENTRY_COLS} FROM entries WHERE bot_id = ?1 AND seq <= ?3 AND
                ({visible})"
         );
+        if crate::environment::Environment::is_open() {
+            sql.push_str(" AND session IS NULL");
+        }
         for i in 0..terms.len() {
             let _ = write!(
                 sql,

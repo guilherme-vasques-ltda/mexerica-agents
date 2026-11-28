@@ -109,8 +109,23 @@ pub(crate) fn admitir_open_na(
     space: &str,
     session: &SessionRef,
     reference: &str,
+    parent: Option<&Recibo>,
 ) -> Result<Recibo> {
-    ensure!(e.anterior.is_none() && e.espera, "retorno_origem_invalida");
+    ensure!(e.anterior.as_ref() == parent, "retorno_origem_invalida");
+    if let Some(parent) = parent {
+        let cycle = c.query_row(
+            "WITH RECURSIVE lineage(id,bot_id,predecessor) AS (
+                SELECT id,bot_id,predecessor FROM donna_chain_admissions WHERE id=?1 AND chain_id=?2
+                UNION
+                SELECT a.id,a.bot_id,a.predecessor FROM donna_chain_admissions a JOIN lineage l ON a.id=l.predecessor
+                    WHERE a.chain_id=?2
+             ) SELECT EXISTS(SELECT 1 FROM lineage WHERE bot_id=?3)",
+            params![parent.admission_id, parent.chain_id, e.para],
+            |row| row.get::<_, bool>(0),
+        )?;
+        ensure!(!cycle, "team_delegation_cycle");
+        return admitir_filho(c, e, Some(space), parent.clone());
+    }
     let escopo = Escopo::TurnoHubOpen {
         bot_id: e.de.clone(),
         space_id: space.into(),
@@ -196,7 +211,13 @@ pub(crate) fn despachar_open_na(c: &Connection, r: &Recibo) -> Result<()> {
                WHERE root.id=a.chain_id AND root.version=1 AND root.source='internal'
                  AND json_extract(root.scope,'$.kind')='turno_hub_open'
                  AND req.schema_version=1 AND req.state='accepted' AND req.attempt=1 AND req.fence=1
-                 AND req.requester_execution_ref=root.run_id AND req.requester_bot_id=root.bot_id
+                 AND (
+                   (req.requester_execution_ref=root.run_id AND req.requester_bot_id=root.bot_id)
+                   OR (req.requester_execution_ref LIKE 'hub-open:delegated:%' AND EXISTS(
+                     SELECT 1 FROM donna_session_requests parent WHERE parent.admission_id=a.predecessor
+                       AND parent.chain_id=req.chain_id AND parent.target_bot_id=req.requester_bot_id
+                       AND parent.state='running' AND parent.attempt=1))
+                 )
                  AND req.requester_bot_id=json_extract(a.scope,'$.de')
                  AND req.id=a.run_id AND req.admission_id=a.id AND req.target_bot_id=a.bot_id)",
         [&r.admission_id],
@@ -241,9 +262,12 @@ pub(super) fn predecessor_valido(c: &Connection, r: &Recibo, p: &Pedido) -> Resu
          JOIN donna_chain_roots root ON root.id=a.chain_id AND root.version=1
          WHERE a.id=?1 AND a.chain_id=?2 AND a.run_id=?3 AND a.bot_id=?4 AND a.level=?5 AND a.ordinal=?6
            AND a.kind='delegation' AND a.routine_id IS NULL
-           AND json_extract(root.scope,'$.kind')<>'turno_hub_open'
+           AND (json_extract(root.scope,'$.kind')<>'turno_hub_open' OR (
+              ?7='internal' AND a.phase='sending' AND EXISTS(
+                SELECT 1 FROM donna_session_requests parent WHERE parent.admission_id=a.id AND parent.id=a.run_id
+                  AND parent.target_bot_id=a.bot_id AND parent.state='running' AND parent.attempt=1)))
            AND json_extract(a.scope,'$.kind')='pedido_entre_bots' AND json_extract(a.scope,'$.bot_id')=a.bot_id)",
-        params![r.admission_id, r.chain_id, r.run_id, r.bot_id, r.level, r.ordinal],
+        params![r.admission_id, r.chain_id, r.run_id, r.bot_id, r.level, r.ordinal, p.origem.sql()],
         |row| row.get(0),
     )?)
 }

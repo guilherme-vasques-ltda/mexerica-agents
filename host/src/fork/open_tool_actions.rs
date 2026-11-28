@@ -14,13 +14,16 @@ use std::{
 use tokio::{sync::oneshot, time::Instant};
 
 pub(crate) const CARD_KIND: &str = "open_hub_action";
+const ROUTE_KIND: &str = "open_work_route";
 const COMMAND_KIND: &str = "open_local_command";
 
 pub(super) fn hub_card(data: &Value) -> bool {
-    matches!(data["toolKind"].as_str(), Some(CARD_KIND | COMMAND_KIND))
+    matches!(data["toolKind"].as_str(), Some(CARD_KIND | COMMAND_KIND | ROUTE_KIND))
 }
 const ALLOW: &str = "allow";
 const DENY: &str = "deny";
+const CONVERSATION: &str = "conversation";
+const BOT: &str = "bot";
 const WAIT: Duration = Duration::from_secs(120);
 
 pub(super) fn catalog() -> Vec<Value> {
@@ -271,7 +274,9 @@ pub(super) fn respond(
     ensure!(
         Weak::ptr_eq(&current.hub, &Arc::downgrade(hub))
             && revision == current.card.rev
-            && matches!(option, None | Some(ALLOW | DENY)),
+            && option.is_none_or(|id| current.card.data["options"]
+                .as_array()
+                .is_some_and(|options| options.iter().any(|option| option["optionId"] == id))),
         "open_tools_approval_stale"
     );
     let mut data = current.card.data.clone();
@@ -341,6 +346,56 @@ async fn approve_card(
     title: &str,
     detail: &str,
 ) -> Result<Entry> {
+    let options = json!([
+        {"optionId": ALLOW, "kind": "allow_once", "name": "Allow once"},
+        {"optionId": DENY, "kind": "reject_once", "name": "Deny"}
+    ]);
+    let kind = if command_revision.is_some() { COMMAND_KIND } else { CARD_KIND };
+    let (pending, received) = show_card(hub, lane, turn, title, detail, (kind, command_revision), options).await?;
+    if received.data["selected"] != ALLOW {
+        bail!("open_tools_approval_denied");
+    }
+    permission_card::PendingContext::capture(&pending, None).answered(&received, ALLOW)?;
+    Ok(received)
+}
+
+pub(super) async fn offer_separate_conversation(
+    hub: &Arc<Hub>,
+    lane: &Lane,
+    turn: i64,
+    personal: bool,
+) -> Result<bool> {
+    let mut options = Vec::new();
+    if personal {
+        options.push(json!({"optionId": CONVERSATION, "kind": "choice", "name": "Usar outra conversa"}));
+    }
+    options.push(json!({"optionId": BOT, "kind": "choice", "name": "Indicar um bot"}));
+    let (_, response) = show_card(
+        hub,
+        lane,
+        turn,
+        "Onde rodar este trabalho?",
+        "Nenhuma opção autoriza a execução nesta conversa.",
+        (ROUTE_KIND, None),
+        Value::Array(options),
+    )
+    .await?;
+    match response.data["selected"].as_str() {
+        Some(CONVERSATION) => Ok(true),
+        Some(BOT) => Ok(false),
+        _ => bail!("open_tools_route_cancelled"),
+    }
+}
+
+async fn show_card(
+    hub: &Arc<Hub>,
+    lane: &Lane,
+    turn: i64,
+    title: &str,
+    detail: &str,
+    (kind, command_revision): (&str, Option<i64>),
+    options: Value,
+) -> Result<(Entry, Entry)> {
     ensure!(
         lane.session.is_none()
             && detail.encode_utf16().count() <= 2000
@@ -357,7 +412,6 @@ async fn approve_card(
         if let Some(expected) = command_revision {
             super::open_command_settings::require(&hub.store.db.locked(), &lane.chat, expected)?;
         }
-        let kind = if command_revision.is_some() { COMMAND_KIND } else { CARD_KIND };
         let (card, _) = hub.add_entry_once(
             &uuid::Uuid::new_v4().to_string(),
             lane,
@@ -365,10 +419,7 @@ async fn approve_card(
             turn,
             &json!({
                 "author": lane.chat, "toolKind": kind, "title": title, "detail": detail, "status": "pending",
-                "options": [
-                    {"optionId": ALLOW, "kind": "allow_once", "name": "Allow once"},
-                    {"optionId": DENY, "kind": "reject_once", "name": "Deny"}
-                ]
+                "options": options
             }),
         )?;
         pending.insert(
@@ -379,12 +430,8 @@ async fn approve_card(
     };
     let waiting = Waiting { hub, card };
     let received = tokio::time::timeout_at(deadline, received).await.context("open_tools_approval_expired")??;
-    if received.data["selected"] != ALLOW {
-        bail!("open_tools_approval_denied");
-    }
-    let snapshot = permission_card::PendingContext::capture(&waiting.card, None);
-    snapshot.answered(&received, ALLOW)?;
-    Ok(received)
+    ensure!(received.data["status"] == "answered", "open_tools_approval_denied");
+    Ok((waiting.card.clone(), received))
 }
 
 #[cfg(test)]

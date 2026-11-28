@@ -154,6 +154,7 @@ pub(super) async fn call(
             let before = b["beforeSeq"].as_i64().unwrap_or(i64::MAX);
             let limit = b["limit"].as_i64().unwrap_or(100).clamp(1, 500);
             let session = crate::fork::sessoes::api::history_session(hub, bot, &b)?;
+            let session = session.or_else(|| crate::environment::Environment::is_open().then_some(bot));
             let entries = if caller.is_web_chat()
                 && let Some(proof) = b.get("sendReceipt")
             {
@@ -379,10 +380,6 @@ pub(super) async fn call(
                 crate::fork::open_chat::precheck(hub, open_config, text)?;
             }
             // `replyTo`: the message of this chat it answers (`chat::replies`).
-            let reply = match quoted {
-                Some(id) => Some(crate::chat::replies::quote(&hub.store, bot, id)?),
-                None => None,
-            };
             if hub.groups.blocked(bot) {
                 return Err(super::GroupError {
                     code: "group_blocked",
@@ -422,14 +419,20 @@ pub(super) async fn call(
             if !pasted.is_empty() {
                 data["pasted"] = json!(pasted);
             }
-            if let Some(reply) = reply {
-                data["replyTo"] = reply;
-            }
             data["contentOrigin"] = crate::guard_hub::origem::capture(caller, &b, &data);
             // Turno automático do próprio Hub (acordar de tarefa, aviso de comentário): marca Hub-side na origem,
             // depois da captura — nenhum corpo de pedido define nem apaga isso.
             if crate::api::AUTOMATICO.try_get().is_ok() {
                 data["contentOrigin"]["hubOrigin"] = json!("automatico");
+            }
+            if let Some(id) = quoted {
+                if open_turn {
+                    anyhow::ensure!(
+                        hub.store.entry(id).is_some_and(|entry| entry.session_id == lane.session_id()),
+                        "unknown message"
+                    );
+                }
+                data["replyTo"] = crate::chat::replies::quote(&hub.store, bot, id)?;
             }
             let antigravity_owner = if crate::agent::backends::is_antigravity(&effective.backend) {
                 crate::fork::antigravity::config(&effective)?;

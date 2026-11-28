@@ -175,8 +175,17 @@ async fn agent_messages_another_bot_then_finishes_before_recipient_approval() {
         assert!(!entry["data"]["text"].as_str().unwrap().contains("reply: PERMISSION"));
     }
     assert_eq!(notices[0]["data"]["delegationId"], notices[1]["data"]["delegationId"]);
+    let summary = "Retorno dos pedidos\n\nreviewer:\nreply: PERMISSION review the changes";
+    host.wait_for(&lead, |e| e["kind"] == "agent" && e["data"]["final"] == true && e["data"]["text"] == summary).await;
     let history = host.call("history", json!({"botId": lead})).await;
-    assert_eq!(history["entries"].as_array().unwrap().iter().filter(|e| e["data"]["final"] == true).count(), 1);
+    let replies: Vec<_> = history["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["kind"] == "agent" && e["data"]["final"] == true)
+        .map(|e| e["data"]["text"].as_str().unwrap())
+        .collect();
+    assert_eq!(replies, ["Message queued", summary]);
 }
 
 #[tokio::test]

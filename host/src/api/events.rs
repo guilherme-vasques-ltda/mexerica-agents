@@ -4,6 +4,7 @@
 use super::devices::Caller;
 use crate::LockExt;
 use crate::hub::Hub;
+use crate::store::SpaceEntryAudience;
 use anyhow::Result;
 use futures::{Stream, StreamExt, stream};
 use serde_json::{Value, json};
@@ -114,11 +115,19 @@ pub fn scoped_events_stream_at(
     let space = space.unwrap_or(crate::fork::spaces::PERSONAL).to_owned();
     hub.store.require_space(&space)?;
     let live = BroadcastStream::new(hub.events.subscribe());
+    let local = matches!(caller, Caller::Local);
     let mut catch_up: Vec<Value> = vec![];
     for bot in hub.bots_json_in_space(since, &space)? {
         catch_up.push(json!({"type": "bot", "rev": bot["rev"], "bot": bot}));
     }
-    for e in hub.store.entries_since_in_space(&space, since, CATCH_UP_PER_BOT, web)? {
+    let audience = if web {
+        SpaceEntryAudience::Web
+    } else if local {
+        SpaceEntryAudience::Local
+    } else {
+        SpaceEntryAudience::Device
+    };
+    for e in hub.store.entries_since_in_space(&space, since, CATCH_UP_PER_BOT, audience)? {
         catch_up.push(json!({"type": "entry", "rev": e.rev, "entry": e}));
     }
     catch_up.extend(crate::fork::sessoes::excluir::catch_up(&hub.store.db.locked(), &space, since)?);
@@ -147,11 +156,12 @@ pub fn scoped_events_stream_at(
     let snapshot_hub = hub.clone();
     let snapshot_space = space.clone();
     let head = stream::iter(catch_up).filter_map(move |v| {
-        let event = crate::fork::runtime_audiencia::revalidate_snapshot(&snapshot_hub, &snapshot_space, v);
+        let event = open_session_event_visible(audience, &v)
+            .then(|| crate::fork::runtime_audiencia::revalidate_snapshot(&snapshot_hub, &snapshot_space, v))
+            .flatten();
         async move { event }
     });
 
-    let local = matches!(caller, Caller::Local);
     let times_owner = crate::fork::bot_editor::authorization::require_owner(caller).is_ok();
     let guard = Arc::new(matches!(client, Some("ios" | "android")).then(|| PhoneClientGuard::new(hub.clone())));
     let event_hub = hub.clone();
@@ -162,6 +172,7 @@ pub fn scoped_events_stream_at(
             v["type"] == crate::fork::projetos::EVENT && v.as_object().is_some_and(|obj| obj.len() == 3)
         });
         let projected = match msg {
+            Ok(v) if !open_session_event_visible(audience, &v) => None,
             Ok(v) if v["type"] == crate::fork::projetos::EVENT => {
                 crate::fork::projetos::event(&event_hub, &tower_caller, &space, &v)
             }
@@ -201,4 +212,22 @@ pub fn scoped_events_stream_at(
         std::future::ready(if web { super::fork_web_chat::event(&event) } else { Some(event) })
     });
     Ok(crate::fork::workspace::cortar(hub, &retrato, events))
+}
+
+fn open_session_event_visible(audience: SpaceEntryAudience, event: &Value) -> bool {
+    if audience == SpaceEntryAudience::Local || !crate::environment::Environment::is_open() {
+        return true;
+    }
+    match event["type"].as_str() {
+        Some("session") => {
+            let session = &event["session"];
+            audience == SpaceEntryAudience::Web && session["id"].as_str().is_some_and(|id| session["chatId"] == id)
+        }
+        Some("sessionDeleted") => false,
+        Some("entry") => {
+            let entry = &event["entry"];
+            entry["sessionId"].as_str().is_some_and(|id| entry["botId"] == id)
+        }
+        _ => true,
+    }
 }
