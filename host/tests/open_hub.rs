@@ -394,7 +394,8 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
     assert!(refused.text().await.unwrap().contains("open_chat_account_required"));
     for (key, value, expected) in [
         ("attachments", json!(["upload-fixture"]), reqwest::StatusCode::BAD_REQUEST),
-        ("sessionId", json!("session-fixture"), reqwest::StatusCode::FORBIDDEN),
+        ("sessionId", json!(["session-fixture"]), reqwest::StatusCode::FORBIDDEN),
+        ("sessionId", json!("session-fixture"), reqwest::StatusCode::BAD_REQUEST),
     ] {
         let mut body = message.clone();
         body[key] = value;
