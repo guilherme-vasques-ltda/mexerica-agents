@@ -162,7 +162,7 @@ mod cancellation_tests {
         };
         for hang in [false, true] {
             let fixture = case.fixture(if hang { "mcp-hang" } else { "mcp" }, hang);
-            let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+            let store = Store::open(Path::new(":memory:")).unwrap();
             let connector =
                 serde_json::from_value(json!({"id":"motor-prova","name":"Prova","command":fixture,"args":[]})).unwrap();
             super::super::save_connectors(&store, &[connector]).unwrap();
