@@ -155,6 +155,47 @@ fn link_fixture_tool(hub: &Hub, proof: &LocalTurn) {
 }
 
 #[tokio::test]
+async fn mcp_open_planetscale_nao_tenta_sse_legado() {
+    if !Environment::is_open() {
+        return;
+    }
+    let calls = Arc::new(AtomicUsize::new(0));
+    let count = calls.clone();
+    let gets = Arc::new(AtomicUsize::new(0));
+    let legacy = gets.clone();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = Url::parse(&format!("http://{}/mcp", listener.local_addr().unwrap())).unwrap();
+    let router = Router::new().route(
+        "/mcp",
+        post(move |headers: HeaderMap| async move {
+            assert_eq!(headers["authorization"], "Bearer fixture-service");
+            count.fetch_add(1, Ordering::SeqCst);
+            StatusCode::METHOD_NOT_ALLOWED
+        })
+        .get(move || async move {
+            legacy.fetch_add(1, Ordering::SeqCst);
+            StatusCode::NO_CONTENT
+        }),
+    );
+    let task = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+    let (hub, _ticket, proof) = fixture(&endpoint, "local", true);
+    let mut account = market::connectors(&hub.store).unwrap().remove(0);
+    let catalog = catalogo_servicos::servico("planetscale").unwrap().tipo("planetscale.oficial_chave").unwrap();
+    account.url = Some(catalog.url.into());
+    account.servico = Some("planetscale".into());
+    account.tipo = Some(catalog.id.into());
+    account.liberacoes = vec!["insights".into()];
+    account.oauth = None;
+    account.headers.insert("Authorization".into(), "Bearer fixture-service".into());
+    market::save_connectors(&hub.store, &[account]).unwrap();
+    let result = Box::pin(run(&hub, &proof.unwrap(), LIST, &json!({"account":ACCOUNT}), Some(endpoint))).await;
+    task.abort();
+    assert!(result.is_err());
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(gets.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
 async fn mcp_open_stale_discovery_cannot_replace_or_invalidate_newer_inventory() {
     if !Environment::is_open() {
         return;

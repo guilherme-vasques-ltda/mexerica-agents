@@ -48,6 +48,10 @@ impl Fixture {
     }
 
     fn with_oauth(url: &str, oauth: bool) -> Arc<Self> {
+        Self::with_account(url, oauth, false)
+    }
+
+    fn with_account(url: &str, oauth: bool, planetscale: bool) -> Arc<Self> {
         let store = Store::open(std::path::Path::new(":memory:")).unwrap();
         let bot = serde_json::from_value(json!({"id":"bot","name":"Fixture","connectors":["connector"]})).unwrap();
         store.save_bot(&bot).unwrap();
@@ -56,6 +60,9 @@ impl Fixture {
         let hub = Hub::new(store, "fixture".into(), Identity::load_or_create(&dir).unwrap(), "fixture".into(), 0);
         let connector = serde_json::from_value(json!({"id":"connector","name":"Fixture","url":url,
             "headers":{"Authorization":"Bearer alphabeticaltoken"},
+            "servico":planetscale.then_some("planetscale"),
+            "tipo":planetscale.then_some("planetscale.oficial_chave"),
+            "liberacoes":if planetscale {vec!["insights"]} else {vec![]},
             "oauth":if oauth {json!({"accessToken":"oldalphabeticaltoken","refreshToken":"oldrefreshalphabetical",
                 "expiresAt":null})} else {Value::Null}}))
         .unwrap();
@@ -88,7 +95,7 @@ impl Fixture {
     }
 
     fn mediation(self: &Arc<Self>) -> Guard {
-        Guard { fixture: self.clone(), acquired: false, deny: false }
+        Guard { fixture: self.clone(), acquired: false, deny: false, streamable_only: false }
     }
 }
 
@@ -102,6 +109,7 @@ struct Guard {
     fixture: Arc<Fixture>,
     acquired: bool,
     deny: bool,
+    streamable_only: bool,
 }
 
 impl Mediation for Guard {
@@ -118,7 +126,11 @@ impl Mediation for Guard {
                 reqwest::header::HeaderValue::from_str(value.as_str().unwrap()).unwrap(),
             );
         }
-        Ok(Target { url: target["url"].as_str().unwrap().parse().unwrap(), headers })
+        Ok(Target {
+            url: target["url"].as_str().unwrap().parse().unwrap(),
+            headers,
+            streamable_only: self.streamable_only || target["streamableOnly"].as_bool().unwrap(),
+        })
     }
 
     async fn observe(&mut self, frame: Value, method: &str) -> Result<Option<Value>> {
@@ -348,6 +360,53 @@ async fn legado_inspeciona_post_erro_notificacao_e_pedido_reverso_sem_entregar_r
     assert!(events.iter().any(|e| e.contains("server-request")));
     assert!(events.iter().any(|e| e.contains("notification")));
     assert!(events.iter().all(|e| !e.contains("alphabeticaltoken")));
+}
+
+#[tokio::test]
+async fn planetscale_recusa_recursos_e_prompts_antes_de_entregar_alvo() {
+    let url = "https://mcp.pscale.dev/mcp/planetscale-insights-only";
+    let fixture = Fixture::with_account(url, false, true);
+    for mcp_method in ["resources/list", "resources/templates/list", "resources/read", "prompts/list", "prompts/get"] {
+        let denied =
+            fixture.call("donnaGuardRuntime", json!({"method":mcp_method,"streamableOnly":false})).await.unwrap();
+        assert_eq!(denied, json!({"ruleDenied":true}));
+    }
+    let allowed = fixture.call("donnaGuardRuntime", json!({"method":"initialize"})).await.unwrap();
+    assert_eq!(allowed["url"], url);
+    assert_eq!(allowed["streamableOnly"], true);
+    assert!(allowed["headers"].get("Authorization").is_some());
+}
+
+#[tokio::test]
+async fn perfil_streamable_nao_envia_header_a_outro_caminho_na_mesma_origem() {
+    for status in [StatusCode::NOT_FOUND, StatusCode::METHOD_NOT_ALLOWED, StatusCode::TEMPORARY_REDIRECT] {
+        let forbidden = Arc::new(AtomicUsize::new(0));
+        let get = forbidden.clone();
+        let post = forbidden.clone();
+        let remote = server(
+            Router::new()
+                .route(
+                    "/mcp",
+                    routing::post(move || async move { (status, [("location", "/outro")]) }).get(move || {
+                        get.fetch_add(1, Ordering::SeqCst);
+                        async { ([("content-type", "text/event-stream")], "event: endpoint\ndata: /outro\n\n") }
+                    }),
+                )
+                .route(
+                    "/outro",
+                    routing::any(move || {
+                        post.fetch_add(1, Ordering::SeqCst);
+                        async { StatusCode::NO_CONTENT }
+                    }),
+                ),
+        )
+        .await;
+        let fixture = Fixture::with_oauth(&remote.url, false);
+        let mut guard = fixture.mediation();
+        guard.streamable_only = true;
+        assert!(Session::new(guard).unwrap().exchange(request(1, "initialize")).await.is_err());
+        assert_eq!(forbidden.load(Ordering::SeqCst), 0);
+    }
 }
 
 #[tokio::test]

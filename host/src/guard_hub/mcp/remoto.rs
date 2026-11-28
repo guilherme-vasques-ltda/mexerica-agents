@@ -153,8 +153,10 @@ pub(super) async fn call(
         crate::fork::spaces::connector_context::check(hub, id, body, intent.execution())?;
         let saved = intent.snapshot(hub)?;
         ensure!(!catalogo_local::reservado(&saved), "Conta MCP local não usa transporte HTTP");
-        if !matches!(method, "initialize" | "ping" | "tools/list" | "tools/call" | "notifications/initialized")
-            && crate::market::contas::tipo_da_conta(&saved)?.is_some_and(|tipo| tipo.exige_filtro(&saved.liberacoes))
+        let tipo = crate::market::contas::tipo_da_conta(&saved)?;
+        let streamable_only = tipo.is_some_and(|tipo| tipo.somente_endpoint_streamable());
+        if !super::http::tools_only(method)
+            && (streamable_only || tipo.is_some_and(|tipo| tipo.exige_filtro(&saved.liberacoes)))
         {
             return Ok(json!({"ruleDenied": true}));
         }
@@ -227,7 +229,7 @@ pub(super) async fn call(
         }
         let response = oauth_binding::check_runtime(hub, &current, &intent, || {
             Ok(
-                json!({"url":target_payload["url"],"headers":target_payload["headers"],"bridgeId":bridge,"setup":context.is_none()}),
+                json!({"url":target_payload["url"],"headers":target_payload["headers"],"bridgeId":bridge,"setup":context.is_none(),"streamableOnly":streamable_only}),
             )
         })?;
         #[cfg(test)]

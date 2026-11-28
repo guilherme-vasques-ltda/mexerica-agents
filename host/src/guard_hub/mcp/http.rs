@@ -27,6 +27,11 @@ impl std::error::Error for PolicyDenied {}
 pub(crate) struct Target {
     pub url: Url,
     pub headers: HeaderMap,
+    pub streamable_only: bool,
+}
+
+pub(crate) fn tools_only(method: &str) -> bool {
+    matches!(method, "initialize" | "ping" | "tools/list" | "tools/call" | "notifications/initialized")
 }
 
 pub(crate) trait Mediation {
@@ -204,6 +209,14 @@ impl<M: Mediation> Session<M> {
         same_origin(self.origin.as_ref().unwrap_or(&target.url), &target.url).inspect_err(|_| {
             self.failure = Failure::Fatal;
         })?;
+        if target.streamable_only
+            && (!tools_only(method)
+                || self.origin.as_ref().is_some_and(|url| url != &target.url)
+                || self.reverse_endpoint.is_some())
+        {
+            self.failure = Failure::Fatal;
+            return Err(PolicyDenied.into());
+        }
         self.origin.get_or_insert_with(|| target.url.clone());
         Ok(target)
     }
@@ -403,6 +416,9 @@ impl<M: Mediation> Session<M> {
 
     async fn open_legacy(&mut self, target: &Target) -> Result<()> {
         self.failure = Failure::Fatal;
+        if target.streamable_only {
+            return Err(PolicyDenied.into());
+        }
         let response = self
             .client
             .get(target.url.clone())
@@ -612,7 +628,7 @@ impl<M: Mediation> Session<M> {
                     continue;
                 }
                 // Só 404/405 no initialize inicial abrem o SSE legado, uma vez; 400 nunca.
-                if method == "initialize" && matches!(status.as_u16(), 404 | 405) {
+                if !target.streamable_only && method == "initialize" && matches!(status.as_u16(), 404 | 405) {
                     self.discard(response).await?;
                     target = self.target(&method, false).await?;
                     self.open_legacy(&target).await?;

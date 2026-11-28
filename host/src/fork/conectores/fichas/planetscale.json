@@ -15,7 +15,7 @@
     "https://planetscale.com/docs/mcp/service-token",
     "https://planetscale.com/docs/mcp-server"
   ],
-  "aviso": "Use um token restrito ao banco desejado. A conexão não executa SQL, altera o banco nem inicia o Insights Agent.",
+  "aviso": "Use um token restrito ao banco desejado. O Hub não verifica as permissões do token. A conexão não executa SQL, altera o banco nem inicia o Insights Agent.",
   "tipos": [
     {
       "id": "planetscale.oficial_chave",

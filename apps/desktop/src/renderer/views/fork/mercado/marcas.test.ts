@@ -20,12 +20,18 @@ const chaves = readdirSync(pastaFichas).filter((f) => f.endsWith('.json')).map((
   return f.startsWith('ficha-') ? basename(f, '.json').slice('ficha-'.length) : ficha.id
 })
 
-test('toda ficha do Hub tem a logo do fornecedor no app, ligada em marcas.ts', () => {
+test('toda ficha do Hub tem a logo do fornecedor ou usa deliberadamente o ícone genérico', () => {
+  const semRedistribuicaoComprovada = new Set(['planetscale'])
   for (const chave of chaves) {
     const arquivo = arquivos.find((a) => stem(a) === chave)
+    if (semRedistribuicaoComprovada.delete(chave)) {
+      assert.equal(arquivo, undefined, `a ficha \`${chave}\` usa o ícone genérico`)
+      continue
+    }
     assert.ok(arquivo, `a ficha \`${chave}\` não tem arquivo em assets/marcas`)
     assert.ok(marcasTs.includes(`'../../assets/marcas/${arquivo}'`), `marcas.ts não importa ${arquivo}`)
   }
+  assert.equal(semRedistribuicaoComprovada.size, 0)
 })
 
 test('todo arquivo de logo tem origem e SHA-256 registrados em THIRD_PARTY.md, e o arquivo não foi alterado', () => {

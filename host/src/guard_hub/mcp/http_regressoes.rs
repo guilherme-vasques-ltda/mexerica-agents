@@ -451,7 +451,11 @@ impl Mediation for FailureObservationHeld {
         self.runtime_started.notify_one();
         tokio::time::sleep(Duration::from_secs(88)).await;
         // Validação local de origem falha após 88 s; nenhum HTTP é enviado.
-        Ok(Target { url: Url::parse("fixture://deadline-private/mcp")?, headers: HeaderMap::new() })
+        Ok(Target {
+            url: Url::parse("fixture://deadline-private/mcp")?,
+            headers: HeaderMap::new(),
+            streamable_only: false,
+        })
     }
 
     async fn observe(&mut self, _frame: Value, method: &str) -> Result<Option<Value>> {

@@ -77,7 +77,8 @@ impl Mediation for Bridge {
                     .map_err(|_| anyhow!("Valor de header MCP inválido"))?,
             );
         }
-        Ok(Target { url, headers })
+        let streamable_only = target["streamableOnly"].as_bool().ok_or_else(|| anyhow!("Perfil HTTP MCP ausente"))?;
+        Ok(Target { url, headers, streamable_only })
     }
 
     async fn observe(&mut self, frame: Value, method: &str) -> Result<Option<Value>> {
