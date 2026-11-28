@@ -164,7 +164,7 @@ export function SettingsView({ page: requested, aba: abaPedida, onPage, onAba }:
 
 function PageContent({ page, aba, onPage }: { page: SettingsPage; aba: string | null; onPage: (page: SettingsPage) => void }) {
   const app = useApp()
-  const openVoice = () => onPage('voice')
+  const openVoice = window.codync.appScheme === 'mexerica-open' ? undefined : () => onPage('voice')
   switch (page) {
     case 'access':
       return <ComputerAccessView />
