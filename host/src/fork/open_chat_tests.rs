@@ -860,23 +860,27 @@ async fn o_encerramento_mata_o_descendente_que_ficou_no_grupo_sem_o_lider() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// Hub real para os testes da reserva e do limite de resposta, no padrão dos testes de abertura da Open.
 #[test]
-fn navegador_retomado_preserva_o_historico_quando_a_conversa_ainda_nao_tem_catalogo() {
+fn navegador_retomado_preserva_o_historico_mesmo_sem_ponte_no_turno_seguinte() {
     let (hub, dir) = hub_de_teste("bot-navegador");
     let key = "conversa";
     let local = "conversa.hub-v2";
     let choose = |browser| conversation_slot(&hub.store, key.into(), true, browser).unwrap();
-    assert_eq!(choose(true), (local.into(), None));
+    assert_eq!(choose(true), (local.into(), None, None));
     hub.store.kv_set(key, "historico-existente").unwrap();
-    assert_eq!(choose(true), (key.into(), Some("historico-existente".into())));
-    assert_eq!(choose(false), (local.into(), None));
+    assert_eq!(choose(false), (local.into(), None, None));
+    let (chosen, thread, marker) = choose(true);
+    assert_eq!((chosen.as_str(), thread.as_deref()), (key, Some("historico-existente")));
+    assert!(hub.store.kv_set_if_bot("bot-navegador", &marker.unwrap(), "1").unwrap());
+    assert_eq!(choose(false), (key.into(), Some("historico-existente".into()), None));
+    assert_eq!(choose(true), (key.into(), Some("historico-existente".into()), None));
     hub.store.kv_set(local, "historico-com-ferramentas").unwrap();
-    assert_eq!(choose(true), (local.into(), Some("historico-com-ferramentas".into())));
+    assert_eq!(choose(true), (local.into(), Some("historico-com-ferramentas".into()), None));
     drop(hub);
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+/// Hub real para os testes da reserva e do limite de resposta, no padrão dos testes de abertura da Open.
 fn hub_de_teste(bot: &str) -> (std::sync::Arc<crate::hub::Hub>, std::path::PathBuf) {
     use std::os::unix::fs::DirBuilderExt;
     let dados = std::env::temp_dir().join(format!("open-chat-{}", uuid::Uuid::new_v4()));

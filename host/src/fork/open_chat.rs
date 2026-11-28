@@ -493,6 +493,7 @@ async fn turn_in_profile(
     reply: &mut Stream,
     browser: Option<crate::fork::browser::turn::Admission>,
 ) -> Result<()> {
+    let browser_admitted = browser.is_some();
     let browser = if let Some(admission) = browser {
         crate::fork::browser::turn::Bridge::start(&reply.hub, admission, cancel.clone()).await
     } else {
@@ -504,8 +505,8 @@ async fn turn_in_profile(
         _ = cancel.wait_for(|stop| *stop) => bail!("open_chat_cancelled"),
     };
     let bot = reply.bot.clone();
-    let (key, saved) =
-        conversation_slot(&hub.store, member_thread_key(lane, account, &bot), tools.is_some(), browser.is_some())?;
+    let (key, saved, keep_legacy) =
+        conversation_slot(&hub.store, member_thread_key(lane, account, &bot), tools.is_some(), browser_admitted)?;
     // Com a reserva viva a exclusão é recusada pelo fence: o que chega aqui só sai por cancelamento (stop/shutdown)
     // ou por o bot já não existir. A conferência de `deleted` sob a trava do banco cobre a janela entre a reserva
     // e este processo nascer.
@@ -531,6 +532,9 @@ async fn turn_in_profile(
             !*stopped.borrow() && matches!(hub.store.bot(&bot), Ok(Some(row)) if !row.deleted),
             "open_chat_cancelled"
         );
+        if let Some(marker) = &keep_legacy {
+            ensure!(hub.store.kv_set_if_bot(&bot, marker, "1")?, "open_chat_cancelled");
+        }
         cursor = Some(uso::Cursor::iniciar(&hub.store, &bot, &cursor_key, thread, saved.as_deref() != Some(thread))?);
         if let Some(browser) = &browser {
             browser.activate();
@@ -602,21 +606,24 @@ fn conversation_slot(
     store: &crate::store::Store,
     key: String,
     hub_tools: bool,
-    browser: bool,
-) -> Result<(String, Option<String>)> {
+    browser_admitted: bool,
+) -> Result<(String, Option<String>, Option<String>)> {
     if !hub_tools {
         let saved = store.kv_read(&key)?;
-        return Ok((key, saved));
+        return Ok((key, saved, None));
     }
     let tool_key = format!("{key}.hub-v2");
     let saved = store.kv_read(&tool_key)?;
-    if browser
-        && saved.is_none()
-        && let Some(legacy) = store.kv_read(&key)?
-    {
-        return Ok((key, Some(legacy)));
+    if saved.is_none() {
+        let marker = format!("{tool_key}.keep-legacy");
+        let kept = store.kv_read(&marker)?.as_deref() == Some("1");
+        if (kept || browser_admitted)
+            && let Some(legacy) = store.kv_read(&key)?
+        {
+            return Ok((key, Some(legacy), (!kept).then_some(marker)));
+        }
     }
-    Ok((tool_key, saved))
+    Ok((tool_key, saved, None))
 }
 
 #[cfg(unix)]
