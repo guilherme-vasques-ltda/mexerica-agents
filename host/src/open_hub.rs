@@ -339,7 +339,7 @@ mod unix {
     use std::io;
     use std::net::Ipv4Addr;
     use std::os::unix::ffi::OsStrExt;
-    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    use std::os::unix::fs::MetadataExt;
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
     use tokio::net::TcpListener;

@@ -383,6 +383,7 @@ if (yieldsToInstall()) {
   app.quit()
 } else {
   app.on('before-quit', (event) => {
+    if (!bundledMacLocalHub) return
     const active = host.hasPrivateHub
     const stopping = host.prepareForQuit()
     if (!active) return

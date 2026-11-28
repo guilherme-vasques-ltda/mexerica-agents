@@ -162,7 +162,7 @@ pub struct Hub {
     /// Códigos de login de dois fatores: só memória, somem com o Hub.
     pub(crate) login_codes: crate::market::login_codes::Codes,
     /// Interface Web local (`--web-dir`): presente só quando o `serve` a ativa.
-    pub(crate) web_local: std::sync::OnceLock<Arc<crate::fork::web_local::WebState>>,
+    pub(crate) web_local: OnceLock<Arc<crate::fork::web_local::WebState>>,
     /// `workspaceEpoch` atual; streams abertos terminam quando ele sobe.
     pub(crate) workspace: crate::fork::workspace::Sinal,
     /// JWKS e nonces da sessão Clerk do acesso remoto (Hub com vínculo).
@@ -228,7 +228,7 @@ impl Hub {
             screen,
             terms: Arc::default(),
             login_codes: crate::market::login_codes::Codes::default(),
-            web_local: std::sync::OnceLock::new(),
+            web_local: OnceLock::new(),
             workspace,
             sessao_clerk: crate::fork::sessao_clerk::Estado::default(),
         })
