@@ -2,7 +2,7 @@
   "id": "railway",
   "nome": "Railway",
   "categoria": "Infraestrutura",
-  "descricao": "Hospedagem em nuvem: o MCP cria projetos, faz deploys, gerencia variáveis de ambiente, domínios e implanta templates.",
+  "descricao": "Hospedagem no Railway: lê projetos, serviços e deploys; só depois de você ligar cada ação ele cria projeto e faz deploy.",
   "exemplos": [
     "Como estão os serviços do meu projeto no Railway?",
     "Mostre os últimos deploys e se algum falhou"
@@ -13,12 +13,15 @@
     "privacidade": "https://railway.com/legal/privacy",
     "termos": "https://railway.com/legal/terms"
   },
-  "conferidaEm": "2026-11-18",
+  "conferidaEm": "2026-11-27",
   "fontes": [
     "https://docs.railway.com/ai/mcp-server",
-    "https://backboard.railway.com/oauth/register",
+    "https://docs.railway.com/integrations/oauth/scopes-and-user-consent",
+    "https://mcp.railway.com/.well-known/oauth-protected-resource",
+    "https://mcp.railway.com/.well-known/oauth-protected-resource/mcp",
     "https://backboard.railway.com/.well-known/oauth-authorization-server"
   ],
+  "aviso": "Deploys e tarefas de agente de nuvem no Railway entram na sua cobrança.",
   "tipos": [
     {
       "id": "railway.oficial_oauth",
@@ -32,22 +35,20 @@
       },
       "grupos": [
         {
-          "id": "ler",
-          "rotulo": "Ler",
+          "id": "usar",
+          "rotulo": "Usar com a sua conta",
           "escopos": [
-            "workspace:viewer",
-            "project:viewer"
+            "workspace:member"
           ],
           "padrao": true,
-          "disponivel": false
+          "disponivel": true,
+          "imposicao": "filtro"
         }
       ],
       "recomendado": true,
-      "disponivel": false,
-      "motivoIndisponivel": "O Railway não oferece um modo só de leitura; entra depois do filtro de ações perigosas."
+      "disponivel": true
     }
   ],
-  "emBreve": "O fornecedor não impõe leitura: entra depois do filtro de ações perigosas.",
   "skillsOficiais": [
     {
       "url": "https://github.com/railwayapp/railway-skills",

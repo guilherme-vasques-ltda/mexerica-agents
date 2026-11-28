@@ -261,6 +261,7 @@ pub(crate) const MATRIZ: &[(&str, Minimo)] = &[
     ("donnaRoutingReceipt", Admin),
     ("donnaAttention", Admin),
     ("donnaTowerView", Admin),
+    ("donnaTeamRequests", Admin),
     ("donnaGovernance", Admin),
     ("donnaGovernanceSave", Admin),
     ("donnaHubDoctor", Admin),

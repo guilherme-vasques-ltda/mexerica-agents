@@ -181,6 +181,7 @@ async fn uso_respeita_conversa_turno_e_cotas_esparsas() {
 #[test]
 fn custo_local_separa_turnos_contas_e_lacunas() {
     use super::uso::{Contagem, Cursor};
+    use crate::fork::engine_accounts::{Account, AuthorizedScope, Backend, Billing, LaunchReference, Registry, State};
     use crate::store::Lane;
     type LinhaUso = (String, Option<i64>, Option<i64>, Option<f64>);
 
@@ -189,8 +190,25 @@ fn custo_local_separa_turnos_contas_e_lacunas() {
     let mut cfg = hub.store.bot(bot).unwrap().unwrap().config;
     cfg.model = Some("gpt-5.4".into());
     let lane = Lane::main(bot);
-    let conta_a = format!("{}.usage", thread_key(&lane, "conta-a"));
-    let conta_b = format!("{}.usage", thread_key(&lane, "conta-b"));
+    let [id_a, id_b] = ["a", "b"].map(|letra| format!("ac_{}", letra.repeat(64)));
+    let mut registry = Registry::load(&hub.store).unwrap();
+    registry.accounts.extend([&id_a, &id_b].map(|id| Account {
+        id: id.clone(),
+        backend: Backend::Codex,
+        billing: Billing::Subscription,
+        state: State::Connected,
+        launch: LaunchReference::CliProfile { executable: "/fixture/codex".into(), directory: root.clone() },
+        scope: AuthorizedScope::Owner,
+        quota_identity: None,
+        verified_at: None,
+        subscription_proof: None,
+        models: Vec::new(),
+        hidden_model_ids: Vec::new(),
+        managed: None,
+    }));
+    registry.persist(&hub.store).unwrap();
+    let conta_a = format!("{}.usage", thread_key(&lane, &id_a));
+    let conta_b = format!("{}.usage", thread_key(&lane, &id_b));
     let mut gravar = |chave: &str, conta: &str, turno, nova, entrada, saida| {
         cfg.fork_editor.engine_account_id = Some(conta.into());
         Cursor::iniciar(&hub.store, bot, chave, "thread-1", nova)
@@ -205,13 +223,13 @@ fn custo_local_separa_turnos_contas_e_lacunas() {
             )
             .unwrap();
     };
-    gravar(&conta_a, "conta-a", 1, true, 100, 20);
-    gravar(&conta_a, "conta-a", 2, false, 150, 33);
-    gravar(&conta_b, "conta-b", 3, false, 900, 120);
+    gravar(&conta_a, &id_a, 1, true, 100, 20);
+    gravar(&conta_a, &id_a, 2, false, 150, 33);
+    gravar(&conta_b, &id_b, 3, false, 900, 120);
     Cursor::iniciar(&hub.store, bot, &conta_a, "thread-1", false).unwrap();
-    gravar(&conta_a, "conta-a", 4, false, 500, 50);
-    gravar(&conta_a, "conta-a", 5, false, 530, 59);
-    gravar(&conta_a, "conta-a", 6, false, 530, 59);
+    gravar(&conta_a, &id_a, 4, false, 500, 50);
+    gravar(&conta_a, &id_a, 5, false, 530, 59);
+    gravar(&conta_a, &id_a, 6, false, 530, 59);
     let db = hub.store.db.locked();
     let mut q = db
         .prepare(
@@ -224,12 +242,12 @@ fn custo_local_separa_turnos_contas_e_lacunas() {
         .collect::<rusqlite::Result<_>>()
         .unwrap();
     for (linha, (conta, entrada, saida)) in linhas.iter().zip([
-        ("conta-a", Some(100), Some(20)),
-        ("conta-a", Some(50), Some(13)),
-        ("conta-b", None, None),
-        ("conta-a", None, None),
-        ("conta-a", Some(30), Some(9)),
-        ("conta-a", None, None),
+        (id_a.as_str(), Some(100), Some(20)),
+        (id_a.as_str(), Some(50), Some(13)),
+        (id_b.as_str(), None, None),
+        (id_a.as_str(), None, None),
+        (id_a.as_str(), Some(30), Some(9)),
+        (id_a.as_str(), None, None),
     ]) {
         assert_eq!((linha.0.as_str(), linha.1, linha.2), (conta, entrada, saida));
         assert_eq!(linha.3.is_some_and(|preco| preco > 0.0), entrada.is_some());

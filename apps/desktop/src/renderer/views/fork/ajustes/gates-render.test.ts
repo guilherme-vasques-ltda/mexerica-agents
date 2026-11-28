@@ -218,15 +218,15 @@ test('Open: Dock, início de sessão e ícone não aparecem nem consultam a pont
   } finally { efeitos = undefined }
 })
 
-test('Open: Ajustes remove o Bot de fundo e mantém as preferências locais e as contas de IA', () => {
+test('Open: Ajustes mostra as páginas locais e esconde só Voz e Acesso ao computador', () => {
   aparelho('desktop', { appScheme: 'mexerica-open' })
-  const props = { page: 'background', aba: null, onPage: nada, onAba: nada }
+  const props = { page: 'voice', aba: null, onPage: nada, onAba: nada }
   const html = renderiza(m.SettingsView, props)
   assert.match(html, /<h2[^>]*>Geral<\/h2>/)
-  for (const key of ['ajustes.pagina.botDeFundo', 'ajustes.pagina.acesso', 'ajustes.pagina.computadoresCurto']) {
+  for (const key of ['ajustes.pagina.voz', 'ajustes.pagina.acesso']) {
     assert.ok(!html.includes(pt[key]!), key)
   }
-  for (const key of ['ajustes.pagina.aparencia', 'ajustes.pagina.barraLateral', 'ajustes.pagina.conversa', 'ajustes.pagina.contasIa']) {
+  for (const key of ['ajustes.pagina.aparencia', 'ajustes.pagina.barraLateral', 'ajustes.pagina.conversa', 'ajustes.pagina.contasIa', 'ajustes.pagina.botDeFundo', 'ajustes.pagina.computadoresCurto', 'ajustes.pagina.lugares', 'ajustes.pagina.armazenamento', 'ajustes.pagina.uso']) {
     assert.ok(html.includes(pt[key]!), key)
   }
 })
@@ -336,7 +336,7 @@ test('Conta conectada na Open: sem Testar, uso, reserva nem modelos que o Hub re
   assert.ok(!detalhe.includes(pt['contas.botsVazioDetalhe']!), 'não manda escolher a conta numa aba que a Open não mostra')
 })
 
-test('Ajustes do bot na Open: uma aba indisponível abre Identidade, sem mostrar Motor', () => {
+test('Ajustes do bot na Open: mostra todas as abas e abre a pedida, Motor incluído', () => {
   aparelho('desktop', { appScheme: 'mexerica-open' })
   const store = {
     ...observavel, principal: { ...observavel, id: null }, bots: new Map(), connection: { kind: 'online' },
@@ -344,8 +344,8 @@ test('Ajustes do bot na Open: uma aba indisponível abre Identidade, sem mostrar
   const render = () => m.renderToStaticMarkup(m.createElement(m.StoreContext.Provider, { value: store as never },
     m.createElement(m.BotSettingsPage, { botId: 'open-fixture', initialSection: 'engine', onClose: nada, onConversation: nada })))
   const open = render()
-  assert.match(open, /id="bot-settings-tab-identity"[^>]*aria-selected="true"/)
-  assert.doesNotMatch(open, /id="bot-settings-tab-(engine|behaviour|tools|whatsapp)"/)
+  assert.match(open, /id="bot-settings-tab-engine"[^>]*aria-selected="true"/)
+  for (const aba of ['identity', 'behaviour', 'tools', 'whatsapp', 'voice', 'memory']) assert.match(open, new RegExp(`id="bot-settings-tab-${aba}"`), aba)
   aparelho('desktop')
   assert.match(render(), /id="bot-settings-tab-engine"[^>]*aria-selected="true"/)
 })

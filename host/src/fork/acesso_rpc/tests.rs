@@ -125,6 +125,7 @@ fn metodos_conhecidos_mantem_a_classe() {
         ("donnaGovernanceSave", Acesso::Control),
         ("donnaTaskProposalDecide", Acesso::Control),
         ("donnaTowerView", Acesso::Control),
+        ("donnaTeamRequests", Acesso::Control),
         ("engineGoKeySave", Acesso::Control),
         ("screenOffer", Acesso::Screen),
         ("screenTakeover", Acesso::Screen),

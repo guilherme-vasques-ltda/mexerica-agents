@@ -12,7 +12,7 @@ export type PaginaExtensoes = 'connectors' | 'skills' | 'plugins' | 'credentials
 export type PaginaLoja = 'connectors' | 'skills'
 export const ehPaginaLoja = (p: PaginaExtensoes): p is PaginaLoja => p === 'connectors' || p === 'skills'
 export const extensoesSomenteCatalogo = () => isOpenDesktop(globalThis.window?.codync)
-export const paginaDisponivel = (page: PaginaExtensoes) => page === 'connectors' || page === 'skills' || !extensoesSomenteCatalogo()
+export const paginaDisponivel = (page: PaginaExtensoes) => page !== 'credentials' || !extensoesSomenteCatalogo()
 
 /** D454 (fatia 8a): cada página leva só a chave do catálogo; a tela traduz no idioma escolhido. */
 export const PAGINAS_EXTENSOES: { id: PaginaExtensoes; chave: `extensoes.pagina.${PaginaExtensoes}`; icon: string }[] = [
