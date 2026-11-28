@@ -178,7 +178,7 @@ fn planetscale_so_expoe_as_leituras_de_insights() {
         tipo.ferramentas_permitidas(&grupos).unwrap(),
         ["planetscale_get_insights", "planetscale_list_schema_recommendations"].into_iter().collect()
     );
-    assert!(tipo.escopos_efetivos(&grupos).is_empty());
+    assert_eq!(tipo.escopos_efetivos(&grupos), [] as [String; 0]);
     assert!(tipo.ferramentas_curadas(&grupos).is_empty());
     assert!(tipo.liberacoes_validas(Some(&["admin".into()])).is_err());
 }
