@@ -45,7 +45,7 @@ export default defineConfig(({ mode }) => {
       transformIndexHtml: (html) => html.replace('__REMOTE_WEB_CSP__', csp),
     }],
     build: {
-      outDir: resolve(cwd, 'dist/web-remote'), emptyOutDir: true, target: 'esnext', cssCodeSplit: false,
+      outDir: resolve(cwd, 'dist/web-remote'), emptyOutDir: true, target: 'esnext',
       rollupOptions: { input: {
         index: resolve(cwd, 'src/web/remote/index.html'),
         ...(configured ? { renderer: resolve(cwd, 'src/web/remote/renderer.html') } : {}),
