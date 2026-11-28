@@ -31,7 +31,11 @@ export function PaginaConectores({ ativa = true, pedidoAdicionar = 0 }: { ativa?
   // A leitura é uma só por Hub e link: volta ao abrir a página e quando a conexão muda (nunca mostra dado de outra origem).
   useEffect(() => { if (ativa) void mercado.ler() }, [ativa, hub, store.connectedClient, store.principalEpoch, mercado])
   // O botão "Adicionar conector personalizado" de Extensões abre a tela própria (v3 02), não a folha antiga.
-  useEffect(() => { if (pedidoAdicionar > 0) setVista({ tipo: 'personalizado' }) }, [pedidoAdicionar])
+  useEffect(() => {
+    if (pedidoAdicionar <= 0) return
+    void emAndamento.current?.cancelar()
+    setVista({ tipo: 'personalizado' })
+  }, [pedidoAdicionar])
   // Sair da página no meio de conectar (outra página de Extensões, fechar a tela): a conta pela metade não fica.
   const emAndamento = useRef<FluxoConectar | FluxoGoogle | null>(null)
   emAndamento.current = vista.tipo === 'conectar' || vista.tipo === 'google' ? vista.fluxo : null

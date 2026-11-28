@@ -10,11 +10,16 @@ import { mercadoApi, type PedidoPersonalizado } from './api'
 import { FluxoConectar } from './fluxo'
 import { FluxoGoogle } from './google-fluxo'
 import { cofreTrancado, ehDoGoogle } from './regras'
+import { isOpenDesktop } from '../../../../shared/fork-capacidades'
 import type { AppGoogle, Catalogo, Conta, FerramentasDaConta, PedidoDefinirVinculo, PedidoLigarFerramenta, ResultadoDesconectar, Servico, TipoConexao, VinculosDoBot } from './tipos'
 
 const mensagem = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
 // ───────────────────────────── O Marketplace de um computador/Space ─────────────────────────────
+
+// A Open não tem o executor isolado que a conferência do Hub usa; ali o login ou a chave aceita é a prova que existe.
+const conferirConta = (c: HostClient, id: string) =>
+  isOpenDesktop(globalThis.window?.codync) ? Promise.resolve({ status: 'ready' }) : market.verifyConnector(c, id)
 
 export class Mercado extends Observable {
   private lido: { origem: Origem<HostClient>; catalogo: Catalogo; contas: Conta[]; contasErro: string | null } | null = null
@@ -75,7 +80,7 @@ export class Mercado extends Observable {
     const r = await mercadoApi.personalizado(cliente, pedido)
     try {
       if (r.proximoPasso === 'entrar') await pluginsFor(this.store).signIn(r.connector.id)
-      await market.verifyConnector(cliente, r.connector.id)
+      await conferirConta(cliente, r.connector.id)
     } catch { /* a conta existe; a tela de contas mostra o estado e o botão Reconectar */ } finally {
       await this.ler()
     }
@@ -101,7 +106,7 @@ export class Mercado extends Observable {
   /** Reconectar uma conta expirada: o mesmo login de sempre, depois a conferência. */
   async reconectar(id: string): Promise<void> {
     await pluginsFor(this.store).signIn(id)
-    await this.depois(this.store.ready().then((c) => market.verifyConnector(c, id)))
+    await this.depois(this.store.ready().then((c) => conferirConta(c, id)))
   }
 
   /** Liga estas contas nos bots marcados (nasce tudo desligado); um bot por vez, parando no primeiro erro. */
@@ -142,7 +147,7 @@ export class Mercado extends Observable {
     return new FluxoConectar(servico, tipo, {
       cliente,
       entrar: (id) => pluginsFor(this.store).signIn(id, cadastro ? cliente : undefined),
-      verificar: (id) => cliente().then((c) => market.verifyConnector(c, id)),
+      verificar: (id) => cliente().then((c) => conferirConta(c, id)),
       guardarChave: (id, campos) => cliente().then((c) => market.updateConnectorCredentials(c, id, campos)),
       reler: () => this.ler(),
     }, cadastro)

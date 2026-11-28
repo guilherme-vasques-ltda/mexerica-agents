@@ -71,7 +71,6 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
         | "connectors"
         | "connectorSignIn"
         | "connectorSignInFinish"
-        | "connectorVerify"
         | "credentialUpdateConnector"
         | "removeConnector"
         | "marketBotContas"
@@ -268,7 +267,7 @@ mod tests {
         }
     }
 
-    const CONECTORES: [&str; 27] = [
+    const CONECTORES: [&str; 26] = [
         "marketPersonalizado",
         "marketServico",
         "marketContas",
@@ -283,7 +282,6 @@ mod tests {
         "connectors",
         "connectorSignIn",
         "connectorSignInFinish",
-        "connectorVerify",
         "credentialUpdateConnector",
         "installConnector",
         "marketBotContas",
@@ -315,7 +313,7 @@ mod tests {
                 assert!(!open_allows(&Caller::Local, method, &body), "{method} por comando é shell: {body}");
             }
         }
-        for method in ["importConnectors", "connectorTarget", "connectorCall"] {
+        for method in ["importConnectors", "connectorTarget", "connectorCall", "connectorVerify"] {
             assert!(!open_allows(&Caller::Local, method, &json!({})), "{method} continua fechado");
         }
     }

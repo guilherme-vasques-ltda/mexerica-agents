@@ -344,6 +344,7 @@ async fn route(
         // Só chave/geração tocam o cofre: estado e transporte de quadros não
         // devem pedir desbloqueio do chaveiro ao exibir avatar.
         || matches!(method, "mexeriquinhaGeradorChave" | "mexeriquinhaGerar")
+        || matches!(method, "marketConectar" | "marketGoogleAppSalvar" | "marketAppProprioSalvar")
         || (matches!(method, "agentAuth" | "agentAuthenticate" | "setAgentEnv")
             && !b["backend"].as_str().is_some_and(crate::agent::backends::is_antigravity))
     {
