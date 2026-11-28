@@ -123,6 +123,7 @@ pub(crate) const ROTAS_HTTP: &[(&str, &str, Guarda)] = &[
     ("fork/web_local.rs", "fallback", Guarda::Publica),
     ("fork/web_local.rs", "method_not_allowed_fallback", Guarda::Publica),
     ("fork/whatsapp/inbox.rs", "/whatsapp/{bot}", Guarda::Propria("shared.accept(")),
+    ("fork/browser/turn.rs", "/mcp", Guarda::Propria("state.token.as_bytes()")),
     ("fork/claude_ponte/permissao.rs", "/mcp", Guarda::Propria("estado.segredo")),
     ("fork/planos_codigo/repasse.rs", "fallback", Guarda::Propria("repasse.encaminhar(")),
 ];
@@ -202,6 +203,9 @@ pub(crate) const SO_LOCAL: &[&str] = &[
     "computersList",
     "connectorTarget",
     "donnaApprovalSet",
+    "donnaBrowserLocalConsent",
+    "donnaBrowserLocalFrame",
+    "donnaBrowserLocalState",
     "donnaConectorCapability",
     "donnaConectorDecidir",
     "donnaConectorEditar",

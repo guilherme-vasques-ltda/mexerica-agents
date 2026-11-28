@@ -195,6 +195,11 @@ async fn command(
     // Classifica a identidade e o nome antes de ler o corpo (que só é lido aqui, com o limite da rota).
     let caller =
         crate::fork::ponte_credencial::autenticar_com_origin(&hub, &headers, peer, true).ok_or_else(unauthorized)?;
+    if crate::fork::browser::local::METHODS.contains(&method.as_str())
+        && (!headers.contains_key("authorization") || !matches!(caller, Caller::Local))
+    {
+        return Err(ApiError(StatusCode::FORBIDDEN, "forbidden".into(), None));
+    }
     // Nome sem classe é recusado antes de ler o corpo: 404 (403 na Open) sem passar por 400 ou 413.
     let origem = if headers.contains_key("authorization") { super::origem(&caller) } else { "web" };
     if let Some(recusa) = super::recusa_sem_classe(origem, &method) {
@@ -208,7 +213,19 @@ async fn command(
         serde_json::from_slice(&body)
             .map_err(|e| ApiError(StatusCode::BAD_REQUEST, format!("invalid JSON: {e}"), None))?
     };
-    dispatch(&hub, &caller, &method, body).await.map(Json).map_err(|e| {
+    let dispatched = dispatch(&hub, &caller, &method, body);
+    #[cfg(unix)]
+    let dispatched = if peer == crate::open_hub::SOCKET_PEER
+        && matches!(caller, Caller::Local)
+        && headers.contains_key("authorization")
+    {
+        crate::fork::browser::turn::NATIVE.scope(hub.workspace.atual(), dispatched).await
+    } else {
+        dispatched.await
+    };
+    #[cfg(not(unix))]
+    let dispatched = dispatched.await;
+    dispatched.map(Json).map_err(|e| {
         let (status, message) = error_status(&e);
         ApiError(status, message, super::error_code(&e))
     })

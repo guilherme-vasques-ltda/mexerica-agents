@@ -115,6 +115,10 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
         "donnaTaskProposals"
         | "donnaTimes"
         | crate::fork::pedidos_time::METHOD
+        | crate::fork::browser::METHOD
+        | crate::fork::browser::local::STATE
+        | crate::fork::browser::local::CONSENT
+        | crate::fork::browser::local::FRAME
         | crate::fork::native_catalog::METHOD
         | "skills"
         | "marketSkills"

@@ -37,6 +37,9 @@ use Classe::{Bot, Comum, Dono, Executor, Leitura, LocalOnly, LoginLegado, Propri
 pub(crate) const METODOS: &[(&str, Classe)] = &[
     ("donnaScreenAccess", Dono),
     ("donnaBrowserStatus", Leitura),
+    ("donnaBrowserLocalConsent", LocalOnly),
+    ("donnaBrowserLocalFrame", LocalOnly),
+    ("donnaBrowserLocalState", LocalOnly),
     ("nuncaFazer", LocalOnly),
     ("nuncaFazerAdicionar", LocalOnly),
     ("nuncaFazerEditar", LocalOnly),

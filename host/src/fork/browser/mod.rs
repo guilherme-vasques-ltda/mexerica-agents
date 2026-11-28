@@ -2,6 +2,7 @@
 //! Escopo vem de Autoridade/Sessões/ToolContext existentes; argumentos nunca concedem acesso.
 pub(crate) mod bridge;
 mod cdp;
+pub(crate) mod local;
 mod nav;
 mod net_proxy;
 mod network;
@@ -12,6 +13,8 @@ mod proxy_socket;
 mod runtime;
 pub(crate) mod stream;
 mod supervisor;
+#[cfg(unix)]
+pub(crate) mod turn;
 pub use preference::BrowserPreference;
 pub(crate) use preference::check_save;
 pub(crate) use runtime::State;
@@ -172,7 +175,7 @@ pub(crate) fn status(hub: &Hub, caller: &Caller, body: Value) -> Result<Value> {
     let request: Read =
         serde_json::from_value(body).map_err(|_| anyhow!("invalid_field: consulta de navegador inválida"))?;
     // A sonda de contenção pode lançar um processo: roda antes de segurar o banco do Hub.
-    let availability = if request.version == Some(3) { hub.browser.availability() } else { Ok(()) };
+    let availability = if request.version == Some(3) { local::availability(hub) } else { Ok(()) };
     original.with_db(hub, None, |db| {
         crate::fork::spaces::require_space(db, &request.space_id)?;
         let row = Store::bot_on(db, &request.bot_id)?.ok_or_else(|| anyhow!("browser_scope_unavailable"))?;
@@ -253,7 +256,7 @@ pub(crate) fn call(
         serde_json::from_value(args.clone()).map_err(|_| anyhow!("invalid_field: consulta de navegador inválida"))?;
     let execution = execution.ok_or_else(|| anyhow!("browser_context_required: origem original ausente"))?;
     let (cfg, generation) = authorize(hub, bot, execution, context)?;
-    let availability = if request.version == Some(3) { hub.browser.availability() } else { Ok(()) };
+    let availability = if request.version == Some(3) { local::availability(hub) } else { Ok(()) };
     let answer = answer(hub, bot, &cfg.space_id, cfg.browser_preference, &request, availability);
     #[cfg(test)]
     crate::fork::sessoes::call_tests::before_effect(&hub.store, "browser_response");
@@ -296,10 +299,15 @@ fn owned_by(owner: &str, binding: &str) -> bool {
 /// A autoridade que abriu a sessão continua válida: vínculo ainda o ativo do bot, bot do mesmo Space com a
 /// preferência integrada e a mesma geração de configuração. Falha fechada.
 fn authority_valid(hub: &Hub, scope: &supervisor::Scope, owner: &str) -> bool {
+    #[cfg(unix)]
+    if owner.starts_with(turn::OWNER_PREFIX) {
+        return turn::authority_valid(hub, scope, owner);
+    }
     let Some((binding, generation)) = split_owner(owner) else { return false };
     let db = hub.store.db.locked();
     let Ok(live) = bindings::resolve(&db, binding, &scope.bot) else { return false };
-    bindings::assert_binding_live(&db, &live).is_ok()
+    (!cfg!(target_os = "macos") || local::enabled_on(&db))
+        && bindings::assert_binding_live(&db, &live).is_ok()
         && crate::fork::spaces::config_generation_on(&db, &scope.bot).is_ok_and(|current| current == generation)
         && Store::bot_on(&db, &scope.bot).ok().flatten().is_some_and(|row| {
             !row.deleted
