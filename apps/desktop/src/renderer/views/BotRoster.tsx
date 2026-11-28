@@ -332,6 +332,7 @@ export function BotRoster({ roster, compact, onContext, onCreate, onLibrary, onS
           menu={!filtering && !addDisabled ? () => agentsAddItems(store, create ? () => create('bot', computer.id) : undefined, onLibrary ? () => onLibrary(computer.id) : undefined) : undefined}
           onMenuOpenChange={onMenuOpenChange}>
           <AgentGroups store={store} items={projection.simple} compact={compact} filtering={filtering} dropTarget={botDrag?.item.ref.computerId === computer.id ? agentDrop : null}
+            isSelected={(item) => sameRef(item.ref, selected)}
             renderRow={(item) => row(item, [], { agent: true, tag: item.bot.title ? { text: item.bot.title, tone: 'l0' } : null })} />
           {!projection.simple.length && !filtering && !quietEmpty ? <p className="sidebar-section-empty">{t('navegacao.barra.semEquipe')}</p> : null}
         </SidebarSectionBlock>
