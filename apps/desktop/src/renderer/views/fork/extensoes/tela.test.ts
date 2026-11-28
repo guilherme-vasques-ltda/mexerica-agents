@@ -22,7 +22,7 @@ test('Open abre Conectores, Skills, Plugins e Credenciais', (t) => {
   t.after(() => { Reflect.deleteProperty(globalThis, 'window') })
   const tela = new TelaExtensoes()
   tela.show('credentials', 'hub-1')
-  assert.equal(tela.open, false)
+  assert.equal(tela.page, 'credentials')
   tela.show('plugins', 'hub-1', 'whatsapp')
   assert.equal(tela.page, 'plugins')
   assert.equal(tela.plugin, 'whatsapp')
