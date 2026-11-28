@@ -103,6 +103,17 @@ fn open_omite_jeito_que_usa_filtro_e_preserva_leitura_do_fornecedor() {
 
 #[cfg(test)]
 #[test]
+fn canva_aparece_nos_dois_fluxos() {
+    let servico = catalogo::servico("canva").unwrap();
+    let hoje = servico.conferida_em.parse().unwrap();
+    assert!(sem_filtro(servico, servico.tipos[0].id));
+    let completa = ficha(servico, hoje, None, "", false);
+    assert_eq!(completa["conectavel"], true);
+    assert_eq!(ficha(servico, hoje, None, "", true), completa);
+}
+
+#[cfg(test)]
+#[test]
 fn open_mostra_app_proprio_com_escopo_de_leitura_para_o_dono() {
     let servico = catalogo::fixture_app_proprio();
     let hoje = chrono::NaiveDate::parse_from_str(servico.conferida_em, "%Y-%m-%d").unwrap();

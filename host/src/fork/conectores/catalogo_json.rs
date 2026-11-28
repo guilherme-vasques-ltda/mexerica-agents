@@ -20,6 +20,7 @@ pub(super) const FICHAS: &[&str] = &[
     include_str!("fichas/neon.json"),
     include_str!("fichas/wispr-flow.json"),
     include_str!("fichas/github.json"),
+    include_str!("fichas/canva.json"),
     include_str!("fichas/better-stack.json"),
     include_str!("fichas/clerk.json"),
     include_str!("fichas/coderabbit.json"),
