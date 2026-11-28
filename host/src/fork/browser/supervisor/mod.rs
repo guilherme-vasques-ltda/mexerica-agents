@@ -12,6 +12,10 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(any(target_os = "macos", all(test, target_os = "linux")))]
+pub(super) mod mac;
+#[cfg(any(target_os = "macos", all(test, target_os = "linux")))]
+pub(super) mod mac_policy;
 #[cfg(target_os = "linux")]
 pub(super) mod real;
 
@@ -26,6 +30,10 @@ pub(super) struct Scope {
 pub(super) trait Launcher {
     type Process;
     fn start(&mut self, profile: &Path, proxy_socket: &Path) -> Result<Self::Process>;
+    #[cfg(target_os = "macos")]
+    fn start_tcp(&mut self, profile: &Path, _proxy: std::net::SocketAddr) -> Result<Self::Process> {
+        self.start(profile, &profile.join("proxy.sock"))
+    }
     /// Entrega a credencial só pelo canal de controle, nunca por argv ou ambiente.
     fn authenticate(&mut self, process: &mut Self::Process, token: String) -> impl Future<Output = Result<()>>;
     fn stop(&mut self, process: &mut Self::Process) -> Result<()>;
@@ -100,6 +108,11 @@ impl Watch {
     /// Autoridade e instância registradas para o escopo, sem esperar trava alguma.
     pub fn entry(&self, scope: &Scope) -> Option<(String, u64)> {
         self.lock().get(scope).map(|entry| (entry.0.clone(), entry.1))
+    }
+
+    pub fn visible(&self, scope: &Scope) -> Option<(String, u64)> {
+        let (owner, instance, cut) = self.lock().get(scope).cloned()?;
+        (!cut.is_fired()).then_some((owner, instance))
     }
 
     /// Corta toda instância cuja autoridade `invalid` reprova. Devolve quantas cortou agora.
@@ -321,6 +334,7 @@ impl<L: Launcher> Supervisor<L> {
             use std::os::unix::fs::DirBuilderExt;
             fs::DirBuilder::new().mode(0o700).create(&profile)?;
         }
+        #[cfg(not(target_os = "macos"))]
         let socket = profile.join("proxy.sock");
         #[cfg(all(test, target_os = "linux"))]
         let proxy_result = if self.test_allowed.is_empty() {
@@ -339,7 +353,14 @@ impl<L: Launcher> Supervisor<L> {
                 return Err(error.into());
             }
         };
-        let process = match self.launcher.start(&profile, &socket) {
+        #[cfg(not(target_os = "macos"))]
+        let started = self.launcher.start(&profile, &socket);
+        #[cfg(target_os = "macos")]
+        let started = match proxy.addr() {
+            super::net_proxy::Endpoint::Tcp(addr) => self.launcher.start_tcp(&profile, *addr),
+            _ => Err(anyhow::anyhow!("proxy local indisponível")),
+        };
+        let process = match started {
             Ok(process) => process,
             Err(error) => {
                 fs::remove_dir_all(&profile).context("falha ao limpar perfil após erro de início")?;
@@ -428,19 +449,14 @@ impl<L: Launcher> Supervisor<L> {
         result
     }
 
-    /// Para o processo e apaga o perfil; tenta os dois mesmo que um falhe. A mensagem não leva credencial.
+    /// Só apaga o perfil depois de parar o processo. A mensagem não leva credencial.
     fn release(launcher: &mut L, session: &mut Session<L::Process>) -> Result<()> {
-        let stopped = launcher.stop(&mut session.process);
-        let removed = match fs::remove_dir_all(&session.profile) {
+        launcher.stop(&mut session.process)?;
+        match fs::remove_dir_all(&session.profile) {
             Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
                 Err(anyhow::Error::from(error).context("falha ao limpar perfil do navegador"))
             }
             _ => Ok(()),
-        };
-        match (stopped, removed) {
-            (Ok(()), Ok(())) => Ok(()),
-            (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
-            (Err(stop), Err(remove)) => Err(stop.context(format!("{remove:#}"))),
         }
     }
 

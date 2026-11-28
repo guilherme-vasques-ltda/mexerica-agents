@@ -181,12 +181,16 @@ fn prepare_profile(open: &Path, directory: &Path) -> Result<()> {
     Ok(())
 }
 
-fn command(executable: &Path, directory: &Path, login: bool) -> Result<Command> {
+fn command(executable: &Path, directory: &Path, login: bool, browser_port: Option<u16>) -> Result<Command> {
     use std::process::Stdio;
     let home = directory.parent().context("perfil Codex inválido")?;
     let tmp = home.join("tmp");
     Directory::open(&tmp, true)?;
-    let policy = if login { format!("{POLICY}{LOGIN_NETWORK}") } else { POLICY.to_owned() };
+    let mut policy = if login { format!("{POLICY}{LOGIN_NETWORK}") } else { POLICY.to_owned() };
+    if let Some(port) = browser_port {
+        use std::fmt::Write as _;
+        write!(policy, "\n(allow network-outbound (remote tcp \"localhost:{port}\"))\n")?;
+    }
     let mut command = Command::new(SANDBOX);
     command
         .args(["-p", &policy])
@@ -220,7 +224,11 @@ impl AppServer {
     }
 }
 
-pub(crate) async fn app_server(directory: &Path, chat: bool) -> Result<AppServer> {
+pub(crate) async fn app_server(
+    directory: &Path,
+    chat: bool,
+    browser: Option<&crate::fork::browser::turn::Bridge>,
+) -> Result<AppServer> {
     use std::time::Duration;
     use tokio::io::AsyncReadExt;
     ensure!(cfg!(target_os = "macos"), "open_codex_platform");
@@ -251,7 +259,7 @@ pub(crate) async fn app_server(directory: &Path, chat: bool) -> Result<AppServer
     .ok()
     .and_then(Result::ok)
     .context("open_codex_unavailable")?;
-    let mut probe = command(&selection.executable, directory, false)?;
+    let mut probe = command(&selection.executable, directory, false, None)?;
     let probe = async {
         let mut child = probe.arg("--version").spawn()?;
         let mut version = Vec::new();
@@ -263,7 +271,7 @@ pub(crate) async fn app_server(directory: &Path, chat: bool) -> Result<AppServer
     if !matches!(tokio::time::timeout(Duration::from_secs(10), probe).await, Ok(Ok(()))) {
         anyhow::bail!("open_codex_unavailable");
     }
-    let mut command = command(&selection.executable, directory, true)?;
+    let mut command = command(&selection.executable, directory, true, browser.map(|bridge| bridge.address().port()))?;
     command.args(["-c", "cli_auth_credentials_store=\"file\""]);
     if chat {
         let place = directory.parent().context("open_codex_unavailable")?.join("chat");
@@ -271,6 +279,13 @@ pub(crate) async fn app_server(directory: &Path, chat: bool) -> Result<AppServer
         command.current_dir(place);
         for setting in CHAT_OVERRIDES {
             command.args(["-c", setting]);
+        }
+        if let Some(browser) = browser {
+            use crate::fork::browser::turn::{SERVER, TOKEN_ENV};
+            command
+                .args(["-c", &format!("mcp_servers.{SERVER}.url=\"http://{}/mcp\"", browser.address())])
+                .args(["-c", &format!("mcp_servers.{SERVER}.bearer_token_env_var=\"{TOKEN_ENV}\"")])
+                .env(TOKEN_ENV, browser.token());
         }
     }
     command.args(["app-server", "--listen", "stdio://"]);

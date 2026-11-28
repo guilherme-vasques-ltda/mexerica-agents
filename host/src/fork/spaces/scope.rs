@@ -43,6 +43,7 @@ pub fn chat_space(hub: &Hub, id: &str) -> Result<String> {
 
 pub fn guard(hub: &Hub, method: &str, body: &Value) -> Result<()> {
     let contextual = method == crate::fork::browser::METHOD
+        || crate::fork::browser::local::METHODS.contains(&method)
         || method.starts_with("donnaSpace")
         || crate::fork::roteamento::api::METHODS.contains(&method)
         || method.starts_with("donnaConversation")

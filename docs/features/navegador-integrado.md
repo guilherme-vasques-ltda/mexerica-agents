@@ -1,23 +1,50 @@
 # Navegador integrado: abrir e ler páginas
 
-Um bot com a preferência **Integrado** pode abrir e ler páginas HTTPS num servidor Linux com
-contenção. Não há tela do navegador, clique, digitação, login nem arquivo nesta etapa: o bot só
-abre um endereço público e lê o texto visível. Cada bot tem a sua própria sessão, dentro do seu
-Space.
+Um bot com a preferência **Integrado** pode abrir páginas HTTPS públicas e ler o texto visível.
+No Mac, o dono local pode assistir à página no app. Clique, digitação, login e arquivos não estão
+disponíveis nesta etapa. Cada sessão pertence a um bot, no seu Space.
+
+## No Mac do dono
+
+Em **Configurações do bot → Comportamento → Navegador**, selecione **Integrado ao app** e salve.
+Leia o aviso e clique em **Ativar navegador integrado** para conceder o consentimento local. O Hub
+usa o Google Chrome ou o Chromium instalado na pasta Aplicativos. Antes da primeira ativação,
+o app avisa que o navegador se conecta à internet como o Chrome pessoal, mas com um perfil
+temporário separado e com o sandbox nativo do Chrome ligado. O Hub recusa abrir se detectar
+que o Mac é gerenciado, achar uma política de navegador relevante ou não conseguir concluir a
+verificação. A ativação vale para os bots com a preferência Integrado. **Assistir ao navegador**
+mostra a página enquanto o bot navega; não precisa de aparelho pareado nem aceita cliques.
+
+O Hub oferece abrir, ler e fechar ao Codex durante o turno iniciado pelo dono no app, tanto numa
+conversa nova quanto numa retomada. O perfil começa vazio, sem contas, cookies ou senhas pessoais,
+e é descartado ao fim do turno. Desativar o navegador encerra as sessões. O Hub nunca troca para
+o navegador pessoal nem usa busca como substituto da navegação.
+
+O Hub fala com o Chrome por um pipe local, sem porta de depuração, e usa o mesmo proxy HTTPS
+validado para a navegação. No Mac, esse proxy é uma configuração do Chrome, não uma barreira
+de saída do sistema como no Linux. O modo de leitura do Mac desativa os scripts das páginas e
+limita as requisições interceptadas a GET e HEAD sem corpo na mesma origem HTTPS da página
+pedida. Redirecionamentos para outra origem e sites que dependem de scripts podem não carregar.
+GET ainda pode ter efeitos do lado do site. Os quadros vão ao app nativo do dono; não fazem
+parte das respostas ao modelo.
 
 ## Ferramentas
 
-O servidor MCP `memory` oferece três ferramentas de argumentos fechados (campo extra é
+Os argumentos das três ferramentas são fechados (campo extra é
 recusado, e nada que a página devolve volta como argumento):
 
 - `browser_open {url}`: abre o endereço na sessão do próprio bot. Devolve o endereço final e o
   título, sem o corpo da página.
 - `browser_read {}`: devolve o texto visível da página aberta (até 20.000 caracteres, com aviso
-  de corte). Sem sessão aberta, recusa com `browser_no_page`: ler nunca cria navegador.
+  de corte). Ler nunca cria navegador. Sem sessão, o servidor `memory` devolve `browser_no_page`;
+  a ponte local do Codex devolve o erro genérico `Browser operation refused or unavailable.`.
 - `browser_close {}`: encerra a sessão e apaga o perfil temporário. Nunca é recusado ao dono da
-  sessão, mesmo com a preferência em `computer` ou `off`.
+  sessão. No fluxo do dono local, desligar a preferência já encerra a sessão.
 
-`browser_status` aceita a versão 3 e informa se o navegador está disponível, o motivo
+A ponte local do Codex (`mexerica_browser`) lista abrir, ler e fechar diretamente no turno autorizado, sem
+`browser_status`. A negociação a seguir vale apenas para o servidor MCP `memory`.
+
+No servidor MCP `memory`, `browser_status` aceita a versão 3 e informa se o navegador está disponível, o motivo
 (`ready`, `engine_missing`, `running_as_root`, `privileged_group`, `containment_unavailable`,
 `unsupported_platform`, `preference_computer`, `preference_off`) e as ferramentas oferecidas.
 Quando responde `available`, o vínculo de execução daquele bot fica **negociado**: só então
@@ -37,16 +64,16 @@ Clientes que usam a versão 2 continuam recebendo a recusa de sempre. Preferênc
 
 ## Sessão
 
-Uma por Hub, Space e bot, criada na primeira abertura: Chromium do sistema (caminhos em
-`MEXERICA_CHROMIUM` e `MEXERICA_XVFB`, ou os padrões), Xvfb próprio e perfil temporário vazio. No
-máximo 3 sessões ao mesmo tempo e 5 minutos de ociosidade. Só Linux; em outros sistemas o status é
-`unsupported_platform`. O Hub não abre o navegador sem namespaces de usuário, rede, montagem e PID,
+Uma por Hub, Space e bot, criada na primeira abertura, com até 3 sessões simultâneas e limite
+de 5 minutos de ociosidade. No Linux, o Hub usa Chromium do sistema (caminhos em
+`MEXERICA_CHROMIUM` e `MEXERICA_XVFB`, ou os padrões) e Xvfb próprio. O Hub no Linux não abre
+o navegador sem namespaces de usuário, rede, montagem e PID,
 como usuário root ou se o usuário do Hub estiver nos grupos `docker`, `adm` ou `systemd-journal`. Os
 grupos são resolvidos pelo sistema (arquivo local e serviços de nomes); se a lista ou algum nome não puder
 ser lido, o navegador fica indisponível (`containment_unavailable`) em vez de liberar.
 
 O Chromium roda com um proxy por sessão que só aceita HTTPS na porta 443 e recusa destinos
-internos ou respostas DNS mistas. O processo enxerga um `/proc` novo e não vê os dados do Hub. O
+internos ou respostas DNS mistas. No Linux, o processo enxerga um `/proc` novo e não vê os dados do Hub. O
 token do proxy chega só pelo canal de controle, nunca por argumento ou ambiente.
 
 ## Autoridade e revogação
@@ -94,9 +121,8 @@ instrução nem autorização.
   envelope JSON: não consegue fechar o envelope nem criar campos.
 - Página que não é web, ou que mudou de endereço durante a leitura, não devolve conteúdo.
 
-A página ainda pode tentar convencer o modelo. O Hub entrega o texto como dado, avisa, e garante
-que a página não tem como agir sozinha, mas não impede o modelo de obedecer. Ações sensíveis
-precisam de autorização fora do conteúdo da página.
+A página ainda pode tentar convencer o modelo. O Hub entrega o texto como dado e avisa; não
+impede o modelo de obedecer. Ações sensíveis precisam de autorização fora do conteúdo da página.
 
 ## Limites conhecidos
 
