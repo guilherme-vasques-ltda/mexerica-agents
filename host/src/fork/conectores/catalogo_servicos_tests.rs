@@ -84,6 +84,7 @@ const CONECTAVEIS: &[&str] = &[
     "neon",
     "wispr-flow",
     "github",
+    "canva",
     "better-stack",
     "clerk",
     "coderabbit",
@@ -149,6 +150,18 @@ fn so_conectam_as_fichas_listadas() {
     assert_eq!(linear.tipo, Tipo::OficialOauth);
     assert_eq!(linear.url, "https://mcp.linear.app/mcp/readonly");
     assert!(!linear.grupos.iter().find(|g| g.id == "criar_editar").unwrap().disponivel);
+}
+
+#[test]
+fn canva_so_expoe_a_busca_de_designs() {
+    let ficha = servico("canva").unwrap();
+    let tipo = ficha.exigir_conectavel(ficha.tipos[0].id, dia(ficha.conferida_em)).unwrap();
+    let grupos = tipo.liberacoes_validas(None).unwrap();
+    assert_eq!(tipo.grupos[0].imposicao, Some(Imposicao::Escopo));
+    assert_eq!(tipo.ferramentas_permitidas(&grupos).unwrap(), ["search-designs"].into_iter().collect());
+    assert_eq!(tipo.escopos_efetivos(&grupos), ["design:meta:read"]);
+    assert!(tipo.ferramentas_curadas(&grupos).is_empty(), "canva não autoriza leituras automáticas");
+    assert!(tipo.liberacoes_validas(Some(&["admin".into()])).is_err());
 }
 
 #[test]

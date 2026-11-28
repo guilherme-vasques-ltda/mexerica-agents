@@ -1,0 +1,60 @@
+{
+  "id": "canva",
+  "nome": "Canva",
+  "categoria": "Design e mídia",
+  "descricao": "Encontre seus designs do Canva pelo nome, sem criar nem alterar designs.",
+  "exemplos": [
+    "Encontre meu design do Canva da apresentação do primeiro trimestre"
+  ],
+  "site": "https://www.canva.com/",
+  "docs": "https://www.canva.dev/docs/apps/mcp/",
+  "links": {
+    "privacidade": "https://www.canva.com/policies/privacy-policy/",
+    "termos": "https://www.canva.com/policies/terms-of-use/"
+  },
+  "conferidaEm": "2026-11-28",
+  "fontes": [
+    "https://www.canva.dev/docs/apps/mcp/access/",
+    "https://www.canva.dev/docs/apps/mcp/tools/search-designs/",
+    "https://www.canva.dev/docs/connect/api-reference/designs/list-designs/",
+    "https://www.canva.dev/docs/apps/rest-apis/authentication/",
+    "https://github.com/canva-sdks/canva-connect-api-starter-kit",
+    "https://api.canva.com/.well-known/oauth-protected-resource/connect/v1/mcp",
+    "https://www.canva.com/.well-known/oauth-authorization-server"
+  ],
+  "aviso": "No Developer Portal do Canva, crie um app, ligue o Canva MCP e marque só o escopo design:meta:read. Use as credenciais desse app e cadastre os endereços de retorno exibidos abaixo.",
+  "tipos": [
+    {
+      "id": "canva.oficial_app",
+      "tipo": "oficial_app",
+      "rotulo": "Oficial — seu app OAuth",
+      "mantidoPor": "Canva",
+      "url": "https://api.canva.com/connect/v1/mcp",
+      "auth": {
+        "modo": "app_proprio",
+        "emissor": "https://www.canva.com",
+        "cadastro": "https://www.canva.com/developers/apps",
+        "recurso": "https://api.canva.com/connect/v1/mcp",
+        "autorizacao": "https://www.canva.com/api/oauth/authorize",
+        "token": "https://api.canva.com/auth/v1/oauth/token"
+      },
+      "grupos": [
+        {
+          "id": "buscar_designs",
+          "rotulo": "Buscar designs",
+          "escopos": [
+            "design:meta:read"
+          ],
+          "ferramentas": [
+            "search-designs"
+          ],
+          "padrao": true,
+          "disponivel": true,
+          "imposicao": "escopo"
+        }
+      ],
+      "recomendado": true,
+      "disponivel": true
+    }
+  ]
+}
