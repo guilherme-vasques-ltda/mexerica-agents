@@ -12,6 +12,28 @@ fn store() -> Store {
     Store::open(Path::new(":memory:")).expect("operação da fixture")
 }
 
+#[test]
+fn historico_de_cota_nao_mistura_contas_e_login_global() {
+    let root = dir();
+    let hub = hub(store(), &root);
+    let a = format!("ac_{}", "a".repeat(64));
+    let b = format!("ac_{}", "b".repeat(64));
+    record_open_codex(&hub, &a, &[window("primary", 11.0, None)]);
+    record_open_codex(&hub, &b, &[window("primary", 21.0, None)]);
+    record_open_codex(&hub, "invalid", &[window("secondary", 100.0, None)]);
+    record(&hub, "codex", &[window("primary", 31.0, None)]);
+    let historico = report(&hub.store.db.locked(), Faixa::H24, now_ms()).unwrap();
+    let janelas = historico["windows"].as_array().unwrap();
+    assert_eq!(janelas.len(), 3);
+    for (id, percent) in [(None, 31.0), (Some(a.as_str()), 11.0), (Some(b.as_str()), 21.0)] {
+        let janela = janelas.iter().find(|j| j["accountId"].as_str() == id).unwrap();
+        assert_eq!(janela["provider"], "codex");
+        assert_eq!(janela["windowId"], "primary");
+        assert_eq!(janela["buckets"][0]["percent"], percent);
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 fn hub(store: Store, dir: &Path) -> Arc<Hub> {
     Hub::new(store, "uso-historico".into(), Identity::load_or_create(dir).expect("operação da fixture"), "t".into(), 0)
 }

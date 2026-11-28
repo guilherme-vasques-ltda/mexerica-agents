@@ -434,7 +434,8 @@ async fn abrir(ponte: &Arc<Ponte>, s: &Arc<Sessao>) -> Result<Processo, Erro> {
         &s.modelo.locked().clone(),
         &s.esforco.locked().clone(),
         &Arquivos { mcp, settings, prompt },
-    );
+    )
+    .map_err(|e| Erro::interno(e.to_string()))?;
     let mut cmd = tokio::process::Command::new(&exe);
     cmd.args(&args)
         .current_dir(&o.cwd)
