@@ -1,8 +1,8 @@
 #![allow(clippy::unwrap_used)]
 
 use super::{
-    CLOSING, MAX_REPLY, RUNNING, Running, Stream, admit_for_test, conversation_slot, drive, notice, routine_thread_key,
-    shutdown, thread_key, ticket_cancel, with_idle_account,
+    CLOSING, MAX_REPLY, RUNNING, Running, Stream, admit_for_test, catalogo::Catalog, drive, drive_input, notice,
+    routine_thread_key, shutdown, thread_key, ticket_cancel, with_idle_account,
 };
 use crate::LockExt;
 use crate::fork::engine_setup::process::Rpc;
@@ -34,7 +34,7 @@ for line in sys.stdin:
             send({"id": message["id"], "method": "item/tool/requestUserInput", "params": {}})
         send({"id": message["id"], "result": {}})
     elif method == "thread/resume":
-        if mode == "resume" or mode.startswith("browser"):
+        if mode in ("resume", "catalog") or mode.startswith("browser"):
             send({"id": message["id"], "result": {"thread": {"id": message["params"]["threadId"]}, **policy}})
         elif mode == "flaky":
             send({"id": message["id"], "error": {"code": -32603, "message": "internal error"}})
@@ -43,8 +43,22 @@ for line in sys.stdin:
             sys.stdout.flush()
         else:
             send({"id": message["id"], "error": {"code": -32600, "message": "unknown thread"}})
+    elif method == "thread/items/list" and mode == "catalog":
+        if message["params"]["threadId"] == "thread-1":
+            send({"id": message["id"], "result": {"data": [{"item": {"type": "agentMessage", "text": "Resposta recente"}}]}})
+        else:
+            send({"id": message["id"], "error": {"code": -32601}})
+    elif method == "thread/read" and mode == "catalog":
+        items = [
+            {"type": "userMessage", "content": [{"type": "text", "text": "Pergunta anterior"}, {"type": "localImage", "path": "/fixture/imagem"}]},
+            {"type": "dynamicToolCall", "tool": "run_local_command"},
+            {"type": "agentMessage", "text": "Resposta anterior"},
+        ]
+        send({"id": message["id"], "result": {"thread": {"id": message["params"]["threadId"], "turns": [{"items": items}]}}})
+    elif method == "thread/inject_items" and mode == "catalog":
+        send({"id": message["id"], "result": {}})
     elif method == "thread/start":
-        send({"id": message["id"], "result": {"thread": {"id": "thread-1"}, **policy}})
+        send({"id": message["id"], "result": {"thread": {"id": os.environ.get("FAKE_STARTED_THREAD", "thread-1")}, **policy}})
     elif method == "turn/start":
         send({"id": message["id"], "result": {"turn": {"id": "turn-1", "status": "inProgress"}}})
         if mode.startswith("browser"):
@@ -878,22 +892,143 @@ async fn o_encerramento_mata_o_descendente_que_ficou_no_grupo_sem_o_lider() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-#[test]
-fn navegador_retomado_preserva_o_historico_mesmo_sem_ponte_no_turno_seguinte() {
-    let (hub, dir) = hub_de_teste("bot-navegador");
-    let key = "conversa";
-    let local = "conversa.hub-v2";
-    let choose = |browser| conversation_slot(&hub.store, key.into(), true, browser).unwrap();
-    assert_eq!(choose(true), (local.into(), None, None));
-    hub.store.kv_set(key, "historico-existente").unwrap();
-    assert_eq!(choose(false), (local.into(), None, None));
-    let (chosen, thread, marker) = choose(true);
-    assert_eq!((chosen.as_str(), thread.as_deref()), (key, Some("historico-existente")));
-    assert!(hub.store.kv_set_if_bot("bot-navegador", &marker.unwrap(), "1").unwrap());
-    assert_eq!(choose(false), (key.into(), Some("historico-existente".into()), None));
-    assert_eq!(choose(true), (key.into(), Some("historico-existente".into()), None));
-    hub.store.kv_set(local, "historico-com-ferramentas").unwrap();
-    assert_eq!(choose(true), (local.into(), Some("historico-com-ferramentas".into()), None));
+#[tokio::test]
+async fn conversa_antiga_recebe_catalogo_atual_sem_reexecutar_o_historico() {
+    use crate::hub::BotStatus;
+    use crate::store::{EntryKind, Lane};
+    use serde_json::json;
+
+    let bot = "bot-catalogo";
+    let (hub, dir) = hub_de_teste(bot);
+    let mut cfg = hub.store.bot(bot).unwrap().unwrap().config;
+    cfg.backend = "codex".into();
+    hub.store.save_bot(&cfg).unwrap();
+    let lane = Lane::main(bot);
+    let number = hub.store.alloc_turn(bot).unwrap();
+    let entry = hub
+        .add_entry(
+            &lane,
+            EntryKind::User,
+            number,
+            &json!({"text":"Pergunta atual", "contentOrigin":{"ingress":{"caller":"local"}}}),
+        )
+        .unwrap();
+    hub.set_runtime(bot, |r| {
+        r.status = BotStatus::Working;
+        r.lane = Some(lane.clone());
+        r.message = Some(entry.id.clone());
+    });
+    let ticket = admit_for_test(&hub, bot, "fixture").unwrap();
+    let tools =
+        super::super::open_tools::Turn::capture(&hub, &lane, &entry.id, number, ticket_cancel(&ticket)).unwrap();
+
+    let old_key = thread_key(&lane, "conta-fixa");
+    let new_key = thread_key(&lane, "conta-outra");
+    hub.store.kv_set(&old_key, "thread-legada").unwrap();
+    let mut announcements = Vec::new();
+    let fresh_key = thread_key(&lane, "conta-nova");
+    let mut scenarios = vec![
+        (&old_key, Some("thread-legada"), false, false),
+        (&new_key, None, false, false),
+        (&old_key, Some("thread-1"), true, false),
+    ];
+    if crate::environment::Environment::is_open() && cfg!(any(target_os = "linux", target_os = "macos")) {
+        scenarios.extend([(&old_key, Some("thread-1"), false, true), (&fresh_key, None, false, true)]);
+    }
+    for (key, from, resume, opt_in) in scenarios {
+        if opt_in {
+            super::super::open_command_settings::update(
+                &hub,
+                &crate::api::devices::Caller::Local,
+                json!({"id":bot,"localCommandsEnabled":true}),
+            )
+            .unwrap();
+        }
+        let catalog = Catalog::read(&hub.store, key, tools.catalog()).unwrap();
+        let log = dir.join("log");
+        std::fs::write(&log, "").unwrap();
+        let child = tokio::process::Command::new("python3")
+            .args(["-I", "-c", FAKE])
+            .env("FAKE_MODE", "catalog")
+            .env("FAKE_STARTED_THREAD", if opt_in { "thread-2" } else { "thread-1" })
+            .env("FAKE_LOG", &log)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        let mut rpc = Rpc::from_child(crate::fork::motor_exec::fixture(child)).unwrap();
+        drive_input(
+            &mut rpc,
+            catalog.history_source(),
+            ("Fixture", None),
+            vec![json!({"type":"text","text":"Pergunta atual","text_elements":[]})],
+            Duration::from_secs(15),
+            &mut ticket_cancel(&ticket),
+            |_| Ok(()),
+            |id, history| {
+                if let Some(history) = history {
+                    catalog.save(&hub.store, bot, &Catalog::key(key), id, history)?;
+                }
+                Ok(())
+            },
+            |_| true,
+            None,
+            Some(&tools),
+            Some(&catalog),
+            resume,
+        )
+        .await
+        .unwrap();
+        rpc.finish().await.unwrap();
+        let calls: Vec<Value> =
+            std::fs::read_to_string(log).unwrap().lines().map(|line| serde_json::from_str(line).unwrap()).collect();
+        let method = |name| calls.iter().find(|call| call["method"] == name);
+        assert_eq!(
+            method("thread/resume").and_then(|call| call["params"]["threadId"].as_str()),
+            from.filter(|_| resume)
+        );
+        if resume {
+            assert!(method("thread/start").is_none());
+            assert!(method("thread/inject_items").is_none());
+            continue;
+        }
+        announcements.push(method("thread/start").unwrap()["params"]["dynamicTools"].clone());
+        if let Some(source) = from {
+            assert_eq!(method("thread/items/list").unwrap()["params"]["threadId"], source);
+            let mut expected = vec![
+                json!({"type":"message", "role":"user","content":[{"type":"input_text", "text":"Pergunta anterior"}]}),
+                json!({"type":"message", "role":"assistant","content":[{"type":"output_text", "text":"Resposta anterior"}]}),
+            ];
+            if opt_in {
+                assert!(method("thread/read").is_none());
+                expected.push(json!({"type":"message", "role":"assistant","content":[{"type":"output_text", "text":"Resposta recente"}]}));
+            } else {
+                assert_eq!(method("thread/read").unwrap()["params"]["threadId"], source);
+            }
+            assert_eq!(method("thread/inject_items").unwrap()["params"]["items"], json!(expected));
+        } else {
+            assert!(method("thread/items/list").is_none());
+            assert!(method("thread/read").is_none());
+            assert!(method("thread/inject_items").is_none());
+        }
+        assert_eq!(method("turn/start").unwrap()["params"]["input"][0]["text"], "Pergunta atual");
+    }
+    assert_eq!(announcements[0], announcements[1]);
+    assert!(announcements[0].as_array().unwrap().iter().any(|tool| tool["name"] == "list_connectors"));
+    assert!(!announcements[0].as_array().unwrap().iter().any(|tool| tool["name"] == "run_local_command"));
+    assert_eq!(hub.store.kv_read(&old_key).unwrap().as_deref(), Some("thread-legada"));
+    assert_eq!(hub.store.entry(&entry.id).unwrap().bot_id, bot);
+    let different = Catalog::read(&hub.store, &old_key, json!([])).unwrap();
+    if announcements.len() == 4 {
+        assert_eq!(announcements[2], announcements[3]);
+        assert!(announcements[2].as_array().unwrap().iter().any(|tool| tool["name"] == "run_local_command"));
+        assert_eq!(different.history_source(), Some("thread-2"));
+    } else {
+        assert_eq!(different.history_source(), Some("thread-1"));
+    }
+    assert_eq!(different.resume(), None);
+    drop(ticket);
     drop(hub);
     std::fs::remove_dir_all(dir).unwrap();
 }
