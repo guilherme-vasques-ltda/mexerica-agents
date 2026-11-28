@@ -560,8 +560,24 @@ pub(super) fn call(c: &Connection, hub: &str, method: &str, mut body: Value) -> 
                 }
                 projects.push(serde_json::to_value(project)?);
             }
+            let capabilities: &[&str] = if crate::environment::Environment::is_open() {
+                &["manualProjects", "taskList", "taskMeta", "defaultProject"]
+            } else {
+                &[
+                    "manualProjects",
+                    "taskList",
+                    "taskMeta",
+                    "taskComments",
+                    "defaultProject",
+                    "taskStart",
+                    "taskSchedule",
+                    "taskAgenda",
+                    "taskSessions",
+                ]
+            };
             Ok((
-                json!({"version":1,"hubId":hub,"spaceId":r.space_id,"projects":projects,"bots":bots(c, space)?,"defaultProjectId":default_project_id,"capabilities":["manualProjects","taskList","taskMeta","taskComments","defaultProject","taskStart","taskSchedule","taskAgenda","taskSessions"]}),
+                json!({"version":1,"hubId":hub,"spaceId":r.space_id,"projects":projects,"bots":bots(c, space)?,
+                    "defaultProjectId":default_project_id,"capabilities":capabilities}),
                 false,
             ))
         }

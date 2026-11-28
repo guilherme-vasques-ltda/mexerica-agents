@@ -1,0 +1,28 @@
+{
+  "fonte": "POST https://calendarmcp.googleapis.com/mcp/v1 tools/list, sem credencial",
+  "observadoEm": "2026-11-18",
+  "conteudo": "de cada ferramenta, só o nome, o digest (ler_ferramenta, a mesma função da ponte) e o readOnlyHint; o texto do fornecedor não é arquivado",
+  "trecho": "só as ferramentas de leitura candidatas à curadoria (não curadas); o tools/list completo tinha 9 ferramentas: list_events, get_event, list_calendars, suggest_time, create_event, update_event, delete_event, respond_to_event, search_events",
+  "tools": [
+    {
+      "name": "list_events",
+      "digest": "94561a528a30bee9362eb209b4dd7175cfa99c9fcdb03a1ebc6808bf1cca7594",
+      "readOnlyHint": true
+    },
+    {
+      "name": "get_event",
+      "digest": "6a6b3b40156efca71d9cd4dbe9ac4b968f655b0e0b1c432216c9cc41466aa46d",
+      "readOnlyHint": true
+    },
+    {
+      "name": "list_calendars",
+      "digest": "42c219df6a3e705abf5ce40f64f3110c2f345854377fc8f47f7f970ba8f746a9",
+      "readOnlyHint": true
+    },
+    {
+      "name": "search_events",
+      "digest": "665b77b41aab42235d4153d507b9e6b55d11fbc0450408c0d979dca05abdf1fd",
+      "readOnlyHint": true
+    }
+  ]
+}
