@@ -43,19 +43,19 @@ impl<'a> Session<'a> {
     }
 
     pub(super) async fn exchange(&mut self, mut frame: Value) -> Result<Option<Value>> {
-        let method = http::method(&frame)?.to_owned();
+        let mcp_method = http::method(&frame)?.to_owned();
         let id = uuid::Uuid::new_v4().to_string();
-        let notification = method == "notifications/initialized";
+        let notification = mcp_method == "notifications/initialized";
         if !notification {
             frame["id"] = Value::String(id.clone());
         }
         let mediation = &mut self.mediation;
         connector_forward::write_with(&mut self.input, &frame, async |input, commit| {
             poll_fn(|cx| {
-                let (generation, sent) =
-                    mediation.authorize_send(&frame, &method, || connector_forward::poll_commit(input, cx, commit))?;
+                let (generation, sent) = mediation
+                    .authorize_send(&frame, &mcp_method, || connector_forward::poll_commit(input, cx, commit))?;
                 ready!(sent)?;
-                mediation.record_send(&method, generation);
+                mediation.record_send(&mcp_method, generation);
                 Poll::Ready(Ok(()))
             })
             .await
@@ -77,8 +77,8 @@ impl<'a> Session<'a> {
                 && (response.get("result").is_some() != response.get("error").is_some()),
             "Resposta MCP não correlacionada"
         );
-        let version = (method == "initialize").then(|| Perfil::BridgeLegacy.resultado(&response["result"]));
-        let observed = mediation.observe(response, &method).await?;
+        let version = (mcp_method == "initialize").then(|| Perfil::BridgeLegacy.resultado(&response["result"]));
+        let observed = mediation.observe(response, &mcp_method).await?;
         if let Some(version) = version {
             version.ok().context("Versão MCP inválida")?;
         }
