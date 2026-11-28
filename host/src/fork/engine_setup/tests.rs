@@ -1899,9 +1899,9 @@ async fn mx6_modelos_ocultos_pela_intencao_com_revisao_idempotencia_e_remocao() 
 async fn remover_conta_apaga_so_o_uso_e_as_cotas_dela() {
     let f = Fixture::new();
     let conta = f.create("codex", "cli", "remover-uso").await;
-    let outra = f.create("codex", "cli", "manter-uso").await;
+    let preservada = f.create("codex", "cli", "manter-uso").await;
     let id = conta["id"].as_str().unwrap();
-    let outro = outra["id"].as_str().unwrap();
+    let outro = preservada["id"].as_str().unwrap();
     let janelas = ["primary", "secondary"].map(|janela| crate::usage::Window {
         id: janela.into(),
         label: janela.into(),
