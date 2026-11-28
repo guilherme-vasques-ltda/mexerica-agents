@@ -4,8 +4,16 @@ function openKeys(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open('mx-remote-device', 1)
     request.onupgradeneeded = () => request.result.createObjectStore('keys')
-    request.onerror = request.onblocked = () => reject(new Error('remote_key_storage'))
-    request.onsuccess = () => resolve(request.result)
+    let blocked = false
+    request.onerror = () => reject(new Error('remote_key_storage'))
+    request.onblocked = () => {
+      blocked = true
+      reject(new Error('remote_key_storage'))
+    }
+    request.onsuccess = () => {
+      if (blocked) request.result.close()
+      else resolve(request.result)
+    }
   })
 }
 

@@ -74,7 +74,7 @@ export function createRemoteHub(
         callbacks.accessLost(401, 'device_revoked')
         throw inactive
       }
-      if (!device || (device.state === 'new' && pairingCode === undefined)) {
+      if (!device) {
         callbacks.needsPairing()
         throw inactive
       }
@@ -90,7 +90,6 @@ export function createRemoteHub(
           await pair.ready
           const result = await pair.call('pair', { code: pairingCode, platform: 'web', name: 'Web', sessionToken: await getToken() }, timeoutMs)
           if (result.kind !== 'ok' || object(result.value).computerId !== pair.computerId) throw inactive
-          await deps.mark(scope, 'paired')
         } catch {
           if (!signal.aborted) callbacks.needsPairing()
           throw inactive
@@ -141,7 +140,7 @@ export function createRemoteHub(
         clearTimeout(hardExpiry)
         hardExpiry = setTimeout(() => link.close(), Math.min(remaining, 2_147_483_647))
         renewal = setTimeout(() => {
-          void authenticate().then(() => { if (authorized() && context) partitions.authenticate(context) }).catch(() => link.close())
+          void authenticate().then(() => { if (authorized() && current?.link === link) partitions.authenticate(current.context) }).catch(() => link.close())
         }, Math.max(1, Math.min(remaining * 0.75, remaining - 5_000, 2_147_483_647)))
         return verified.role
       }
@@ -152,11 +151,12 @@ export function createRemoteHub(
         if (result.kind !== 'ok' || signal.aborted) throw inactive
         const candidate = readContext(result.value, binding)
         if (candidate.role !== role || !callbacks.acceptContext(candidate)) throw inactive
-        const storage = partitions.authenticate(candidate)
         context = candidate
         link.bindEpoch(candidate.workspaceEpoch)
         const hello = await link.call('hello', { corte: 1, workspaceEpoch: candidate.workspaceEpoch }, timeoutMs, authorized)
         if (hello.kind !== 'ok' || !authorized()) throw inactive
+        const storage = partitions.authenticate(candidate)
+        if (device.state === 'new') void deps.mark(scope, 'paired').catch(() => {})
         current = { origin, token: crypto.randomUUID(), link, context, callbacks, authorized, storage }
         publish()
         return context
@@ -191,8 +191,12 @@ export function createRemoteHub(
           },
           call: (origin, token, method, body, timeout) => allowed()
             ? remote.host.call(origin, token, method, body, timeout) : Promise.reject(inactive),
-          stream: (url, token, onData, onEnd) => allowed()
-            ? remote.host.stream(url, token, onData, onEnd) : () => {},
+          stream: (url, token, onData, onEnd) => {
+            if (allowed()) return remote.host.stream(url, token, onData, onEnd)
+            let cancelled = false
+            queueMicrotask(() => { if (!cancelled) onEnd(inactive) })
+            return () => { cancelled = true }
+          },
         },
       }
     },

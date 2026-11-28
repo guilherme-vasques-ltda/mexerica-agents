@@ -38,6 +38,7 @@ export default defineConfig(({ mode }) => {
       __REMOTE_HUBS__: JSON.stringify(configured ? hubs.map(({ workspaceId, hubId, origin, signKey }) =>
         ({ workspaceId, hubId, origin, signKey })) : []),
       __DONNA_DEV_CLOUD_ACCESS__: 'false',
+      __REMOTE_WEB_RENDERER__: 'true',
       __APP_VERSION__: JSON.stringify(version),
     },
     plugins: [react(), {

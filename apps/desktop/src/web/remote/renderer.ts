@@ -1,5 +1,4 @@
 import type { CodyncBridge } from '../../shared/ipc.ts'
-import { instalarIdiomaWeb } from '../idioma.ts'
 import { createWebBridge } from '../platform.ts'
 import '../shell/shell.css'
 
@@ -14,6 +13,7 @@ if (context) {
     indexedDB: { value: undefined },
   })
   window.codync = createWebBridge({ host: context.host })
+  const { instalarIdiomaWeb } = await import('../idioma.ts')
   instalarIdiomaWeb(window.codync)
   document.documentElement.dataset.webQueda = 'inerte'
   await import('../../renderer/main.tsx')

@@ -31,11 +31,12 @@ const be = (n: number) => {
 
 type Envelope = { id: number; m?: string; sub?: string; cancel?: boolean; b: Record<string, unknown>; pop: { v: number; ts: number; nonce: string; sig: string } }
 
-function fixture(options: { enrolled?: boolean; renew?: boolean; mismatch?: boolean; holdSend?: boolean; noToken?: boolean } = {}) {
+function fixture(options: { enrolled?: boolean; renew?: boolean; mismatch?: boolean; holdSend?: boolean; noToken?: boolean; failMarkPaired?: boolean } = {}) {
   let joined = options.enrolled ?? true
   let now = Date.now()
   let epoch = context.workspaceEpoch
   let tokenRequests = 0
+  let refuseHello = false
   const messages: Envelope[] = []
   const receivedNonces = new Set<string>()
   const sockets: FakeSocket[] = []
@@ -127,6 +128,10 @@ function fixture(options: { enrolled?: boolean; renew?: boolean; mismatch?: bool
         return this.answer({ id: m.id, ok: { ...context, workspaceEpoch: epoch } })
       }
       assert.equal(m.b.workspaceEpoch, epoch)
+      if (m.m === 'hello' && refuseHello) {
+        refuseHello = false
+        return this.answer({ id: m.id, err: { status: 409, code: 'workspace_epoch_mismatch' } })
+      }
       if (m.sub === 'events') {
         assert.equal(m.b.since, 12)
         return this.answer({ id: m.id, ev: { type: 'entry', value: 'fixture', extension: true } })
@@ -141,7 +146,7 @@ function fixture(options: { enrolled?: boolean; renew?: boolean; mismatch?: bool
     }
   }
 
-  let record: 'new' | 'paired' | 'revoked' = 'paired'
+  let record: 'new' | 'paired' | 'revoked' = options.failMarkPaired ? 'new' : 'paired'
   const remote = createRemoteHub(() => ({
     ...target, userId: context.userId, getSessionToken: async () => {
       tokenRequests++
@@ -149,7 +154,10 @@ function fixture(options: { enrolled?: boolean; renew?: boolean; mismatch?: bool
     },
   }), {
     device: async () => ({ signer: webDevice, state: record }),
-    mark: async (_scope, state) => { record = state },
+    mark: async (_scope, state) => {
+      if (options.failMarkPaired && state === 'paired') throw new Error('fixture_storage_failed')
+      record = state
+    },
     now: () => now,
     connect: (hub, signer, signal, pair, end) =>
       openRemoteChannel(hub, signer, signal, pair, end, (url) => new FakeSocket(url) as unknown as WebSocket),
@@ -157,7 +165,8 @@ function fixture(options: { enrolled?: boolean; renew?: boolean; mismatch?: bool
   const states: string[] = []
   const controller = createRemoteController(({ status }) => states.push(status), remote, createWorkspaceSession(async () => {}))
   return {
-    remote, controller, messages, states, sockets, advance: () => { epoch++; now++ },
+    remote, controller, messages, states, sockets, advance: () => { epoch++; now++ }, advanceClock: (ms: number) => { now += ms },
+    refuseNextHello: () => { refuseHello = true }, restoreEpoch: () => { epoch = context.workspaceEpoch },
     open: () => controller.setIdentity(context.userId, [], [personal]),
     close: () => controller.setIdentity(null, [], []),
     last: () => states.at(-1),
@@ -197,8 +206,46 @@ test('renews before the authenticated expiry on the same channel; no mutation is
   t.after(f.close)
   await f.open()
   await until(() => f.messages.filter((m) => m.m === 'sessionAuthenticate').length === 2)
+  await new Promise<void>((resolve) => setImmediate(resolve))
+  f.advanceClock(61)
+  const local = (await f.remote.host.snapshot()).local!
+  assert.deepEqual(await f.remote.host.call(origin, local.token, 'history', {}, 1000), { value: 7, extra: true })
   assert.equal(f.last(), 'active')
   assert.equal(f.sockets.length, 1)
+})
+
+test('confirms an already paired key even if the local paired marker could not be written', async (t) => {
+  const f = fixture({ enrolled: false, failMarkPaired: true })
+  t.after(f.close)
+  await f.open()
+  assert.equal(f.last(), 'device_unpaired')
+  await f.controller.pair('fixture-code')
+  assert.equal(f.last(), 'active')
+  f.sockets.at(-1)!.close()
+  await until(() => f.last() === 'hub_offline')
+  await f.controller.retry()
+  assert.equal(f.last(), 'active')
+  assert.equal(f.messages.filter((m) => m.m === 'pair').length, 1)
+})
+
+test('does not purge a partition until hello confirms the new epoch', async (t) => {
+  const f = fixture()
+  t.after(f.close)
+  await f.open()
+  const old = f.remote.rendererContext()!
+  old.storage.setItem('sentinel', 'saved')
+  f.sockets[0].close()
+  await until(() => f.last() === 'hub_offline')
+  const refused = new Promise<unknown>((resolve) => old.host.stream(origin + '/events', '', () => {}, resolve))
+  assert.notEqual(await refused, null)
+  f.advance()
+  f.refuseNextHello()
+  await f.controller.retry()
+  assert.equal(f.last(), 'hub_offline')
+  assert.equal(f.remote.rendererContext(), undefined)
+  f.restoreEpoch()
+  await f.controller.retry()
+  assert.equal(f.remote.rendererContext()?.storage.getItem('sentinel'), 'saved')
 })
 
 test('missing binding or session token denies app access without sending authenticated envelopes', async (t) => {
