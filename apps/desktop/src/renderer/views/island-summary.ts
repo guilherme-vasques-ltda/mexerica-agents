@@ -166,7 +166,7 @@ const lastError = (entries: Entry[]) => entries.findLast((e) => e.kind === 'noti
 function pendingCards({ ref, bot, store }: RosterItem): IslandPermission[] {
   return store
     .allEntries(bot.id)
-    .filter((e) => e.kind === 'permission' && e.data.status === 'pending' && e.data.toolKind !== 'open_local_command')
+    .filter((e) => e.kind === 'permission' && e.data.status === 'pending' && e.data.toolKind !== 'open_local_command' && !e.data.access)
     .map((e) => {
       const author = (e.data.author ? store.bots.get(e.data.author) : undefined) ?? bot
       return {
@@ -175,7 +175,7 @@ function pendingCards({ ref, bot, store }: RosterItem): IslandPermission[] {
         bot: { name: author.name, shape: author.avatarShape, color: botAccent(author), backend: store.backendName(author.backend), avatarConfig: avatarDoBot(author), avatarMood: store.avatarMoods.get(author.id), avatarLabel: author.name },
         headline: permissionHeadline(tIlha(), e.data.toolKind),
         title: permissionDetail(tIlha(), e.data.toolKind, e.data.title),
-        options: sortedOptions(e.data.options ?? []).map((o) => ({ id: o.optionId, label: optionLabel(tIlha(), o, false, !!e.data.access), kind: o.kind })),
+        options: sortedOptions(e.data.options ?? []).map((o) => ({ id: o.optionId, label: optionLabel(tIlha(), o), kind: o.kind })),
         answering: store.answering.get(e.id) ?? null,
       }
     })

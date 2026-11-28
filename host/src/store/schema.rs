@@ -257,6 +257,7 @@ impl Store {
         crate::market::migrate_recibos(&c)?;
         crate::market::ferramentas::migrate(&c)?;
         crate::fork::background_space_selection::migrate(&c)?;
+        crate::fork::open_access::migrate(&c)?;
         let secret_key = if path == Path::new(":memory:") {
             let mut key = vec![0; 32];
             getrandom::fill(&mut key).map_err(|_| anyhow::anyhow!("random key unavailable"))?;

@@ -248,6 +248,37 @@ async fn desfazer_antigo_nao_sobrescreve_autorizacao_posterior_nem_outro_space()
     assert_eq!(hub.store.entry(&card.id).unwrap().data["access"]["state"], "granted");
 }
 
+#[tokio::test]
+async fn navegador_mudado_e_devolvido_ao_valor_original_invalida_o_desfazer_antigo() {
+    if !crate::environment::Environment::is_open() {
+        return;
+    }
+    let (hub, _directory) = fixture();
+    let lane = Lane::main("bot");
+    let revalidate = || Ok(hub.store.bot("bot")?.unwrap().config);
+    let mut events = hub.events.subscribe();
+    let mut cfg = hub.store.bot("bot").unwrap().unwrap().config;
+    cfg.browser_preference = BrowserPreference::Off;
+    hub.store.save_bot_as_owner(&cfg).unwrap();
+    let args = json!({"access":"browser","reason":"abrir a página"});
+    let (granted, card) = tokio::join!(call(&hub, &lane, 1, &args, revalidate, || Ok(())), async {
+        let card = next_card(&hub, &mut events).await;
+        answer(&hub, &card, "allow").await;
+        card
+    });
+    granted.unwrap();
+    let granted_preference = hub.store.bot("bot").unwrap().unwrap().config.browser_preference;
+    let mut cfg = hub.store.bot("bot").unwrap().unwrap().config;
+    cfg.browser_preference = BrowserPreference::Off;
+    hub.store.save_bot_as_owner(&cfg).unwrap();
+    cfg.browser_preference = granted_preference;
+    hub.store.save_bot_as_owner(&cfg).unwrap();
+    let undo = json!({"botId":"bot","entryId":card.id});
+    let refused = dispatch(&hub, &Caller::Local, "undoAccessGrant", undo).await.unwrap_err();
+    assert!(format!("{refused:#}").contains("open_access_changed"), "{refused:#}");
+    assert_eq!(hub.store.bot("bot").unwrap().unwrap().config.browser_preference, granted_preference);
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn pasta_que_passa_a_apontar_para_outro_destino_permitido_e_recusada() {

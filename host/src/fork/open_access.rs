@@ -18,6 +18,7 @@ use std::sync::Arc;
 
 pub(super) const TOOL: &str = "request_access";
 const GRANT: &str = "open_access_grant.";
+const GENERATION: &str = "open_access_gen.";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -247,11 +248,28 @@ fn write(db: &Connection, cfg: &BotConfig, state: &State) -> Result<()> {
     como_dono(db, |c| crate::store::bots::save_bot(c, &cfg)).map(drop)
 }
 
+/// Geração monotônica da config de cada bot: o gatilho soma 1 a cada inserção ou mudança de `config`, por
+/// qualquer caminho, para que mudar e voltar ao valor original também invalide um Desfazer antigo.
+pub(crate) fn migrate(db: &Connection) -> Result<()> {
+    let bump = format!(
+        "INSERT INTO kv(k,v) VALUES('{GENERATION}' || NEW.id, '1')
+         ON CONFLICT(k) DO UPDATE SET v = CAST(CAST(v AS INTEGER) + 1 AS TEXT);"
+    );
+    db.execute_batch(&format!(
+        "CREATE TRIGGER IF NOT EXISTS open_access_generation_insert AFTER INSERT ON bots BEGIN {bump} END;
+         CREATE TRIGGER IF NOT EXISTS open_access_generation_update AFTER UPDATE OF config ON bots
+         WHEN OLD.config IS NOT NEW.config BEGIN {bump} END;"
+    ))?;
+    Ok(())
+}
+
 fn generation(db: &Connection, bot: &str, access: Access) -> Result<String> {
     Ok(match access {
         Access::Computer => format!("{:?}", open_command_settings::revision(db, bot)?),
         Access::Browser | Access::Folder => {
-            db.query_row("SELECT config FROM bots WHERE id=?1", [bot], |r| r.get(0)).context("open_access_changed")?
+            let value: Option<String> =
+                db.query_row("SELECT v FROM kv WHERE k=?1", [format!("{GENERATION}{bot}")], |r| r.get(0)).optional()?;
+            value.unwrap_or_else(|| "0".into())
         }
     })
 }

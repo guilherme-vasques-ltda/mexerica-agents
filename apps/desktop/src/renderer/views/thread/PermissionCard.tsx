@@ -178,6 +178,11 @@ function outcome(t: Tradutor, entry: Entry) {
     case 'answered': {
       const chosen = d.options?.find((o) => o.optionId === d.selected)
       if (chosen && naSessao(chosen)) return t('conversa.aprovacao.resultado.sessao')
+      if (d.access && chosen?.kind === 'allow_once') {
+        if (d.access.state === 'granted') return t('conversa.aprovacao.acesso.permitido')
+        if (d.access.state === 'undone') return t('conversa.aprovacao.acesso.desfeito')
+        return t('conversa.aprovacao.acesso.naoConcedido')
+      }
       switch (chosen?.kind) {
         case 'allow_once':
           return t('conversa.aprovacao.resultado.umaVez')

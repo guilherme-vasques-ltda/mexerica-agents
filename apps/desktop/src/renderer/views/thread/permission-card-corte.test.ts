@@ -82,3 +82,14 @@ test('cartão de acesso mostra a duração real da concessão no botão de aprov
   assert.match(card, /Permitir até desfazer/)
   assert.doesNotMatch(card, /Permitir uma vez/)
 })
+
+test('recibo do cartão de acesso mostra o estado real da concessão, não "uma vez"', () => {
+  const recibo = (state: string) => {
+    const entry = entrada('Permite usar o navegador integrado da Mexerica. Vale até você desfazer.')
+    Object.assign(entry.data, { status: 'answered', selected: 'allow-once', access: { kind: 'browser', path: null, asUser: false, state } })
+    return html(h(m.StoreContext.Provider, { value: store }, h(m.PermissionCard, { entry, hostName: 'Mac', answering: null, respond() {} })))
+  }
+  assert.match(recibo('granted'), /Permitido até desfazer/)
+  assert.match(recibo('pending'), /Acesso não concedido/)
+  for (const state of ['granted', 'pending', 'undone']) assert.doesNotMatch(recibo(state), /Permitido uma vez/)
+})

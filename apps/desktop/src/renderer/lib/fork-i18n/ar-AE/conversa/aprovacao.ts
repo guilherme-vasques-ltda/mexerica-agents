@@ -91,5 +91,7 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.aprovacao.acesso.pasta": "سيبدأ البوت العمل في هذا المجلد:",
   "conversa.aprovacao.acesso.desfazer": "تراجع",
   "conversa.aprovacao.acesso.permitir": "السماح حتى التراجع",
+  "conversa.aprovacao.acesso.permitido": "مسموح حتى التراجع",
+  "conversa.aprovacao.acesso.naoConcedido": "لم يُمنح الوصول",
   "conversa.aprovacao.acesso.desfeito": "تم التراجع عن الوصول.",
 }

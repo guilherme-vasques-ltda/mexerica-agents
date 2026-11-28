@@ -88,5 +88,7 @@ export const textos = {
   "conversa.aprovacao.acesso.pasta": "O bot passa a trabalhar nesta pasta:",
   "conversa.aprovacao.acesso.desfazer": "Desfazer",
   "conversa.aprovacao.acesso.permitir": "Permitir até desfazer",
+  "conversa.aprovacao.acesso.permitido": "Permitido até desfazer",
+  "conversa.aprovacao.acesso.naoConcedido": "Acesso não concedido",
   "conversa.aprovacao.acesso.desfeito": "Acesso desfeito.",
 } as const

@@ -91,5 +91,7 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.aprovacao.acesso.pasta": "The bot starts working in this folder:",
   "conversa.aprovacao.acesso.desfazer": "Undo",
   "conversa.aprovacao.acesso.permitir": "Allow until undone",
+  "conversa.aprovacao.acesso.permitido": "Allowed until undone",
+  "conversa.aprovacao.acesso.naoConcedido": "Access not granted",
   "conversa.aprovacao.acesso.desfeito": "Access undone.",
 }
