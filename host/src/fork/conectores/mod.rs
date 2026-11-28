@@ -17,6 +17,7 @@ pub(crate) mod mcp_version;
 pub(crate) mod whatsapp_human;
 pub(crate) use lifecycle::{Definitions, Pool};
 pub(crate) mod oauth_binding;
+pub(crate) mod oauth_cimd;
 pub(crate) mod oauth_desktop;
 pub(crate) mod oauth_iss;
 pub(crate) mod oauth_refresh;

@@ -9,6 +9,9 @@ use std::sync::{
 };
 use tokio::sync::Semaphore;
 
+#[path = "oauth_cimd_tests.rs"]
+mod oauth_cimd_tests;
+
 pub(crate) struct Gate {
     armed: AtomicBool,
     entered: Semaphore,

@@ -1,7 +1,7 @@
 //! Fatia 2: o filtro de ferramentas é fail-closed. Dados sintéticos; nenhuma rede, nenhum cofre real.
 use super::*;
 use crate::api::devices::Caller;
-use crate::fork::conectores::catalogo_servicos::{Auth, Grupo, Perigosa, Tipo};
+use crate::fork::conectores::catalogo_servicos::{Auth, Grupo, Perigosa, RegistroOauth, Tipo};
 use crate::fork::spaces::PERSONAL;
 use crate::store::BotConfig;
 use std::sync::Arc;
@@ -47,7 +47,7 @@ static COM_LISTA: TipoConexao = TipoConexao {
     rotulo: "Oficial",
     mantido_por: "Teste",
     url: "https://teste.example/mcp",
-    auth: Auth::Oauth { registro: "dcr" },
+    auth: Auth::Oauth { registro: RegistroOauth::Dcr, client_id_metadata_document_url: None },
     grupos: &GRUPOS_LISTA,
     perigosas: &PERIGOSAS,
     recomendado: true,
@@ -60,7 +60,7 @@ static PERIGOSA_FORA_DO_PERFIL: TipoConexao = TipoConexao {
     rotulo: "Oficial",
     mantido_por: "Teste",
     url: "https://teste.example/mcp",
-    auth: Auth::Oauth { registro: "dcr" },
+    auth: Auth::Oauth { registro: RegistroOauth::Dcr, client_id_metadata_document_url: None },
     grupos: &GRUPOS_LISTA,
     perigosas: &PERIGOSAS_FORA_DO_GRUPO,
     recomendado: true,
@@ -73,7 +73,7 @@ static LIVRE: TipoConexao = TipoConexao {
     rotulo: "Oficial",
     mantido_por: "Teste",
     url: "https://teste.example/mcp",
-    auth: Auth::Oauth { registro: "dcr" },
+    auth: Auth::Oauth { registro: RegistroOauth::Dcr, client_id_metadata_document_url: None },
     grupos: &GRUPOS_LIVRE,
     perigosas: &[],
     recomendado: true,
@@ -86,7 +86,7 @@ static INDISPONIVEL: TipoConexao = TipoConexao {
     rotulo: "Oficial",
     mantido_por: "Teste",
     url: "https://teste.example/mcp",
-    auth: Auth::Oauth { registro: "dcr" },
+    auth: Auth::Oauth { registro: RegistroOauth::Dcr, client_id_metadata_document_url: None },
     grupos: &GRUPOS_INDISPONIVEL,
     perigosas: &[],
     recomendado: true,

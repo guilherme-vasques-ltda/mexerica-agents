@@ -213,7 +213,7 @@ fn a_conta_google_nasce_so_leitura_com_o_endereco_e_os_escopos_da_ficha() {
         "só os escopos dos grupos ligados"
     );
     assert!(matches!(
-        contas::auth_proprio(&conta).unwrap(),
+        contas::auth_da_conta(&conta).unwrap(),
         Some(crate::fork::conectores::catalogo_servicos::Auth::AppProprio {
             emissor: "https://accounts.google.com",
             configuracao: None,

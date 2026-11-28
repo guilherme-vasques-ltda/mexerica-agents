@@ -2,8 +2,8 @@
 //! O arquivo tem o mesmo formato do que o catálogo entrega ao app. Ficha malformada nunca entra no catálogo: o
 //! erro é registrado e o serviço fica de fora (fail-closed); o teste do catálogo reprova esse caso.
 use super::catalogo_servicos::{
-    AppProprioConfig, Auth, CATEGORIAS, Curada, Grupo, Imposicao, Links, Perigosa, Servico, SkillOficial, SkillRef,
-    Tipo, TipoConexao,
+    AppProprioConfig, Auth, CATEGORIAS, Curada, Grupo, Imposicao, Links, Perigosa, RegistroOauth, Servico,
+    SkillOficial, SkillRef, Tipo, TipoConexao,
 };
 use serde::Deserialize;
 
@@ -162,7 +162,7 @@ struct TipoJson {
 #[derive(Deserialize)]
 #[serde(tag = "modo", rename_all = "snake_case", rename_all_fields = "camelCase", deny_unknown_fields)]
 enum AuthJson {
-    Oauth { registro: String },
+    Oauth { registro: RegistroOauth, client_id_metadata_document_url: Option<String> },
     Chave { destino: String, nome: String, prefixo: Option<String>, como_criar_leitura: String },
     AppProprio { emissor: String, cadastro: String, recurso: String, autorizacao: String, token: String },
 }
@@ -238,6 +238,18 @@ impl ServicoJson {
             }
             if !tipo.id.starts_with(&self.id) {
                 return Err(format!("tipo `{}` não pertence à ficha `{}`", tipo.id, self.id));
+            }
+            if let AuthJson::Oauth { registro, client_id_metadata_document_url } = &tipo.auth {
+                match registro {
+                    RegistroOauth::Cimd => {
+                        super::oauth_cimd::url(client_id_metadata_document_url.as_deref())
+                            .map_err(|e| e.to_string())?;
+                    }
+                    RegistroOauth::Dcr if client_id_metadata_document_url.is_some() => {
+                        return Err("URL do documento CIMD não pode ser usada no cadastro automático (DCR).".into());
+                    }
+                    RegistroOauth::Dcr => {}
+                }
             }
             if let AuthJson::AppProprio { emissor, cadastro, recurso, autorizacao, token } = &tipo.auth {
                 use super::oauth_urls;
@@ -327,7 +339,9 @@ impl TipoJson {
             mantido_por: fixa(self.mantido_por),
             url: fixa(self.url),
             auth: match self.auth {
-                AuthJson::Oauth { registro } => Auth::Oauth { registro: fixa(registro) },
+                AuthJson::Oauth { registro, client_id_metadata_document_url } => {
+                    Auth::Oauth { registro, client_id_metadata_document_url: client_id_metadata_document_url.map(fixa) }
+                }
                 AuthJson::AppProprio { emissor, cadastro, recurso, autorizacao, token } => Auth::AppProprio {
                     provedor: servico,
                     emissor: fixa(emissor),
