@@ -46,6 +46,7 @@ import openrouter from '../../assets/marcas/openrouter.png'
 import outlook from '../../assets/marcas/outlook.png'
 import paypal from '../../assets/marcas/paypal.svg'
 import pipedrive from '../../assets/marcas/pipedrive.png'
+import planetscale from '../../assets/marcas/planetscale.svg'
 import plaud from '../../assets/marcas/plaud.svg'
 import prisma from '../../assets/marcas/prisma.png'
 import posthog from '../../assets/marcas/posthog.svg'
@@ -116,6 +117,7 @@ export const MARCAS: Readonly<Record<string, string>> = {
   outlook,
   paypal,
   pipedrive,
+  planetscale,
   plaud,
   prisma,
   posthog,

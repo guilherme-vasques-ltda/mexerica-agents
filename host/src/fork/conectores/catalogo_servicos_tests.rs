@@ -118,6 +118,7 @@ const CONECTAVEIS: &[&str] = &[
     "agentmail",
     "bright-data",
     "prisma",
+    "planetscale",
 ];
 
 /// Id da ficha do dono A, lido do próprio arquivo JSON (nenhum nome de produto fora dele).
@@ -165,6 +166,21 @@ fn liberacoes_vem_so_da_ficha_e_o_padrao_do_linear_e_ler() {
     assert_eq!(linear.url_efetiva(&ler), "https://mcp.linear.app/mcp/readonly");
     assert_eq!(linear.escopos_efetivos(&ler), ["read"], "só o escopo do grupo, nunca os do fornecedor inteiro");
     assert!(linear.ferramentas_permitidas(&ler).is_none(), "leitura imposta pelo fornecedor, sem lista do Hub");
+}
+
+#[test]
+fn planetscale_so_expoe_as_leituras_de_insights() {
+    let ficha = servico("planetscale").unwrap();
+    let tipo = ficha.exigir_conectavel(ficha.tipos[0].id, dia(ficha.conferida_em)).unwrap();
+    let grupos = tipo.liberacoes_validas(None).unwrap();
+    assert_eq!(tipo.grupos[0].imposicao, Some(Imposicao::Url));
+    assert_eq!(
+        tipo.ferramentas_permitidas(&grupos).unwrap(),
+        ["planetscale_get_insights", "planetscale_list_schema_recommendations"].into_iter().collect()
+    );
+    assert!(tipo.escopos_efetivos(&grupos).is_empty());
+    assert!(tipo.ferramentas_curadas(&grupos).is_empty());
+    assert!(tipo.liberacoes_validas(Some(&["admin".into()])).is_err());
 }
 
 static GRUPOS: &[Grupo] = &[
@@ -351,7 +367,14 @@ fn todo_grupo_disponivel_declara_a_contencao() {
                 }
                 if imposicao == Imposicao::Url {
                     let url = grupo.url.unwrap_or(tipo.url).to_ascii_lowercase();
-                    assert!(url.contains("read"), "{}/{}: a URL não diz que é só de leitura", tipo.id, grupo.id);
+                    let insights =
+                        ficha.id == "planetscale" && url == "https://mcp.pscale.dev/mcp/planetscale-insights-only";
+                    assert!(
+                        url.contains("read") || insights,
+                        "{}/{}: a URL não diz que é só de leitura",
+                        tipo.id,
+                        grupo.id
+                    );
                 }
                 for escopo in grupo.escopos {
                     let escopo = escopo.to_ascii_lowercase();
