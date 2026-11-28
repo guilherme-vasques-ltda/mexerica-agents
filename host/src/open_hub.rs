@@ -201,6 +201,7 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
             body.get("sessionId").is_none_or(Value::is_null)
                 && (matches!(caller, Caller::Local) || body.get("attachments").is_none_or(|a| a.is_null() || a.as_array().is_some_and(Vec::is_empty)))
         }
+        _ if crate::fork::projetos::LOCAL_MANUAL_METHODS.contains(&method) => matches!(caller, Caller::Local),
         _ if crate::fork::engine_setup::open_login_method(method) => true,
         _ => false,
     }
@@ -218,6 +219,28 @@ mod tests {
         let body = json!({"name": "Space", "principal": {"backend": "codex", "engineAccountId": "conta"}});
         assert!(open_allows(&Caller::Local, "donnaSpaceBirth", &body));
         assert!(!open_allows(&device, "donnaSpaceBirth", &body));
+    }
+
+    #[test]
+    fn open_projetos_manuais_so_para_o_dono_local() {
+        let device = Caller::Device { key: "device".into(), scopes: vec![Scope::Control], autoridade: None };
+        let pairing = Caller::Pairing { key: "pairing".into() };
+        for method in crate::fork::projetos::LOCAL_MANUAL_METHODS {
+            assert!(open_allows(&Caller::Local, method, &json!({})), "{method}");
+            assert!(!open_allows(&device, method, &json!({})), "{method}");
+            assert!(!open_allows(&pairing, method, &json!({})), "{method}");
+        }
+        for method in [
+            "donnaTaskStart",
+            "donnaTaskSchedule",
+            "donnaTaskAgenda",
+            "donnaTaskSessions",
+            "donnaTaskComment",
+            "donnaTaskComments",
+            "donnaTaskProposalDecide",
+        ] {
+            assert!(!open_allows(&Caller::Local, method, &json!({})), "{method}");
+        }
     }
 
     #[test]
