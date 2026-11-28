@@ -262,3 +262,38 @@ async fn principal_usa_a_conta_atual_do_bot_e_a_aba_a_gravada() {
     assert_eq!(crate::fork::open_chat::account_profile(&env.hub, &atual).unwrap().0, OUTRA, "principal: conta atual");
     assert_eq!(crate::fork::open_chat::account_profile(&env.hub, &aba_cfg).unwrap().0, CONTA, "aba: conta gravada");
 }
+
+#[tokio::test]
+async fn aba_sem_conta_explicita_fica_na_conta_resolvida_na_criacao() {
+    use crate::fork::sessoes::engine_choice::{SessionEngine, bind_account};
+    let env = env(vec![conta(CONTA, State::Connected)]);
+    let cfg = berga(&env.hub);
+    assert!(cfg.fork_editor.engine_account_id.is_none());
+    let mut engine = SessionEngine::snapshot(&cfg);
+    bind_account(&env.hub.store.db.locked(), &cfg, &mut engine).unwrap();
+    assert_eq!(engine.account_id.as_deref(), Some(CONTA));
+
+    let mut registry = Registry::load(&env.hub.store).unwrap();
+    registry.accounts.push(conta(OUTRA, State::Connected));
+    registry.accounts.last_mut().unwrap().verified_at = Some(crate::store::now_ms() + 10_000);
+    env.hub.store.kv_set(ACCOUNTS_SLOT, &serde_json::to_string(&registry).unwrap()).unwrap();
+    assert_eq!(crate::fork::open_chat::account_profile(&env.hub, &cfg).unwrap().0, OUTRA, "a escolha automática mudou");
+    let mut aba = cfg.clone();
+    engine.apply(&mut aba);
+    assert_eq!(
+        crate::fork::open_chat::account_profile(&env.hub, &aba).unwrap().0,
+        CONTA,
+        "a aba segue a conta gravada"
+    );
+}
+
+#[tokio::test]
+async fn aba_sem_conta_resolvivel_e_recusada_na_criacao() {
+    use crate::fork::sessoes::engine_choice::{SessionEngine, bind_account};
+    let env = env(vec![conta(CONTA, State::Disconnected)]);
+    let cfg = berga(&env.hub);
+    let mut engine = SessionEngine::snapshot(&cfg);
+    let error = bind_account(&env.hub.store.db.locked(), &cfg, &mut engine).unwrap_err();
+    assert_eq!(error.to_string(), "open_chat_account_required");
+    assert!(engine.account_id.is_none());
+}

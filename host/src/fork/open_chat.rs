@@ -62,6 +62,18 @@ pub(crate) struct Ticket {
 /// conta o comprovou; senão o Codex usa o padrão dele.
 pub(crate) fn account_profile(hub: &Hub, cfg: &BotConfig) -> Result<(String, PathBuf, Option<String>)> {
     let registry = Registry::load(&hub.store)?;
+    let account = chosen_account(&registry, cfg, |id| crate::fork::engine_setup::in_setup(&hub.store, id))?;
+    let LaunchReference::CliProfile { directory, .. } = &account.launch else { bail!("open_chat_account_required") };
+    let model = cfg.model.clone().filter(|model| account.models.iter().any(|known| known.id == *model));
+    Ok((account.id.clone(), directory.clone(), model))
+}
+
+/// A escolha de conta de `account_profile` sobre um registro já lido; `in_setup` diz se a conta está em reconexão.
+pub(crate) fn chosen_account<'a>(
+    registry: &'a Registry,
+    cfg: &BotConfig,
+    in_setup: impl Fn(&str) -> bool,
+) -> Result<&'a crate::fork::engine_accounts::Account> {
     let mut connected = registry
         .accounts
         .iter()
@@ -69,16 +81,11 @@ pub(crate) fn account_profile(hub: &Hub, cfg: &BotConfig) -> Result<(String, Pat
     let knows = |a: &&crate::fork::engine_accounts::Account| {
         cfg.model.as_deref().is_some_and(|model| a.models.iter().any(|known| known.id == model))
     };
-    let account = match cfg.fork_editor.engine_account_id.as_deref() {
+    match cfg.fork_editor.engine_account_id.as_deref() {
         Some(id) => connected.find(|a| a.id == id),
-        None => {
-            connected.max_by_key(|a| (!crate::fork::engine_setup::in_setup(&hub.store, &a.id), knows(a), a.verified_at))
-        }
+        None => connected.max_by_key(|a| (!in_setup(&a.id), knows(a), a.verified_at)),
     }
-    .ok_or_else(|| anyhow!("open_chat_account_required"))?;
-    let LaunchReference::CliProfile { directory, .. } = &account.launch else { bail!("open_chat_account_required") };
-    let model = cfg.model.clone().filter(|model| account.models.iter().any(|known| known.id == *model));
-    Ok((account.id.clone(), directory.clone(), model))
+    .ok_or_else(|| anyhow!("open_chat_account_required"))
 }
 
 /// Cerca das mutações de conta: recusa enquanto um turno da Open usa a conta e impede um turno novo até o fim do efeito.
