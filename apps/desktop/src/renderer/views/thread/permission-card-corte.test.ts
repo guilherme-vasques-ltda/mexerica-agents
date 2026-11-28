@@ -52,6 +52,15 @@ const entrada = (detail: string) => ({ id: 'p1', seq: 1, botId: 'b', rev: 1, kin
   status: 'pending', toolKind: 'other', title: 'Autorizar usar ferramenta não identificada: alvo não informado', cwd: '/projetos/app',
   detail, options: [{ optionId: 'allow-once', name: 'Permitir uma vez', kind: 'allow_once' }, { optionId: 'reject', name: 'Recusar', kind: 'reject_once' }] } })
 
+test('comando local mantém a recusa disponível mas exige abrir os detalhes para aprovar', () => {
+  const entry = entrada('{"argv":["/usr/bin/true"],"cwd":"/projetos/app"}')
+  entry.data.toolKind = 'open_local_command'
+  const card = html(h(m.StoreContext.Provider, { value: store }, h(m.PermissionCard, { entry, hostName: 'Mac', answering: null, respond() {} })))
+  assert.doesNotMatch(card, /hold-button/)
+  assert.match(card, /Detalhes/)
+  assert.match(card, /Recusar/)
+})
+
 test('detalhe maior que o corte da tela: aviso visível e nenhuma opção de aprovar', () => {
   const card = html(h(m.StoreContext.Provider, { value: store }, h(m.PermissionCard, { entry: entrada('x'.repeat(2500)), hostName: 'Mac', answering: null, respond() {} })))
   assert.match(card, /Texto cortado; o que não aparece não pode ser conferido\./)

@@ -14,6 +14,11 @@ use std::{
 use tokio::{sync::oneshot, time::Instant};
 
 pub(crate) const CARD_KIND: &str = "open_hub_action";
+const COMMAND_KIND: &str = "open_local_command";
+
+pub(super) fn hub_card(data: &Value) -> bool {
+    matches!(data["toolKind"].as_str(), Some(CARD_KIND | COMMAND_KIND))
+}
 const ALLOW: &str = "allow";
 const DENY: &str = "deny";
 const WAIT: Duration = Duration::from_secs(120);
@@ -256,7 +261,8 @@ pub(super) fn respond(
             && matches!(origin, Some(Origem::Local))
             && app_response(body)
             && entry.kind == "permission"
-            && entry.data["toolKind"] == CARD_KIND,
+            && hub_card(&entry.data)
+            && (entry.data["toolKind"] != COMMAND_KIND || body["source"] == "app"),
         "open_tools_local_app_required"
     );
     let mut pending = PENDING.locked();
@@ -308,6 +314,21 @@ impl Drop for Waiting<'_> {
 }
 
 pub(super) async fn approve(hub: &Arc<Hub>, lane: &Lane, turn: i64, title: &str, detail: &str) -> Result<Entry> {
+    approve_card(hub, lane, turn, CARD_KIND, title, detail).await
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+pub(super) async fn approve_command(
+    hub: &Arc<Hub>,
+    lane: &Lane,
+    turn: i64,
+    title: &str,
+    detail: &str,
+) -> Result<Entry> {
+    approve_card(hub, lane, turn, COMMAND_KIND, title, detail).await
+}
+
+async fn approve_card(hub: &Arc<Hub>, lane: &Lane, turn: i64, kind: &str, title: &str, detail: &str) -> Result<Entry> {
     ensure!(
         lane.session.is_none()
             && detail.encode_utf16().count() <= 2000
@@ -327,7 +348,7 @@ pub(super) async fn approve(hub: &Arc<Hub>, lane: &Lane, turn: i64, title: &str,
             EntryKind::Permission,
             turn,
             &json!({
-                "author": lane.chat, "toolKind": CARD_KIND, "title": title, "detail": detail, "status": "pending",
+                "author": lane.chat, "toolKind": kind, "title": title, "detail": detail, "status": "pending",
                 "options": [
                     {"optionId": ALLOW, "kind": "allow_once", "name": "Allow once"},
                     {"optionId": DENY, "kind": "reject_once", "name": "Deny"}

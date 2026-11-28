@@ -6,6 +6,8 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio::sync::watch;
 
+pub(super) const LOCAL_COMMAND: &str = "run_local_command";
+
 pub(super) const GUIDANCE: &str = concat!(
     "Neste turno do dono local, use as ferramentas do Hub anunciadas para consultar os outros bots do seu espaço, ",
     "suas rotinas, as skills instaladas e ligadas e os conectores remotos vinculados ao seu bot. ",
@@ -59,6 +61,10 @@ impl<'a> Turn<'a> {
         catalog.extend(super::open_tool_actions::catalog());
         catalog.extend(team::catalog());
         catalog.extend(open_mcp::catalog());
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        if crate::environment::Environment::is_open() {
+            catalog.push(super::open_terminal::catalog());
+        }
         Value::Array(catalog)
     }
 
@@ -67,6 +73,9 @@ impl<'a> Turn<'a> {
             || super::open_tool_actions::offered(name)
             || matches!(name, team::ASK | team::STATUS)
             || open_mcp::offered(name)
+            || (cfg!(any(target_os = "linux", target_os = "macos"))
+                && crate::environment::Environment::is_open()
+                && name == LOCAL_COMMAND)
     }
 
     fn delegation_turn(&self) -> Result<team::LocalTurn> {
@@ -84,6 +93,10 @@ impl<'a> Turn<'a> {
     }
 
     pub(super) async fn call(&self, name: &str, args: &Value) -> Result<Value> {
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        if name == LOCAL_COMMAND {
+            return Box::pin(super::open_terminal::call(self.hub, &self.proof, args)).await;
+        }
         if name == team::ASK {
             return team::ask(self.delegation_turn()?, args).await;
         }

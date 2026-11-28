@@ -411,7 +411,7 @@ export function PendingItem({ view, responder, onOpen }: { view: PendingView; re
   const t = useT()
   const open = <button className="torre-link" disabled={!onOpen} onClick={() => onOpen?.()}>{t('torre.abrirConversa')}</button>
   if (view.kind === 'openOnly' || !responder) {
-    return <div className="torre-pending is-open-only"><span className="torre-pending-note">{t(view.nota)}</span>{open}</div>
+    return <div className="torre-pending is-open-only">{view.nota && <span className="torre-pending-note">{t(view.nota)}</span>}{open}</div>
   }
   const entry = view.entry as Entry
   return (

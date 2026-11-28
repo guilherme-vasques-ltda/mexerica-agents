@@ -14,6 +14,8 @@ pub(crate) mod open_manuais;
 mod open_mcp;
 pub(crate) mod open_modelo;
 pub(crate) mod open_rotinas;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod open_terminal;
 pub(crate) mod open_tool_actions;
 pub(crate) mod open_tool_delegation;
 mod open_tools;
