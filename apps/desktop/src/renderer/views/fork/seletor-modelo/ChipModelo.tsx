@@ -10,6 +10,9 @@ import { useStoreRef } from '../../../store/context'
 import { useOpenBotSettings } from '../bot-settings/bot-settings-entry'
 import { engineSetup } from '../../../store/fork-engine-setup'
 import type { HostClient } from '../../../client/host-client'
+import { usePref } from '../../../lib/prefs'
+import { seletorPrefs } from './preferencias'
+import { semDesinstalados } from './desinstalados'
 import { carregarModelos, esquecerFalha, esquecerFalhas, provedoresDoHub, useCatalogoMudou } from './catalogo'
 import { corpoTroca, engineDaSessao, erroDaTroca, LeituraContas, precisaConfirmar, rotuloChip, type ContaMotor, type Escolha } from './regras'
 import { modeloDe } from '../contexto/BarraContexto'
@@ -34,6 +37,13 @@ function ChipModeloSessao({ bot, sessionId }: { bot: Bot; sessionId: string | nu
   const sessions = useModel(store.sessions)
   const openSettings = useOpenBotSettings()
   useCatalogoMudou()
+  const [favoritos, setFavoritos] = usePref(seletorPrefs.favoritos)
+  const backends = store.hello?.backends
+  useEffect(() => {
+    if (!backends?.length) return
+    const resto = semDesinstalados(favoritos, backends)
+    if (resto !== favoritos) setFavoritos(resto)
+  }, [backends, favoritos, setFavoritos])
   const [aberto, setAberto] = useState(false)
   const [confirmar, setConfirmar] = useState<Escolha | null>(null)
   const [erro, setErro] = useState<ReturnType<typeof erroDaTroca> | null>(null)
