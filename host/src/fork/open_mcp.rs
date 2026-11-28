@@ -252,7 +252,7 @@ async fn exchange(session: &mut OpenSession<'_>, frame: Value) -> Result<Value> 
         #[cfg(target_os = "linux")]
         OpenSession::Stdio(session) => session.exchange(frame).await.map_err(|_| ()),
     };
-    result.map(Option::unwrap_or_default).map_err(|_| anyhow!("Sessão MCP indisponível"))
+    result.map(Option::unwrap_or_default).map_err(|()| anyhow!("Sessão MCP indisponível"))
 }
 
 struct Invocation {

@@ -8,7 +8,7 @@ use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 pub(crate) struct Processo {
     child: Child,
     grupo: i32,
-    _dir: TempDir,
+    dir: TempDir,
 }
 
 impl Processo {
@@ -43,7 +43,7 @@ impl Processo {
         mut command: Command,
         spawn: impl FnOnce(&mut Command) -> Result<Child> + Send + 'static,
     ) -> Result<Self> {
-        let pai = std::process::id();
+        let pai = i32::try_from(std::process::id()).context("PID do Hub inválido")?;
         command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).process_group(0).kill_on_drop(true);
         // SAFETY: entre fork e exec só há syscalls sem alocação; a thread criadora vive enquanto o Hub vive.
         unsafe {
@@ -51,7 +51,7 @@ impl Processo {
                 if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL, 0, 0, 0) != 0 {
                     return Err(io::Error::last_os_error());
                 }
-                if libc::getppid() as u32 != pai {
+                if libc::getppid() != pai {
                     return Err(io::Error::from_raw_os_error(libc::ECHILD));
                 }
                 Ok(())
@@ -61,7 +61,7 @@ impl Processo {
             move || {
                 let child = spawn(&mut command)?;
                 let grupo = child.id().and_then(|id| i32::try_from(id).ok()).context("MCP do catálogo sem PID")?;
-                Ok(Self { child, grupo, _dir: dir })
+                Ok(Self { child, grupo, dir })
             },
             drop,
         )
@@ -75,7 +75,7 @@ impl Processo {
     }
 
     pub(crate) fn home(&self) -> &std::path::Path {
-        self._dir.path()
+        self.dir.path()
     }
 }
 
