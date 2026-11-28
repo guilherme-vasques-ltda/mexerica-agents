@@ -32,6 +32,8 @@ pub(crate) struct Target {
 pub(crate) trait Mediation {
     fn begin(&mut self) {}
     fn request_frame(&mut self, _frame: &Value) {}
+    fn session_id(&mut self, _id: &str) {}
+    fn private_url(&mut self, _url: &Url) {}
     async fn target(&mut self, method: &str, stale: bool) -> Result<Target>;
     async fn observe(&mut self, frame: Value, method: &str) -> Result<Option<Value>>;
     /// Sem espera humana aqui: último CAS imediatamente antes de pollar send.
@@ -172,6 +174,10 @@ pub(crate) fn method(frame: &Value) -> Result<&str> {
 }
 
 impl<M: Mediation> Session<M> {
+    pub(crate) fn mediation_mut(&mut self) -> &mut M {
+        &mut self.mediation
+    }
+
     pub fn new(mediation: M) -> Result<Self> {
         // Não seguir redirects: nenhum destino derivado recebe Authorization por inferência.
         let client = Client::builder().redirect(reqwest::redirect::Policy::none()).build()?;
@@ -418,6 +424,7 @@ impl<M: Mediation> Session<M> {
                 let endpoint =
                     target.url.join(eventos::text(&event).trim()).map_err(|_| anyhow!("Endpoint SSE inválido"))?;
                 same_origin(&target.url, &endpoint)?;
+                self.mediation.private_url(&endpoint);
                 self.reverse_endpoint = Some(endpoint.clone());
                 self.legacy = Some(Legacy::start(endpoint, events));
                 return Ok(());
@@ -622,6 +629,7 @@ impl<M: Mediation> Session<M> {
                         .ok()
                         .filter(|s| s.len() <= 256)
                         .ok_or_else(|| anyhow!("Identificador de sessão MCP inválido"))?;
+                    self.mediation.session_id(session);
                     self.mcp_id = Some(session.to_owned());
                 }
                 break if is_sse(&response) {

@@ -18,7 +18,7 @@ const ADMIN_POLICY: &str = "/private/etc/codex";
 /// Certificados públicos do macOS: o TLS do Codex usa este arquivo em vez do Chaveiro. O `.env` do perfil, que o Codex
 /// leria antes de iniciar e poderia trocar este caminho, fica fora do alcance do processo isolado.
 const CA_BUNDLE: &str = "/private/etc/ssl/cert.pem";
-/// O chat só admite texto e a busca no índice do provedor. O Seatbelt continua isolando o processo.
+/// Ferramentas do Hub não rodam no processo do chat. O Seatbelt continua isolando o processo.
 pub(crate) const CHAT_OVERRIDES: [&str; 20] = [
     "sandbox_mode=\"read-only\"",
     "approval_policy=\"never\"",
