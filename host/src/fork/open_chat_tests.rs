@@ -919,7 +919,10 @@ async fn ferramentas_da_open_so_rodam_no_turno_local_e_na_thread_certa() {
 async fn duas_sessoes_locais_separam_titulo_historico_e_thread_do_motor() {
     use crate::{
         api::{self, devices::Caller},
-        fork::sessoes::api as sessions,
+        fork::{
+            engine_accounts::{Account, AuthorizedScope, Backend, Billing, LaunchReference, Registry, State, managed},
+            sessoes::api as sessions,
+        },
         store::{EntryKind, Lane, Scope},
     };
     use serde_json::json;
@@ -928,10 +931,39 @@ async fn duas_sessoes_locais_separam_titulo_historico_e_thread_do_motor() {
     }
     let bot = "open-sessoes-fixture";
     let (hub, dir) = hub_de_teste(bot);
+    let account = format!("ac_{}", "a".repeat(64));
+    let mut registry = Registry::load(&hub.store).unwrap();
+    registry.accounts.push(Account {
+        id: account.clone(),
+        backend: Backend::Codex,
+        billing: Billing::Subscription,
+        state: State::Connected,
+        launch: LaunchReference::CliProfile { executable: "/fixture/codex".into(), directory: dir.clone() },
+        scope: AuthorizedScope::Owner,
+        quota_identity: None,
+        verified_at: None,
+        subscription_proof: None,
+        models: Vec::new(),
+        hidden_model_ids: Vec::new(),
+        managed: Some(managed::Metadata {
+            label: "Codex".into(),
+            revision: 1,
+            generation: 0,
+            enabled: true,
+            paused: false,
+            request_id: "teste".into(),
+            principal: None,
+            profile: None,
+            setup_request: None,
+            catalog: None,
+        }),
+    });
+    registry.persist(&hub.store).unwrap();
     let main_entry = hub.add_entry(&Lane::main(bot), EntryKind::User, 1, &json!({"text":"Principal"})).unwrap();
     let mut ids = Vec::new();
     for (message, engine_thread) in [("Planejar viagem", "thread-viagem"), ("Revisar texto", "thread-revisao")] {
         let created = api::dispatch(&hub, &Caller::Local, "sessionCreate", json!({"botId":bot})).await.unwrap();
+        assert_eq!(created["session"]["engine"]["accountId"], account);
         let id = created["session"]["id"].as_str().unwrap().to_owned();
         let lane = sessions::send_lane(&hub.store.db.locked(), bot, &json!({"sessionId":id})).unwrap();
         let turn_no = hub.store.alloc_turn(bot).unwrap();
@@ -946,7 +978,7 @@ async fn duas_sessoes_locais_separam_titulo_historico_e_thread_do_motor() {
             )
             .unwrap();
         sessions::title_first_message(&hub, &lane, message);
-        let ticket = admit_for_test(&hub, bot, "fixture").unwrap();
+        let ticket = admit_for_test(&hub, bot, &account).unwrap();
         hub.set_runtime(bot, |rt| {
             rt.status = crate::hub::BotStatus::Working;
             rt.message = Some(entry.id.clone());
@@ -954,10 +986,10 @@ async fn duas_sessoes_locais_separam_titulo_historico_e_thread_do_motor() {
         });
         assert!(super::super::open_tools::Turn::capture(&hub, &lane, &entry.id, turn_no, ticket.cancel()).is_none());
         ticket.release(&hub);
-        hub.store.kv_set_if_bot(bot, &thread_key(&lane, "fixture"), engine_thread).unwrap();
+        hub.store.kv_set_if_bot(bot, &thread_key(&lane, &account), engine_thread).unwrap();
         ids.push((id, message, engine_thread));
     }
-    assert!(hub.store.kv_read(&thread_key(&Lane::main(bot), "fixture")).unwrap().is_none());
+    assert!(hub.store.kv_read(&thread_key(&Lane::main(bot), &account)).unwrap().is_none());
     let list = api::dispatch(&hub, &Caller::Local, "sessions", json!({"botId":bot})).await.unwrap();
     let device = Caller::Device { key: "aparelho-ficticio".into(), scopes: vec![Scope::Control], autoridade: None };
     for (id, message, engine_thread) in ids {
@@ -974,7 +1006,7 @@ async fn duas_sessoes_locais_separam_titulo_historico_e_thread_do_motor() {
         assert_eq!(texts, [message]);
         assert!(api::dispatch(&hub, &device, "history", body).await.is_err());
         let lane = Lane { chat: bot.into(), session: Some(id) };
-        let saved = hub.store.kv_read(&thread_key(&lane, "fixture")).unwrap();
+        let saved = hub.store.kv_read(&thread_key(&lane, &account)).unwrap();
         let (resumed, _, wire) = turn("resume", saved.as_deref()).await;
         assert_eq!(resumed.unwrap(), engine_thread);
         assert!(
