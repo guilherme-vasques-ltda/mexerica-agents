@@ -174,6 +174,10 @@ impl Hub {
         if self.desktop_socket.get().is_some() { crate::fork::bridge_http::SOCKET_PORT } else { self.port }
     }
 
+    pub(crate) fn bridge_destination(&self) -> (u16, Option<&std::path::Path>) {
+        (self.bridge_port(), self.desktop_socket.get().map(std::path::PathBuf::as_path))
+    }
+
     pub fn busy(&self) -> bool {
         self.runtime.locked().values().any(|r| matches!(r.status, BotStatus::Working | BotStatus::NeedsInput))
             || self.terms.busy()

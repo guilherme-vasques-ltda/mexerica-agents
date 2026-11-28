@@ -45,8 +45,9 @@ impl BridgeHttp {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests {
+    #![cfg(unix)]
     use super::*;
     use axum::{Router, http::StatusCode, response::Redirect, routing::post};
     use std::os::unix::fs::PermissionsExt as _;

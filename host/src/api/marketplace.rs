@@ -52,7 +52,7 @@ pub(super) async fn call(
                 }
                 Ok(())
             })?;
-            let ready = market::verify::verify(&hub.store, id, hub.bridge_port()).await?;
+            let ready = market::verify::verify(&hub.store, id, hub.bridge_destination()).await?;
             for row in hub.store.bots()? {
                 if !row.deleted && !row.config.is_group() && row.config.connectors.iter().any(|c| c == id) {
                     hub.send_cmd(&row.config.id, Cmd::RefreshTools)?;
@@ -115,7 +115,7 @@ pub(super) async fn call(
         }
         // MX-209: leitura do cartão para a janela segura; nunca devolve valor.
         "connectorRequestGet" => market::requests::inspect(hub, &b)?,
-        "connectorVerify" => market::verify::verify(&hub.store, str_arg(&b, "id")?, hub.bridge_port()).await?,
+        "connectorVerify" => market::verify::verify(&hub.store, str_arg(&b, "id")?, hub.bridge_destination()).await?,
         "connectors" => market::list_connectors(&hub.store)?,
         "importConnectors" => {
             let space = market::contas::space_do_pedido(&hub.store, &b)?;

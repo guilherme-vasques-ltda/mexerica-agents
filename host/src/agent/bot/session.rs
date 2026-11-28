@@ -759,7 +759,7 @@ impl Actor {
                         servers,
                         &exe,
                         &self.cfg.id,
-                        (self.hub.bridge_port(), self.hub.desktop_socket.get().map(std::path::PathBuf::as_path)),
+                        self.hub.bridge_destination(),
                         &self.cfg.space_id,
                         slot,
                         crate::fork::spaces::tool_context::definition_binding(servers),
