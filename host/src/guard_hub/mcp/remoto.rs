@@ -2,7 +2,9 @@
 //! DONNA Bot, 2026-11-04: prazo privado do Bearer real na última entrega Hub,
 //! depois da guarda completa; sem mudar autoridade, cache ou contrato público.
 use super::runtime;
-use crate::fork::conectores::{catalogo_local, oauth_binding, oauth_runtime::RuntimeIntent};
+use crate::fork::conectores::{
+    catalogo_local, catalogo_servicos::TipoConexao, oauth_binding, oauth_runtime::RuntimeIntent,
+};
 use crate::{LockExt, hub::Hub};
 use anyhow::{Result, anyhow, bail, ensure};
 use serde_json::{Value, json};
@@ -154,7 +156,7 @@ pub(super) async fn call(
         let saved = intent.snapshot(hub)?;
         ensure!(!catalogo_local::reservado(&saved), "Conta MCP local não usa transporte HTTP");
         let tipo = crate::market::contas::tipo_da_conta(&saved)?;
-        let streamable_only = tipo.is_some_and(|tipo| tipo.somente_endpoint_streamable());
+        let streamable_only = tipo.is_some_and(TipoConexao::somente_endpoint_streamable);
         if !super::http::tools_only(method)
             && (streamable_only || tipo.is_some_and(|tipo| tipo.exige_filtro(&saved.liberacoes)))
         {

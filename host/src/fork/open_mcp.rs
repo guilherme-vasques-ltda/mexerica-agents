@@ -1,5 +1,5 @@
 use super::{
-    conectores::{mcp_version, oauth_refresh, oauth_runtime::RuntimeIntent},
+    conectores::{catalogo_servicos::TipoConexao, mcp_version, oauth_refresh, oauth_runtime::RuntimeIntent},
     open_tool_actions,
     open_turn::LocalTurn,
 };
@@ -290,7 +290,7 @@ impl Mediation for OpenMediation<'_> {
         }
         let current = self.intent.current(self.hub, &self.saved)?;
         let streamable_only =
-            market::contas::tipo_da_conta(&current)?.is_some_and(|tipo| tipo.somente_endpoint_streamable());
+            market::contas::tipo_da_conta(&current)?.is_some_and(TipoConexao::somente_endpoint_streamable);
         if streamable_only && !mcp::http::tools_only(method) {
             return Err(PolicyDenied.into());
         }
