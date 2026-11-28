@@ -254,7 +254,7 @@ pub(crate) fn thread_key(lane: &Lane, account: &str) -> String {
 }
 
 /// Num canal a thread é por membro: dois membros na mesma conta não dividem o histórico do Codex.
-fn member_thread_key(lane: &Lane, account: &str, bot: &str) -> String {
+pub(crate) fn member_thread_key(lane: &Lane, account: &str, bot: &str) -> String {
     let key = thread_key(lane, account);
     if bot == lane.chat { key } else { format!("{key}.{bot}") }
 }
@@ -284,7 +284,7 @@ pub(crate) fn run(
     text: String,
 ) {
     let hub = hub.clone();
-    let instructions = instructions(&hub, cfg);
+    let instructions = instructions(&hub, cfg, &lane.chat);
     let cfg = cfg.clone();
     tokio::spawn(async move {
         let (entry_id, authority) = entry;
@@ -353,7 +353,7 @@ pub(crate) fn run(
 }
 
 /// Instruções do turno só texto: descrição do bot, regras da conversa e o texto das skills selecionadas e dos manuais do dono.
-fn instructions(hub: &Hub, cfg: &BotConfig) -> String {
+fn instructions(hub: &Hub, cfg: &BotConfig, chat: &str) -> String {
     let mut instructions = format!("{}\n\n{INSTRUCTIONS}", cfg.description.trim());
     for extra in [
         crate::fork::skill_catalog::open_texto_para_bot(&hub.store, &cfg.skills),
@@ -364,7 +364,7 @@ fn instructions(hub: &Hub, cfg: &BotConfig) -> String {
     {
         instructions = format!("{instructions}\n\n{extra}");
     }
-    match crate::fork::open_contexto::starting_point(hub, &cfg.id) {
+    match crate::fork::open_contexto::starting_point(hub, chat) {
         Some(summary) => format!("{instructions}\n\n{summary}"),
         None => instructions,
     }
@@ -385,7 +385,7 @@ pub(crate) async fn silent_turn(
     prompt: &str,
     timeout: Duration,
 ) -> Result<String> {
-    let instructions = instructions(hub, cfg);
+    let instructions = instructions(hub, cfg, &lane.chat);
     let mut reply = Stream::silent(hub, lane, &ticket.bot);
     turn_in_profile(
         hub,
@@ -406,7 +406,7 @@ pub(crate) async fn silent_turn(
 /// para `open_contexto::compacted`, e uma falha vira aviso na conversa.
 pub(crate) fn compact(hub: &Arc<Hub>, ticket: Ticket, cfg: &BotConfig, lane: Lane) {
     let hub = hub.clone();
-    let instructions = instructions(&hub, cfg);
+    let instructions = instructions(&hub, cfg, &lane.chat);
     let cfg = cfg.clone();
     tokio::spawn(async move {
         let Ticket { bot, account, directory, model, mut cancel, done } = ticket;
@@ -458,7 +458,7 @@ pub(crate) async fn routine_turn(
     timeout: Duration,
 ) -> Result<String> {
     let Ticket { bot, account, directory, model, mut cancel, done } = ticket;
-    let instructions = instructions(hub, cfg);
+    let instructions = instructions(hub, cfg, &lane.chat);
     let outcome = async {
         let turn = hub.store.alloc_turn(&cfg.id)?;
         let mut reply = Stream::new(hub, &lane, turn, &bot);
@@ -778,7 +778,7 @@ async fn drive(
 }
 
 /// `drive` com a medição de contexto: `on_usage(usado, janela)` a cada `thread/tokenUsage/updated` (o `last` do
-/// motor e o `modelContextWindow`, sem janela informada nada é medido). `Input::Compact` só vale numa thread
+/// motor e o `modelContextWindow`; sem janela informada a janela vem 0 e a medida anterior deixa de valer). `Input::Compact` só vale numa thread
 /// retomada e pede `thread/compact/start`; um motor que não conhece o método recusa com `context_cannot_compact`.
 #[allow(clippy::too_many_arguments)]
 async fn drive_usage(
@@ -835,7 +835,10 @@ async fn drive_usage(
             Input::Compact => match rpc.request(4, "thread/compact/start", json!({"threadId": thread})).await? {
                 Ok(_) => String::new(),
                 Err(error) if error["code"] == METHOD_NOT_FOUND => bail!("context_cannot_compact"),
-                Err(_) => bail!("open_chat_failed"),
+                Err(error) => {
+                    tracing::warn!(code = %error["code"], message = %error["message"], "o Codex recusou a compactação");
+                    bail!("open_chat_failed")
+                }
             },
             Input::Text(text) | Input::Summary(text) => {
                 let params =
@@ -878,10 +881,8 @@ async fn drive_usage(
                 {
                     uso = uso::Contagem::do_protocolo(&params["tokenUsage"]["total"]);
                     let usage = &params["tokenUsage"];
-                    if let (Some(used), Some(size)) =
-                        (usage["last"]["totalTokens"].as_u64(), usage["modelContextWindow"].as_u64().filter(|s| *s > 0))
-                    {
-                        on_usage(used, size);
+                    if let Some(used) = usage["last"]["totalTokens"].as_u64() {
+                        on_usage(used, usage["modelContextWindow"].as_u64().unwrap_or(0));
                     }
                 }
                 "account/rateLimits/updated" if params["rateLimits"]["limitId"] == "codex" => {

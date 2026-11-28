@@ -36,8 +36,19 @@ struct State {
     epoch: u32,
     usage: Option<Usage>,
     last_compaction: Option<Compaction>,
-    /// O Codex recusou thread/compact/start como método desconhecido: o app deixa de oferecer Comprimir.
+    /// O Codex recusou thread/compact/start como método desconhecido: o app deixa de oferecer Comprimir até o prazo
+    /// vencer, quando o motor pode ter sido atualizado e a compactação é tentada de novo.
     unsupported: bool,
+    #[serde(default)]
+    unsupported_at: i64,
+}
+
+const UNSUPPORTED_TTL_MS: i64 = 6 * 60 * 60 * 1000;
+
+impl State {
+    fn cannot_compact(&self) -> bool {
+        self.unsupported && now_ms() - self.unsupported_at < UNSUPPORTED_TTL_MS
+    }
 }
 
 fn state_key(chat: &str, account: &str) -> String {
@@ -104,6 +115,7 @@ pub(crate) fn compacted(hub: &Hub, lane: &Lane, account: &str, measured: Option<
 pub(crate) fn unsupported(hub: &Hub, lane: &Lane, account: &str) {
     let mut state = load(hub, &lane.chat, account);
     state.unsupported = true;
+    state.unsupported_at = now_ms();
     save(hub, &lane.chat, account, &state);
 }
 
@@ -135,7 +147,7 @@ fn resolve(hub: &Hub, read: &Read) -> Result<Chat> {
     let row = hub.store.bot(&conversation.bot_id)?.filter(|r| !r.deleted).ok_or_else(|| anyhow!("bot_not_found"))?;
     ensure!(!row.config.is_group(), "context_group_unsupported");
     let (account, _, _) = open_chat::account_profile(hub, &row.config)?;
-    let thread = hub.store.kv_read(&open_chat::thread_key(&Lane::main(id), &account))?;
+    let thread = hub.store.kv_read(&open_chat::member_thread_key(&Lane::main(id), &account, &conversation.bot_id))?;
     Ok(Chat { cfg: row.config, id: id.to_owned(), space: conversation.space_id, account, thread })
 }
 
@@ -158,9 +170,9 @@ pub(crate) fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) -
     }
     let mut answer = json!({"hubId": hub.host_id, "botId": chat.id, "sessionId": chat.id, "spaceId": chat.space,
         "epoch": state.epoch, "scopeId": scope_id(hub, &chat)?});
-    let Some(usage) = state.usage.filter(|u| u.size > 0 && u.epoch == state.epoch) else { return Ok(answer) };
+    let Some(usage) = state.usage.as_ref().filter(|u| u.size > 0 && u.epoch == state.epoch) else { return Ok(answer) };
     let mut context = json!({"used": usage.used, "size": usage.size, "updatedAt": usage.updated_at,
-        "trigger": 0, "canCompact": chat.thread.is_some() && !state.unsupported,
+        "trigger": 0, "canCompact": chat.thread.is_some() && !state.cannot_compact(),
         "busy": !open_chat::open_busy(&[chat.id.as_str()]).is_empty(),
         "contextId": context_id(hub, &chat, state.epoch)?, "automaticPaused": false, "automaticFailures": 0});
     if let Some(last) = state.last_compaction {
@@ -171,7 +183,7 @@ pub(crate) fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) -
 }
 
 fn compact(hub: &Arc<Hub>, chat: &Chat, state: &State, context: Option<&str>) -> Result<Value> {
-    ensure!(!state.unsupported, "context_cannot_compact");
+    ensure!(!state.cannot_compact(), "context_cannot_compact");
     ensure!(chat.thread.is_some(), "context_unavailable");
     ensure!(state.usage.as_ref().is_some_and(|u| u.size > 0 && u.epoch == state.epoch), "context_unavailable");
     ensure!(context == Some(context_id(hub, chat, state.epoch)?.as_str()), "context_engine_changed");
@@ -240,6 +252,7 @@ async fn clear_chat(hub: &Arc<Hub>, ticket: &mut open_chat::Ticket, chat: &Chat)
     let prefix = format!("open_chat.thread.{}.", chat.id);
     let rev: i64;
     {
+        let _emit = hub.emit_lock.locked();
         let db = hub.store.db.locked();
         let tx = db.unchecked_transaction()?;
         tx.execute("DELETE FROM entries WHERE bot_id = ?1 AND seq <= ?2", rusqlite::params![&chat.id, cutoff])?;
@@ -255,8 +268,9 @@ async fn clear_chat(hub: &Arc<Hub>, ticket: &mut open_chat::Ticket, chat: &Chat)
             [&cleared_key(&chat.id), &json!({"rev": rev, "cutoff": cutoff}).to_string()],
         )?;
         tx.commit()?;
+        drop(db);
+        let _ = hub.events.send(chat_cleared(&chat.id, rev, cutoff));
     }
-    let _ = hub.events.send(chat_cleared(&chat.id, rev, cutoff));
     hub.emit_bot(&chat.id);
     Ok(json!({"cleared": true, "summarized": summary.is_some(), "memorySaved": facts}))
 }

@@ -7,6 +7,8 @@ import { useStoreRef } from '../../../store/context'
 import { falhaLimpar, RPC_LIMPAR, type FalhaLimpar } from './limpar'
 import './contexto.css'
 
+const PRAZO_LIMPAR_MS = 240_000
+
 type Fase = { id: 'parado' } | { id: 'confirmando' } | { id: 'andamento' } | { id: 'feito' } | { id: 'falha'; falha: FalhaLimpar }
 
 export function useLimparConversa(botId: string) {
@@ -22,7 +24,7 @@ export function useLimparConversa(botId: string) {
     ativo.current = true
     setFase({ id: 'andamento' })
     try {
-      await client.call(RPC_LIMPAR, { botId, confirm: true, ...(client.spaceId ? { spaceId: client.spaceId } : {}) })
+      await client.call(RPC_LIMPAR, { botId, confirm: true, ...(client.spaceId ? { spaceId: client.spaceId } : {}) }, PRAZO_LIMPAR_MS)
       setFase({ id: 'feito' })
     } catch (erro) {
       setFase({ id: 'falha', falha: falhaLimpar(erro) })
