@@ -43,19 +43,28 @@ test('macOS validates an ad hoc bundle and refuses a substituted signed resource
 test('macOS verifica o CDHash da imagem viva e recusa outro processo ou PID sem imagem', { skip: process.platform !== 'darwin' }, async (t) => {
   const directory = mkdtempSync(join(realpathSync(tmpdir()), 'mx-attest-'))
   t.after(() => rmSync(directory, { recursive: true, force: true }))
+  const fixture = join(directory, 'fixture')
+  execFileSync('/usr/bin/clang', ['-x', 'c', '-', '-o', fixture], {
+    input: '#include <unistd.h>\nint main(void) { if (write(1, "s", 1) != 1) return 1; sleep(20); return 0; }\n',
+    stdio: ['pipe', 'ignore', 'pipe'],
+  })
   const start = async (name: string) => {
     const path = join(directory, name)
-    copyFileSync('/bin/sleep', path)
+    copyFileSync(fixture, path)
     execFileSync('/usr/bin/codesign', ['--force', '--sign', '-', '--identifier', 'invalid.example.' + name, path], { stdio: 'pipe' })
     const { stderr, status } = spawnSync('/usr/bin/codesign', ['--display', '--verbose=4', path], { encoding: 'utf8' })
     assert.equal(status, 0)
     const hash = /^CDHash=([0-9a-f]{40})$/m.exec(stderr)?.[1]
     assert.ok(hash)
-    const child = spawn(path, ['20'], { env: {}, stdio: 'ignore' })
+    const child = spawn(path, [], { env: {}, stdio: ['ignore', 'pipe', 'ignore'] })
     const done = once(child, 'close')
     const stop = async () => { child.kill(); await done }
     t.after(stop)
-    await once(child, 'spawn')
+    const ready = await Promise.race([
+      once(child.stdout, 'data').then(([data]) => data.toString()),
+      done.then(() => null),
+    ])
+    assert.equal(ready, 's')
     assert.ok(child.pid)
     return { pid: child.pid, hash, stop }
   }
