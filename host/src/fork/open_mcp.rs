@@ -102,13 +102,13 @@ async fn run(
             if admitted.load(Ordering::Relaxed) { Err(EffectUnknown.into()) }
             else { Err(anyhow!("Turno MCP encerrado")) }
         }
-        result = run_live(
+        result = Box::pin(run_live(
             hub, turn, name, args, &admitted,
             #[cfg(test)]
             endpoint,
             #[cfg(all(test, target_os = "linux"))]
             artifact_root,
-        ) => result,
+        )) => result,
     }
 }
 
