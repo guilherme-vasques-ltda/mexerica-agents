@@ -24,6 +24,7 @@ pub(crate) const MATRIZ: &[(&str, Minimo)] = &[
     // member: leitura, conversa e preferências próprias.
     ("donnaBrowserStatus", Membro),
     ("donnaBrowserLocalConsent", Nenhum),
+    ("undoAccessGrant", Nenhum),
     ("donnaBrowserLocalFrame", Nenhum),
     ("donnaBrowserLocalState", Nenhum),
     ("botConversation", Membro),

@@ -13,7 +13,7 @@ import { useJanelaBaixa } from '../../lib/janela-baixa'
 import { useStoreRef } from '../../store/context'
 import { useSelector } from '../../lib/observable'
 import { emQueda } from '../../store/fork-queda-curta'
-import { actionLabel, capturePermissionNote, memoryPermissionNote, permissionDetail, permissionTitle } from './permission-copy'
+import { accessNote, actionLabel, capturePermissionNote, memoryPermissionNote, permissionDetail, permissionTitle } from './permission-copy'
 import { superficieIdioma, useIdioma, tradutor, type Tradutor } from '../../lib/fork-i18n/estado'
 export { permissionHeadline, permissionTitle } from './permission-copy'
 
@@ -25,7 +25,8 @@ export const sortedOptions = (options: PermissionOption[]) => [...options].sort(
 const SESSAO = ['allow_for_session', 'allow_session', 'allow_permissions_session']
 const naSessao = (o: PermissionOption) => o.kind === 'allow_always' && SESSAO.includes(o.optionId)
 
-export function optionLabel(t: Tradutor, o: PermissionOption, screen = false) {
+export function optionLabel(t: Tradutor, o: PermissionOption, screen = false, access = false) {
+  if (access && o.kind === 'allow_once') return t('conversa.aprovacao.acesso.permitir')
   if (screen) {
     switch (o.kind) {
       case 'allow_once': return t('conversa.aprovacao.tela.agora')
@@ -86,6 +87,8 @@ export function PermissionCard({ entry, hostName, answering, respond }: { entry:
   const title = screen ? t('conversa.aprovacao.tela.titulo') : permissionTitle(t, d.toolKind, d.author ? store.bots.get(d.author)?.name : null)
   const captureNote = capturePermissionNote(t, d.toolKind)
   const memoryNote = memoryPermissionNote(t, d.toolKind)
+  const acesso = d.access
+  const notaAcesso = accessNote(t, acesso)
   const detail = screen ? null : permissionDetail(t, d.toolKind, d.title)
   const facts = (
     <dl className="approval-facts">
@@ -121,6 +124,16 @@ export function PermissionCard({ entry, hostName, answering, respond }: { entry:
         </> : null}
         {captureNote && pending ? <p className="approval-note">{captureNote}</p> : null}
         {memoryNote ? <p className="approval-note">{memoryNote}</p> : null}
+        {notaAcesso ? <p className="approval-note">{notaAcesso}</p> : null}
+        {acesso?.kind === 'folder' && acesso.path ? <CodeBox text={acesso.path} /> : null}
+        {acesso?.state === 'undone' ? <p className="approval-note" role="status">{t('conversa.aprovacao.acesso.desfeito')}</p> : null}
+        {acesso?.state === 'granted' && store.isLoopback ? (
+          <div className="approval-actions">
+            <button className="approval-deny" disabled={answering !== null || semConexao} onClick={() => { void store.undoAccessGrant(entry) }}>
+              <HStack as="span" gap={6}>{t('conversa.aprovacao.acesso.desfazer')}{answering === 'undo' ? <Spinner size={12} /> : null}</HStack>
+            </button>
+          </div>
+        ) : null}
         {hasDetail || baixa ? (
           <Disclosure expanded={expanded} onToggle={() => setExpanded((e) => !e)} label={<Text size="caption" weight="medium" tone="secondary">{t('conversa.aprovacao.detalhes')}</Text>}>
             <VStack gap={8} className="permission-card-details">
@@ -135,12 +148,12 @@ export function PermissionCard({ entry, hostName, answering, respond }: { entry:
           <>
             <div className="approval-actions">
               {opcoes.map((o) => o.kind.startsWith('allow') ? (
-                <HoldButton key={o.optionId} primary={o.optionId === prominent} label={optionLabel(t, o, screen)} disabled={answering !== null || semConexao} onConfirm={() => respond(o.optionId)}>
-                  <HStack as="span" gap={6}>{o.optionId === prominent ? <Icon name="checkmark" size={13} weight="semibold" /> : null}{optionLabel(t, o, screen)}{answering === o.optionId ? <Spinner size={12} /> : null}</HStack>
+                <HoldButton key={o.optionId} primary={o.optionId === prominent} label={optionLabel(t, o, screen, !!acesso)} disabled={answering !== null || semConexao} onConfirm={() => respond(o.optionId)}>
+                  <HStack as="span" gap={6}>{o.optionId === prominent ? <Icon name="checkmark" size={13} weight="semibold" /> : null}{optionLabel(t, o, screen, !!acesso)}{answering === o.optionId ? <Spinner size={12} /> : null}</HStack>
                 </HoldButton>
               ) : (
                 <button key={o.optionId} className="approval-deny" disabled={answering !== null || semConexao} onClick={() => respond(o.optionId)}>
-                  <HStack as="span" gap={6}>{optionLabel(t, o, screen)}{answering === o.optionId ? <Spinner size={12} /> : null}</HStack>
+                  <HStack as="span" gap={6}>{optionLabel(t, o, screen, !!acesso)}{answering === o.optionId ? <Spinner size={12} /> : null}</HStack>
                 </button>
               ))}
             </div>
@@ -165,6 +178,11 @@ function outcome(t: Tradutor, entry: Entry) {
     case 'answered': {
       const chosen = d.options?.find((o) => o.optionId === d.selected)
       if (chosen && naSessao(chosen)) return t('conversa.aprovacao.resultado.sessao')
+      if (d.access && chosen?.kind === 'allow_once') {
+        if (d.access.state === 'granted') return t('conversa.aprovacao.acesso.permitido')
+        if (d.access.state === 'undone') return t('conversa.aprovacao.acesso.desfeito')
+        return t('conversa.aprovacao.acesso.naoConcedido')
+      }
       switch (chosen?.kind) {
         case 'allow_once':
           return t('conversa.aprovacao.resultado.umaVez')

@@ -483,6 +483,8 @@ export interface EntryData {
   voiceApproval?: 'allow_once' | 'app_only'
   /** D511: metadados fixos do cartão gerados pelo Hub, sem motivo do bot. */
   screenAccess?: { target: string; generation: number; execution: string; expiresAt: number; effect?: boolean }
+  /** Cartão de `request_access`: o que o bot pede e se o acesso foi concedido ou desfeito pelo dono. */
+  access?: { kind: 'computer' | 'browser' | 'folder'; path?: string | null; asUser: boolean; state: 'pending' | 'granted' | 'undone' }
   output?: string
   diffs?: FileDiff[]
   locations?: { path: string; line?: number }[]

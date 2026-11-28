@@ -86,4 +86,12 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.aprovacao.tela.permitidoAgora": "Autorisé maintenant",
   "conversa.aprovacao.tela.agoraNesteTurno": "Vous avez autorisé Maintenant pour ce tour.",
   "conversa.aprovacao.tela.encerrarAgora": "Terminer Maintenant",
+  "conversa.aprovacao.acesso.computador": "Les commandes s’exécutent en votre nom sur cet ordinateur, avec vos autorisations.",
+  "conversa.aprovacao.acesso.navegador": "Le bot utilise désormais le navigateur de cet ordinateur.",
+  "conversa.aprovacao.acesso.pasta": "Le bot travaille désormais dans ce dossier :",
+  "conversa.aprovacao.acesso.desfazer": "Annuler",
+  "conversa.aprovacao.acesso.permitir": "Autoriser jusqu'à annulation",
+  "conversa.aprovacao.acesso.permitido": "Autorisé jusqu'à annulation",
+  "conversa.aprovacao.acesso.naoConcedido": "Accès non accordé",
+  "conversa.aprovacao.acesso.desfeito": "Accès annulé.",
 }

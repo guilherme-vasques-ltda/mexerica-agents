@@ -382,6 +382,21 @@ export class BotStore extends BotSync {
     })()
   }
 
+  async undoAccessGrant(entry: Entry) {
+    if (this.answering.has(entry.id)) return
+    this.answering.set(entry.id, 'undo')
+    this.changed()
+    try {
+      const result = await this.withLink((c) => c.call<{ entry: Entry }>('undoAccessGrant', { botId: entry.botId, entryId: entry.id }), true)
+      this.upsert(result.entry)
+    } catch (error) {
+      this.noteActionError(error)
+    } finally {
+      this.answering.delete(entry.id)
+      this.changed()
+    }
+  }
+
   async undoTeamChange(entry: Entry) {
     if (this.answering.has(entry.id)) return
     this.answering.set(entry.id, 'team')

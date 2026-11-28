@@ -140,6 +140,7 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
         | "credentialLabelLogin"
         | "credentialRemoveLogin"
         | "donnaTaskProposals"
+        | "undoAccessGrant"
         | "donnaTimes"
         | crate::fork::pedidos_time::METHOD
         | crate::fork::browser::METHOD

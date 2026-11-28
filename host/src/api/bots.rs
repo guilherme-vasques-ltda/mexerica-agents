@@ -195,6 +195,7 @@ pub(super) async fn call(
             serde_json::to_value(hub.store.team_settings()?)?
         }
         "undoTeamChange" => crate::chat::manage::undo(hub, str_arg(&b, "entryId")?).await?,
+        "undoAccessGrant" => crate::fork::open_access::undo(hub, caller, &b)?,
         "createBot" => {
             let owner = crate::fork::autoridade::Autoridade::capturar(hub, caller)?;
             crate::fork_avatars::validate_patch(&b)?;

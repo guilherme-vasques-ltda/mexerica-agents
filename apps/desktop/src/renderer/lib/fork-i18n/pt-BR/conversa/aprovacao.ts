@@ -83,4 +83,12 @@ export const textos = {
   "conversa.aprovacao.tela.permitidoAgora": "Permitido agora",
   "conversa.aprovacao.tela.agoraNesteTurno": "Você permitiu Agora neste turno.",
   "conversa.aprovacao.tela.encerrarAgora": "Encerrar Agora",
+  "conversa.aprovacao.acesso.computador": "Os comandos rodam como você neste computador, com as suas permissões.",
+  "conversa.aprovacao.acesso.navegador": "O bot passa a usar o navegador deste computador.",
+  "conversa.aprovacao.acesso.pasta": "O bot passa a trabalhar nesta pasta:",
+  "conversa.aprovacao.acesso.desfazer": "Desfazer",
+  "conversa.aprovacao.acesso.permitir": "Permitir até desfazer",
+  "conversa.aprovacao.acesso.permitido": "Permitido até desfazer",
+  "conversa.aprovacao.acesso.naoConcedido": "Acesso não concedido",
+  "conversa.aprovacao.acesso.desfeito": "Acesso desfeito.",
 } as const

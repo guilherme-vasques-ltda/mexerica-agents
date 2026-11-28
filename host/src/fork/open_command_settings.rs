@@ -42,6 +42,28 @@ pub(crate) fn project(hub: &Hub, cfg: &BotConfig) -> Option<bool> {
     supported(cfg).then(|| revision(&hub.store.db.locked(), &cfg.id).is_ok_and(|r| r.is_some()))
 }
 
+/// Liga ou desliga o comando local na transação recebida e devolve o estado anterior.
+pub(super) fn set(db: &Connection, bot: &str, enabled: bool) -> Result<bool> {
+    ensure!(
+        Store::bot_on(db, bot)?.is_some_and(|row| !row.deleted && supported(&row.config)),
+        "open_tools_command_unavailable"
+    );
+    let before = revision(db, bot)?.is_some();
+    if enabled != before {
+        let rev = crate::store::next_rev(db)?;
+        if enabled {
+            db.execute(
+                "INSERT INTO kv(k,v) VALUES(?1,?2) ON CONFLICT(k) DO UPDATE SET v=excluded.v",
+                params![format!("local_commands.{bot}"), rev.to_string()],
+            )?;
+        } else {
+            on_bot_deleted(db, bot)?;
+        }
+        db.execute("UPDATE bots SET rev=?2 WHERE id=?1", params![bot, rev])?;
+    }
+    Ok(before)
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Change {
@@ -54,26 +76,7 @@ pub(crate) fn update(hub: &Hub, caller: &Caller, body: Value) -> Result<Value> {
     let request: Change = serde_json::from_value(body).context("open_tools_invalid_command_setting")?;
     let owner = crate::fork::autoridade::Autoridade::capturar(hub, caller)?;
     let _emit = hub.emit_lock.locked();
-    owner.with_db(hub, None, |db| {
-        ensure!(
-            Store::bot_on(db, &request.id)?.is_some_and(|row| !row.deleted && supported(&row.config)),
-            "open_tools_command_unavailable"
-        );
-        let current = revision(db, &request.id)?;
-        if request.local_commands_enabled != current.is_some() {
-            let rev = crate::store::next_rev(db)?;
-            if request.local_commands_enabled {
-                db.execute(
-                    "INSERT INTO kv(k,v) VALUES(?1,?2) ON CONFLICT(k) DO UPDATE SET v=excluded.v",
-                    params![format!("local_commands.{}", request.id), rev.to_string()],
-                )?;
-            } else {
-                on_bot_deleted(db, &request.id)?;
-            }
-            db.execute("UPDATE bots SET rev=?2 WHERE id=?1", params![request.id, rev])?;
-        }
-        Ok(())
-    })?;
+    owner.with_db(hub, None, |db| set(db, &request.id, request.local_commands_enabled).map(drop))?;
     let row = hub.store.bot(&request.id)?.filter(|row| !row.deleted).context("open_tools_command_unavailable")?;
     let bot = hub.bot_json(&row);
     let _ = hub.events.send(json!({"type":"bot","rev":bot["rev"],"bot":bot}));
