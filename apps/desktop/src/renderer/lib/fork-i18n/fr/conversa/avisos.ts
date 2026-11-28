@@ -82,7 +82,7 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.avisos.open.longa": "La réponse a dépassé la longueur maximale et a été arrêtée.",
   "conversa.avisos.open.politica": "Le moteur n’a pas confirmé l’isolation requise. Réponse annulée.",
   "conversa.avisos.open.indisponivel": "Impossible d’ouvrir Codex dans le profil Open. Vérifiez le compte dans Comptes d’IA.",
-  "conversa.avisos.open.falhou": "Codex n’a pas pu répondre pour le moment. Réessayez.",
+  "conversa.avisos.open.falhou": "Codex n’a pas pu répondre. Si vous avez demandé une action, vérifiez si elle a été effectuée avant de renvoyer la demande.",
   "conversa.avisos.grupo.bloqueado": "Le Hub n’a pas pu vérifier les messages en attente de ce groupe au redémarrage. Le groupe reste bloqué et rien n’a été renvoyé. Redémarrez le Hub après avoir corrigé le problème.",
   "conversa.avisos.grupo.emConferencia": "Le Hub a redémarré avant de confirmer la livraison de ce message au groupe. Il a peut-être déjà atteint une partie des membres et n’a pas été repris ; vérifiez avant de le renvoyer.",
   "conversa.avisos.falha.cabecalho.naoSei": "Compte : non confirmé",

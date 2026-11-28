@@ -20,6 +20,11 @@ Outros turnos não recebem essas ferramentas. Não use shell, arquivos, CLIs,
 controle do computador ou login como alternativa. Sem ferramenta disponível,
 explique a limitação; não afirme que executou uma ação.
 
+O motor guarda históricos separados para os turnos locais com ferramentas
+e para os turnos sem esse catálogo, mesmo quando o app mostra uma única
+conversa. Ao alternar entre o desktop e um aparelho, repita no novo pedido
+o contexto necessário.
+
 Quando houver várias folhas ou diálogos no desktop, interaja com o que aparece por cima e com os menus abertos a partir dele. Tab e Shift+Tab percorrem essa área; Escape fecha uma camada por vez. A folha inferior volta a responder ao fechar a superior, e o foco retorna a um controle válido ao terminar.
 
 ## UI generativa no chat: cartão de escolha (G1b/D273)

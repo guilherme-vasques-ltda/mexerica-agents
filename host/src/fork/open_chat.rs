@@ -710,7 +710,7 @@ fn notice(message: &str) -> (&'static str, &'static str) {
         "open_codex_unavailable" | "open_codex_platform" => {
             "Não deu para abrir o Codex no perfil da Open. Confira a conta em Contas de IA."
         }
-        _ => "O Codex não conseguiu responder agora. Tente de novo.",
+        _ => "O Codex não conseguiu responder. Se você pediu uma ação, confira se ela aconteceu antes de reenviar.",
     };
     (code, text)
 }

@@ -82,7 +82,7 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.avisos.open.longa": "回复超出最大长度，已停止。",
   "conversa.avisos.open.politica": "引擎未确认所需的隔离设置。回复已取消。",
   "conversa.avisos.open.indisponivel": "无法在 Open 配置中打开 Codex。请在 AI 账号中检查账号。",
-  "conversa.avisos.open.falhou": "Codex 暂时无法回复。请重试。",
+  "conversa.avisos.open.falhou": "Codex 未能回复。如果你请求执行某项操作，请先确认该操作是否已完成，再重新发送请求。",
   "conversa.avisos.grupo.bloqueado": "Hub 重启时无法核对此群组的待发消息。该群组保持锁定，没有重新发送任何内容。请在修复问题后重启 Hub。",
   "conversa.avisos.grupo.emConferencia": "Hub 在确认此消息送达群组之前重启了。消息可能已送达部分成员，且未继续发送；请先确认再重新发送。",
   "conversa.avisos.falha.cabecalho.naoSei": "账户：无法确认",
