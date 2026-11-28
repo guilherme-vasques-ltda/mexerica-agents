@@ -1,0 +1,53 @@
+{
+  "id": "trello",
+  "nome": "Trello",
+  "categoria": "Projetos",
+  "descricao": "Consulte quadros, listas e cartões do Trello sem alterar o conteúdo.",
+  "exemplos": [
+    "Liste os cartões de um quadro"
+  ],
+  "site": "https://trello.com",
+  "docs": "https://github.com/atlassian/trello-mcp-server",
+  "links": {
+    "privacidade": "https://www.atlassian.com/legal/privacy-policy",
+    "termos": "https://www.atlassian.com/legal/cloud-terms-of-service"
+  },
+  "conferidaEm": "2026-11-27",
+  "fontes": [
+    "https://github.com/atlassian/trello-mcp-server",
+    "https://mcp.trello.com/.well-known/oauth-protected-resource/v1",
+    "https://github.com/atlassian/trello-mcp-server/blob/main/skills/trello-use/SKILL.md"
+  ],
+  "tipos": [
+    {
+      "id": "trello.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "Trello",
+      "url": "https://mcp.trello.com/v1",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "ler",
+          "rotulo": "Consultar quadros",
+          "escopos": [
+            "read:board:trello"
+          ],
+          "ferramentas": [
+            "trelloReadBoard",
+            "trelloReadList",
+            "trelloReadCard"
+          ],
+          "padrao": true,
+          "disponivel": true,
+          "imposicao": "escopo"
+        }
+      ],
+      "recomendado": true,
+      "disponivel": true
+    }
+  ]
+}

@@ -1,5 +1,14 @@
 // Marketplace de conectores (fatia 1b): Extensões → Conectores e Contas no bot. Chaves completas; docs/guides/idiomas.md.
 export const textos = {
+  "mercado.appProprio.titulo": "Seu app OAuth",
+  "mercado.appProprio.salvar": "Salvar app no cofre",
+  "mercado.appProprio.editar": "Configurar app",
+  "mercado.appProprio.portal": "Abrir configuração do fornecedor",
+  "mercado.appProprio.redirect": "Cadastre estes endereços de retorno no fornecedor antes de salvar.",
+  "mercado.appProprio.aviso": "Trocar ou remover o app encerra o login das contas deste tipo neste Space.",
+  "mercado.appProprio.remover": "Remover app",
+  "mercado.appProprio.erro": "Não foi possível confirmar a alteração do app OAuth.",
+  "mercado.appProprio.indisponivel": "Abra o cofre e recarregue a ficha para configurar o app OAuth.",
   "mercado.tab.rotulo": "Seções de Conectores",
   "mercado.tab.catalogo": "Catálogo",
   "mercado.tab.contas": "Minhas contas",

@@ -68,6 +68,24 @@ Rode só a verificação da parte que você mudou:
 - **Testes:** cubra as fronteiras de segurança e o fluxo alterado; não enfraqueça nem apague teste
   para fazê-lo passar.
 
+## Verificação
+
+Antes de dizer que uma mudança funciona, siga o [roteiro de verificação](docs/verification/README.md),
+sempre num ambiente isolado. Nunca verifique contra o Hub instalado nem dados reais.
+
+## Comentários
+
+Comentário só para o que o código não diz:
+
+- aviso de licença ou de atribuição;
+- comportamento de fornecedor, sistema, protocolo ou ferramenta de fora, com a versão quando houver;
+- documentação de contrato público (API do Hub, IPC do app, campos de configuração);
+- risco de segurança ou garantia que não pode quebrar.
+
+Nada de contar o que a próxima linha faz, histórico («antes era», «não mais»), número de PR ou
+de issue, nome de fatia ou de plano, nem código comentado: o git guarda isso. Se o código precisa
+de um parágrafo para se explicar, mude o código (um nome melhor, um tipo, uma função).
+
 ## Segurança
 
 - **Fail-closed:** sem autoridade ou prova, o código nega em vez de presumir. Ausência de sinal

@@ -3,6 +3,7 @@ import type { SpeechEvent } from '@shared/ipc'
 import { stopDictation } from '../thread/dictation'
 import type { Leitor } from '../fork/voz/leitores'
 import { pediuEncerramento, pediuSilencio } from '../fork/voz/encerrar'
+import { limparRuidoDeDitado } from '../fork/voz/limpar-ruido'
 import { onDeviceUnavailableReason, spokenText, VoiceEngine, VoiceSettings, type VoiceProvider } from './voice'
 
 /**
@@ -187,7 +188,7 @@ export class OnDeviceEngine extends VoiceEngine {
 
   private submit() {
     if (this.ended) return
-    const text = this.heard.trim()
+    const text = limparRuidoDeDitado(this.heard)
     this.stopListening()
     if (pediuEncerramento(text, VoiceSettings.language() || navigator.language)) {
       this.onClosing?.()

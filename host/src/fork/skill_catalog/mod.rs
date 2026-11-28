@@ -9,6 +9,9 @@ mod entrega;
 #[cfg(test)]
 mod entrega_tests;
 mod installation;
+mod internas;
+#[cfg(test)]
+mod internas_tests;
 #[cfg(test)]
 mod manual_revision_tests;
 #[cfg(test)]
@@ -366,7 +369,8 @@ fn list_locked(store: &Store) -> Result<Value> {
         }
         items.push(item);
     }
-    Ok(json!({"skillProtocol":PROTOCOL,"items":items}))
+    let internas = internas::listar(crate::environment::Environment::is_open())?;
+    Ok(json!({"skillProtocol":PROTOCOL,"items":items,"internas":internas}))
 }
 
 fn bounded_read(path: &Path, max: usize) -> Result<String> {

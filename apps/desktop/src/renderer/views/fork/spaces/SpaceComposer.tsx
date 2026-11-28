@@ -51,7 +51,7 @@ export function SpaceComposer({ context }: { context: SpaceContext }) {
           if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) { e.preventDefault(); void send() }
         }} />
       <button ref={button} type="submit" className="space-composer-send" title={t('spaces.compose.enviar')} aria-label={t('spaces.compose.enviar')}
-        disabled={busy || !context.canSend || !text.trim()}><Icon name="arrow.up" size={18} /></button>
+        disabled={busy || !context.canSend || !text.trim()}><Icon name="mx-enviar" size={16} /></button>
     </form>
   </div>
 }

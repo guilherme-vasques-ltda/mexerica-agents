@@ -2,7 +2,7 @@
   "id": "atlassian",
   "nome": "Atlassian (Jira e Confluence)",
   "categoria": "Projetos",
-  "descricao": "Jira e Confluence: lê issues, espaços e páginas e cria, edita, transiciona e apaga itens de trabalho e conteúdo.",
+  "descricao": "Jira e Confluence: leia issues, quadros, espaços e páginas do seu time, sem alterar nada.",
   "exemplos": [
     "Quais tarefas do Jira estão atrasadas neste sprint?",
     "Resuma a página do Confluence sobre o lançamento"
@@ -13,12 +13,15 @@
     "privacidade": "https://www.atlassian.com/legal/privacy-policy",
     "termos": "https://www.atlassian.com/legal/cloud-terms-of-service"
   },
-  "conferidaEm": "2026-11-18",
+  "conferidaEm": "2026-11-27",
   "fontes": [
-    "https://support.atlassian.com/atlassian-ai-gateway/docs/use-atlassian-mcp-server/",
-    "https://auth.atlassian.com/VCeDsk8ZHncYF1g234fKtc4lNipbBhu3/dcr/register",
+    "https://support.atlassian.com/atlassian-ai-gateway/docs/configure-oauth-2-1/",
+    "https://support.atlassian.com/atlassian-ai-gateway/docs/supported-tools/",
+    "https://support.atlassian.com/atlassian-ai-gateway/docs/get-started-with-the-atlassian-remote-mcp-server/",
+    "https://mcp.atlassian.com/.well-known/oauth-protected-resource/v2/mcp",
     "https://auth.atlassian.com/.well-known/oauth-authorization-server/VCeDsk8ZHncYF1g234fKtc4lNipbBhu3"
   ],
+  "aviso": "As chamadas ao MCP do Atlassian consomem créditos Rovo do site.",
   "tipos": [
     {
       "id": "atlassian.oficial_oauth",
@@ -41,18 +44,17 @@
             "search:jira:agent-interface",
             "read:confluence:agent-interface",
             "search:confluence:agent-interface",
-            "read:jsm:agent-interface"
+            "offline_access"
           ],
           "padrao": true,
-          "disponivel": false
+          "disponivel": true,
+          "imposicao": "escopo"
         }
       ],
       "recomendado": true,
-      "disponivel": false,
-      "motivoIndisponivel": "O Atlassian (Jira e Confluence) não oferece um modo só de leitura; entra depois do filtro de ações perigosas."
+      "disponivel": true
     }
   ],
-  "emBreve": "O fornecedor não impõe leitura: entra depois do filtro de ações perigosas.",
   "skillsOficiais": [
     {
       "url": "https://github.com/atlassian/forge-skills",

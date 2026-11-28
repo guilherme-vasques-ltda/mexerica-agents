@@ -112,12 +112,19 @@ pub(crate) fn with_idle_account<T>(account: &str, effect: impl FnOnce() -> Resul
 
 /// Recusas que não dependem de haver resposta em curso, antes de gravar a mensagem: resposta em curso não recusa, a
 /// mensagem espera na fila (`fork::open_chat_fila`).
-pub(crate) fn precheck(hub: &Arc<Hub>, cfg: &BotConfig) -> Result<()> {
+pub(crate) fn precheck(hub: &Arc<Hub>, cfg: &BotConfig, text: &str) -> Result<()> {
     ensure!(crate::environment::Environment::is_open(), "open_chat_unavailable");
-    ensure!(!cfg.is_group(), "open_chat_unavailable");
-    let (account, _, _) = account_profile(hub, cfg)?;
     ensure!(!CLOSING.locked().iter().any(|h| h.ptr_eq(&Arc::downgrade(hub))), "open_chat_unavailable");
-    ensure!(!crate::fork::engine_setup::in_setup(&hub.store, &account), "open_chat_reconnecting");
+    check_members(hub, cfg, text)
+}
+
+/// A conta de cada bot que vai responder: o próprio bot ou, num canal, o citado ou o líder.
+pub(crate) fn check_members(hub: &Arc<Hub>, cfg: &BotConfig, text: &str) -> Result<()> {
+    let members = if cfg.is_group() { crate::fork::open_canal::responders(hub, cfg, text)? } else { vec![cfg.clone()] };
+    for member in &members {
+        let (account, _, _) = account_profile(hub, member)?;
+        ensure!(!crate::fork::engine_setup::in_setup(&hub.store, &account), "open_chat_reconnecting");
+    }
     Ok(())
 }
 
@@ -259,6 +266,12 @@ pub(crate) async fn shutdown(hub: &Arc<Hub>) {
 /// prefixo da conversa continua o mesmo que a exclusão do bot apaga.
 fn thread_key(lane: &Lane, account: &str) -> String {
     format!("open_chat.thread.{}.{}.{}", lane.chat, account, lane.session.as_deref().unwrap_or("main"))
+}
+
+/// Num canal a thread é por membro: dois membros na mesma conta não dividem o histórico do Codex.
+fn member_thread_key(lane: &Lane, account: &str, bot: &str) -> String {
+    let key = thread_key(lane, account);
+    if bot == lane.chat { key } else { format!("{key}.{bot}") }
 }
 
 /// Marca a mensagem que o Codex nunca aceitou: a Open não tem fila de despacho, então a entrada não pode ficar
@@ -425,7 +438,7 @@ async fn turn_in_profile(
         _ = cancel.wait_for(|stop| *stop) => bail!("open_chat_cancelled"),
     };
     let bot = reply.bot.clone();
-    let key = thread_key(lane, account);
+    let key = member_thread_key(lane, account, &bot);
     let key = if tools.is_some() { format!("{key}.hub-v2") } else { key };
     let saved = hub.store.kv_read(&key)?;
     // Com a reserva viva a exclusão é recusada pelo fence: o que chega aqui só sai por cancelamento (stop/shutdown)

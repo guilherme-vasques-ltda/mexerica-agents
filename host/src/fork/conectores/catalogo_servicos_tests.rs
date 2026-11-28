@@ -80,6 +80,7 @@ fn o_catalogo_nao_tem_segredo_nem_duplicata_e_as_fichas_tem_fonte_oficial() {
 const CONECTAVEIS: &[&str] = &[
     "linear",
     "context7",
+    "exa",
     "neon",
     "wispr-flow",
     "github",
@@ -88,6 +89,25 @@ const CONECTAVEIS: &[&str] = &[
     "coderabbit",
     "posthog",
     "revenuecat",
+    "supabase",
+    "todoist",
+    "clickup",
+    "render",
+    "airtable",
+    "atlassian",
+    "notion",
+    "resend",
+    "stripe",
+    "tally",
+    "tinyfish",
+    "tavily",
+    "apify",
+    "heygen",
+    "trello",
+    "wrike",
+    "agentmail",
+    "bright-data",
+    "prisma",
 ];
 
 /// Id da ficha do dono A, lido do próprio arquivo JSON (nenhum nome de produto fora dele).
@@ -102,6 +122,7 @@ fn so_conectam_as_fichas_listadas() {
     esperadas.extend(CONECTAVEIS.iter().map(|s| (*s).to_owned()));
     // O Google direto (app OAuth da própria pessoa) vem depois das fichas em JSON; a leitura é imposta pelo escopo.
     esperadas.extend(GOOGLE.iter().map(|s| (*s).to_owned()));
+    esperadas.extend(GOOGLE_NOVOS.iter().map(|(id, ..)| (*id).to_owned()));
     assert_eq!(conectaveis, esperadas, "ficha nova só conecta de propósito: inclua o id em CONECTAVEIS");
     for id in ["outlook", "slack", "instagram"] {
         let ficha = servico(id).unwrap();
@@ -352,7 +373,7 @@ fn todo_arquivo_de_fichas_esta_na_lista_e_e_valido() {
         ler(&conteudo).unwrap_or_else(|e| panic!("{}: {e}", caminho.display()));
     }
     assert_eq!(arquivos, FICHAS.len());
-    let google = servicos().iter().filter(|s| s.site == "https://workspace.google.com").count();
+    let google = super::catalogo_google::FICHAS.len();
     assert_eq!(servicos().len(), FICHAS.len() + google, "alguma ficha foi recusada ao carregar (veja o log)");
 }
 
@@ -437,7 +458,9 @@ fn as_cinco_fichas_do_google_usam_o_app_da_pessoa_e_so_pedem_escopos_do_proprio_
         assert_eq!(tipo.escopos_efetivos(&padroes), anterior.escopos_efetivos(&padroes));
         assert_eq!(tipo.tipo, Tipo::OficialApp);
         assert_eq!(tipo.mantido_por, "Google");
-        let Auth::AppProprio { provedor, emissor, guia } = &tipo.auth else { panic!("{id}: app próprio") };
+        let Auth::AppProprio { provedor, emissor, guia, configuracao: None } = &tipo.auth else {
+            panic!("{id}: app próprio")
+        };
         assert_eq!((*provedor, *emissor), ("google", "https://accounts.google.com"));
         let passos: Vec<_> = guia.iter().map(|p| p.id).collect();
         assert_eq!(passos, ["projeto", "apis", "tela_login", "escopos", "cliente", "campos"]);
@@ -502,6 +525,51 @@ fn escrita_que_pode_apagar_fica_indisponivel_ate_o_filtro_de_acoes_perigosas() {
         let tipo = servico(id).unwrap().tipos.first().unwrap();
         assert!(!tipo.grupos.iter().find(|g| g.id == grupo).unwrap().disponivel, "{id}/{grupo}");
         assert!(tipo.liberacoes_validas(Some(&[grupo.to_owned()])).is_err(), "{id}/{grupo} não liga");
+    }
+}
+
+const GOOGLE_NOVOS: &[(&str, &str, &str, &[&str])] = &[
+    ("google-contatos", "https://people.googleapis.com/mcp/v1", "contacts.readonly", &["search_contacts"]),
+    (
+        "google-slides",
+        "https://slidesmcp.googleapis.com/mcp/v1self",
+        "presentations.readonly",
+        &["read_presentation", "read_slide_page", "read_slide_page_thumbnail"],
+    ),
+    (
+        "google-analytics",
+        "https://analyticsdata.googleapis.com/mcp/v1",
+        "analytics.readonly",
+        &["run_report", "get_metadata", "run_realtime_report", "check_compatibility"],
+    ),
+    (
+        "google-tarefas",
+        "https://tasksmcp.googleapis.com/mcp/v1self",
+        "tasks.readonly",
+        &["list_task_lists", "list_tasks", "get_task"],
+    ),
+];
+
+#[test]
+fn novos_servicos_google_restringem_endereco_escopo_e_ferramentas() {
+    for &(id, url, escopo, ferramentas) in GOOGLE_NOVOS {
+        let ficha = servico(id).unwrap();
+        assert!(ficha.conectavel(), "{id}");
+        let [tipo] = ficha.tipos else { panic!("{id}: um tipo oficial") };
+        assert_eq!(tipo.url, url, "{id}");
+        assert!(matches!(
+            tipo.auth,
+            Auth::AppProprio { provedor: "google", emissor: "https://accounts.google.com", .. }
+        ));
+        let liberacoes = tipo.liberacoes_validas(None).unwrap();
+        assert_eq!(liberacoes, ["ler"]);
+        assert_eq!(tipo.escopos_efetivos(&liberacoes), [format!("https://www.googleapis.com/auth/{escopo}")]);
+        assert_eq!(
+            tipo.ferramentas_permitidas(&liberacoes).unwrap(),
+            ferramentas.iter().copied().collect::<std::collections::BTreeSet<_>>()
+        );
+        assert!(tipo.grupos.iter().all(|g| g.curadas.is_empty()));
+        assert!(tipo.liberacoes_validas(Some(&["editar".to_owned()])).is_err());
     }
 }
 

@@ -44,7 +44,11 @@ module.exports = {
     identity: null,
     hardenedRuntime: false,
     notarize: false,
-    extendInfo: { CFBundleName: open.name },
+    extendInfo: {
+      CFBundleName: open.name,
+      NSMicrophoneUsageDescription: 'Talk to your bots in a voice call or dictate a message.',
+      NSSpeechRecognitionUsageDescription: 'Transcribe your speech on this Mac.',
+    },
     extraResources: [{ from: 'build/native/codync-speech', to: 'codync-speech' }],
   },
 }
