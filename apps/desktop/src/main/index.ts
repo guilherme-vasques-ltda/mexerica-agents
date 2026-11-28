@@ -9,7 +9,7 @@ import { pathToFileURL } from 'node:url'
 import { app, autoUpdater, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, safeStorage, session, shell, type IpcMainInvokeEvent, type WebContents } from 'electron'
 import type { HostSnapshot, WindowCommand } from '../shared/ipc'
 import { createAppIconController, registerAppIconIPC } from './fork-app-icon-controller'
-import { dataDir, devPort, HostController, port, prefs, privateHubOrigin } from './host-controller'
+import { dataDir, devPort, HostController, port, prefs } from './host-controller'
 import { registerFileSaves } from './file-saves'
 import { cancelHostStreams, registerHostProxy } from './host-proxy'
 import { registerProtocol as registerMexeriquinhaProtocol, registerScheme as registerMexeriquinhaScheme } from './fork-mexeriquinha-protocol'
@@ -28,6 +28,7 @@ import { registerCloud } from './cloud'
 import { registerForkCloud } from './fork-cloud/register'
 import { registerForkCloudService } from './fork-cloud/service'
 import { bundledMacLocalHub, forkFeatures, officialDesktop } from '../shared/fork-features'
+import { privateHubOrigin } from '../shared/fork-mac-local-hub'
 import { requireOfficialSession } from './fork-official-ipc'
 import { itensMenuApp, painelSobre } from '../shared/fork-menu-app'
 import { nomeVisivel } from '../shared/fork-nome-visivel'
@@ -388,7 +389,9 @@ if (yieldsToInstall()) {
     const stopping = host.prepareForQuit()
     if (!active) return
     event.preventDefault()
-    void stopping.then(() => app.quit(), () => {})
+    void stopping.then(() => app.quit(), () => {
+      dialog.showErrorBox(app.getName(), traduzir(idiomaDoApp(), 'navegacao.janela.hub.falhaAoParar'))
+    })
   })
   registerWindowNavigation(urlDoChat, () => !officialDesktop || account.officialSessionCurrent())
   registerSchemes(keepDockHiddenAfterLink)

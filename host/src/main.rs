@@ -332,6 +332,9 @@ enum Sub {
         /// nem toca em `~/.claude`. Sem `--nivel` vale o comportamento herdado.
         #[arg(long, value_parser = clap::value_parser!(u8).range(1..=2))]
         nivel: Option<u8>,
+        /// Mac: limpa apenas arquivos regeneráveis do Hub supervisionado pelo app, sem tocar em serviços.
+        #[arg(long, requires = "nivel", conflicts_with = "remover_usuario_motor")]
+        desktop_socket: bool,
     },
     /// Stop the background service, keeping its configuration and all data.
     Stop,
@@ -846,7 +849,17 @@ async fn main() -> Result<()> {
             println!("Mexerica host stopped.");
             Ok(())
         }
-        Sub::Uninstall { remover_usuario_motor, nivel } => {
+        Sub::Uninstall { remover_usuario_motor, nivel, desktop_socket } => {
+            if desktop_socket {
+                anyhow::ensure!(
+                    cfg!(target_os = "macos") && nivel == Some(2),
+                    "limpeza do Hub privado exige macOS e nível 2"
+                );
+                anyhow::ensure!(std::env::var_os("MEXERICA_HOME").is_some(), "diretório do Hub privado não informado");
+                let removed = service::mac_local::remove_regenerable(&service::data_dir())?;
+                tracing::info!(removed = removed.len(), "regenerable logs and caches removed");
+                return Ok(());
+            }
             if cfg!(target_os = "linux") {
                 return fork::linux_installer::uninstall(remover_usuario_motor);
             }
@@ -1010,6 +1023,11 @@ async fn serve(
             let (store, identity, installation) = prepared.open_store()?;
             (opened_store(store)?, Some(identity), Some(installation))
         }
+        None if desktop_socket => (
+            open_store().context("opening the local desktop Hub store; personal installations are not migrated")?,
+            None,
+            None,
+        ),
         None => (open_store()?, None, None),
     };
     let (store, host_id, token) = opened;
@@ -1586,6 +1604,11 @@ mod mac_local_cli_tests {
         assert!(!touches_claude_settings(nivel(&["--nivel", "1"])));
         assert!(!touches_claude_settings(nivel(&["--nivel", "2"])));
         assert!(Cli::try_parse_from(["donnabot-host", "uninstall", "--nivel", "3"]).is_err());
+        assert!(Cli::try_parse_from(["donnabot-host", "uninstall", "--desktop-socket"]).is_err());
+        assert!(matches!(
+            Cli::try_parse_from(["donnabot-host", "uninstall", "--desktop-socket", "--nivel", "2"]).unwrap().cmd,
+            Some(Sub::Uninstall { desktop_socket: true, nivel: Some(2), .. })
+        ));
     }
 }
 

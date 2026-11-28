@@ -147,7 +147,11 @@ export function registerOpenHub(profile: string, temp: string, chatURL: string, 
     closing = true
     if (!lifetime) return
     event.preventDefault()
-    void stop(lifetime).then(() => app.quit(), () => {})
+    void stop(lifetime).then(() => app.quit(), () => {
+      closing = false
+      const idioma = sugerirIdioma(app.getPreferredSystemLanguages()) ?? FALLBACK_LANGUAGE
+      dialog.showErrorBox(app.getName(), traduzir(idioma, 'navegacao.janela.hub.falhaAoParar'))
+    })
   })
   void start()
 }

@@ -360,7 +360,7 @@ async fn route(
         let callback = match (caller, desktop) {
             (Caller::Local, Some(port)) => market::oauth::Callback::Desktop(port),
             (Caller::Local, None) if hub.desktop_socket.get().is_some() => {
-                anyhow::bail!(crate::fork::conectores::oauth_desktop::RECUSA);
+                anyhow::bail!("O Hub local precisa da porta de retorno do app para iniciar o login.");
             }
             (Caller::Local, None) => market::oauth::Callback::Host,
             (_, None) => market::oauth::Callback::App,

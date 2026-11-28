@@ -59,7 +59,10 @@ export function launchPrivateHub(options: {
   let stopping: Promise<void> | undefined
   const stop = () => {
     controller.abort()
-    return stopping ??= child.stop().then(cleanup)
+    return stopping ??= child.stop().then(cleanup).catch((error: unknown) => {
+      stopping = undefined
+      throw error
+    })
   }
   void child.exited.then(() => controller.abort())
   const ready = (async () => {

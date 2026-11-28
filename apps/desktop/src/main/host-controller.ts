@@ -2,7 +2,7 @@
 import { execFile, execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { EventEmitter } from 'node:events'
-import { existsSync, mkdirSync, promises as fs, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, promises as fs, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { homedir, platform, tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import { app } from 'electron'
@@ -11,7 +11,7 @@ import { unregisterScreenAgent } from './screen'
 import { identity, isRc, localIdentity, hostDataDir } from './environment'
 import { hostEnvironmentError, isCodyncDataDir, isCodyncPort } from '../shared/environment'
 import { bundledMacLocalHub, forkFeatures, officialDesktop } from '../shared/fork-features'
-import { launchdServiceAbsent, localHostOff as localHostOffFor, macPlistValid, uninstallArgs, type UninstallLevel } from '../shared/fork-mac-local-hub'
+import { launchdServiceAbsent, localHostOff as localHostOffFor, macPlistValid, privateHubOrigin, uninstallArgs, type UninstallLevel } from '../shared/fork-mac-local-hub'
 import { envAlias } from '../shared/env-alias'
 import { localHealth, provarIdentidade } from './fork-local-health'
 import { postProvado } from './fork-proved-loopback'
@@ -30,7 +30,6 @@ if (isCodyncPort(port) || isCodyncDataDir(homedir(), resolve(dataDir))) {
   throw new Error(`${identity.name} requires its own host port and data directory, not Codync's.`)
 }
 export const baseURL = `http://127.0.0.1:${port}`
-export const privateHubOrigin = 'http://mexerica-local.example.invalid'
 const usesPrivateHub = () => bundledMacLocalHub && !isRc && !officialDesktop && app.isPackaged && isMac && devPort === null
 /**
  * Sem host neste computador (estado `disabled`; o serviço `app.donnabot.host` não é criado). Só a
@@ -44,10 +43,10 @@ const localHostOff = () => isRc || (
 /** Modo "Neste Mac" ativo: o serviço só vale com o plist do modo só-loopback (`--bind 127.0.0.1 --only-this-mac`). */
 const macLocalMode = () => !bundledMacLocalHub && forkFeatures.macLocalHub && platform() === 'darwin' && prefs.get('hubLocation') === 'mac' && devPort === null
 
-export function run(bin: string, args: string[]): Promise<{ status: number; output: string }> {
+export function run(bin: string, args: string[], env?: NodeJS.ProcessEnv): Promise<{ status: number; output: string }> {
   return new Promise((resolve) => {
     // A command that never finishes would leave the window on "Starting the host…" for good.
-    execFile(bin, args, { maxBuffer: 8 * 1024 * 1024, windowsHide: true, timeout: 120_000 }, (error, stdout, stderr) => {
+    execFile(bin, args, { env, maxBuffer: 8 * 1024 * 1024, windowsHide: true, timeout: 120_000 }, (error, stdout, stderr) => {
       const status = error ? (typeof error.code === 'number' ? error.code : 1) : 0
       resolve({ status, output: `${stdout}${stderr}`.trim() || (error?.killed ? `donnabot-host ${args[0]} didn't finish within 2 minutes.` : '') })
     })
@@ -76,6 +75,32 @@ function serviceDefinition(): string | null {
 
 const launchAgent = () => join(homedir(), `Library/LaunchAgents/${localIdentity.hostLabel}.plist`)
 const serviceInstalled = () => serviceDefinition() !== null
+
+class PrivateHubServiceError extends Error {
+  constructor(readonly reason: 'servicoExistente' | 'servicoIncerto') { super(reason) }
+}
+
+async function requirePrivateHubServiceAbsent() {
+  const uid = process.getuid?.()
+  if (uid === undefined) throw new PrivateHubServiceError('servicoIncerto')
+  const probe = await run('/bin/launchctl', ['print', `gui/${uid}/${localIdentity.hostLabel}`])
+  if (probe.status === 0) throw new PrivateHubServiceError('servicoExistente')
+  if (probe.status !== 113) throw new PrivateHubServiceError('servicoIncerto')
+  try {
+    lstatSync(launchAgent())
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+    throw new PrivateHubServiceError('servicoIncerto')
+  }
+  throw new PrivateHubServiceError('servicoExistente')
+}
+
+function privateHubEnvironment(home: string, temp: string): NodeJS.ProcessEnv {
+  return {
+    HOME: home, TMPDIR: temp, PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin',
+    MEXERICA_HOME: dataDir,
+  }
+}
 
 /**
  * D76: tira o LaunchAgent do host deixado por um build anterior, pelo label e sem o binário (o app
@@ -152,8 +177,10 @@ export class HostController extends EventEmitter {
     return this.canUseHost() && local?.socketPath !== undefined && !local.signal.aborted ? local : null
   }
 
-  private privateHubFailed() {
-    this.setState({ kind: 'failed', message: traduzir(idiomaDoApp(), 'navegacao.janela.hub.parado') })
+  private privateHubFailed(error?: unknown) {
+    const reason = error instanceof PrivateHubServiceError ? error.reason : 'parado'
+    if (reason !== 'parado') console.error(`host: private Hub blocked (${localIdentity.hostLabel}): ${reason}`)
+    this.setState({ kind: 'failed', message: traduzir(idiomaDoApp(), `navegacao.janela.hub.${reason}`) })
   }
 
   private async stopPrivateHub() {
@@ -180,24 +207,21 @@ export class HostController extends EventEmitter {
   }
 
   private async startPrivateHub() {
-    if (this.privateHub || this.installing || this.quitting || this.preparingForUpdate || !this.canUseHost()) return
+    if (this.privateHub || this.installing || this.quitting || this.preparingForUpdate || this.uninstalled() || !this.canUseHost()) return
     this.installing = true
     this.setState({ kind: 'starting' })
     let hub: ReturnType<typeof launchPrivateHub> | null = null
     try {
-      await removeLaunchAgent()
       const { launchPrivateHub } = await import('./fork-private-hub')
-      if (this.quitting || this.preparingForUpdate || !this.canUseHost() || prefs.get('hubLocation') !== 'mac') return
+      await requirePrivateHubServiceAbsent()
+      if (this.quitting || this.preparingForUpdate || this.uninstalled() || !this.canUseHost() || prefs.get('hubLocation') !== 'mac') return
       const home = homedir()
       const temp = realpathSync(tmpdir())
       hub = this.privateHub = launchPrivateHub({
         executable: 'donnabot-host', environment: localIdentity.environment, dataDir, temp, cwd: home,
         command: (socket) => ({
           args: ['serve', '--bind', '127.0.0.1', '--port', String(port), '--only-this-mac', '--desktop-socket'],
-          env: {
-            HOME: home, TMPDIR: temp, PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin',
-            MEXERICA_HOME: dataDir, MEXERICA_DESKTOP_SOCKET: socket,
-          },
+          env: { ...privateHubEnvironment(home, temp), MEXERICA_DESKTOP_SOCKET: socket },
         }),
       })
       const launched = hub
@@ -211,9 +235,9 @@ export class HostController extends EventEmitter {
         await this.stopPrivateHub().catch(() => {})
         if (!this.quitting && !this.preparingForUpdate) this.privateHubFailed()
       })
-    } catch {
+    } catch (error) {
       if (hub && this.privateHub === hub) await this.stopPrivateHub().catch(() => {})
-      if (!this.quitting && !this.preparingForUpdate) this.privateHubFailed()
+      if (!this.quitting && !this.preparingForUpdate) this.privateHubFailed(error)
     } finally {
       this.installing = false
     }
@@ -281,12 +305,13 @@ export class HostController extends EventEmitter {
     if (!this.canUseHost() || this.preparingForUpdate) return
     if (usesPrivateHub()) {
       if (this.quitting) return
-      if (prefs.get('hubLocation') === undefined && !prefs.set('hubLocation', 'mac')) return this.privateHubFailed()
       if (prefs.get('hubLocation') !== 'mac') {
         try {
           await this.stopPrivateHub()
-          await removeLaunchAgent()
-          this.setState({ kind: 'disabled' })
+          if (this.quitting || this.preparingForUpdate) return
+          const location = prefs.get('hubLocation')
+          if (location === 'mac' && !this.uninstalled()) return this.startPrivateHub()
+          this.setState({ kind: location === undefined || location === 'mac' ? 'notInstalled' : 'disabled' })
         } catch { this.privateHubFailed() }
         return
       }
@@ -328,7 +353,10 @@ export class HostController extends EventEmitter {
   /** A service operation must never invoke the other environment's binary. */
   async install() {
     if (usesPrivateHub()) {
-      if (!this.canUseHost() || this.quitting || this.preparingForUpdate || prefs.get('hubLocation') !== 'mac') return
+      if (!this.canUseHost() || this.installing || this.quitting || this.preparingForUpdate) return
+      const location = prefs.get('hubLocation')
+      if (location !== undefined && location !== 'mac') return
+      if (location === undefined && !prefs.set('hubLocation', 'mac')) return this.privateHubFailed()
       if (!prefs.set('hostUninstalled', false)) return this.privateHubFailed()
       try { await this.stopPrivateHub() } catch { return }
       return this.startPrivateHub()
@@ -419,10 +447,11 @@ export class HostController extends EventEmitter {
   }
 
   async uninstall(level: UninstallLevel = 1): Promise<boolean> {
-    if (usesPrivateHub() && (this.installing || !(await this.stopPrivateHub().then(() => true, () => false)))) return false
+    const privateHub = usesPrivateHub()
+    if (privateHub && this.installing) return false
     if (officialDesktop && localHostOff()) return true
     // Sem host neste computador, "Reset all data" não depende do binário (que o app local não traz).
-    if (localHostOff()) {
+    if (!privateHub && localHostOff()) {
       this.installToken++
       this.stopLoop()
       try {
@@ -433,23 +462,37 @@ export class HostController extends EventEmitter {
       }
       return true
     }
-    const bin = this.binary
-    if (!bin || devPort !== null) return false
+    if (devPort !== null) return false
+    if (privateHub) this.installing = true
     try {
-      if (usesPrivateHub()) {
-        const { verifyBundledHub } = await import('./fork-hub-signature')
-        if (verifyBundledHub(process.resourcesPath, 'donnabot-host').binary !== bin) return false
-      } else await this.verifyBinary(bin)
-      this.stopLoop()
-      const result = await run(bin, uninstallArgs(level, isWindows))
-      if (result.status !== 0) throw new Error(result.output || 'Uninstall failed')
-      prefs.set('hostUninstalled', true)
+      if (privateHub) {
+        await this.stopPrivateHub()
+        if (level === 2) {
+          const { verifyBundledHub } = await import('./fork-hub-signature')
+          const env = privateHubEnvironment(homedir(), realpathSync(tmpdir()))
+          await requirePrivateHubServiceAbsent()
+          const { binary } = verifyBundledHub(process.resourcesPath, 'donnabot-host')
+          const result = await run(binary, ['uninstall', '--nivel', '2', '--desktop-socket'], env)
+          if (result.status !== 0) throw new Error('hub_cleanup_failed')
+        }
+      } else {
+        const bin = this.binary
+        if (!bin) return false
+        await this.verifyBinary(bin)
+        this.stopLoop()
+        const result = await run(bin, uninstallArgs(level, isWindows))
+        if (result.status !== 0) throw new Error(result.output || 'Uninstall failed')
+      }
+      if (!prefs.set('hostUninstalled', true) && privateHub) return false
       this.setLocal(null)
       this.setState({ kind: 'notInstalled' })
       return true
     } catch (error) {
-      this.setState({ kind: 'failed', message: error instanceof Error ? error.message : String(error) })
+      if (privateHub) this.privateHubFailed(error)
+      else this.setState({ kind: 'failed', message: error instanceof Error ? error.message : String(error) })
       return false
+    } finally {
+      if (privateHub) this.installing = false
     }
   }
 

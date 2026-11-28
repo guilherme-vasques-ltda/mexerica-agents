@@ -67,11 +67,12 @@ function hubOf(token: string, options: { mataAposProva?: boolean; recusaProva?: 
       options.pausarProva()
       return
     }
-    response.writeHead(recusa ? 401 : 200, { 'content-type': 'application/json' })
+    // Fecha só depois de entregar a prova: a guarda do cliente precisa recusar um socket novo.
+    response.writeHead(recusa ? 401 : 200, {
+      'content-type': 'application/json',
+      ...(proved && options.mataAposProva ? { connection: 'close' } : {}),
+    })
     response.end(JSON.stringify(recusa ? { error: 'invalid token' } : body))
-    // Mata a conexão depois da resposta da prova: o pedido com a credencial vai nascer numa
-    // conexão NOVA e a guarda tem que destruí-lo antes de qualquer byte sair.
-    if (proved && options.mataAposProva) response.socket?.destroy()
   })
   server.on('connection', (socket) => {
     const id = proximo++
@@ -125,12 +126,15 @@ test('Unix socket: the request carries the bearer only on the connection that pr
 
 test('Unix socket: loss of the proved connection does not send the bearer to a new one', async (t) => {
   if (process.platform === 'win32') return t.skip('Unix socket required')
-  const { postProvado, fecharProvedLoopback } = load()
+  const { postProvado, provarSocket, ProvaRecusada, fecharProvedLoopback } = load()
   const hub = hubOf(TOKEN, { mataAposProva: true })
   t.after(async () => { await fecharProvedLoopback(); await hub.close() })
-  await assert.rejects(postProvado(await hub.listenUnix(), '/api/snapshot', TOKEN, '{}', 2_000))
-  assert.equal(hub.seen.length, 1)
-  assert.equal(hub.seen[0]?.authorization, undefined)
+  const target = await hub.listenUnix()
+  assert.equal((await provarSocket(target.socketPath, TOKEN, AbortSignal.timeout(2_000))).computerId, IDENTIDADE.computerId)
+  await assert.rejects(postProvado(target, '/api/snapshot', TOKEN, '{}', 2_000),
+    (error) => error instanceof ProvaRecusada && /não é a provada/.test(error.message))
+  assert.equal(hub.seen.length, 2)
+  assert.ok(hub.seen.every((entry) => entry.url.startsWith('/health') && entry.authorization === undefined))
 })
 
 test('the proof and credential share a connection and the full response survives delayed chunks', async (t) => {

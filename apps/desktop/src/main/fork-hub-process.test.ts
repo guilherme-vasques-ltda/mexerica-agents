@@ -41,3 +41,19 @@ test('uma recusa no exec não deixa o supervisor esperando outro processo', { sk
   await hub.exited
   await hub.stop()
 })
+
+test('a próxima tentativa de sair verifica novamente sem repetir sinais destrutivos', { skip: !supported }, async (t) => {
+  const hub = spawnHubProcess(process.execPath, ['-e', 'process.stdin.resume()'], { env: {} },
+    { eof: 20, terminate: 20, kill: 20, probe: 5 })
+  let occupied = true
+  const signals = t.mock.method(process, 'kill', (_pid: number, signal: NodeJS.Signals | 0) => {
+    if (occupied || signal !== 0) return true
+    throw Object.assign(new Error('fixture'), { code: 'ESRCH' })
+  })
+  await assert.rejects(hub.stop(), /hub_process_group_still_alive/)
+  await hub.exited
+  occupied = false
+  const before = signals.mock.callCount()
+  await hub.stop()
+  assert.deepEqual(signals.mock.calls.slice(before).map(({ arguments: args }) => args[1]), [0])
+})

@@ -9,7 +9,7 @@ import { postProvado, streamProvado } from './fork-proved-loopback'
 // Loopback HTTP + SSE for the renderer. The host has no CORS (it's a loopback API for local
 // apps), so requests leave from the main process.
 
-const streams = new Map<string, AbortController>()
+const streams = new Map<WebContents, Map<string, AbortController>>()
 type PrivateTarget = { socketPath: string; token: string; signal: AbortSignal }
 type PrivateHub = {
   origin: string
@@ -18,7 +18,7 @@ type PrivateHub = {
 }
 
 export function cancelHostStreams() {
-  for (const controller of streams.values()) controller.abort()
+  for (const owned of streams.values()) for (const controller of owned.values()) controller.abort()
   streams.clear()
 }
 
@@ -53,9 +53,14 @@ async function call(baseURL: string, token: string, method: string, body: unknow
 
 function stream(sender: WebContents, id: string, url: string, token: string, target?: PrivateTarget, current?: () => boolean) {
   const controller = new AbortController()
-  streams.set(id, controller)
+  const owned = streams.get(sender) ?? new Map<string, AbortController>()
+  const previous = owned.get(id)
+  owned.set(id, controller)
+  streams.set(sender, owned)
+  previous?.abort()
+  const active = () => streams.get(sender) === owned && owned.get(id) === controller
   const send = (channel: string, payload: unknown) => {
-    if (isGeneralContext(sender) && (!current || current())) sender.send(channel, id, payload)
+    if (active() && isGeneralContext(sender) && (!current || current())) sender.send(channel, id, payload)
   }
   void (async () => {
     // Idle timeout, not a total one: the host pings every 15 s, so silence this long means it's gone.
@@ -101,10 +106,7 @@ function stream(sender: WebContents, id: string, url: string, token: string, tar
       send('host:stream:end', null)
     } catch (error) {
       flush()
-      // O aborto com o stream fora do mapa é o `host:stream:close` da janela: a inscrição dela
-      // já morreu e um "Premature close" de brinde só polui. O aborto com o stream no mapa é o
-      // timeout de silêncio — erro de verdade, que a janela usa para se reerguer.
-      if (!(controller.signal.aborted && !streams.has(id))) {
+      if (active()) {
         const e = error as Partial<CallError>
         send('host:stream:end', controller.signal.aborted
           ? { status: 0, message: "Can't reach your computer." }
@@ -112,7 +114,10 @@ function stream(sender: WebContents, id: string, url: string, token: string, tar
       }
     } finally {
       if (idle) clearTimeout(idle)
-      streams.delete(id)
+      if (active()) {
+        owned.delete(id)
+        if (!owned.size) streams.delete(sender)
+      }
     }
   })()
 }
@@ -138,7 +143,7 @@ export function registerHostProxy(privateHub?: PrivateHub) {
     if (privateHub?.origin === parsed.origin) {
       const target = privateHub.target()
       if (!privateHub.allowed(e)) return
-      if (!target || !/^s[0-9]{1,16}$/.test(id) || streams.has(id) ||
+      if (!target || !/^s[0-9]{1,16}$/.test(id) ||
           (parsed.pathname !== '/events' && !/^\/term\/[^/]+$/.test(parsed.pathname))) {
         e.sender.send('host:stream:end', id, unavailable)
         return
@@ -150,8 +155,11 @@ export function registerHostProxy(privateHub?: PrivateHub) {
   })
   ipcMain.on('host:stream:close', (e, id: string) => {
     if (!isGeneralContext(e.sender)) return
-    const controller = streams.get(id)
-    streams.delete(id)
+    const owned = streams.get(e.sender)
+    if (!owned) return
+    const controller = owned.get(id)
+    owned.delete(id)
+    if (!owned.size) streams.delete(e.sender)
     controller?.abort()
   })
 }

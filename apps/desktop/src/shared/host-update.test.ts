@@ -28,6 +28,57 @@ test('private Hub ignores a legacy port override and stays off for a remote choi
   assert.deepEqual(f.fetched, [])
 })
 
+test('private Hub waits for explicit installation without touching a legacy service', async () => {
+  const f = hostUpdateFixture({ bundledMacLocalHub: true, macLocalHub: true, localHost: false })
+  await f.host.refresh()
+  assert.equal(f.host.state.kind, 'notInstalled')
+  assert.equal(f.prefs.get('hubLocation'), undefined)
+  assert.deepEqual(f.probes, [])
+  assert.deepEqual(f.calls, [])
+})
+
+for (const { loaded, installed, probeStatus, plistError, reason } of [
+  { loaded: true, installed: false, reason: 'servicoExistente' },
+  { loaded: false, installed: true, reason: 'servicoExistente' },
+  { loaded: false, installed: false, probeStatus: 1, reason: 'servicoIncerto' },
+  { loaded: false, installed: false, plistError: 'EACCES', reason: 'servicoIncerto' },
+]) {
+  test(`private Hub leaves the Dev service untouched: ${JSON.stringify({ loaded, installed, probeStatus, plistError })}`, async () => {
+    const f = hostUpdateFixture({ environment: 'dev', bundledMacLocalHub: true, installed })
+    Object.assign(f.behavior, { loaded, probeStatus, plistError })
+    await f.host.install()
+    assert.deepEqual(f.probes, [['print', 'gui/501/app.donnabot.dev.host']])
+    assert.equal(f.host.state.kind, 'failed')
+    if (f.host.state.kind === 'failed') assert.match(f.host.state.message, /same identity|mesma identidade/)
+    assert.match(f.errors.join('\n'), new RegExp(reason))
+    assert.deepEqual(f.calls, [])
+    assert.deepEqual(f.removed, [])
+    assert.deepEqual(f.privateLaunches, [])
+    assert.equal(f.host.local, null)
+    assert.equal(await f.host.uninstall(2), false)
+    assert.equal(await f.host.uninstall(1), true)
+    assert.deepEqual(f.calls, [])
+    assert.deepEqual(f.removed, [])
+    assert.deepEqual(f.verifiedBundles, [])
+  })
+}
+
+test('private Hub starts only after absence is established and cleans only its scoped directory', async () => {
+  const f = hostUpdateFixture({ environment: 'dev', bundledMacLocalHub: true, installed: false, env: { DONNABOT_HOME: '/foreign' } })
+  await f.host.install()
+  assert.equal(f.host.state.kind, 'running')
+  assert.deepEqual(f.privateLaunches, ['donnabot-host'])
+  assert.equal(await f.host.uninstall(2), true)
+  assert.deepEqual(f.verifiedBundles, ['donnabot-host'])
+  assert.deepEqual(f.calls, [['uninstall', '--nivel', '2', '--desktop-socket']])
+  assert.equal(f.commandEnvs[0]?.MEXERICA_HOME, f.dataDir)
+  assert.equal(f.commandEnvs[0]?.DONNABOT_HOME, undefined)
+  assert.deepEqual(f.removed, [])
+  await f.host.refresh()
+  assert.equal(f.host.state.kind, 'notInstalled')
+  assert.deepEqual(f.privateLaunches, ['donnabot-host'])
+})
+
 for (const platform of ['darwin', 'win32']) {
   test(`${platform}: updating stops the bundled host after unregistering screen and persists restart`, async () => {
     const f = hostUpdateFixture({ platform })

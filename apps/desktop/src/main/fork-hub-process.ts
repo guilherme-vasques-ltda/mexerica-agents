@@ -45,10 +45,17 @@ export function spawnHubProcess(
   }
 
   let stopping: Promise<void> | undefined
+  let attempted = false
   return {
     exited,
     stop() {
-      return stopping ??= (async () => {
+      if (stopping) return stopping
+      stopping = (async () => {
+        if (attempted) {
+          if (await goneWithin(0)) return
+          throw new Error('hub_process_group_still_alive')
+        }
+        attempted = true
         child.stdin?.end()
         if (await goneWithin(deadlines.eof)) return
         signalGroup('SIGTERM')
@@ -56,7 +63,11 @@ export function spawnHubProcess(
         signalGroup('SIGKILL')
         if (await goneWithin(deadlines.kill)) return
         throw new Error('hub_process_group_still_alive')
-      })()
+      })().catch((error: unknown) => {
+        stopping = undefined
+        throw error
+      })
+      return stopping
     },
   }
 }
