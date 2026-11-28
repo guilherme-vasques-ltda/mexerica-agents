@@ -128,7 +128,7 @@ impl Mediation for Guard {
         Ok(Target {
             url: target["url"].as_str().unwrap().parse().unwrap(),
             headers,
-            streamable_only: target["streamableOnly"].as_bool().unwrap(),
+            streamable_only: target["streamableOnly"] == true,
         })
     }
 

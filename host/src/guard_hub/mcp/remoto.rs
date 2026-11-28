@@ -230,9 +230,11 @@ pub(super) async fn call(
             crate::market::ferramentas::iniciar_descoberta(&hub.store, bridge, connector)?;
         }
         let response = oauth_binding::check_runtime(hub, &current, &intent, || {
-            Ok(
-                json!({"url":target_payload["url"],"headers":target_payload["headers"],"bridgeId":bridge,"setup":context.is_none(),"streamableOnly":streamable_only}),
-            )
+            let mut response = json!({"url":target_payload["url"],"headers":target_payload["headers"],"bridgeId":bridge,"setup":context.is_none()});
+            if streamable_only {
+                response["streamableOnly"] = json!(true);
+            }
+            Ok(response)
         })?;
         #[cfg(test)]
         crate::market::oauth::upstream02_tests::runtime_window(
