@@ -247,12 +247,12 @@ fn member_thread_key(lane: &Lane, account: &str, bot: &str) -> String {
     if bot == lane.chat { key } else { format!("{key}.{bot}") }
 }
 
-/// Marca a mensagem que o Codex nunca aceitou: a Open não tem fila de despacho, então a entrada não pode ficar
-/// `queued` — sem isso ela sai da conversa e só o aviso de falha aparece. Depois do aceite a entrada já está
+/// Marca a mensagem que o Codex nunca aceitou: a entrada não pode ficar `queued` nem `sending`, senão ela sai da
+/// conversa e só o aviso de falha aparece. Depois do aceite a entrada já está
 /// `sent` e segue assim, mesmo que o turno aceite falhe depois.
 pub(crate) fn mark_unsent(hub: &Hub, entry_id: &str, code: &str, account: &str) {
     if let Some(entry) = hub.store.entry(entry_id)
-        && entry.data["status"] == "queued"
+        && matches!(entry.data["status"].as_str(), Some("queued" | "sending"))
     {
         let mut data = entry.data;
         data["status"] = if code == "open_chat_cancelled" { json!("cancelled") } else { json!("failed") };
@@ -273,6 +273,14 @@ pub(crate) fn run(
 ) {
     let hub = hub.clone();
     let instructions = instructions(&hub, cfg);
+    let attachments = hub.store.entry(&entry.0).map_or_else(
+        || {
+            tracing::warn!("open turn entry missing; sending without attachments");
+            Value::Null
+        },
+        |e| e.data["attachments"].clone(),
+    );
+    let uploads_cfg = hub.store.bot(&lane.chat).ok().flatten().map_or_else(|| cfg.clone(), |row| row.config);
     let cfg = cfg.clone();
     tokio::spawn(async move {
         let (entry_id, authority) = entry;
@@ -294,6 +302,15 @@ pub(crate) fn run(
             crate::fork::open_chat_fila::finish(&hub, &bot);
             return;
         }
+        let Ok((text, images)) = tokio::task::spawn_blocking(move || {
+            crate::fork::open_chat_anexos::prepare(&uploads_cfg, &attachments, &text)
+        })
+        .await
+        else {
+            mark_unsent(&hub, &entry_id, "open_chat_failed", &account);
+            crate::fork::open_chat_fila::finish(&hub, &bot);
+            return;
+        };
         hub.set_runtime(&bot, |r| {
             r.status = BotStatus::Working;
             r.lane = Some(lane.clone());
@@ -308,7 +325,7 @@ pub(crate) fn run(
             &account,
             (&lane, &cfg),
             (&instructions, model.as_deref()),
-            (&text, TURN_LIMIT),
+            (&text, TURN_LIMIT, &images),
             (&entry_id, authority.as_ref()),
             &mut cancel,
             &mut reply,
@@ -376,7 +393,7 @@ pub(crate) async fn routine_turn(
                 &account,
                 (&lane, cfg),
                 (&instructions, model.as_deref()),
-                (&prompt, timeout),
+                (&prompt, timeout, &[]),
                 ("", None),
                 &mut cancel,
                 &mut reply,
@@ -407,7 +424,7 @@ async fn turn_in_profile(
     account: &str,
     (lane, cfg): (&Lane, &BotConfig),
     (instructions, model): (&str, Option<&str>),
-    (text, limit): (&str, Duration),
+    (text, limit, images): (&str, Duration, &[PathBuf]),
     (entry_id, authority): (&str, Option<&Autoridade>),
     cancel: &mut watch::Receiver<bool>,
     reply: &mut Stream,
@@ -455,11 +472,13 @@ async fn turn_in_profile(
             hub.set_entry(entry_id, &data);
         }
     };
-    let outcome = drive(
+    let mut input = vec![json!({"type": "text", "text": text, "text_elements": []})];
+    input.extend(images.iter().map(|path| json!({"type": "localImage", "path": path})));
+    let outcome = drive_input(
         &mut rpc,
         saved.as_deref(),
         (instructions, model),
-        text,
+        input,
         limit,
         cancel,
         before_text,
@@ -531,7 +550,7 @@ async fn turn_in_profile(
     _: &str,
     _: (&Lane, &BotConfig),
     _: (&str, Option<&str>),
-    _: (&str, Duration),
+    _: (&str, Duration, &[PathBuf]),
     _: (&str, Option<&Autoridade>),
     _: &mut watch::Receiver<bool>,
     _: &mut Stream,
@@ -637,11 +656,30 @@ struct TurnoConcluido {
 /// Recusa pedidos do servidor e itens que não sejam texto. Entrega uma resposta que chegue
 /// só no `item/completed` uma vez, sem repetir o que os deltas já entregaram.
 #[allow(clippy::too_many_arguments)]
+#[cfg(test)]
 async fn drive(
     rpc: &mut Rpc,
     thread: Option<&str>,
-    (instructions, model): (&str, Option<&str>),
+    model: (&str, Option<&str>),
     text: &str,
+    limit: Duration,
+    cancel: &mut watch::Receiver<bool>,
+    before_text: impl FnOnce(&str) -> Result<()>,
+    on_sent: impl FnOnce(),
+    on_delta: impl FnMut(&str) -> bool,
+    authority: Option<(&Hub, &Autoridade)>,
+) -> Result<TurnoConcluido> {
+    let input = vec![json!({"type": "text", "text": text, "text_elements": []})];
+    drive_input(rpc, thread, model, input, limit, cancel, before_text, on_sent, on_delta, authority).await
+}
+
+/// O mesmo turno com a entrada já montada: o texto e, quando houver, as imagens anexadas.
+#[allow(clippy::too_many_arguments)]
+async fn drive_input(
+    rpc: &mut Rpc,
+    thread: Option<&str>,
+    (instructions, model): (&str, Option<&str>),
+    input: Vec<Value>,
     limit: Duration,
     cancel: &mut watch::Receiver<bool>,
     before_text: impl FnOnce(&str) -> Result<()>,
@@ -685,7 +723,7 @@ async fn drive(
             .to_owned();
         let model = started["model"].as_str().filter(|id| !id.is_empty() && id.len() <= 128).map(str::to_owned);
         before_text(&thread)?;
-        let params = json!({"threadId": thread, "input": [{"type": "text", "text": text, "text_elements": []}]});
+        let params = json!({"threadId": thread, "input": input});
         let turn = match authority {
             Some((hub, proof)) => {
                 rpc.call_guarded(4, "turn/start", params, |effect| {
