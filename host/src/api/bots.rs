@@ -324,6 +324,11 @@ pub(super) async fn call(
             let request_authority = crate::fork::autoridade::Autoridade::de_requisicao(caller);
             let effect_authority = mailbox_authority.as_ref().or(request_authority);
             let bot = str_arg(&b, "botId")?;
+            if caller.is_web_chat() && b.get("retryEntryId").is_some() {
+                let cfg = hub.store.bot(bot)?.filter(|r| !r.deleted).ok_or(super::Forbidden)?.config;
+                let entry = super::fork_web_chat::retry_turn(hub, caller, &cfg, bot, &b)?;
+                return Ok(ControlFlow::Break(json!({"entry":entry})));
+            }
             let text = b["text"].as_str().unwrap_or_default().trim();
             let uploads: Vec<&str> =
                 b["attachments"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
@@ -493,10 +498,12 @@ pub(super) async fn call(
                         match effect_authority {
                             Some(authority) => {
                                 let result = authority.com_saida(hub, None, enqueue);
-                                if result.as_ref().is_err_and(|error| {
-                                    !error.is::<crate::fork::autoridade::AutorizacaoEncerrada>()
-                                        && !error.is::<crate::fork::autoridade::EpochDaRequisicaoEncerrado>()
-                                }) {
+                                if !caller.is_web_chat()
+                                    && result.as_ref().is_err_and(|error| {
+                                        !error.is::<crate::fork::autoridade::AutorizacaoEncerrada>()
+                                            && !error.is::<crate::fork::autoridade::EpochDaRequisicaoEncerrado>()
+                                    })
+                                {
                                     let _ = sender.send(Cmd::RestoreUserQueue);
                                 }
                                 result
@@ -523,10 +530,14 @@ pub(super) async fn call(
                     }
                 };
                 if let Err(error) = result {
+                    if caller.is_web_chat() {
+                        let e = hub.fail_web_turn(&e).unwrap_or(e);
+                        return Ok(ControlFlow::Break(json!({"entry": e})));
+                    }
                     if effect_authority.is_some() {
                         hub.fail_remote_turn(&e.id, "queued");
                     }
-                    if caller.is_web_chat() || (effect_authority.is_some() && mailbox.is_some()) {
+                    if effect_authority.is_some() && mailbox.is_some() {
                         return Ok(ControlFlow::Break(json!({"entry": e})));
                     }
                     return Err(error);

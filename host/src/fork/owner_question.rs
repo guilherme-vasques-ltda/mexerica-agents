@@ -373,7 +373,7 @@ pub(crate) fn add_mailbox_message(
     #[cfg(test)]
     crate::fork::sessoes::call_tests::before_effect(&hub.store, "mailbox_commit");
     publish_commit(hub, || {
-        admit_remote_before_commit(hub, authority, data, |remember| {
+        admit_remote_before_commit(hub, authority, data["remoteAdmissionRequired"] == true, |remember| {
             Ok(delivery
                 .with_db(hub, &lane.chat, |tx, owner| {
                     ensure!(crate::fork::sessoes::api::send_lane(tx, &lane.chat, body)? == *lane, "session_changed");
@@ -397,7 +397,7 @@ pub(crate) fn add_channel_message(
     #[cfg(test)]
     crate::fork::sessoes::call_tests::before_effect(&hub.store, "channel_send_commit");
     publish_commit(hub, || {
-        admit_remote_before_commit(hub, autoridade, data, |remember| {
+        admit_remote_before_commit(hub, autoridade, data["remoteAdmissionRequired"] == true, |remember| {
             autoridade.with_db(hub, None, |tx| {
                 if let Some(original) = crate::store::Store::replay_on(tx, &lane.chat, data)? {
                     return Ok((Human::Replayed(original), Vec::new()));
@@ -411,15 +411,15 @@ pub(crate) fn add_channel_message(
     })
 }
 
-fn admit_remote_before_commit<T>(
+pub(crate) fn admit_remote_before_commit<T>(
     hub: &Hub,
     authority: &crate::fork::autoridade::Autoridade,
-    data: &Value,
+    required: bool,
     commit: impl FnOnce(&mut dyn FnMut(&Entry)) -> Result<T>,
 ) -> Result<T> {
     let mut id = None;
     let result = commit(&mut |entry| {
-        if data["remoteAdmissionRequired"] == true {
+        if required {
             hub.remote_send_authorities.locked().insert(entry.id.clone(), authority.clone());
             id = Some(entry.id.clone());
         }
@@ -432,17 +432,22 @@ fn admit_remote_before_commit<T>(
     result
 }
 
-fn insert_human_on(c: &Connection, lane: &Lane, turn: Option<i64>, data: &Value) -> Result<(Entry, Vec<Entry>)> {
-    if data["status"] == "queued" {
-        let waiting: i64 = c.query_row(
-            "SELECT COUNT(*) FROM entries WHERE bot_id = ?1 AND kind = 'user'
+pub(crate) fn check_queue_capacity(c: &Connection, lane: &Lane) -> Result<()> {
+    let waiting: i64 = c.query_row(
+        "SELECT COUNT(*) FROM entries WHERE bot_id = ?1 AND kind = 'user'
                     AND (CASE WHEN json_valid(data) THEN json_extract(data, '$.status') END) = 'queued'
                     AND (CASE WHEN json_valid(data) THEN json_extract(data, '$.choice_response') END) IS NULL
                     AND COALESCE(CASE WHEN json_valid(data) THEN json_extract(data, '$.from') END, '') <> 'host'",
-            [&lane.chat],
-            |r| r.get(0),
-        )?;
-        ensure!(waiting < QUEUE_MAX, "queue_full: esta conversa já tem {QUEUE_MAX} mensagens na fila");
+        [&lane.chat],
+        |r| r.get(0),
+    )?;
+    ensure!(waiting < QUEUE_MAX, "queue_full: esta conversa já tem {QUEUE_MAX} mensagens na fila");
+    Ok(())
+}
+
+fn insert_human_on(c: &Connection, lane: &Lane, turn: Option<i64>, data: &Value) -> Result<(Entry, Vec<Entry>)> {
+    if data["status"] == "queued" {
+        check_queue_capacity(c, lane)?;
     }
     let turn = match turn {
         Some(turn) => turn,

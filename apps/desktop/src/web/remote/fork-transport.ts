@@ -259,7 +259,7 @@ export function createRemoteHub(
         if (!c.authorized()) throw unavailable
         if (result?.kind === 'ok') return result.value
         const error = result?.kind === 'err' ? publicError(result, send) : unavailable
-        if (send && (result?.kind === 'unknown' || error.code === 'request_failed')) {
+        if (send && !('retryEntryId' in b) && (result?.kind === 'unknown' || error.code === 'request_failed')) {
           const saved = await readReceipt(c, method, b, requestedTimeout)
           if (saved && c.authorized()) return saved
         }

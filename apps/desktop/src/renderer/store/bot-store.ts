@@ -229,6 +229,26 @@ export class BotStore extends BotSync {
     return this.send(text, entry.botId, { files, nonce: entry.data.clientNonce, replyTo: entry.data.replyTo, pasted: entry.data.pasted, contentOrigin: entry.data.contentOrigin?.report ?? undefined, session })
   }
 
+  async retryWebTurn(entry: Entry) {
+    const client = this.connectedClient
+    const hostId = this.hostId
+    const epoch = this.principalEpoch
+    if (!client || !hostId || !this.allEntries(entry.botId).some((e) =>
+      e.id === entry.id && e.rev === entry.rev && e.data.webTurnFailed === true)) throw new Error('stale_message_context')
+    const { entry: result } = await client.call<{ entry: Entry }>('send', {
+      hubId: hostId, botId: entry.botId, sessionId: entry.sessionId,
+      retryEntryId: entry.id, retryEntryRevision: entry.rev,
+      ...(this.spaceId ? { spaceId: this.spaceId } : {}),
+    })
+    if (this.connectedClient !== client || this.hostId !== hostId || this.principalEpoch !== epoch) return
+    if (result.id !== entry.id || result.botId !== entry.botId || result.sessionId !== entry.sessionId || result.rev <= entry.rev) {
+      throw new Error('stale_message_context')
+    }
+    this.upsert(result)
+    this.changed()
+    if (result.data.webTurnFailed) throw new Error('web_turn_not_started')
+  }
+
   retrySubscription(entry: Entry) {
     return this.perform((c) => c.call('retrySubscription', { botId: entry.data.author ?? entry.botId, entryId: entry.id }), true)
   }

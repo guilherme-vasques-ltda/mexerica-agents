@@ -1,5 +1,12 @@
 use super::devices::Forbidden;
+use crate::LockExt;
+use crate::agent::bot::Cmd;
+use crate::api::devices::Caller;
+use crate::fork::autoridade::Autoridade;
+use crate::fork::owner_question::{admit_remote_before_commit, check_queue_capacity};
+use crate::fork::spaces::{PERSONAL, validate_dispatch_on};
 use crate::hub::Hub;
+use crate::store::{BotConfig, Entry, Lane, Store};
 use anyhow::{Result, ensure};
 use serde_json::{Value, json};
 
@@ -37,6 +44,11 @@ pub(super) fn check_send(hub: &Hub, method: &str, body: &Value) -> Result<()> {
         return Ok(());
     }
     ensure!(body.get("attachments").is_none_or(|v| v.is_null() || v.as_array().is_some_and(Vec::is_empty)), Forbidden);
+    if let Some(id) = body.get("retryEntryId") {
+        ensure!(id.as_str().is_some_and(valid_nonce) && body["retryEntryRevision"].as_i64().is_some(), Forbidden);
+        ensure!(["text", "clientNonce", "replyTo", "pasted"].iter().all(|key| body.get(key).is_none()), Forbidden);
+        return Ok(());
+    }
     ensure!(body["clientNonce"].as_str().is_some_and(valid_nonce), Forbidden);
     if let Some(id) = body["replyTo"].as_str().filter(|id| !id.is_empty()) {
         let target = body[if method == "send" { "botId" } else { "conversationId" }].as_str();
@@ -50,6 +62,74 @@ pub(super) fn check_send(hub: &Hub, method: &str, body: &Value) -> Result<()> {
 
 fn valid_nonce(nonce: &str) -> bool {
     !nonce.is_empty() && nonce.len() <= 128
+}
+
+pub(crate) fn retry_turn(hub: &Hub, caller: &Caller, cfg: &BotConfig, chat: &str, body: &Value) -> Result<Entry> {
+    ensure!(caller.is_web_chat(), Forbidden);
+    let authority = Autoridade::de_requisicao(caller).ok_or(Forbidden)?;
+    let id = body["retryEntryId"].as_str().ok_or(Forbidden)?;
+    let revision = body["retryEntryRevision"].as_i64().ok_or(Forbidden)?;
+    let sender = hub.login_command_sender(&cfg.id)?;
+    let (entry, lane) = {
+        let _emit = hub.emit_lock.locked();
+        let (entry, lane) = admit_remote_before_commit(hub, authority, true, |remember| {
+            authority.with_db(hub, None, |tx| {
+                let mut entry = Store::entry_on(tx, id)?
+                    .filter(|e| {
+                        e.bot_id == chat
+                            && e.rev == revision
+                            && e.data["status"] == "failed"
+                            && e.data["webTurnFailed"] == true
+                            && visible(Some(&e.kind), &e.data)
+                            && e.kind == "user"
+                    })
+                    .ok_or(Forbidden)?;
+                let bot = Store::bot_on(tx, &cfg.id)?.filter(|b| !b.deleted).ok_or(Forbidden)?.config;
+                ensure!(!bot.is_group(), Forbidden);
+                let space = body["spaceId"].as_str().unwrap_or(PERSONAL);
+                let lane = if chat == cfg.id {
+                    ensure!(space == bot.space_id && !crate::environment::Environment::is_open(), Forbidden);
+                    let lane = crate::fork::sessoes::api::send_lane(tx, chat, body)?;
+                    let mut effective = bot;
+                    crate::fork::sessoes::admissao::apply_configured(tx, &lane, &mut effective)?;
+                    ensure!(!crate::agent::backends::is_antigravity(&effective.backend), Forbidden);
+                    lane
+                } else {
+                    let conversation = Store::space_conversation_on(tx, space, chat)?;
+                    ensure!(
+                        !conversation.closed
+                            && conversation.bot_id == cfg.id
+                            && body["expectedRevision"].as_i64() == Some(conversation.revision)
+                            && entry.data["spaceContext"]["conversationRevision"] == conversation.revision,
+                        Forbidden
+                    );
+                    validate_dispatch_on(tx, cfg, chat, std::slice::from_ref(&entry.id))?;
+                    Lane::main(chat)
+                };
+                ensure!(
+                    entry.session_id == lane.session_id() && entry.data["remoteAdmissionRequired"] == true,
+                    Forbidden
+                );
+                ensure!(entry.data[crate::fork::antigravity::ENTRY_MARKER] != true, Forbidden);
+                check_queue_capacity(tx, &lane)?;
+                entry.data["status"] = "queued".into();
+                let data = entry.data.as_object_mut().ok_or(Forbidden)?;
+                data.remove("webTurnFailed");
+                data.remove("error");
+                let entry = Store::update_entry_on(tx, id, &entry.data, None)?.ok_or(Forbidden)?;
+                remember(&entry);
+                Ok((entry, lane))
+            })
+        })?;
+        let _ = hub.events.send(json!({"type":"entry","rev":entry.rev,"entry":entry}));
+        (entry, lane)
+    };
+    let text = crate::chat::prompt::of_entry(hub, cfg, &entry.data);
+    let enqueue = authority.com_saida(hub, None, || sender.send(Cmd::Send { lane, entry_id: entry.id.clone(), text }));
+    if !matches!(enqueue, Ok(Ok(()))) {
+        return Ok(hub.fail_web_turn(&entry).unwrap_or(entry));
+    }
+    Ok(entry)
 }
 
 pub(crate) fn receipt(hub: &Hub, chat: &str, session: &str, proof: &Value) -> Result<Vec<crate::store::Entry>> {
@@ -94,6 +174,9 @@ fn entry(value: &Value) -> Option<Value> {
     out["data"] = fields(data, &["text", "final", "author", "status", "clientNonce"])?;
     if out["kind"] == "user" {
         out["data"]["status"] = "sent".into();
+        if data["status"] == "failed" && data["webTurnFailed"] == true {
+            out["data"]["webTurnFailed"] = true.into();
+        }
     }
     Some(out)
 }
