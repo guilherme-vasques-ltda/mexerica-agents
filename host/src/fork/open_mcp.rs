@@ -144,6 +144,7 @@ async fn run_live(
         secrets: Zeroizing::new(Vec::new()),
         generation: None,
         invocation: None,
+        local_start: None,
         admitted,
         delivers_list: params.is_none(),
         #[cfg(test)]
@@ -151,16 +152,21 @@ async fn run_live(
         #[cfg(all(test, target_os = "linux"))]
         artifact_root,
     };
+    if let Some(params) = &params {
+        mediation.policy(params)?;
+        ensure!(params.to_string().encode_utf16().count() <= 1600, "Pedido MCP grande demais para autorização");
+    }
     let mut session = match transport {
         #[cfg(target_os = "linux")]
-        "stdio" => OpenSession::Stdio(stdio::Session::new(hub, mediation).await?),
+        "stdio" => {
+            let mut mediation = mediation;
+            mediation.account_secrets(&mediation.saved.clone());
+            let approval = mediation.approve_local_start(hub, params.as_ref()).await?;
+            OpenSession::Stdio(stdio::Session::new(hub, mediation, approval).await?)
+        }
         "http" => OpenSession::Http(Session::new(mediation)?),
         _ => return Err(anyhow!("Transporte MCP indisponível")),
     };
-    if let Some(params) = &params {
-        session.mediation_mut().policy(params)?;
-        ensure!(params.to_string().encode_utf16().count() <= 1600, "Pedido MCP grande demais para autorização");
-    }
     let initialized = exchange(
         &mut session,
         rpc(
@@ -202,21 +208,29 @@ async fn run_live(
     mediation.policy(&params)?;
     let detail = json!({"account":account,"tool":tool,"arguments":params["arguments"]});
     ensure!(mcp::redigir_json(&detail, &mediation.secrets) == detail, "Pedido contém material privado");
-    let card = if transport == "http" && crate::agent::engine_permissions::mcp_released(account, tool) {
-        None
+    let local = mediation
+        .local_start
+        .as_ref()
+        .map(|start| {
+            let (approved_params, approved_digest) = start.call.as_ref().context("Chamada MCP não autorizada")?;
+            ensure!(*approved_params == params && *approved_digest == digest, "Ferramenta MCP alterada");
+            Ok::<_, anyhow::Error>((Some(start.card.clone()), start.deadline))
+        })
+        .transpose()?;
+    let (card, deadline) = if let Some(local) = local {
+        local
     } else {
-        Some(
-            open_tool_actions::approve(hub, turn.lane(), turn.turn(), "Chamar ferramenta MCP", &detail.to_string())
-                .await?,
-        )
+        let card = if crate::agent::engine_permissions::mcp_released(account, tool) {
+            None
+        } else {
+            Some(
+                open_tool_actions::approve(hub, turn.lane(), turn.turn(), "Chamar ferramenta MCP", &detail.to_string())
+                    .await?,
+            )
+        };
+        (card, Instant::now() + Duration::from_secs(60))
     };
-    mediation.invocation = Some(Invocation {
-        params: params.clone(),
-        digest,
-        card,
-        deadline: Instant::now() + Duration::from_secs(60),
-        sent: false,
-    });
+    mediation.invocation = Some(Invocation { params: params.clone(), digest, card, deadline, sent: false });
     let response = exchange(&mut session, rpc(3, "tools/call", params)).await;
     let mediation = session.mediation_mut();
     let confirmed = response.and_then(|frame| {
@@ -263,6 +277,28 @@ struct Invocation {
     sent: bool,
 }
 
+#[derive(Clone)]
+struct LocalStart {
+    card: Entry,
+    call: Option<(Value, String)>,
+    deadline: Instant,
+}
+
+impl LocalStart {
+    fn check(&self, db: &rusqlite::Connection, current: &Connector) -> Result<()> {
+        ensure!(Instant::now() < self.deadline, "Autorização de início MCP vencida");
+        open_tool_actions::check_card(db, &self.card)?;
+        if let Some((params, digest)) = &self.call {
+            let tool = params["name"].as_str().context("Ferramenta MCP inválida")?;
+            ensure!(
+                ferramentas::digest_autorizado(db, &self.card.bot_id, current, tool)? == *digest,
+                "Ferramenta MCP alterada"
+            );
+        }
+        Ok(())
+    }
+}
+
 struct OpenMediation<'a> {
     hub: &'a Hub,
     turn: &'a LocalTurn,
@@ -272,6 +308,7 @@ struct OpenMediation<'a> {
     secrets: Zeroizing<Vec<String>>,
     generation: Option<i64>,
     invocation: Option<Invocation>,
+    local_start: Option<LocalStart>,
     admitted: &'a AtomicBool,
     delivers_list: bool,
     #[cfg(test)]
@@ -281,6 +318,34 @@ struct OpenMediation<'a> {
 }
 
 impl OpenMediation<'_> {
+    #[cfg(target_os = "linux")]
+    async fn approve_local_start(&self, hub: &Arc<Hub>, params: Option<&Value>) -> Result<LocalStart> {
+        let detail = if let Some(params) = params {
+            stdio::validate_call_size(rpc(3, "tools/call", params.clone()))?;
+            json!({"account":self.saved.id,"startCatalogProcess":true,"tool":params["name"],"arguments":params["arguments"]})
+        } else {
+            json!({"account":self.saved.id,"startCatalogProcess":true})
+        };
+        ensure!(mcp::redigir_json(&detail, &self.secrets) == detail, "Pedido contém material privado");
+        let call = params
+            .map(|params| {
+                let tool = params["name"].as_str().context("Ferramenta MCP inválida")?;
+                let digest = self.intent.with_open_current(hub, &self.saved, |db, current| {
+                    ferramentas::digest_autorizado(db, &self.turn.lane().chat, current, tool)
+                })?;
+                Ok::<_, anyhow::Error>((params.clone(), digest))
+            })
+            .transpose()?;
+        let title = if params.is_some() {
+            "Iniciar conector e chamar ferramenta MCP"
+        } else {
+            "Iniciar conector e listar ferramentas MCP"
+        };
+        let card =
+            open_tool_actions::approve(hub, self.turn.lane(), self.turn.turn(), title, &detail.to_string()).await?;
+        Ok(LocalStart { card, call, deadline: Instant::now() + Duration::from_secs(60) })
+    }
+
     fn secret(&mut self, secret: &str) {
         if !secret.is_empty() && !self.secrets.iter().any(|s| s == secret) {
             self.secrets.push(secret.to_owned());
@@ -303,10 +368,7 @@ impl OpenMediation<'_> {
     }
 
     fn policy(&self, params: &Value) -> Result<()> {
-        match super::rules::mcp::check(&self.hub.store, &self.turn.lane().chat, &self.saved.id, "tools/call", params) {
-            Ok(false) => Ok(()),
-            _ => Err(PolicyDenied.into()),
-        }
+        rule(self.hub, &self.turn.lane().chat, &self.saved.id, params)
     }
 
     fn check_invocation(&self, db: &rusqlite::Connection, current: &Connector, invocation: &Invocation) -> Result<()> {
@@ -337,18 +399,24 @@ impl OpenMediation<'_> {
 
     fn policy_boundary(&self, params: Option<&Value>) -> Result<std::sync::MutexGuard<'_, ()>> {
         let boundary = self.hub.store.memory_boundary.locked();
-        if let Some(params) = params {
+        if let Some(params) =
+            params.or_else(|| self.local_start.as_ref().and_then(|start| start.call.as_ref().map(|(params, _)| params)))
+        {
             self.policy(params)?;
         }
         Ok(boundary)
     }
 
     fn authorize_send<T>(&self, frame: &Value, method: &str, commit: impl FnOnce() -> T) -> Result<(Option<i64>, T)> {
+        let params = (method == "tools/call").then_some(&frame["params"]);
         self.intent.with_open_preflight(
             self.hub,
             &self.saved,
-            || self.policy_boundary((method == "tools/call").then_some(&frame["params"])),
+            || self.policy_boundary(params),
             |db, current| {
+                if let Some(start) = &self.local_start {
+                    start.check(db, current)?;
+                }
                 if method == "tools/call" {
                     let invocation = self.invocation.as_ref().context("Autorização MCP ausente")?;
                     ensure!(
@@ -381,6 +449,13 @@ impl OpenMediation<'_> {
             invocation.sent = true;
             self.admitted.store(true, Ordering::Relaxed);
         }
+    }
+}
+
+fn rule(hub: &Hub, bot: &str, account: &str, params: &Value) -> Result<()> {
+    match super::rules::mcp::check(&hub.store, bot, account, "tools/call", params) {
+        Ok(false) => Ok(()),
+        _ => Err(PolicyDenied.into()),
     }
 }
 
@@ -449,7 +524,12 @@ impl Mediation for OpenMediation<'_> {
                 if method == "tools/call" {
                     self.check_call()
                 } else {
-                    self.intent.with_open_current(self.hub, &self.saved, |_, _| Ok(()))
+                    self.intent.with_open_preflight(
+                        self.hub,
+                        &self.saved,
+                        || self.policy_boundary(None),
+                        |db, current| self.local_start.as_ref().map_or(Ok(()), |start| start.check(db, current)),
+                    )
                 }
             },
             |event| {
@@ -463,6 +543,9 @@ impl Mediation for OpenMediation<'_> {
                     &self.saved,
                     || self.policy_boundary(params),
                     |db, current| {
+                        if let Some(start) = &self.local_start {
+                            start.check(db, current)?;
+                        }
                         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
                         Store::guard_record_on(&tx, None, event, false, |db| {
                             self.intent.validate_db(db)?;
@@ -486,17 +569,25 @@ impl Mediation for OpenMediation<'_> {
         )?;
         if method == "tools/list" {
             let generation = self.generation.take().context("Descoberta MCP ausente")?;
-            self.intent.with_open_current(self.hub, &self.saved, |db, current| {
-                ferramentas::filtrar_lista_open(
-                    db,
-                    &self.turn.lane().chat,
-                    current,
-                    &body["frame"],
-                    &mut observed,
-                    generation,
-                    |db| self.intent.validate_db(db).map(|_| ()),
-                )
-            })?;
+            self.intent.with_open_preflight(
+                self.hub,
+                &self.saved,
+                || self.policy_boundary(None),
+                |db, current| {
+                    if let Some(start) = &self.local_start {
+                        start.check(db, current)?;
+                    }
+                    ferramentas::filtrar_lista_open(
+                        db,
+                        &self.turn.lane().chat,
+                        current,
+                        &body["frame"],
+                        &mut observed,
+                        generation,
+                        |db| self.intent.validate_db(db).map(|_| ()),
+                    )
+                },
+            )?;
         }
         Ok(observed.get_mut("message").filter(|value| !value.is_null()).map(Value::take))
     }

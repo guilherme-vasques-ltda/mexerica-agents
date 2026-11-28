@@ -142,6 +142,23 @@ fn answer(hub: &Arc<Hub>, card: &Entry, option: &str) {
         .unwrap();
 }
 
+#[cfg(target_os = "linux")]
+async fn catalog_list(
+    hub: &Arc<Hub>,
+    proof: &LocalTurn,
+    root: Option<&std::path::Path>,
+    option: &str,
+) -> Result<Value> {
+    let args = json!({"account":ACCOUNT});
+    let mut events = hub.events.subscribe();
+    let (result, ()) = tokio::join!(run(hub, proof, LIST, &args, None, root), async {
+        let card = next_card(hub, &mut events).await;
+        assert_eq!(card.data["title"], "Iniciar conector e listar ferramentas MCP");
+        answer(hub, &card, option);
+    });
+    result
+}
+
 fn link_fixture_tool(hub: &Hub, proof: &LocalTurn) {
     let bot = &proof.lane().chat;
     let list = ferramentas::listar(&hub.store, bot, ACCOUNT).unwrap();
@@ -211,13 +228,15 @@ async fn mcp_open_catalog_stdio_requires_owner_approval_and_records_receipt() {
     std::fs::create_dir(&artifacts).unwrap();
     let file = artifacts.join("fixture-stdio");
     let artifact = include_bytes!("../../tests/fixtures/catalogo-stdio.sh");
-    std::fs::write(&file, artifact).unwrap();
     let root = Some(temp.path());
     let list_args = json!({"account":ACCOUNT});
-    let first = run(&hub, &proof, LIST, &list_args, None, root).await.unwrap();
+    assert!(catalog_list(&hub, &proof, root, "deny").await.is_err());
+    assert_eq!(hub.store.guard_test_snapshot().unwrap().0, Vec::<String>::new());
+    std::fs::write(&file, artifact).unwrap();
+    let first = catalog_list(&hub, &proof, root, "allow").await.unwrap();
     assert_eq!(first["tools"], json!([]));
     link_fixture_tool(&hub, &proof);
-    let list = run(&hub, &proof, LIST, &list_args, None, root).await.unwrap();
+    let list = catalog_list(&hub, &proof, root, "allow").await.unwrap();
     assert_eq!(list["transport"], "stdio");
     assert_eq!(list["tools"].as_array().unwrap().len(), 1);
     assert_eq!(list["tools"][0]["name"], "list_issues");
@@ -227,6 +246,7 @@ async fn mcp_open_catalog_stdio_requires_owner_approval_and_records_receipt() {
     let mut events = hub.events.subscribe();
     let (result, ()) = tokio::join!(run(&hub, &proof, CALL, &args, None, root), async {
         let card = next_card(&hub, &mut events).await;
+        assert_eq!(card.data["title"], "Iniciar conector e chamar ferramenta MCP");
         answer(&hub, &card, "allow");
     });
     let result = result.unwrap();
@@ -248,6 +268,12 @@ async fn mcp_open_catalog_stdio_requires_owner_approval_and_records_receipt() {
         answer(&hub, &card, "deny");
     });
     assert!(result.is_err());
+    let oversize = json!({"account":ACCOUNT,"tool":"list_issues","arguments":{"query":"界".repeat(1500)}});
+    let result = tokio::time::timeout(Duration::from_secs(2), run(&hub, &proof, CALL, &oversize, None, root))
+        .await
+        .unwrap()
+        .unwrap_err();
+    assert!(result.to_string().contains("limite atômico"));
     for query in ["fixture-unmatched", "fixture-reverse", "fixture-malformed"] {
         let mut events = hub.events.subscribe();
         let args = json!({"account":ACCOUNT,"tool":"list_issues","arguments":{"query":query}});
@@ -267,9 +293,9 @@ async fn mcp_open_catalog_stdio_requires_owner_approval_and_records_receipt() {
     assert!(refused.iter().all(|event| event["decision"] == "retained" && event["bytes"] == 2));
 
     std::fs::write(&file, b"modified").unwrap();
-    assert!(run(&hub, &proof, LIST, &list_args, None, root).await.is_err());
+    assert!(catalog_list(&hub, &proof, root, "allow").await.is_err());
     std::fs::write(&file, artifact).unwrap();
-    assert!(run(&hub, &proof, LIST, &list_args, None, root).await.is_ok());
+    assert!(catalog_list(&hub, &proof, root, "allow").await.is_ok());
     assert!(da_conta(&account).is_some());
     let mut modified = account;
     modified.command = Some("not-a-catalog-executable".into());

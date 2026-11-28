@@ -1,7 +1,7 @@
 use super::Artefato;
-use crate::{fork::conectores::oauth_runtime::RuntimeIntent, hub::Hub, market::Connector};
+use crate::market::Connector;
 use anyhow::{Context, Result};
-use std::{io, process::Stdio, sync::Arc};
+use std::{io, process::Stdio};
 use tempfile::TempDir;
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 
@@ -13,13 +13,12 @@ pub(crate) struct Processo {
 
 impl Processo {
     pub(crate) async fn iniciar(
-        hub: Arc<Hub>,
-        intent: Arc<RuntimeIntent>,
-        conta: Connector,
+        conta: &Connector,
+        spawn: impl FnOnce(&mut Command) -> Result<Child> + Send + 'static,
         #[cfg(test)] raiz: Option<&std::path::Path>,
     ) -> Result<Self> {
         crate::fork::motor_exec::refuse("MCP local do catálogo")?;
-        let artefato = super::da_conta(&conta).context("Artefato MCP não fixado")?;
+        let artefato = super::da_conta(conta).context("Artefato MCP não fixado")?;
         let (dir, command) = {
             #[cfg(test)]
             if let Some(raiz) = raiz {
@@ -30,12 +29,7 @@ impl Processo {
             #[cfg(not(test))]
             Artefato::preparar(artefato.id()).await?
         };
-        Self::lancar(dir, command, move |command| {
-            intent.with_open_current(&hub, &conta, |_, _| {
-                command.spawn().context("Não foi possível iniciar o MCP do catálogo")
-            })
-        })
-        .await
+        Self::lancar(dir, command, spawn).await
     }
 
     async fn lancar(

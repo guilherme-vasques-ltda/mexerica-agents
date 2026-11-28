@@ -30,7 +30,12 @@ where
     G: FnMut(String, String, Phase, Value) -> Guard,
     Guard: Future<Output = Result<()>>,
 {
-    write_with(writer, frame, async |writer, commit| {
+    let mut bytes = serde_json::to_vec(frame)?;
+    bytes.push(b'\n');
+    ensure!(bytes.ends_with(b"}\n"), "mcp_request_frame_invalid");
+    let (prefix, commit) = bytes.split_at(bytes.len() - 2);
+    tokio::time::timeout(Duration::from_secs(30), async {
+        writer.write_all(prefix).await?;
         let mut admission = None;
         poll_fn(|cx| {
             let check = admission.get_or_insert_with(|| {
@@ -40,9 +45,12 @@ where
             admission = None;
             poll_commit(writer, cx, commit)
         })
-        .await
+        .await?;
+        writer.flush().await?;
+        Ok::<(), anyhow::Error>(())
     })
     .await
+    .map_err(|_| anyhow::anyhow!("Prazo da ponte MCP excedido"))?
 }
 
 pub(crate) fn poll_commit<W: AsyncWrite + Unpin>(
@@ -55,23 +63,4 @@ pub(crate) fn poll_commit<W: AsyncWrite + Unpin>(
         return Poll::Ready(Err(anyhow::anyhow!("mcp_request_non_atomic_commit")));
     }
     Poll::Ready(Ok(()))
-}
-
-pub(crate) async fn write_with<W: AsyncWrite + Unpin>(
-    writer: &mut W,
-    frame: &Value,
-    commit_frame: impl AsyncFnOnce(&mut W, &[u8]) -> Result<()>,
-) -> Result<()> {
-    let mut bytes = serde_json::to_vec(frame)?;
-    bytes.push(b'\n');
-    ensure!(bytes.ends_with(b"}\n"), "mcp_request_frame_invalid");
-    let (prefix, commit) = bytes.split_at(bytes.len() - 2);
-    tokio::time::timeout(Duration::from_secs(30), async {
-        writer.write_all(prefix).await?;
-        commit_frame(writer, commit).await?;
-        writer.flush().await?;
-        Ok::<(), anyhow::Error>(())
-    })
-    .await
-    .map_err(|_| anyhow::anyhow!("Prazo da ponte MCP excedido"))?
 }
