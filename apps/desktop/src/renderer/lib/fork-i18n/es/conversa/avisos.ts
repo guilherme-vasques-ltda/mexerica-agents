@@ -83,7 +83,7 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.avisos.open.politica": "El motor no confirmó el aislamiento requerido. Respuesta cancelada.",
   "conversa.avisos.open.indisponivel": "No se pudo abrir Codex en el perfil de Open. Revisa la cuenta en Cuentas de IA.",
   "conversa.avisos.open.falhou": "Codex no pudo responder. Si pediste una acción, comprueba si se realizó antes de volver a enviar la solicitud.",
-  "conversa.avisos.open.teto": "Se alcanzó el tope de gasto, así que la respuesta no se inició. Revisa el tope en Ajustes.",
+  "conversa.avisos.open.teto": "Se alcanzó el tope de gasto o no se pudo comprobar, así que la respuesta no se inició. Revisa el tope en Ajustes o inténtalo de nuevo.",
   "conversa.avisos.grupo.bloqueado": "El Hub no pudo revisar los mensajes pendientes de este grupo al reiniciarse. El grupo queda bloqueado y no se volvió a entregar nada. Reinicia el Hub después de corregir el problema.",
   "conversa.avisos.grupo.emConferencia": "El Hub se reinició antes de confirmar la entrega de este mensaje al grupo. Puede que ya haya llegado a parte de los miembros y no se reanudó; revísalo antes de reenviarlo.",
   "conversa.avisos.falha.cabecalho.naoSei": "Cuenta: no pude confirmarla",

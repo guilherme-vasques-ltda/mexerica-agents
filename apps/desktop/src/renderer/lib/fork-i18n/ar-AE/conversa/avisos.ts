@@ -83,7 +83,7 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.avisos.open.politica": "لم يؤكد المحرك العزل المطلوب. تم إلغاء الرد.",
   "conversa.avisos.open.indisponivel": "تعذّر فتح Codex في ملف Open. تحقّق من الحساب في حسابات الذكاء الاصطناعي.",
   "conversa.avisos.open.falhou": "تعذّر على Codex الرد. إذا طلبت تنفيذ إجراء، فتحقّق مما إذا كان قد تم قبل إعادة إرسال الطلب.",
-  "conversa.avisos.open.teto": "تم بلوغ حد الإنفاق، لذلك لم يبدأ الرد. راجع الحد في الإعدادات.",
+  "conversa.avisos.open.teto": "تم بلوغ حد الإنفاق أو تعذّر التحقق منه، لذلك لم يبدأ الرد. راجع الحد في الإعدادات أو حاول مرة أخرى.",
   "conversa.avisos.grupo.bloqueado": "لم يتمكن الـ Hub من مراجعة الرسائل المعلّقة لهذه المجموعة عند إعادة التشغيل. تبقى المجموعة محظورة ولم يُرسَل أي شيء من جديد. أعد تشغيل الـ Hub بعد إصلاح المشكلة.",
   "conversa.avisos.grupo.emConferencia": "أُعيد تشغيل الـ Hub قبل تأكيد تسليم هذه الرسالة إلى المجموعة. ربما وصلت إلى بعض الأعضاء بالفعل ولم تُستأنف؛ تحقّق قبل إعادة الإرسال.",
   "conversa.avisos.falha.cabecalho.naoSei": "الحساب: لم أستطع التأكد",

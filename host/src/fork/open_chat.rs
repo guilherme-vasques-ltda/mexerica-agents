@@ -494,6 +494,8 @@ async fn turn_in_profile(
     let stopped = cancel.clone();
     let cursor_key = format!("{key}.usage");
     let mut cursor = None;
+    let parcial = Mutex::new(None);
+    let thread_do_turno = Mutex::new(None);
     // O ponto em que o texto passa a ser entregue ao Codex: um `stop` aterrissado durante o lançamento e uma
     // exclusão que tenha passado são conferidos aqui, antes de o `turn/start` seguir.
     let before_text = |thread: &str| {
@@ -509,6 +511,7 @@ async fn turn_in_profile(
             !*stopped.borrow() && matches!(hub.store.bot(&bot), Ok(Some(row)) if !row.deleted),
             "open_chat_cancelled"
         );
+        *thread_do_turno.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(thread.to_owned());
         cursor = Some(uso::Cursor::iniciar(&hub.store, &bot, &cursor_key, thread, saved.as_deref() != Some(thread))?);
         Ok(())
     };
@@ -534,6 +537,7 @@ async fn turn_in_profile(
         |delta| reply.push(delta),
         authority.map(|proof| (hub.as_ref(), proof)),
         tools.as_ref(),
+        &parcial,
     )
     .await;
     match outcome {
@@ -556,6 +560,15 @@ async fn turn_in_profile(
         }
         Err(error) => {
             reap(&mut rpc).await;
+            let total = *parcial.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let thread = thread_do_turno.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+            if let (Some(cursor), Some(total), Some(thread)) = (cursor, total, thread) {
+                let mut efetivo = cfg.clone();
+                efetivo.fork_editor.engine_account_id = Some(account.to_owned());
+                if cursor.gravar(&hub.store, &efetivo, lane, reply.turn, thread, Some(total)).is_err() {
+                    tracing::warn!("não foi possível gravar o uso do turno interrompido");
+                }
+            }
             Err(error)
         }
     }
@@ -655,6 +668,7 @@ pub(super) async fn drive_delegated(
             true
         },
         Delivery::Delegated(dispatch),
+        &Mutex::default(),
     )
     .await?;
     let tokens = concluido.uso.and_then(|total| total.depois_de(uso::Contagem::default())).map(|usage| {
@@ -723,7 +737,7 @@ fn notice(message: &str) -> (&'static str, &'static str) {
             "O Codex demorou demais para responder. Se você pediu uma ação, confira se ela aconteceu antes de reenviar."
         }
         "open_chat_ceiling" => {
-            "O teto de gasto foi atingido, então a resposta não foi iniciada. Revise o teto em Ajustes."
+            "O teto de gasto foi atingido ou não foi possível conferi-lo, então a resposta não foi iniciada. Revise o teto em Ajustes ou tente de novo."
         }
         "open_chat_too_long" => "A resposta passou do tamanho máximo e foi encerrada.",
         "open_chat_policy" => "A configuração do motor não confirmou o isolamento exigido. Resposta cancelada.",
@@ -817,7 +831,21 @@ async fn drive(
     tools: Option<&super::open_tools::Turn<'_>>,
 ) -> Result<TurnoConcluido> {
     let input = vec![json!({"type": "text", "text": text, "text_elements": []})];
-    drive_input(rpc, thread, model, input, limit, cancel, before_text, on_sent, on_delta, authority, tools).await
+    drive_input(
+        rpc,
+        thread,
+        model,
+        input,
+        limit,
+        cancel,
+        before_text,
+        on_sent,
+        on_delta,
+        authority,
+        tools,
+        &Mutex::default(),
+    )
+    .await
 }
 
 /// O mesmo turno com a entrada já montada: o texto e, quando houver, as imagens anexadas.
@@ -834,6 +862,7 @@ async fn drive_input(
     on_delta: impl FnMut(&str) -> bool,
     authority: Option<(&Hub, &Autoridade)>,
     tools: Option<&super::open_tools::Turn<'_>>,
+    parcial: &Mutex<Option<uso::Contagem>>,
 ) -> Result<TurnoConcluido> {
     drive_inner(
         rpc,
@@ -846,6 +875,7 @@ async fn drive_input(
         on_sent,
         on_delta,
         Delivery::Chat(authority, tools),
+        parcial,
     )
     .await
 }
@@ -867,6 +897,7 @@ async fn drive_inner(
     on_sent: impl FnOnce(),
     mut on_delta: impl FnMut(&str) -> bool,
     delivery: Delivery<'_>,
+    parcial: &Mutex<Option<uso::Contagem>>,
 ) -> Result<TurnoConcluido> {
     let delegated = matches!(&delivery, Delivery::Delegated(_));
     let tools = match &delivery {
@@ -1011,6 +1042,7 @@ async fn drive_inner(
             match message["method"].as_str().unwrap_or_default() {
                 "thread/tokenUsage/updated" if params["threadId"] == thread && params["turnId"] == turn_id => {
                     uso = uso::Contagem::do_protocolo(&params["tokenUsage"]["total"]);
+                    *parcial.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = uso;
                 }
                 "account/rateLimits/updated" if params["rateLimits"]["limitId"] == "codex" => {
                     let now = crate::store::now_ms();
