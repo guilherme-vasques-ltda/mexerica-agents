@@ -82,4 +82,9 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.aprovacao.tela.permitidoAgora": "已允许现在访问",
   "conversa.aprovacao.tela.agoraNesteTurno": "你已为本轮选择“现在允许”。",
   "conversa.aprovacao.tela.encerrarAgora": "结束现在授权",
+  "conversa.aprovacao.acesso.computador": "命令将以你的身份在这台电脑上运行，拥有你的权限。",
+  "conversa.aprovacao.acesso.navegador": "机器人将开始使用这台电脑的浏览器。",
+  "conversa.aprovacao.acesso.pasta": "机器人将开始在此文件夹中工作：",
+  "conversa.aprovacao.acesso.desfazer": "撤销",
+  "conversa.aprovacao.acesso.desfeito": "已撤销访问权限。",
 }

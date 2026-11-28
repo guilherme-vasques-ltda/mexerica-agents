@@ -82,4 +82,9 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.aprovacao.tela.permitidoAgora": "Permitido ahora",
   "conversa.aprovacao.tela.agoraNesteTurno": "Has permitido Ahora en este turno.",
   "conversa.aprovacao.tela.encerrarAgora": "Finalizar Ahora",
+  "conversa.aprovacao.acesso.computador": "Los comandos se ejecutan como tú en este ordenador, con tus permisos.",
+  "conversa.aprovacao.acesso.navegador": "El bot pasa a usar el navegador de este ordenador.",
+  "conversa.aprovacao.acesso.pasta": "El bot pasa a trabajar en esta carpeta:",
+  "conversa.aprovacao.acesso.desfazer": "Deshacer",
+  "conversa.aprovacao.acesso.desfeito": "Acceso deshecho.",
 }

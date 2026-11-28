@@ -46,6 +46,14 @@ export const memoryPermissionNote = (t: Tradutor, toolKind?: string) => toolKind
   ? t('conversa.aprovacao.notaMemoria')
   : ''
 
+const ACESSO = { computer: 'computador', browser: 'navegador', folder: 'pasta' } as const
+
+/** O que o acesso pedido muda; sem `access` válido, nada. */
+export const accessNote = (t: Tradutor, access?: { kind: string }) => {
+  const chave = access ? ACESSO[access.kind as keyof typeof ACESSO] : undefined
+  return chave ? t(`conversa.aprovacao.acesso.${chave}`) : ''
+}
+
 /** Com autor, a frase inteira vem do catálogo ("{autor} quer rodar um comando"), sem montar pedaços. */
 export function permissionTitle(t: Tradutor, toolKind: string | undefined, author: string | null | undefined) {
   return author ? t(`conversa.aprovacao.pedidoDe.${pedido(toolKind)}`, { autor: author }) : permissionHeadline(t, toolKind)

@@ -273,6 +273,7 @@ pub(crate) const SO_LOCAL: &[&str] = &[
     "setVoiceKey",
     "track",
     "unclaim",
+    "undoAccessGrant",
 ];
 
 pub(crate) const PONTE: &[&str] = &[

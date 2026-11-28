@@ -113,6 +113,7 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
                 && body.get("name").is_none()
         }
         "donnaTaskProposals"
+        | "undoAccessGrant"
         | "donnaTimes"
         | crate::fork::pedidos_time::METHOD
         | crate::fork::browser::METHOD

@@ -82,4 +82,9 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.aprovacao.tela.permitidoAgora": "مسموح الآن",
   "conversa.aprovacao.tela.agoraNesteTurno": "سمحت بالوصول «الآن» لهذا الدور.",
   "conversa.aprovacao.tela.encerrarAgora": "إنهاء إذن الآن",
+  "conversa.aprovacao.acesso.computador": "تعمل الأوامر باسمك على هذا الكمبيوتر وبصلاحياتك.",
+  "conversa.aprovacao.acesso.navegador": "سيبدأ البوت باستخدام متصفح هذا الكمبيوتر.",
+  "conversa.aprovacao.acesso.pasta": "سيبدأ البوت العمل في هذا المجلد:",
+  "conversa.aprovacao.acesso.desfazer": "تراجع",
+  "conversa.aprovacao.acesso.desfeito": "تم التراجع عن الوصول.",
 }

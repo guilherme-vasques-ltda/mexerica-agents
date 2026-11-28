@@ -38,6 +38,7 @@ pub(crate) const METODOS: &[(&str, Classe)] = &[
     ("donnaScreenAccess", Dono),
     ("donnaBrowserStatus", Leitura),
     ("donnaBrowserLocalConsent", LocalOnly),
+    ("undoAccessGrant", LocalOnly),
     ("donnaBrowserLocalFrame", LocalOnly),
     ("donnaBrowserLocalState", LocalOnly),
     ("nuncaFazer", LocalOnly),

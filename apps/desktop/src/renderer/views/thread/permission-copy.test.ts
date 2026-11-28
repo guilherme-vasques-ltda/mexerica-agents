@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 import { tradutor } from '../../lib/fork-i18n/index.ts'
-import { actionLabel, memoryPermissionNote, permissionDetail, permissionHeadline, permissionTitle } from './permission-copy.ts'
+import { accessNote, actionLabel, memoryPermissionNote, permissionDetail, permissionHeadline, permissionTitle } from './permission-copy.ts'
 
 const t = tradutor('pt-BR')
 const en = tradutor('en')
@@ -41,4 +41,13 @@ test('em inglês, a frase com o autor vem inteira do catálogo', () => {
   assert.equal(permissionTitle(en, 'execute', 'Lia'), 'Lia wants to run a command')
   assert.equal(permissionHeadline(en, 'fetch'), 'Wants to access the web')
   assert.equal(actionLabel(en, 'unknown'), 'Tool')
+})
+
+test('o cartão de acesso diz o que muda e avisa que o computador roda como o usuário', () => {
+  assert.equal(accessNote(t, { kind: 'computer' }), 'Os comandos rodam como você neste computador, com as suas permissões.')
+  assert.equal(accessNote(t, { kind: 'browser' }), 'O bot passa a usar o navegador deste computador.')
+  assert.equal(accessNote(t, { kind: 'folder' }), 'O bot passa a trabalhar nesta pasta:')
+  assert.equal(accessNote(en, { kind: 'computer' }), 'Commands run as you on this computer, with your permissions.')
+  assert.equal(accessNote(t, { kind: 'outro' }), '')
+  assert.equal(accessNote(t, undefined), '')
 })

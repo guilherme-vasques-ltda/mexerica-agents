@@ -13,7 +13,7 @@ import { useJanelaBaixa } from '../../lib/janela-baixa'
 import { useStoreRef } from '../../store/context'
 import { useSelector } from '../../lib/observable'
 import { emQueda } from '../../store/fork-queda-curta'
-import { actionLabel, memoryPermissionNote, permissionDetail, permissionTitle } from './permission-copy'
+import { accessNote, actionLabel, memoryPermissionNote, permissionDetail, permissionTitle } from './permission-copy'
 import { superficieIdioma, useIdioma, tradutor, type Tradutor } from '../../lib/fork-i18n/estado'
 export { permissionHeadline, permissionTitle } from './permission-copy'
 
@@ -85,6 +85,8 @@ export function PermissionCard({ entry, hostName, answering, respond }: { entry:
   const refused = !pending && d.status === 'answered' && !allowed
   const title = screen ? t('conversa.aprovacao.tela.titulo') : permissionTitle(t, d.toolKind, d.author ? store.bots.get(d.author)?.name : null)
   const memoryNote = memoryPermissionNote(t, d.toolKind)
+  const acesso = d.access
+  const notaAcesso = accessNote(t, acesso)
   const detail = screen ? null : permissionDetail(t, d.toolKind, d.title)
   const facts = (
     <dl className="approval-facts">
@@ -119,6 +121,16 @@ export function PermissionCard({ entry, hostName, answering, respond }: { entry:
           {!pending && d.screenAccess?.effect === false ? <p className="approval-note">{t('conversa.aprovacao.tela.semEfeito')}</p> : null}
         </> : null}
         {memoryNote ? <p className="approval-note">{memoryNote}</p> : null}
+        {notaAcesso ? <p className="approval-note">{notaAcesso}</p> : null}
+        {acesso?.kind === 'folder' && acesso.path ? <CodeBox text={acesso.path} /> : null}
+        {acesso?.state === 'undone' ? <p className="approval-note" role="status">{t('conversa.aprovacao.acesso.desfeito')}</p> : null}
+        {acesso?.state === 'granted' ? (
+          <div className="approval-actions">
+            <button className="approval-deny" disabled={answering !== null || semConexao} onClick={() => { void store.undoAccessGrant(entry) }}>
+              <HStack as="span" gap={6}>{t('conversa.aprovacao.acesso.desfazer')}{answering === 'undo' ? <Spinner size={12} /> : null}</HStack>
+            </button>
+          </div>
+        ) : null}
         {hasDetail || baixa ? (
           <Disclosure expanded={expanded} onToggle={() => setExpanded((e) => !e)} label={<Text size="caption" weight="medium" tone="secondary">{t('conversa.aprovacao.detalhes')}</Text>}>
             <VStack gap={8} className="permission-card-details">

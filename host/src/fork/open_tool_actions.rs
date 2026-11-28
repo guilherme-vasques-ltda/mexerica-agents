@@ -318,7 +318,18 @@ impl Drop for Waiting<'_> {
 }
 
 pub(super) async fn approve(hub: &Arc<Hub>, lane: &Lane, turn: i64, title: &str, detail: &str) -> Result<Entry> {
-    approve_card(hub, lane, turn, None, title, detail).await
+    approve_card(hub, lane, turn, None, title, detail, None).await
+}
+
+pub(super) async fn approve_access(
+    hub: &Arc<Hub>,
+    lane: &Lane,
+    turn: i64,
+    title: &str,
+    detail: &str,
+    access: Value,
+) -> Result<Entry> {
+    approve_card(hub, lane, turn, None, title, detail, Some(access)).await
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -330,7 +341,7 @@ pub(super) async fn approve_command(
     title: &str,
     detail: &str,
 ) -> Result<Entry> {
-    approve_card(hub, lane, turn, Some(activation), title, detail).await
+    approve_card(hub, lane, turn, Some(activation), title, detail, None).await
 }
 
 async fn approve_card(
@@ -340,6 +351,7 @@ async fn approve_card(
     command_revision: Option<i64>,
     title: &str,
     detail: &str,
+    access: Option<Value>,
 ) -> Result<Entry> {
     ensure!(
         lane.session.is_none()
@@ -358,19 +370,18 @@ async fn approve_card(
             super::open_command_settings::require(&hub.store.db.locked(), &lane.chat, expected)?;
         }
         let kind = if command_revision.is_some() { COMMAND_KIND } else { CARD_KIND };
-        let (card, _) = hub.add_entry_once(
-            &uuid::Uuid::new_v4().to_string(),
-            lane,
-            EntryKind::Permission,
-            turn,
-            &json!({
-                "author": lane.chat, "toolKind": kind, "title": title, "detail": detail, "status": "pending",
-                "options": [
-                    {"optionId": ALLOW, "kind": "allow_once", "name": "Allow once"},
-                    {"optionId": DENY, "kind": "reject_once", "name": "Deny"}
-                ]
-            }),
-        )?;
+        let mut data = json!({
+            "author": lane.chat, "toolKind": kind, "title": title, "detail": detail, "status": "pending",
+            "options": [
+                {"optionId": ALLOW, "kind": "allow_once", "name": "Allow once"},
+                {"optionId": DENY, "kind": "reject_once", "name": "Deny"}
+            ]
+        });
+        if let Some(access) = access {
+            data["access"] = access;
+        }
+        let (card, _) =
+            hub.add_entry_once(&uuid::Uuid::new_v4().to_string(), lane, EntryKind::Permission, turn, &data)?;
         pending.insert(
             card.id.clone(),
             Pending { hub: Arc::downgrade(hub), card: card.clone(), answer, deadline, command_revision },
