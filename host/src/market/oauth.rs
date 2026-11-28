@@ -342,6 +342,9 @@ fn app_proprio_exige_recurso_endpoints_e_autenticacao_anunciados() {
 pub(crate) async fn start(hub: &Arc<Hub>, intent: StartIntent, callback: Callback) -> Result<Value> {
     let store = &hub.store;
     let port = hub.port;
+    if crate::environment::Environment::is_open() {
+        bail!("login_fechado: o login pelo navegador não está liberado na Open; conecte com uma chave.");
+    }
     let app = app_uri(store);
     let redirect_uri = match callback {
         Callback::Host => loopback_uri(port),

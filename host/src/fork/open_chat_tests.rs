@@ -1,8 +1,8 @@
 #![allow(clippy::unwrap_used)]
 
 use super::{
-    CLOSING, MAX_REPLY, RUNNING, Running, Stream, admit_for_test, drive, notice, shutdown, thread_key, ticket_cancel,
-    with_idle_account,
+    CLOSING, MAX_REPLY, RUNNING, Running, Stream, admit_for_test, conversation_slot, drive, notice, routine_thread_key,
+    shutdown, thread_key, ticket_cancel, with_idle_account,
 };
 use crate::LockExt;
 use crate::fork::engine_setup::process::Rpc;
@@ -14,7 +14,7 @@ use tokio::sync::watch;
 
 /// App-server fictício: responde ao protocolo, grava os pedidos recebidos e simula o modo pedido.
 const FAKE: &str = r#"
-import json, os, sys
+import json, os, sys, urllib.request
 mode = os.environ["FAKE_MODE"]
 log = open(os.environ["FAKE_LOG"], "a")
 def send(value):
@@ -35,7 +35,7 @@ for line in sys.stdin:
             send({"id": message["id"], "method": "item/tool/requestUserInput", "params": {}})
         send({"id": message["id"], "result": {}})
     elif method == "thread/resume":
-        if mode == "resume":
+        if mode == "resume" or mode.startswith("browser"):
             send({"id": message["id"], "result": {"thread": {"id": message["params"]["threadId"]}, **policy}})
         elif mode == "flaky":
             send({"id": message["id"], "error": {"code": -32603, "message": "internal error"}})
@@ -48,7 +48,31 @@ for line in sys.stdin:
         send({"id": message["id"], "result": {"thread": {"id": "thread-1"}, **policy}})
     elif method == "turn/start":
         send({"id": message["id"], "result": {"turn": {"id": "turn-1", "status": "inProgress"}}})
-        if mode in ("hub-local", "hub-device", "hub-forged", "hub-shell"):
+        if mode.startswith("browser"):
+            def mcp(method, params):
+                payload = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
+                request = urllib.request.Request(os.environ["FAKE_BROWSER_URL"], json.dumps(payload).encode(),
+                    {"Authorization": "Bearer " + os.environ["MEXERICA_BROWSER_TURN"], "Content-Type": "application/json"})
+                with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(request) as response:
+                    return json.load(response)["result"]
+            mcp("initialize", {"protocolVersion": "2025-06-18"})
+            tools = mcp("tools/list", {})["tools"]
+            assert {tool["name"] for tool in tools} == {"browser_open", "browser_read", "browser_close"}
+            item = {"type": "mcpToolCall", "server": "mexerica_browser", "tool": "browser_open", "id": "b1"}
+            send({"method": "item/started", "params": {"item": item}})
+            opened = mcp("tools/call", {"name": "browser_open", "arguments": {"url": os.environ["FAKE_BROWSER_PAGE"]}})
+            send({"method": "item/completed", "params": {"item": item}})
+            if mode == "browser-live":
+                assert json.loads(opened["content"][0]["text"])["status"] == "opened"
+                read = mcp("tools/call", {"name": "browser_read", "arguments": {}})
+                text = json.loads(read["content"][0]["text"])["page"]["text"]
+            else:
+                assert opened["isError"] and opened["content"][0]["text"] == "browser_url_refused"
+                text = "URL recusada pelo Hub"
+            item = {"type": "agentMessage", "id": "a1", "text": text}
+            send({"method": "item/completed", "params": {"item": item}})
+            complete(message["params"]["threadId"])
+        elif mode in ("hub-local", "hub-device", "hub-forged", "hub-shell"):
             tools = ("list_bots", "list_routines", "list_skills", "read_skills", "list_connectors", "list_catalog_skills")
             if mode == "hub-shell":
                 tools = ("shell",)
@@ -148,7 +172,17 @@ async fn turn_with_options(
     model: Option<&str>,
     options: &BTreeMap<String, super::Pick>,
 ) -> (anyhow::Result<String>, String, Vec<Value>, Option<String>) {
-    let (result, text, sent, kept) = fixture_turn(mode, thread, model, options).await;
+    let (result, text, sent, kept) = fixture_turn(mode, thread, model, options, None).await;
+    (result.map(|concluido| concluido.thread), text, sent, kept)
+}
+
+pub(crate) async fn turn_with_bridge(
+    mode: &str,
+    thread: Option<&str>,
+    bridge: &crate::fork::browser::turn::Bridge,
+    page: &str,
+) -> (anyhow::Result<String>, String, Vec<Value>, Option<String>) {
+    let (result, text, sent, kept) = fixture_turn(mode, thread, None, &BTreeMap::new(), Some((bridge, page))).await;
     (result.map(|concluido| concluido.thread), text, sent, kept)
 }
 
@@ -157,11 +191,19 @@ async fn fixture_turn(
     thread: Option<&str>,
     model: Option<&str>,
     options: &BTreeMap<String, super::Pick>,
+    bridge: Option<(&crate::fork::browser::turn::Bridge, &str)>,
 ) -> (anyhow::Result<super::TurnoConcluido>, String, Vec<Value>, Option<String>) {
     let dir = std::env::temp_dir().join(format!("open-chat-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
     let log = dir.join("log");
-    let child = tokio::process::Command::new("python3")
+    let mut command = tokio::process::Command::new("python3");
+    if let Some((bridge, page)) = bridge {
+        command
+            .env("FAKE_BROWSER_URL", format!("http://{}/mcp", bridge.address()))
+            .env("FAKE_BROWSER_PAGE", page)
+            .env(crate::fork::browser::turn::TOKEN_ENV, bridge.token());
+    }
+    let child = command
         .args(["-I", "-c", FAKE])
         .env("FAKE_MODE", mode)
         .env("FAKE_LOG", &log)
@@ -184,6 +226,9 @@ async fn fixture_turn(
         &mut cancel,
         |id| {
             kept = Some(id.to_owned());
+            if let Some((bridge, _)) = bridge {
+                bridge.activate();
+            }
             Ok(())
         },
         || {},
@@ -193,6 +238,7 @@ async fn fixture_turn(
         },
         None,
         None,
+        bridge.is_some(),
     )
     .await;
     // Fecha a entrada e espera o fictício gravar o último pedido antes de ler o registro.
@@ -208,7 +254,7 @@ async fn fixture_turn(
 
 #[tokio::test]
 async fn uso_respeita_conversa_turno_e_cotas_esparsas() {
-    let (result, _, _, _) = fixture_turn("metrics", None, None, &BTreeMap::new()).await;
+    let (result, _, _, _) = fixture_turn("metrics", None, None, &BTreeMap::new(), None).await;
     let turno = result.unwrap();
     let total = turno.uso.unwrap();
     assert_eq!((total.entrada, total.cache_lido, total.cache_gravado, total.saida, total.raciocinio), (15, 6, 2, 4, 1));
@@ -336,11 +382,19 @@ async fn reasoning_and_speed_choices_go_to_the_engine_and_absence_changes_nothin
     ]);
     let (_, _, sent, _) = turn_with_options("resume", Some("thread-9"), Some("gpt-test-model"), &reset).await;
     let turn = &find(&sent, "turn/start").unwrap()["params"];
-    assert_eq!((&turn["effort"], &turn["serviceTier"]), (&Value::from("low"), &Value::Null));
+    assert_eq!(turn["effort"], "low");
+    assert_eq!(turn.get("serviceTier"), Some(&Value::Null));
     assert!(find(&sent, "thread/resume").unwrap()["params"].get("serviceTier").is_none());
     let (_, _, sent, _) = turn_with_options("ok", None, Some("gpt-test-model"), &reset).await;
     let turn = &find(&sent, "turn/start").unwrap()["params"];
     assert!(turn.get("effort").is_none() && turn.get("serviceTier").is_none(), "a new thread gets no catalog defaults");
+    let (_, _, sent, _) = turn_with_options("ok", Some("thread-9"), Some("gpt-test-model"), &reset).await;
+    assert!(find(&sent, "thread/resume").is_some() && find(&sent, "thread/start").is_some());
+    let turn = &find(&sent, "turn/start").unwrap()["params"];
+    assert!(
+        turn.get("effort").is_none() && turn.get("serviceTier").is_none(),
+        "a fallback thread gets no catalog defaults"
+    );
 }
 
 #[tokio::test]
@@ -492,6 +546,7 @@ async fn a_completed_only_reply_past_the_limit_stops_the_turn() {
         },
         None,
         None,
+        false,
     )
     .await;
     let _ = rpc.finish().await;
@@ -533,6 +588,7 @@ async fn the_message_is_marked_sent_only_after_the_codex_accepts_the_turn() {
             |_| true,
             None,
             None,
+            false,
         )
         .await;
         let _ = rpc.finish().await;
@@ -609,6 +665,7 @@ async fn a_reply_past_the_limit_stops_the_turn_instead_of_dropping_pieces() {
         },
         None,
         None,
+        false,
     )
     .await;
     let _ = rpc.finish().await;
@@ -672,6 +729,7 @@ async fn text_is_not_delivered_when_authority_ends_after_thread_start() {
         |_| true,
         Some((&hub, &proof)),
         None,
+        false,
     )
     .await;
     assert!(rpc.terminate().await);
@@ -872,6 +930,41 @@ async fn o_encerramento_mata_o_descendente_que_ficou_no_grupo_sem_o_lider() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[test]
+fn navegador_retomado_preserva_o_historico_mesmo_sem_ponte_no_turno_seguinte() {
+    let (hub, dir) = hub_de_teste("bot-navegador");
+    let key = "conversa";
+    let local = "conversa.hub-v2";
+    let choose = |browser| conversation_slot(&hub.store, key.into(), true, browser).unwrap();
+    assert_eq!(choose(true), (local.into(), None, None));
+    hub.store.kv_set(key, "historico-existente").unwrap();
+    assert_eq!(choose(false), (local.into(), None, None));
+    let (chosen, thread, marker) = choose(true);
+    assert_eq!((chosen.as_str(), thread.as_deref()), (key, Some("historico-existente")));
+    assert!(hub.store.kv_set_if_bot("bot-navegador", &marker.unwrap(), "1").unwrap());
+    assert_eq!(choose(false), (key.into(), Some("historico-existente".into()), None));
+    assert_eq!(choose(true), (key.into(), Some("historico-existente".into()), None));
+    hub.store.kv_set(local, "historico-com-ferramentas").unwrap();
+    assert_eq!(choose(true), (local.into(), Some("historico-com-ferramentas".into()), None));
+    drop(hub);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn rotina_nao_retoma_o_historico_local_com_ou_sem_catalogo() {
+    let (hub, dir) = hub_de_teste("bot-navegador");
+    let key = thread_key(&crate::store::Lane::main("bot-navegador"), "conta");
+    let routine_key = routine_thread_key("bot-navegador", "conta");
+    hub.store.kv_set(&key, "historico-local").unwrap();
+    hub.store.kv_set(&format!("{key}.hub-v2"), "historico-com-catalogo").unwrap();
+    assert!(hub.store.kv_read(&routine_key).unwrap().is_none());
+    hub.store.kv_set(&routine_key, "historico-da-rotina").unwrap();
+    assert_eq!(hub.store.kv_read(&key).unwrap().as_deref(), Some("historico-local"));
+    assert_eq!(hub.store.kv_read(&routine_key).unwrap().as_deref(), Some("historico-da-rotina"));
+    drop(hub);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 /// Hub real para os testes da reserva e do limite de resposta, no padrão dos testes de abertura da Open.
 fn hub_de_teste(bot: &str) -> (std::sync::Arc<crate::hub::Hub>, std::path::PathBuf) {
     use std::os::unix::fs::DirBuilderExt;
@@ -946,6 +1039,7 @@ async fn ferramentas_da_open_so_rodam_no_turno_local_e_na_thread_certa() {
             |_| true,
             None,
             auth.as_ref(),
+            false,
         )
         .await;
         let _ = rpc.finish().await;
@@ -1042,7 +1136,8 @@ async fn desligar_comandos_aceita_apenas_a_conclusao_da_chamada_admitida() {
                 || {},
                 |_| true,
                 None,
-                Some(&auth)
+                Some(&auth),
+                false
             ),
             async {
                 esperar_pid(&dir.join("log.received")).await;

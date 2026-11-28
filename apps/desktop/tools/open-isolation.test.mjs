@@ -35,6 +35,7 @@ test('a Open usa apenas identificadores próprios, no pacote e em execução', (
   assert.deepEqual(config.extraResources.filter(({ to }) => !to.startsWith('avisos/')), [
     { from: 'config/open.json', to: 'open-profile.json' },
     { from: 'build/native/mexerica-open-hub', to: 'mexerica-open-hub' },
+    { from: 'build/native/mexerica-hub-supervisor', to: 'mexerica-hub-supervisor' },
   ])
   assert.ok(config.extraResources.some(({ to }) => to === 'avisos/NOTICE'))
   assert.equal(config.mac.extraFiles, undefined)

@@ -90,6 +90,9 @@ pub enum ChannelKind {
     Direct {
         peer: IpAddr,
     },
+    DirectBrowser {
+        peer: IpAddr,
+    },
     /// A relay link, with what the relay's `open` said about it.
     Relay {
         link: String,
@@ -108,14 +111,14 @@ impl ChannelKind {
     fn source(&self) -> String {
         match self {
             Self::PersonalRelay { .. } => "personal-probe".into(),
-            Self::Direct { peer } => peer.to_canonical().to_string(),
+            Self::Direct { peer } | Self::DirectBrowser { peer } => peer.to_canonical().to_string(),
             Self::Relay { link, .. } | Self::BootstrapRelay { link, .. } => format!("link:{link}"),
         }
     }
 }
 
 /// Serves `GET /channel` after the WebSocket upgrade.
-pub async fn serve_direct(hub: Arc<Hub>, socket: WebSocket, peer: IpAddr) {
+pub async fn serve_direct(hub: Arc<Hub>, socket: WebSocket, peer: IpAddr, browser: bool) {
     let (sink, mut stream) = socket.split();
     let (in_tx, incoming) = mpsc::channel(64);
     let (outgoing, out_rx) = mpsc::channel::<Out>(64);
@@ -134,7 +137,8 @@ pub async fn serve_direct(hub: Arc<Hub>, socket: WebSocket, peer: IpAddr) {
         }
     });
     let writer = tokio::spawn(write_socket(sink, porta.clone().filtrar(out_rx)));
-    run(hub, Transport { incoming, outgoing, porta }, ChannelKind::Direct { peer }).await;
+    let kind = if browser { ChannelKind::DirectBrowser { peer } } else { ChannelKind::Direct { peer } };
+    run(hub, Transport { incoming, outgoing, porta }, kind).await;
     let _ = writer.await;
     reader.abort();
 }
@@ -360,7 +364,7 @@ pub async fn run(hub: Arc<Hub>, t: Transport, kind: ChannelKind) {
         ch.serve(&mut incoming, opener, &mut writer).await
     } else {
         ch.caller = Arc::new(Caller::Pairing { key: ch.key.clone() });
-        ch.pair(&mut incoming, opener, &kind.source()).await
+        ch.pair(&mut incoming, opener, &kind.source(), matches!(kind, ChannelKind::DirectBrowser { .. })).await
     };
     for job in ch.jobs.locked().drain() {
         if let (_, Job::Sub(h)) = job {
@@ -508,10 +512,22 @@ async fn handshake(
     } else {
         use autoridade::RecusaHello::{Codigo, SemLinha};
         match autoridade::autenticar_hello(hub, &dk) {
+            Ok(d) if matches!(kind, ChannelKind::DirectBrowser { .. }) && d.0.platform != "web" => {
+                recusa_generica = true;
+                None
+            }
             Ok(d) => Some(d),
             Err(SemLinha | Codigo(RejectCode::Revoked)) => {
                 fato_recusa = fork_recusa_hello::fato(&hub.store.db.locked(), &dk);
                 recusa_generica = fato_recusa.is_none();
+                None
+            }
+            Err(Codigo(RejectCode::LeaseExpired)) => {
+                fato_recusa = fork_recusa_hello::fato(&hub.store.db.locked(), &dk);
+                if fato_recusa.is_none() {
+                    send_reject(out, RejectCode::LeaseExpired).await;
+                    return None;
+                }
                 None
             }
             Err(Codigo(RejectCode::Unauthorized)) => {
@@ -683,9 +699,9 @@ fn reject(code: RejectCode) -> Value {
 
 impl Channel {
     fn set_device(&mut self, d: &Device) {
-        self.lease = match (d.source, d.lease_until) {
-            (DeviceSource::Account, Some(until)) => {
-                let left = u64::try_from(until - now_ms()).unwrap_or(0) + 1;
+        self.lease = match d.lease_until {
+            Some(until) if d.source == DeviceSource::Account || d.platform == "web" => {
+                let left = u64::try_from(until.saturating_sub(now_ms())).unwrap_or(0) + 1;
                 Some(Instant::now() + Duration::from_millis(left))
             }
             _ => None,
@@ -808,7 +824,9 @@ impl Channel {
             return Ok(());
         }
         // A assinatura também confere a classe antes do epoch, na ordem do `dispatch`.
-        if v["sub"].is_string() && devices::permit(&self.caller, "subscribe").is_err() {
+        if let Some(tipo) = v["sub"].as_str()
+            && !crate::fork::acesso_rpc::permite_assinatura(&self.caller, tipo)
+        {
             self.send(err(id, 403, "Control scope required")).await;
             return Ok(());
         }
@@ -849,8 +867,13 @@ impl Channel {
     /// nada muda: o `Caller` do canal.
     async fn sessao_do_pedido(&mut self, id: u64, v: &Value) -> Result<Option<Arc<Caller>>, CloseWith> {
         use crate::fork::sessao_clerk::{self as sessao, Exigencia, Guarda, Posse, Prazo};
+        let web = matches!(self.caller.as_ref(), Caller::Device { scopes, .. } if scopes == &[Scope::WebChat]);
         let vinculo = match sessao::exigencia(&self.hub) {
-            Exigencia::Livre => return Ok(Some(self.caller.clone())),
+            Exigencia::Livre if !web => return Ok(Some(self.caller.clone())),
+            Exigencia::Livre => {
+                self.send(sessao::erro_canal(id, sessao::Recusa::WorkspaceForbidden)).await;
+                return Ok(None);
+            }
             Exigencia::Negar(recusa) => {
                 self.send(sessao::erro_canal(id, recusa)).await;
                 return Ok(None);
@@ -888,6 +911,10 @@ impl Channel {
             sessao::conferir_pedido(&self.hub, &self.key, posse, self.sessao.as_ref(), &metodo, &v["pop"])
         {
             self.send(sessao::erro_canal(id, recusa)).await;
+            return Ok(None);
+        }
+        if web && v.get("sub").is_some() && v["sub"] != "events" {
+            self.send(sessao::erro_canal(id, sessao::Recusa::RoleInsufficient)).await;
             return Ok(None);
         }
         if metodo != crate::fork::workspace::METHOD && v["b"][crate::fork::workspace::EPOCH_FIELD].as_u64().is_none() {
@@ -1200,7 +1227,13 @@ impl Channel {
     }
 
     /// A pairing channel: exactly one `pair`, answered, then closed with `4100` (§4.1).
-    async fn pair(&mut self, incoming: &mut mpsc::Receiver<Value>, mut opener: Opener, source: &str) -> CloseWith {
+    async fn pair(
+        &mut self,
+        incoming: &mut mpsc::Receiver<Value>,
+        mut opener: Opener,
+        source: &str,
+        browser: bool,
+    ) -> CloseWith {
         let protocol = (close::PROTOCOL, "protocolError");
         let deadline = Instant::now() + PAIRING_MAX_AGE;
         let bytes = loop {
@@ -1221,6 +1254,10 @@ impl Channel {
             return protocol;
         }
         let b = &v["b"];
+        if (b["platform"] == "web") != browser || (browser && b["role"] == "executor") {
+            self.send(err(id, 403, "Pairing is not allowed on this transport")).await;
+            return (close::UNAUTHORIZED, "unauthorized");
+        }
         let usuario = match crate::fork::sessao_clerk::exigencia(&self.hub) {
             crate::fork::sessao_clerk::Exigencia::Livre => None,
             crate::fork::sessao_clerk::Exigencia::Negar(recusa) => {
@@ -1270,15 +1307,17 @@ impl Channel {
             self.send(err(id, 403, "This pairing code expired. Show a new one on the computer.")).await;
             return (close::UNAUTHORIZED, "unauthorized");
         }
+        let agora = now_ms();
+        let web = platform == "web";
         let device = Device {
             key: self.key.clone(),
             name: name.to_owned(),
             platform: platform.to_owned(),
             source: DeviceSource::Local,
             grant_id: None,
-            scopes: vec![Scope::Control, Scope::Screen],
-            lease_until: None,
-            created_at: now_ms(),
+            scopes: if web { vec![Scope::WebChat] } else { vec![Scope::Control, Scope::Screen] },
+            lease_until: web.then_some(agora + Device::WEB_PAREAMENTO_MS),
+            created_at: agora,
             last_seen_at: None,
         };
         // Código mostrado no próprio computador: a pessoa repareou esta chave. Com vínculo, a Tx

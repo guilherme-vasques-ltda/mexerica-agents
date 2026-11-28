@@ -544,7 +544,10 @@ async fn deliver(hub: &Arc<Hub>, item: &Value) -> Result<(), MailboxFailure> {
         return Err(Unauthorized);
     }
     let from = item["from"].as_str().unwrap_or_default();
-    let (_, caller) = crate::fork::autoridade::autenticar(hub, from).map_err(|_| Unauthorized)?;
+    let (device, caller) = crate::fork::autoridade::autenticar(hub, from).map_err(|_| Unauthorized)?;
+    if device.scopes.contains(&crate::store::Scope::WebChat) {
+        return Err(Unauthorized);
+    }
     let dk = crypto::unb64_n::<32>(from).map_err(|_| Invalid)?;
     let nonce = item["nonce"].as_str().filter(|n| !n.is_empty()).ok_or(Invalid)?;
     let blob = item["d"].as_str().and_then(|d| crypto::unb64(d).ok()).ok_or(Invalid)?;

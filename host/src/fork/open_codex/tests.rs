@@ -109,7 +109,7 @@ fn launch_passes_only_the_selected_binary_and_its_private_environment() {
     let fixture = Fixture::new();
     let profile = fixture.open.join("home/.mexerica-open/engine-setup/accounts/fixture/.codex");
     Directory::open(&profile, true).unwrap();
-    let command = command(&fixture.executable, &profile, true).unwrap();
+    let command = command(&fixture.executable, &profile, true, None).unwrap();
     let std = command.as_std();
     assert_eq!(std.get_program(), SANDBOX);
     let vars: Vec<_> = std.get_envs().collect();
@@ -202,12 +202,28 @@ async fn macos_login_sandbox_denies_personal_and_dev_files_even_through_a_link()
     let source = fixture.scope.join("probe.c");
     std::fs::write(
         &source,
-        r#"#include <dirent.h>
+        r#"#include <arpa/inet.h>
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <stdlib.h>
+#include <sys/socket.h>
 #include <unistd.h>
 static int attempt(const char *op) {
   const char *path = op + 2;
+  if (op[0] == 'p' || op[0] == 'n') {
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return -2;
+    struct sockaddr_in addr = {0};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = htons((unsigned short)strtoul(path, NULL, 10));
+    int result = connect(fd, (struct sockaddr *)&addr, sizeof(addr));
+    int saved = errno;
+    close(fd);
+    errno = saved;
+    return result;
+  }
   if (op[0] == 'd') {
     DIR *dir = opendir(path);
     if (!dir) return -1;
@@ -234,7 +250,7 @@ int main(int argc, char **argv) {
   int sandboxed = argv[1][0] == 's';
   for (int i = 3; i < argc; ++i) {
     int result = attempt(argv[i]);
-    if (argv[i][0] == 'a' || !sandboxed) {
+    if (argv[i][0] == 'a' || argv[i][0] == 'p' || !sandboxed) {
       if (result != 0) return 30 + i;
       continue;
     }
@@ -276,7 +292,7 @@ int main(int argc, char **argv) {
         denied.push(format!("w:{}", path.display()));
     }
     for login in [true, false] {
-        let mut sandbox = command(&fixture.executable, &profile, login).unwrap();
+        let mut sandbox = command(&fixture.executable, &profile, login, None).unwrap();
         sandbox
             .arg("s")
             .arg(&open_file)
@@ -288,6 +304,18 @@ int main(int argc, char **argv) {
         let status = tokio::time::timeout(std::time::Duration::from_secs(10), sandbox.status()).await.unwrap().unwrap();
         assert!(status.success(), "sandbox ou prova nativa recusada (rede: {login}): {status}");
     }
+    let allowed = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
+    let denied_port = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
+    let port = allowed.local_addr().unwrap().port();
+    let probe = [format!("p:{port}"), format!("n:{}", denied_port.local_addr().unwrap().port())];
+    let control =
+        std::process::Command::new(&fixture.executable).arg("c").arg(&open_file).args(&probe).status().unwrap();
+    assert!(control.success(), "sem sandbox, as duas portas escutam: {control}");
+    let mut sandbox = command(&fixture.executable, &profile, false, Some(port)).unwrap();
+    sandbox.arg("s").arg(&open_file).args(&probe);
+    let output = tokio::time::timeout(std::time::Duration::from_secs(10), sandbox.output()).await.unwrap().unwrap();
+    assert!(output.status.success(), "só a porta local selecionada pode conectar: {}", output.status);
+    assert_eq!(output.stdout, b"auxiliar nativo chegou a main\n");
     let control = std::process::Command::new(&fixture.executable)
         .arg("c")
         .arg(&open_file)

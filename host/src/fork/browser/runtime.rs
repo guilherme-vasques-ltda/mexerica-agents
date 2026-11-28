@@ -10,27 +10,27 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(target_os = "macos")]
+use super::supervisor::mac::{Processes, RealLauncher};
 #[cfg(target_os = "linux")]
-use super::{
-    cdp::Cdp,
-    pages,
-    supervisor::{Supervisor, real::RealLauncher},
-};
-#[cfg(target_os = "linux")]
+use super::supervisor::real::{Processes, RealLauncher};
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+use super::{cdp::Cdp, pages, supervisor::Supervisor};
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use anyhow::{Context, anyhow};
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::path::PathBuf;
 
 const NEGOTIATED_MAX: usize = 1024;
 const PROBE_TTL: Duration = Duration::from_secs(60);
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 const LIMIT: usize = 3;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 const IDLE: Duration = Duration::from_secs(300);
 /// Período entre conferências de autoridade e de manutenção (revogada, caída, ociosa). É o período de checagem,
 /// não um teto de latência: o corte de uma revogação ainda espera o próximo ciclo, a leitura do banco e o
 /// agendador do runtime.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 const SWEEP: Duration = Duration::from_millis(250);
 
 /// A autoridade (vínculo de execução) de uma sessão ainda vale? Falso derruba a sessão na próxima varredura.
@@ -52,15 +52,21 @@ impl Outcome {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 pub(super) type Pipe = tokio::net::UnixStream;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 type Sessions = Arc<tokio::sync::Mutex<Option<Supervisor<RealLauncher>>>>;
 
 #[derive(Default)]
 pub(crate) struct State {
-    #[cfg(target_os = "linux")]
+    pub(super) local_consent: tokio::sync::Mutex<()>,
+    pub(super) consent_revision: std::sync::atomic::AtomicU64,
+    #[cfg(unix)]
+    pub(super) local_turns: Mutex<std::collections::HashMap<Scope, (String, std::sync::Weak<super::turn::Turn>)>>,
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     sessions: Sessions,
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    stopped: std::sync::atomic::AtomicBool,
     probe: Mutex<Option<(Instant, Result<(), &'static str>)>>,
     /// Vínculos de execução que já negociaram o contrato v3 (`browser_status` v3 disponível): só eles veem
     /// e usam as ferramentas de página. Cheio, esvazia: cliente renegocia (falha fechada).
@@ -107,12 +113,37 @@ fn probe() -> Result<(), &'static str> {
     super::bridge::ensure_namespaces_available().map_err(|_| "containment_unavailable")
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(target_os = "macos")]
+fn probe() -> Result<(), &'static str> {
+    // SAFETY: geteuid não recebe ponteiros nem altera memória.
+    if unsafe { libc::geteuid() } == 0 {
+        return Err("running_as_root");
+    }
+    super::supervisor::mac::engine().map(|_| ()).ok_or("engine_missing")
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn probe() -> Result<(), &'static str> {
     Err("unsupported_platform")
 }
 
 impl State {
+    #[cfg(target_os = "macos")]
+    pub(super) async fn verify_mac_policy(&self) -> Result<(), &'static str> {
+        let result = super::supervisor::mac_policy::verify().await;
+        if result.is_err() {
+            self.revoke_all();
+        }
+        result
+    }
+
+    #[cfg(unix)]
+    pub(super) fn revoke_local_turn(&self, scope: &Scope, owner: &str) {
+        if let Some(watch) = self.watch.lock().ok().and_then(|watch| watch.clone()) {
+            watch.revoke(|candidate, key| candidate == scope && key == owner);
+        }
+    }
+
     pub(super) fn negotiate(&self, binding: &str) {
         if let Ok(mut set) = self.negotiated.lock() {
             if set.len() >= NEGOTIATED_MAX {
@@ -137,6 +168,9 @@ impl State {
 
     /// Resultado da sonda de contenção, guardado por um minuto: a consulta de status não relança namespaces a cada vez.
     pub(super) fn availability(&self) -> Result<(), &'static str> {
+        if cfg!(target_os = "macos") {
+            return probe();
+        }
         let Ok(mut cached) = self.probe.lock() else { return Err("containment_unavailable") };
         if let Some((at, result)) = *cached
             && at.elapsed() < PROBE_TTL
@@ -149,7 +183,7 @@ impl State {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 impl State {
     /// Abre (ou reabre) a página na sessão da autoridade `owner`. O destino é validado antes de alocar
     /// qualquer sessão; sessão de outra autoridade ou cujo CDP caiu é descartada e recriada vazia. `valid` é
@@ -163,6 +197,10 @@ impl State {
         url: &str,
         valid: impl Fn() -> bool + Sync,
     ) -> Outcome {
+        #[cfg(target_os = "macos")]
+        if let Err(reason) = self.verify_mac_policy().await {
+            return Outcome::failed(None, anyhow!(reason));
+        }
         if let Err(error) = super::nav::validate_navigation_url(url).await {
             return Outcome::failed(None, error);
         }
@@ -170,7 +208,11 @@ impl State {
             Ok(handle) => handle,
             Err(error) => return Outcome::failed(None, error),
         };
-        #[cfg(test)]
+        #[cfg(target_os = "macos")]
+        if let Err(reason) = self.verify_mac_policy().await {
+            return Outcome::failed(Some(instance), anyhow!(reason));
+        }
+        #[cfg(all(test, target_os = "linux"))]
         self.pause_point("open").await;
         if !valid() {
             let _ = self.close_instance(scope, instance).await;
@@ -228,6 +270,10 @@ impl State {
             }
         };
         let (cdp, page, instance) = handle;
+        #[cfg(target_os = "macos")]
+        if let Err(reason) = self.verify_mac_policy().await {
+            return Outcome::failed(Some(instance), anyhow!(reason));
+        }
         if !valid() {
             let _ = self.close_instance(scope, instance).await;
             return Outcome::failed(
@@ -237,7 +283,7 @@ impl State {
         }
         let result = match pages::read(&cdp, &page, &valid).await {
             Ok(value) => {
-                #[cfg(test)]
+                #[cfg(all(test, target_os = "linux"))]
                 self.pause_point("read").await;
                 self.confirm(scope, owner, instance).await.map(|()| value)
             }
@@ -276,26 +322,33 @@ impl State {
         valid: &(impl Fn() -> bool + Sync),
     ) -> Result<(Cdp<Pipe>, String, u64)> {
         let mut guard = self.sessions.lock().await;
+        anyhow::ensure!(!self.stopped.load(std::sync::atomic::Ordering::Acquire), "browser_session_closed");
         if guard.is_none() {
-            let (chromium, xvfb) =
-                engine().ok_or_else(|| anyhow!("browser_engine_missing: Chromium ou Xvfb ausente"))?;
+            #[cfg(target_os = "linux")]
+            let launcher = {
+                let (chromium, xvfb) =
+                    engine().ok_or_else(|| anyhow!("browser_engine_missing: Chromium ou Xvfb ausente"))?;
+                #[cfg(test)]
+                let host_binary = std::env::current_exe()
+                    .ok()
+                    .and_then(|path| path.parent()?.parent().map(|dir| dir.join("donnabot-host")));
+                #[cfg(not(test))]
+                let host_binary = None;
+                RealLauncher { chromium, xvfb, host_binary, extra_hidden: Vec::new() }
+            };
+            #[cfg(target_os = "macos")]
+            let launcher = RealLauncher {
+                chromium: super::supervisor::mac::engine()
+                    .ok_or_else(|| anyhow!("browser_engine_missing: Chrome ou Chromium ausente"))?,
+            };
             let root = crate::service::data_dir().join("browser");
-            #[cfg(test)]
-            let host_binary = std::env::current_exe()
-                .ok()
-                .and_then(|path| path.parent()?.parent().map(|dir| dir.join("donnabot-host")));
-            #[cfg(not(test))]
-            let host_binary = None;
-            let supervisor = Supervisor::new(
-                RealLauncher { chromium, xvfb, host_binary, extra_hidden: Vec::new() },
-                root,
-                LIMIT,
-                IDLE,
-            )?;
+            let supervisor = Supervisor::new(launcher, root, LIMIT, IDLE)?;
             if let Ok(mut slot) = self.watch.lock() {
                 *slot = Some(supervisor.watch());
             }
             tokio::spawn(cut_revoked(supervisor.watch(), Arc::downgrade(&self.sessions), Arc::clone(&self.authority)));
+            #[cfg(target_os = "macos")]
+            tokio::spawn(watch_mac_policy(supervisor.watch(), Arc::downgrade(&self.sessions)));
             tokio::spawn(sweep(self.sessions.clone()));
             *guard = Some(supervisor);
         }
@@ -303,7 +356,12 @@ impl State {
         if !valid() {
             anyhow::bail!("browser_authority_revoked: a autoridade da sessão foi revogada");
         }
-        supervisor.launcher_mut().extra_hidden = hidden;
+        #[cfg(target_os = "linux")]
+        {
+            supervisor.launcher_mut().extra_hidden = hidden;
+        }
+        #[cfg(target_os = "macos")]
+        let _ = hidden;
         let instance = supervisor.ensure(scope.clone(), owner, Instant::now()).await?;
         if !valid() {
             supervisor.stop_instance(scope, instance)?;
@@ -322,15 +380,13 @@ impl State {
     }
 
     fn handle(supervisor: &Supervisor<RealLauncher>, scope: &Scope) -> Result<(Cdp<Pipe>, String)> {
-        let cdp = supervisor
-            .process(scope)
-            .and_then(super::supervisor::real::Processes::cdp)
-            .ok_or_else(|| anyhow!("browser_session_closed"))?;
+        let cdp =
+            supervisor.process(scope).and_then(Processes::cdp).ok_or_else(|| anyhow!("browser_session_closed"))?;
         let page = cdp.main_session().ok_or_else(|| anyhow!("browser_session_closed"))?;
         Ok((cdp, page))
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "linux"))]
     async fn pause_point(&self, name: &str) {
         let hook = self.pauses.lock().ok().and_then(|pauses| pauses.get(name).cloned());
         if let Some((reached, proceed)) = hook {
@@ -340,11 +396,75 @@ impl State {
     }
 }
 
+impl State {
+    pub(crate) async fn shutdown(&self) {
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        {
+            self.stopped.store(true, std::sync::atomic::Ordering::Release);
+            self.clear().await;
+        }
+    }
+
+    pub(super) async fn clear(&self) {
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        self.sessions.lock().await.take();
+    }
+
+    pub(super) fn revoke_all(&self) {
+        if let Some(watch) = self.watch.lock().ok().and_then(|watch| watch.clone()) {
+            watch.revoke(|_, _| true);
+        }
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    pub(super) async fn capture(
+        &self,
+        scope: &Scope,
+        owner: &str,
+        instance: u64,
+        valid: impl Fn() -> bool + Sync,
+    ) -> Result<Value> {
+        let (cdp, page) = {
+            let guard = self.sessions.lock().await;
+            let supervisor = guard.as_ref().context("browser_session_closed")?;
+            anyhow::ensure!(supervisor.owned_instance(scope, owner) == Some(instance), "browser_session_closed");
+            Self::handle(supervisor, scope)?
+        };
+        let _guard = cdp.lock_page().await;
+        let frame = cdp
+            .command_session_checked(
+                &page,
+                "Page.captureScreenshot",
+                serde_json::json!({"format":"jpeg","quality":45,"captureBeyondViewport":false}),
+                Duration::from_secs(3),
+                &valid,
+            )
+            .await?;
+        self.confirm(scope, owner, instance).await?;
+        anyhow::ensure!(valid(), "browser_session_closed");
+        let jpeg = frame["data"]
+            .as_str()
+            .filter(|image| image.len() <= super::local::MAX_FRAME_CHARS)
+            .context("browser_frame_unavailable")?;
+        Ok(serde_json::json!({"jpeg": jpeg}))
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    pub(super) fn visible_session(&self, scope: &Scope) -> Option<(String, u64)> {
+        self.watch.lock().ok()?.as_ref()?.visible(scope)
+    }
+
+    #[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
+    pub(super) fn visible_session(&self, _scope: &Scope) -> Option<(String, u64)> {
+        None
+    }
+}
+
 /// Corte de revogação: sem pegar a trava do supervisor (que o arranque de outra instância pode segurar),
 /// derruba proxy e controle de toda instância cuja autoridade foi revogada (vínculo revogado ou trocado,
 /// troca de conta ou de Space, bot apagado, preferência fora de Integrado). Os processos são encerrados
 /// depois, pela manutenção. Termina quando o Hub solta o estado.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 async fn cut_revoked(
     watch: super::supervisor::Watch,
     sessions: std::sync::Weak<tokio::sync::Mutex<Option<Supervisor<RealLauncher>>>>,
@@ -362,10 +482,29 @@ async fn cut_revoked(
     }
 }
 
+#[cfg(target_os = "macos")]
+async fn watch_mac_policy(
+    watch: super::supervisor::Watch,
+    sessions: std::sync::Weak<tokio::sync::Mutex<Option<Supervisor<RealLauncher>>>>,
+) {
+    use super::supervisor::mac_policy;
+    loop {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        if sessions.strong_count() == 0 {
+            return;
+        }
+        if watch.has_live_sessions()
+            && let Err(reason) = mac_policy::enforce(&watch, mac_policy::verify()).await
+        {
+            tracing::warn!(reason, "navegador encerrado após verificação de políticas do Mac");
+        }
+    }
+}
+
 /// Manutenção: encerra (processos, proxy e perfil), sem esperar nova chamada, as sessões cujo navegador perdeu o
 /// canal de controle ou foi cortado, as que ficaram ociosas e as que falharam ao encerrar antes.
 /// Termina quando o Hub solta o estado.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 async fn sweep(sessions: Sessions) {
     loop {
         tokio::time::sleep(SWEEP).await;
@@ -386,7 +525,7 @@ async fn sweep(sessions: Sessions) {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 impl State {
     pub(super) async fn open(
         &self,
