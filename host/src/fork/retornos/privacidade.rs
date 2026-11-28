@@ -416,6 +416,19 @@ mod execution {
 #[allow(unused_imports, reason = "contrato dos executores pendente de integração")]
 pub(crate) use execution::{EffectAuthority, EffectFenceCheck, ExecutionTaint, ReadProvenance, SinkGuard};
 
+/// Um par nunca recebe o corpo qualificado, mesmo quando o resultado termina antes de uma revogação.
+pub(super) fn grouped_peer_returns(db: &Connection) -> Result<rusqlite::Statement<'_>> {
+    Ok(db.prepare(
+        "SELECT r.requester_chat_id,r.requester_session_id,d.space_id,d.source_turn,d.sealed,
+                r.target_bot_id,COALESCE(result.outcome,r.end_reason,r.state),
+                CASE WHEN d.body IS NOT NULL AND privacy.request_id IS NOT NULL THEN '' ELSE d.body END
+         FROM donna_request_deliveries d JOIN donna_session_requests r ON r.id=d.request_id
+         LEFT JOIN donna_session_results result ON result.request_id=r.id AND result.attempt=r.attempt
+         LEFT JOIN donna_session_privacy privacy ON privacy.request_id=r.id
+         WHERE r.requester_execution_ref=?1 ORDER BY r.created_at,r.id",
+    )?)
+}
+
 #[allow(dead_code, reason = "os produtores de revogação de autoridade ainda não estão integrados")]
 #[derive(Clone, Copy)]
 pub(crate) enum RevokeScope<'a> {

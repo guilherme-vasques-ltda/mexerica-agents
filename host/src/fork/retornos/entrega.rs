@@ -103,15 +103,7 @@ struct Return {
 }
 
 fn publish_on(db: &Connection, group: &str) -> Result<Vec<Entry>> {
-    let mut query = db.prepare(
-        "SELECT r.requester_chat_id,r.requester_session_id,d.space_id,d.source_turn,d.sealed,
-                r.target_bot_id,COALESCE(result.outcome,r.end_reason,r.state),
-                CASE WHEN d.body IS NOT NULL AND privacy.request_id IS NOT NULL THEN '' ELSE d.body END
-         FROM donna_request_deliveries d JOIN donna_session_requests r ON r.id=d.request_id
-         LEFT JOIN donna_session_results result ON result.request_id=r.id AND result.attempt=r.attempt
-         LEFT JOIN donna_session_privacy privacy ON privacy.request_id=r.id
-         WHERE r.requester_execution_ref=?1 ORDER BY r.created_at,r.id",
-    )?;
+    let mut query = super::privacidade::grouped_peer_returns(db)?;
     let rows = query
         .query_map([group], |r| {
             Ok(Return {
