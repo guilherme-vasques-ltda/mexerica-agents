@@ -80,6 +80,8 @@ mac:
   extraResources:
     - from: build/native/donnabot-host
       to: donnabot-host
+    - from: build/native/mexerica-hub-supervisor
+      to: mexerica-hub-supervisor
     - from: build/native/codync-speech
       to: codync-speech
   extraFiles:

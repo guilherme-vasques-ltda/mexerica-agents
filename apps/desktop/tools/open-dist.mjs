@@ -12,3 +12,4 @@ execFileSync('node_modules/.bin/electron-builder', ['--mac', '--config', 'tools/
 const bundle = join('dist/open', macArch() === 'arm64' ? 'mac-arm64' : 'mac', `${open.name}.app`)
 execFileSync('/usr/bin/codesign', ['--sign', '-', '--timestamp=none', '--force', '--deep', bundle], { stdio: 'inherit' })
 execFileSync('/usr/bin/codesign', ['--verify', '--deep', '--strict', bundle], { stdio: 'inherit' })
+execFileSync('/usr/bin/codesign', ['--verify', '--strict', join(bundle, 'Contents/Resources/mexerica-hub-supervisor')], { stdio: 'inherit' })
