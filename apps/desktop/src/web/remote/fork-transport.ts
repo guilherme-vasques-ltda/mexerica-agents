@@ -21,6 +21,21 @@ const timeoutMs = 8_000
 const object = (v: unknown): Record<string, unknown> =>
   v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : {}
 
+function publicError(error: { status: number; code?: string }, send = false): CallError {
+  const status = [0, 400, 401, 403, 404, 409, 429, 500, 503].includes(error.status) ? error.status : 500
+  if (status === 0) return unavailable
+  if (status === 401 || status === 403) {
+    const code = status === 401 && error.code === 'auth_invalid' ? 'auth_invalid'
+      : status === 401 && error.code === 'device_unpaired' ? 'device_unpaired'
+      : status === 403 && error.code === 'workspace_forbidden' ? 'workspace_forbidden'
+      : status === 403 && error.code === 'role_insufficient' ? 'role_insufficient' : 'access_denied'
+    return { status, code, message: texto('conversa.arquivar.falha.notAllowed') }
+  }
+  const code = status === 409 && error.code === 'workspace_epoch_mismatch' ? 'workspace_epoch_mismatch'
+    : status === 409 ? 'conflict' : status === 404 ? 'not_found' : status === 429 ? 'busy' : 'request_failed'
+  return { status, code, message: texto(send ? 'spaces.compose.falhou' : 'web.login.erro.geral') }
+}
+
 function readContext(raw: unknown, binding: HubBinding): WorkspaceContext {
   const c = object(raw)
   if (c.schema !== 1 || c.hubId !== binding.hubId || c.userId !== binding.userId
@@ -59,6 +74,34 @@ export function createRemoteHub(
   }
   const recover = (c: Connection, code: unknown) => {
     if (c.authorized() && code === 'workspace_epoch_mismatch') c.callbacks.recoverContext()
+  }
+
+  const readReceipt = async (c: Connection, method: string, b: Record<string, unknown>, timeout: number) => {
+    const contextual = method === 'donnaConversationSend'
+    const chat = contextual ? b.conversationId : b.botId
+    const nonce = b.clientNonce
+    if (!c.authorized() || typeof chat !== 'string' || typeof nonce !== 'string' || !nonce
+      || typeof b.text !== 'string') return
+    const target = contextual ? { conversationId: chat }
+      : { botId: chat, ...(typeof b.conversationId === 'string' && { conversationId: b.conversationId }), sessionId: b.sessionId ?? chat }
+    const result = await c.link.call(contextual ? 'donnaConversationHistory' : 'history',
+      { ...target, ...(typeof b.hubId === 'string' && { hubId: b.hubId }), ...(typeof b.spaceId === 'string' && { spaceId: b.spaceId }),
+        sendReceipt: { nonce, text: b.text, replyTo: b.replyTo, revision: b.expectedRevision },
+        workspaceEpoch: c.context.workspaceEpoch }, timeout, c.authorized).catch(() => undefined)
+    if (!c.authorized() || result?.kind !== 'ok') return
+    const page = object(result.value)
+    if (!Array.isArray(page.entries)) return
+    const context = object(page.context)
+    if (contextual && (page.hubId !== b.hubId || context.conversationId !== chat || context.spaceId !== b.spaceId)) return
+    const text = b.text.trim()
+    const entry = page.entries.find((raw: unknown) => {
+      const e = object(raw), data = object(e.data)
+      return e.kind === 'user' && typeof e.id === 'string' && e.botId === chat
+        && e.sessionId === (contextual ? chat : b.sessionId ?? chat)
+        && (!b.spaceId || !e.spaceId || b.spaceId === e.spaceId)
+        && data.clientNonce === nonce && data.text === text
+    })
+    return entry ? (contextual ? { hubId: page.hubId, context: page.context, entry, replayed: true } : { entry }) : undefined
   }
 
   const remote: ReturnType<typeof createRemoteHub> = {
@@ -209,14 +252,19 @@ export function createRemoteHub(
       async call(origin, token, method, body, requestedTimeout) {
         const c = connection(origin, token)
         if (method === 'pair' || method === 'sessionAuthenticate' || (body != null && (typeof body !== 'object' || Array.isArray(body)))) throw inactive
-        const result = await c.link.call(method, { ...object(body), workspaceEpoch: c.context.workspaceEpoch }, requestedTimeout, c.authorized)
+        const b = object(body)
+        const send = method === 'send' || method === 'donnaConversationSend'
+        const result = await c.link.call(method, { ...b, workspaceEpoch: c.context.workspaceEpoch }, requestedTimeout, c.authorized)
+          .catch(() => undefined)
         if (!c.authorized()) throw unavailable
-        if (result.kind === 'ok') return result.value
-        if (result.kind === 'err') {
-          recover(c, result.code)
-          throw { status: result.status, message: result.message, code: result.code } satisfies CallError
+        if (result?.kind === 'ok') return result.value
+        const error = result?.kind === 'err' ? publicError(result, send) : unavailable
+        if (send && (result?.kind === 'unknown' || error.code === 'request_failed')) {
+          const saved = await readReceipt(c, method, b, requestedTimeout)
+          if (saved && c.authorized()) return saved
         }
-        throw unavailable
+        recover(c, error.code)
+        throw error
       },
       stream(raw, token, onData, onEnd) {
         let active = true
@@ -240,8 +288,9 @@ export function createRemoteHub(
           sub = await c.link.subscribe('events', body, (event) => {
             if (allowed()) onData(JSON.stringify(event))
           }, (error) => {
-            if (error) recover(c, error.code)
-            finish(error)
+            const safe = error ? publicError(error) : null
+            if (safe) recover(c, safe.code)
+            finish(safe)
           }, allowed)
           if (!active) sub?.cancel()
           else if (!sub) finish(unavailable)
