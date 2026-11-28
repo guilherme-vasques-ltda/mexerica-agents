@@ -2,7 +2,7 @@
   "id": "granola",
   "nome": "Granola",
   "categoria": "Produtividade",
-  "descricao": "Notas de reunião com IA: busca reuniões e transcrições, lê resumos, organiza pastas e regenera resumos.",
+  "descricao": "Notas de reunião com IA: busca reuniões e transcrições, lê resumos e organiza pastas; editar só depois de ligar cada ação.",
   "exemplos": [
     "Resuma a reunião de hoje de manhã",
     "Quais ações ficaram combinadas na última reunião?"
@@ -13,12 +13,13 @@
     "privacidade": "https://www.granola.ai/privacy",
     "termos": "https://www.granola.ai/terms"
   },
-  "conferidaEm": "2026-11-18",
+  "conferidaEm": "2026-11-27",
   "fontes": [
     "https://docs.granola.ai/help-center/sharing/integrations/mcp",
-    "https://mcp-auth.granola.ai/oauth2/register",
+    "https://mcp.granola.ai/.well-known/oauth-protected-resource",
     "https://mcp-auth.granola.ai/.well-known/oauth-authorization-server"
   ],
+  "aviso": "Transcrições e edição de notas dependem de plano pago do Granola.",
   "tipos": [
     {
       "id": "granola.oficial_oauth",
@@ -34,16 +35,18 @@
         {
           "id": "usar",
           "rotulo": "Usar com a sua conta",
-          "escopos": [],
+          "escopos": [
+            "openid",
+            "offline_access"
+          ],
           "padrao": true,
-          "disponivel": false
+          "disponivel": true,
+          "imposicao": "filtro"
         }
       ],
       "recomendado": true,
-      "disponivel": false,
-      "motivoIndisponivel": "O Granola não oferece um modo só de leitura; entra depois do filtro de ações perigosas."
+      "disponivel": true
     }
   ],
-  "emBreve": "O fornecedor não impõe leitura: entra depois do filtro de ações perigosas.",
   "skillsOficiais": []
 }

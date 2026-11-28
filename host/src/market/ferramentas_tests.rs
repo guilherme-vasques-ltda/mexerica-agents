@@ -629,6 +629,124 @@ fn registrar_na_conta(hub: &crate::hub::Hub, conta: &Connector, tools: &[Value])
 }
 
 #[tokio::test]
+async fn catalog_local_guard_filtra_descoberta_e_revalida_admissao() {
+    use crate::fork::conectores::oauth_binding;
+    use crate::guard_hub::mcp::call;
+    let hub = hub();
+    let conta: Connector = serde_json::from_value(json!({
+        "id":"conta-local","name":"Local","servico":"fixture-local","tipo":"fixture-local.local",
+        "liberacoes":["acoes"],"space":PERSONAL
+    }))
+    .unwrap();
+    let mut personalizado = conta.clone();
+    personalizado.id = "conta-personalizada".into();
+    personalizado.servico = None;
+    personalizado.command = Some("fixture-local".into());
+    crate::market::save_connectors(&hub.store, &[conta, personalizado]).unwrap();
+    let all = crate::market::connectors(&hub.store).unwrap();
+    let conta = all.iter().find(|c| c.id == "conta-local").unwrap();
+    let _rx = bot(&hub, "b1", &[&conta.id]);
+    let execution = crate::fork::sessoes::bindings::fixture_execution(&hub, "b1");
+    let context =
+        oauth_binding::issue_context(&hub.store, conta, "b1", "b1", None, execution.acp_binding().unwrap()).unwrap();
+    let setup = oauth_binding::issue_setup(&hub.store, conta).unwrap();
+    let payload = |id: &str| {
+        json!({
+            "connector":conta.id,"context":id,"bridgeId":uuid::Uuid::new_v4().to_string(),"transport":"catalog-local"
+        })
+    };
+    let request = |mut body: Value, fields: Value| {
+        body.as_object_mut().unwrap().extend(fields.as_object().unwrap().clone());
+        body
+    };
+    let setup_bridge = payload(&setup.id);
+    let bot_bridge = payload(&context.id);
+    let other = all.iter().find(|c| c.id == "conta-personalizada").unwrap();
+    let other_setup = crate::guard_hub::mcp::setup::Setup::issue(&hub.store, &other.id).unwrap();
+    assert!(
+        call(
+            &hub,
+            &Caller::Local,
+            "donnaGuardRuntime",
+            request(payload(&other_setup.id), json!({"connector":other.id}),)
+        )
+        .await
+        .is_err()
+    );
+    let mut forged = conta.clone();
+    forged.command = Some("fixture-local".into());
+    assert!(forged.acp(std::path::Path::new("host"), 1).is_none());
+    for base in [&setup_bridge, &bot_bridge] {
+        let acquire = call(&hub, &Caller::Local, "donnaGuardRuntime", base.clone()).await.unwrap();
+        assert_eq!(acquire["artefato"], "fixture-local.local");
+        assert!(acquire.get("command").is_none());
+    }
+    assert!(
+        call(
+            &hub,
+            &Caller::Local,
+            "donnaGuardRuntime",
+            request(setup_bridge.clone(), json!({"transport":"http","method":"initialize"}),)
+        )
+        .await
+        .is_err()
+    );
+    let tools = lista(&["list_items", "create_item", "outside_catalog"]);
+    let request_id = uuid::Uuid::new_v4().to_string();
+    let frame = json!({"jsonrpc":"2.0","id":request_id,"result":{"tools":tools}});
+    let discovery = json!({"method":"tools/list","params":{},"requestId":request_id});
+    for (base, expected) in
+        [(&setup_bridge, BTreeSet::from(["list_items".into(), "create_item".into()])), (&bot_bridge, BTreeSet::new())]
+    {
+        let fields = request(base.clone(), discovery.clone());
+        assert_eq!(call(&hub, &Caller::Local, "donnaGuardRuntime", fields.clone()).await.unwrap()["valid"], true);
+        let another = uuid::Uuid::new_v4().to_string();
+        let concurrent = request(fields.clone(), json!({"requestId":another}));
+        assert_eq!(call(&hub, &Caller::Local, "donnaGuardRuntime", concurrent).await.unwrap()["ruleDenied"], true);
+        for cancelled in [&another, &request_id] {
+            let cancellation = request(
+                base.clone(),
+                json!({
+                    "method":"notifications/cancelled","params":{"requestId":cancelled},
+                }),
+            );
+            assert_eq!(call(&hub, &Caller::Local, "donnaGuardRuntime", cancellation).await.unwrap()["valid"], true);
+            if cancelled == &another {
+                assert_eq!(
+                    call(&hub, &Caller::Local, "donnaGuardRuntime", fields.clone()).await.unwrap()["ruleDenied"],
+                    true
+                );
+            }
+        }
+        assert!(
+            call(&hub, &Caller::Local, "donnaGuardObserve", request(fields.clone(), json!({"frame":frame})))
+                .await
+                .is_err()
+        );
+        assert_eq!(call(&hub, &Caller::Local, "donnaGuardRuntime", fields.clone()).await.unwrap()["valid"], true);
+        let observed =
+            call(&hub, &Caller::Local, "donnaGuardObserve", request(fields, json!({"frame":frame}))).await.unwrap();
+        assert_eq!(nomes_mediados(&observed).unwrap(), expected);
+    }
+    let invoke = json!({"method":"tools/call","params":{"name":"create_item"}});
+    assert!(
+        call(&hub, &Caller::Local, "donnaGuardRuntime", request(setup_bridge.clone(), invoke.clone())).await.is_err()
+    );
+    let invoke = request(bot_bridge.clone(), invoke);
+    assert_eq!(call(&hub, &Caller::Local, "donnaGuardRuntime", invoke.clone()).await.unwrap()["ruleDenied"], true);
+    let digest = digest_de(&tools[1]);
+    let liberar = PedidoLigar { bot: "b1", conta: &conta.id, ferramenta: "create_item", digest: &digest };
+    gravar_liberacao(&hub.store.db.locked(), &liberar).unwrap();
+    assert_eq!(call(&hub, &Caller::Local, "donnaGuardRuntime", invoke.clone()).await.unwrap()["valid"], true);
+    gravar_desligamento(&hub.store.db.locked(), "b1", &conta.id, "create_item").unwrap();
+    let ultimo = request(invoke, json!({"validateOnly":true}));
+    assert_eq!(call(&hub, &Caller::Local, "donnaGuardRuntime", ultimo).await.unwrap()["ruleDenied"], true);
+    for base in [setup_bridge, bot_bridge] {
+        call(&hub, &Caller::Local, "donnaGuardRelease", base).await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn novas_fichas_de_leitura_isolam_contas_e_nao_ligam_ferramentas_sozinhas() {
     let hub = hub();
     for (servico, consulta, escrita, escopos) in [

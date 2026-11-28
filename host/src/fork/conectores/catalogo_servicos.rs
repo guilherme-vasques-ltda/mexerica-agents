@@ -251,6 +251,20 @@ pub(crate) fn fixture_app_proprio() -> &'static Servico {
 }
 
 pub(crate) fn servico(id: &str) -> Option<&'static Servico> {
+    #[cfg(test)]
+    if id == "fixture-local" {
+        static FICHA: std::sync::LazyLock<Servico> = std::sync::LazyLock::new(|| {
+            let mut ficha: serde_json::Value =
+                serde_json::from_str(include_str!("../../../tests/fixtures/catalogo-filtro.json")).unwrap();
+            ficha["id"] = "fixture-local".into();
+            ficha["conferidaEm"] = hoje().to_string().into();
+            ficha["tipos"][0]["id"] = "fixture-local.local".into();
+            ficha["tipos"][0]["tipo"] = "local".into();
+            ficha["tipos"][0]["url"] = "".into();
+            super::catalogo_json::ler(&ficha.to_string()).unwrap()
+        });
+        return Some(&FICHA);
+    }
     super::catalogo_fichas::servicos().iter().find(|s| s.id == id)
 }
 

@@ -74,6 +74,7 @@ fn discovery(method: &str) -> bool {
             | "resources/templates/list"
             | "prompts/list"
             | "notifications/initialized"
+            | "notifications/cancelled"
     )
 }
 

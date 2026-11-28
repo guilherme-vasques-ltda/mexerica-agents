@@ -630,6 +630,25 @@ fn opcoes_perigosas_ou_malformadas_sao_recusadas() {
     assert!(super::opcoes::ler(&pedido(opcoes_da_conversa())).is_ok());
 }
 
+#[test]
+fn pasta_adicional_e_reconferida_ao_montar_o_proximo_inicio() {
+    let dir = tempfile::tempdir().unwrap();
+    let extra = dir.path().join("extra");
+    std::fs::create_dir(&extra).unwrap();
+    let o =
+        super::opcoes::ler(&json!({"cwd": dir.path(), "mcpServers": [], "additionalDirectories": [&extra]})).unwrap();
+    let arg = format!("--add-dir={}", extra.canonicalize().unwrap().display());
+    let arquivos = super::opcoes::Arquivos { mcp: dir.path().join("mcp.json"), settings: None, prompt: None };
+    assert!(super::opcoes::argumentos(&o, "s", false, "default", "default", &arquivos).unwrap().contains(&arg));
+    std::fs::rename(&extra, dir.path().join("anterior")).unwrap();
+    assert!(super::opcoes::argumentos(&o, "s", true, "default", "default", &arquivos).is_err());
+    #[cfg(unix)]
+    {
+        std::fs::create_dir(&extra).unwrap();
+        assert!(super::opcoes::argumentos(&o, "s", true, "default", "default", &arquivos).is_err());
+    }
+}
+
 /// O diagnóstico do programa só sai mascarado: o segredo da ponte e os valores das variáveis dos
 /// servidores MCP da sessão. Valores curtos ficam de fora para não destruir a linha.
 #[test]

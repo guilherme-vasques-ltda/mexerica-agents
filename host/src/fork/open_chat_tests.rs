@@ -17,6 +17,8 @@ log = open(os.environ["FAKE_LOG"], "a")
 def send(value):
     sys.stdout.write(json.dumps(value) + "\n")
     sys.stdout.flush()
+def complete(thread="thread-1", turn="turn-1"):
+    send({"method": "turn/completed", "params": {"threadId": thread, "turn": {"id": turn, "status": "completed"}}})
 for line in sys.stdin:
     message = json.loads(line)
     log.write(line)
@@ -52,7 +54,7 @@ for line in sys.stdin:
         elif mode == "quiet":
             item = {"type": "agentMessage", "id": "a1", "text": "Resposta inteira no fim do item."}
             send({"method": "item/completed", "params": {"item": item}})
-            send({"method": "turn/completed", "params": {"turn": {"id": "turn-1", "status": "completed"}}})
+            complete(message["params"]["threadId"])
         elif mode == "big-quiet":
             item = {"type": "agentMessage", "id": "a1", "text": "y" * 300000}
             send({"method": "item/completed", "params": {"item": item}})
@@ -65,7 +67,22 @@ for line in sys.stdin:
             if mode == "long":
                 item = {"type": "agentMessage", "id": "a1", "text": "y" * 300000}
                 send({"method": "item/completed", "params": {"item": item}})
-            send({"method": "turn/completed", "params": {"turn": {"id": "turn-1", "status": "completed"}}})
+            if mode == "metrics":
+                def usage(thread, turn, tokens):
+                    total = {"inputTokens": tokens, "cachedInputTokens": 6, "cacheWriteInputTokens": 2, "outputTokens": 4, "reasoningOutputTokens": 1, "totalTokens": tokens + 4}
+                    send({"method": "thread/tokenUsage/updated", "params": {"threadId": thread, "turnId": turn, "tokenUsage": {"total": total}}})
+                def quota(limit, **windows):
+                    send({"method": "account/rateLimits/updated", "params": {"rateLimits": {"limitId": limit, **windows}}})
+                usage("thread-1", "turn-1", 15)
+                usage("thread-1", "turn-1", 15)
+                usage("thread-1", "other-turn", 25)
+                usage("other-thread", "turn-1", 35)
+                complete("thread-1", "other-turn")
+                quota("codex", primary={"usedPercent": 31}, secondary={"usedPercent": 45})
+                quota("codex", primary={"usedPercent": 33})
+                quota("codex", primary={"usedPercent": 92, "resetsAt": 10})
+                quota("other-plan", primary={"usedPercent": 100})
+            complete(message["params"]["threadId"])
 "#;
 
 async fn turn(mode: &str, thread: Option<&str>) -> (anyhow::Result<String>, String, Vec<Value>) {
@@ -94,6 +111,16 @@ async fn turn_with_options(
     model: Option<&str>,
     options: &BTreeMap<String, Option<String>>,
 ) -> (anyhow::Result<String>, String, Vec<Value>, Option<String>) {
+    let (result, text, sent, kept) = fixture_turn(mode, thread, model, options).await;
+    (result.map(|concluido| concluido.thread), text, sent, kept)
+}
+
+async fn fixture_turn(
+    mode: &str,
+    thread: Option<&str>,
+    model: Option<&str>,
+    options: &BTreeMap<String, Option<String>>,
+) -> (anyhow::Result<super::TurnoConcluido>, String, Vec<Value>, Option<String>) {
     let dir = std::env::temp_dir().join(format!("open-chat-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
     let log = dir.join("log");
@@ -139,6 +166,79 @@ async fn turn_with_options(
         .collect();
     let _ = std::fs::remove_dir_all(&dir);
     (result, text, sent, kept)
+}
+
+#[tokio::test]
+async fn uso_respeita_conversa_turno_e_cotas_esparsas() {
+    let (result, _, _, _) = fixture_turn("metrics", None, None, &BTreeMap::new()).await;
+    let turno = result.unwrap();
+    let total = turno.uso.unwrap();
+    assert_eq!((total.entrada, total.cache_lido, total.cache_gravado, total.saida, total.raciocinio), (15, 6, 2, 4, 1));
+    let cotas: std::collections::BTreeMap<_, _> = turno.cotas.into_iter().map(|w| (w.id, w.percent)).collect();
+    assert_eq!(cotas, [("primary".into(), 33.0), ("secondary".into(), 45.0)].into());
+}
+
+#[test]
+fn custo_local_separa_turnos_contas_e_lacunas() {
+    use super::uso::{Contagem, Cursor};
+    use crate::store::Lane;
+    type LinhaUso = (String, Option<i64>, Option<i64>, Option<f64>);
+
+    let bot = "open-fixture-custo";
+    let (hub, root) = hub_de_teste(bot);
+    let mut cfg = hub.store.bot(bot).unwrap().unwrap().config;
+    cfg.model = Some("gpt-5.4".into());
+    let lane = Lane::main(bot);
+    let conta_a = format!("{}.usage", thread_key(&lane, "conta-a"));
+    let conta_b = format!("{}.usage", thread_key(&lane, "conta-b"));
+    let mut gravar = |chave: &str, conta: &str, turno, nova, entrada, saida| {
+        cfg.fork_editor.engine_account_id = Some(conta.into());
+        Cursor::iniciar(&hub.store, bot, chave, "thread-1", nova)
+            .unwrap()
+            .gravar(
+                &hub.store,
+                &cfg,
+                &lane,
+                turno,
+                "thread-1".into(),
+                Some(Contagem { entrada, saida, ..Contagem::default() }),
+            )
+            .unwrap();
+    };
+    gravar(&conta_a, "conta-a", 1, true, 100, 20);
+    gravar(&conta_a, "conta-a", 2, false, 150, 33);
+    gravar(&conta_b, "conta-b", 3, false, 900, 120);
+    Cursor::iniciar(&hub.store, bot, &conta_a, "thread-1", false).unwrap();
+    gravar(&conta_a, "conta-a", 4, false, 500, 50);
+    gravar(&conta_a, "conta-a", 5, false, 530, 59);
+    gravar(&conta_a, "conta-a", 6, false, 530, 59);
+    let db = hub.store.db.locked();
+    let mut q = db
+        .prepare(
+            "SELECT account_id,input_tokens,output_tokens,amount FROM donna_turn_usage WHERE bot_id=?1 ORDER BY turn",
+        )
+        .unwrap();
+    let linhas: Vec<LinhaUso> = q
+        .query_map([bot], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    for (linha, (conta, entrada, saida)) in linhas.iter().zip([
+        ("conta-a", Some(100), Some(20)),
+        ("conta-a", Some(50), Some(13)),
+        ("conta-b", None, None),
+        ("conta-a", None, None),
+        ("conta-a", Some(30), Some(9)),
+        ("conta-a", None, None),
+    ]) {
+        assert_eq!((linha.0.as_str(), linha.1, linha.2), (conta, entrada, saida));
+        assert_eq!(linha.3.is_some_and(|preco| preco > 0.0), entrada.is_some());
+    }
+    assert_eq!(linhas.len(), 6);
+    drop(q);
+    drop(db);
+    drop(hub);
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 fn find<'a>(sent: &'a [Value], method: &str) -> Option<&'a Value> {
