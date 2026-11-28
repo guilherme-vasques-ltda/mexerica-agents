@@ -103,6 +103,7 @@ pub(crate) mod onde_roda;
 pub(crate) mod owner_question;
 pub(crate) mod pairing_addresses;
 pub(crate) mod pasta;
+pub(crate) mod pedidos_time;
 pub(crate) mod permission_card;
 pub(crate) mod personal_bootstrap;
 pub(crate) mod personal_link;

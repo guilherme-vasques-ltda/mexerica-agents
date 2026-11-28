@@ -56,6 +56,7 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
         }
         "donnaTaskProposals"
         | "donnaTimes"
+        | crate::fork::pedidos_time::METHOD
         | crate::fork::native_catalog::METHOD
         | "skills"
         | "marketSkills"
@@ -146,7 +147,7 @@ mod tests {
     #[test]
     fn open_libera_propostas_equipes_e_biblioteca_so_ao_dono_local() {
         let device = Caller::Device { key: "device".into(), scopes: vec![Scope::Control], autoridade: None };
-        for method in ["donnaTaskProposals", "donnaTimes", "donnaNativeCatalog"] {
+        for method in ["donnaTaskProposals", "donnaTimes", "donnaNativeCatalog", "donnaTeamRequests"] {
             assert!(open_allows(&Caller::Local, method, &json!({})), "{method}");
             assert!(!open_allows(&device, method, &json!({})), "{method}");
         }
