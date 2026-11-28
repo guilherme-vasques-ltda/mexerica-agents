@@ -187,11 +187,17 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
         | "donnaConversations"
         | "donnaConversationHistory"
         | "donnaConversationRead"
+        | "donnaContext"
+        | "donnaContextCompact"
         | "sessions"
         | "sessionCreate"
         | "stop"
         | "deleteBot"
         | "reorderBots" => true,
+        // Limpar apaga a conversa: só o dono deste computador, com a confirmação do app no corpo.
+        crate::fork::open_contexto::CLEAR_METHOD => {
+            matches!(caller, Caller::Local) && body.get("confirm").and_then(Value::as_bool) == Some(true)
+        }
         "createBot" | "updateBot" => {
             body.get("cwd").is_none_or(|cwd| cwd.as_str() == Some(""))
                 && (matches!(caller, Caller::Local)

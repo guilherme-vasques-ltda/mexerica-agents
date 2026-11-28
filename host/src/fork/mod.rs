@@ -14,6 +14,7 @@ pub(crate) mod open_chat_fila;
 #[cfg(unix)]
 pub(crate) mod open_codex;
 pub(crate) mod open_command_settings;
+pub(crate) mod open_contexto;
 pub(crate) mod open_manuais;
 mod open_mcp;
 pub(crate) mod open_modelo;

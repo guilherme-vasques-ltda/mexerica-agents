@@ -7,8 +7,9 @@ import { traduzir, tradutor, type Tradutor } from '../../lib/fork-i18n/index.ts'
 // for all of them, and every skill one of them has. docs/features/marketplace.md, "Commands".
 import { fastModeDetail, fastModeShown, fastModeState, groupFastMode, type FastModeState } from '../../../shared/fast-mode.ts'
 import type { Bot } from '../../../shared/models.ts'
+import { comandoLimpar } from '../fork/contexto/limpar.ts'
 
-export type SlashAction = { kind: 'fast' } | { kind: 'skill'; id: string } | { kind: 'newTab' }
+export type SlashAction = { kind: 'fast' } | { kind: 'clear' } | { kind: 'skill'; id: string } | { kind: 'newTab' }
 
 export interface SlashCommand {
   /** What follows the `/`. */
@@ -34,7 +35,7 @@ function builtIn(bot: Bot, members: Bot[], canNewTab = false): SlashCommand[] {
   const fast = bot.kind === 'group' ? groupFastMode(t, members) : ownFastMode(t, bot)
   const commands: SlashCommand[] = fast ? [{ name: 'fast', icon: 'bolt', title: traduzir(idioma, 'conversa.fastMode'), detail: fast.detail, warning: fast.state === 'refused', action: { kind: 'fast' } }] : []
   if (canNewTab && bot.kind !== 'group') commands.push({ name: NEW_TAB, icon: 'plus', title: traduzir(idioma, 'sessions.newTab.title'), detail: traduzir(idioma, 'sessions.newTab.detail'), warning: false, action: { kind: 'newTab' } })
-  return commands
+  return [...commands, ...comandoLimpar(bot, idioma)]
 }
 
 const NEW_TAB = 'nova-aba'

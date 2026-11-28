@@ -38,6 +38,7 @@ import { estiloMenuAprovacao } from '../fork/seletor-modelo/posicao'
 import { usePresaAoChip } from '../fork/seletor-modelo/presa'
 import { BarraContexto } from '../fork/contexto/BarraContexto'
 import { MotivoCompactando, useCompactacao } from '../fork/contexto/Compactando'
+import { useLimparConversa } from '../fork/contexto/LimparConversa'
 import { bloqueiaEnvioCompactando } from '../fork/contexto/estado'
 import { applyStarterDraft } from '../fork/onboarding/starter-draft'
 import type { StarterDraft } from '../fork/onboarding/useStarterTour'
@@ -229,6 +230,7 @@ function DestinationComposer({ botId, sessionId, reply, cancelReply, onCall, onI
 
   const slash = slashQuery(draft)
   const conversa = useConversaComposer()
+  const limpar = useLimparConversa(botId)
   const commands = slash === null ? [] : slashCommands(bot, slash, plugins.installedSkills, members, conversa.slashSkills, !!onNewTab)
 
   const run = (command: SlashCommand) => {
@@ -243,6 +245,11 @@ function DestinationComposer({ botId, sessionId, reply, cancelReply, onCall, onI
           store.setFastMode(bot, !bot.fastMode)
         }
         setDraft('')
+        break
+      case 'clear':
+        if (sessionId !== null || isGroup(bot)) break
+        setDraft('')
+        limpar.pedir()
         break
       case 'skill':
         setDraft(`/${command.action.id} `)
@@ -368,6 +375,7 @@ function DestinationComposer({ botId, sessionId, reply, cancelReply, onCall, onI
 
   return (
     <VStack>
+      {limpar.elemento()}
       <StatusDaFila fila={fila} bot={bot} />
       <ComposerReveal open={sugestoes.length > 0}>
         <div className="mentions">

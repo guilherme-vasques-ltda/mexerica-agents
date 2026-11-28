@@ -401,6 +401,7 @@ pub(crate) const METODOS: &[(&str, Classe)] = &[
     ("extensaoNovosBotsDefinir", Dono),
     ("botGroupsEdit", Comum),
     ("donnaContextCompact", Comum),
+    ("donnaOpenClear", Comum),
     ("donnaContextSettings", Leitura),
     ("donnaContextSettingsSave", Dono),
     ("donnaConversationChoiceAnswer", Comum),

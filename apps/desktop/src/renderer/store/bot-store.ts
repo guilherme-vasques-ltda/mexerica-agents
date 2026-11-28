@@ -633,8 +633,9 @@ export class BotStore extends BotSync {
     const first = this.allEntries(botId).find((e) => e.seq > 0 && e.seq !== Number.MAX_SAFE_INTEGER)?.seq ?? Number.MAX_SAFE_INTEGER
     try {
       const epoch = this.sessions.epoch
+      const cleared = this.clearedGeneration(botId)
       const older = await client.history(botId, first, 100)
-      if (this.connectedClient !== client || this.sessions.epoch !== epoch) return
+      if (this.connectedClient !== client || this.sessions.epoch !== epoch || this.clearedGeneration(botId) !== cleared) return
       if (older.length < 100) this.historyComplete.add(botId)
       for (const e of older) this.upsert(e)
       this.changed()

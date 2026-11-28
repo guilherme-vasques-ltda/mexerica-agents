@@ -169,15 +169,16 @@ impl Rpc {
         self.answer(id).await
     }
 
-    pub(crate) async fn call_guarded(
+    /// `request` com o envio sob `scope`: a autoridade é conferida antes do efeito.
+    pub(crate) async fn request_guarded(
         &mut self,
         id: u64,
         method: &str,
         params: Value,
         scope: impl Fn(&mut dyn FnMut() -> std::task::Poll<Result<()>>) -> std::task::Poll<Result<()>>,
-    ) -> Result<Value> {
+    ) -> Result<Result<Value, Value>> {
         self.reply_guarded(json!({"id":id,"method":method,"params":params}), scope).await?;
-        self.answer(id).await?.map_err(|_| anyhow!("auth_capability_unavailable"))
+        self.answer(id).await
     }
 
     pub(crate) async fn reply_guarded(

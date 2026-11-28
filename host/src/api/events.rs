@@ -116,6 +116,12 @@ pub fn scoped_events_stream_at(
     for e in hub.store.entries_since_in_space(&space, since, CATCH_UP_PER_BOT)? {
         catch_up.push(json!({"type": "entry", "rev": e.rev, "entry": e}));
     }
+    for event in crate::fork::open_contexto::cleared_since(hub, since) {
+        let chat = event["chatId"].as_str().unwrap_or_default();
+        if crate::fork::spaces::chat_space(hub, chat).ok().as_deref() == Some(space.as_str()) {
+            catch_up.push(event);
+        }
+    }
     catch_up.extend(crate::fork::sessoes::excluir::catch_up(&hub.store.db.locked(), &space, since)?);
     catch_up.sort_by_key(|v| v["rev"].as_i64().unwrap_or(0));
     let groups = hub.store.bot_groups_in_space(&space).unwrap_or_else(|error| {

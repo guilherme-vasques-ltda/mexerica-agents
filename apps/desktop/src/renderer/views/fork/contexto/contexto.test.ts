@@ -290,7 +290,7 @@ test('UI01: principal medida → extra sem medida oculta → principal continua 
 
 test('DON-903: todo contexto.* existe nos seis catálogos, sem vazio, e o texto segue o idioma', () => {
   const chaves = Object.keys(CATALOGOS['pt-BR']).filter((k) => k.startsWith('contexto.') && !k.startsWith('contexto.custo.'))
-  assert.equal(chaves.length, 111)
+  assert.equal(chaves.length, 124)
   for (const [idioma, cat] of Object.entries(CATALOGOS)) for (const k of chaves) assert.ok((cat as Record<string, string>)[k]?.trim(), `${idioma} ${k}`)
   assert.equal(sp(traduzir('pt-BR', 'contexto.detalhes.espacoValor', { usado: tokensCurtos('pt-BR', 84_000), total: tokensCurtos('pt-BR', 200_000) })), '84 mil de 200 mil tokens')
   assert.equal(sp(traduzir('en', 'contexto.detalhes.espacoValor', { usado: tokensCurtos('en', 84_000), total: tokensCurtos('en', 200_000) })), '84K of 200K tokens')
