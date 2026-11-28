@@ -277,7 +277,8 @@ pub(crate) fn run(
         },
         |e| e.data["attachments"].clone(),
     );
-    let (cfg, text) = (cfg.clone(), text.to_owned());
+    let uploads_cfg = hub.store.bot(&lane.chat).ok().flatten().map_or_else(|| cfg.clone(), |row| row.config);
+    let text = text.to_owned();
     tokio::spawn(async move {
         let (entry_id, authority) = entry;
         let Ticket { bot, account, directory, model, mut cancel, done } = ticket;
@@ -298,9 +299,10 @@ pub(crate) fn run(
             crate::fork::open_chat_fila::finish(&hub, &bot);
             return;
         }
-        let Ok((text, images)) =
-            tokio::task::spawn_blocking(move || crate::fork::open_chat_anexos::prepare(&cfg, &attachments, &text))
-                .await
+        let Ok((text, images)) = tokio::task::spawn_blocking(move || {
+            crate::fork::open_chat_anexos::prepare(&uploads_cfg, &attachments, &text)
+        })
+        .await
         else {
             mark_unsent(&hub, &entry_id, "open_chat_failed", &account);
             crate::fork::open_chat_fila::finish(&hub, &bot);
