@@ -202,7 +202,7 @@ const bridge: CodyncBridge = {
     openSettings: (url) => ipcRenderer.send('app:openSettings', url),
     authenticate: (url, scheme) => ipcRenderer.invoke('app:authenticate', url, scheme),
     loginRetorno: {
-      abrir: () => ipcRenderer.invoke('login-retorno:abrir'),
+      abrir: (nonce) => ipcRenderer.invoke('login-retorno:abrir', nonce),
       esperar: (tentativa, url) => ipcRenderer.invoke('login-retorno:esperar', tentativa, url),
       responder: (tentativa, resultado) => ipcRenderer.send('login-retorno:responder', tentativa, resultado),
       fechar: (tentativa) => ipcRenderer.send('login-retorno:fechar', tentativa),

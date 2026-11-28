@@ -104,6 +104,10 @@ export interface Opcoes {
   porta: number
   abrir: (url: string) => Promise<boolean>
   idioma: () => AppLanguage
+  /** Quando dado, só abre a URL que o Hub devolveu para esta tentativa (uso único); o renderer nunca escolhe o endereço. */
+  autorizar?: (url: string, nonce: string | null) => boolean
+  /** O ouvinte vivo deixou de valer (fechou, foi trocado ou terminou); `nonce` é o da tentativa que valia. */
+  aoFechar?: (nonce: string | null) => void
   esperaMs?: number
   respostaMs?: number
 }
@@ -123,6 +127,8 @@ export class RetornoDoLogin {
   private portaReal = 0
   /** Cada `abrir` é uma tentativa nova; quem veio de uma tentativa antiga nunca mexe na atual. */
   private tentativa = 0
+  /** O identificador que o app deu à tentativa viva no Hub; liga o plano da URL a este ouvinte. */
+  private nonce: string | null = null
   private fila: Promise<void> = Promise.resolve()
   private espera: Espera | null = null
   private resposta: { res: ServerResponse; timer: NodeJS.Timeout } | null = null
@@ -134,14 +140,19 @@ export class RetornoDoLogin {
   }
 
   /** Liga o ouvinte em 127.0.0.1 e devolve a porta e o número da tentativa; `null` se não deu (porta ocupada): o login segue pelo caminho antigo. */
-  abrir(): Promise<{ porta: number; tentativa: number } | null> {
+  abrir(nonce?: unknown): Promise<{ porta: number; tentativa: number } | null> {
     // Uma de cada vez: dois cliques seguidos não disputam a porta.
-    const feito = this.fila.then(() => this.abrirAgora())
+    const feito = this.fila.then(() => this.abrirAgora(typeof nonce === 'string' && nonce.length <= 64 ? nonce : null))
     this.fila = feito.then(() => undefined, () => undefined)
     return feito
   }
 
-  private async abrirAgora(): Promise<{ porta: number; tentativa: number } | null> {
+  /** O identificador da tentativa do ouvinte que está ligado agora; `null` sem ouvinte. */
+  nonceVivo(): string | null {
+    return this.servidor ? this.nonce : null
+  }
+
+  private async abrirAgora(nonce: string | null): Promise<{ porta: number; tentativa: number } | null> {
     this.fechar()
     const tentativa = ++this.tentativa
     const servidor = createServer((req, res) => this.atender(req, res))
@@ -156,6 +167,7 @@ export class RetornoDoLogin {
     if (!ligado || tentativa !== this.tentativa) { servidor.close(); return null }
     servidor.on('error', () => {})
     this.servidor = servidor
+    this.nonce = nonce
     this.portaReal = (servidor.address() as AddressInfo).port
     return { porta: this.portaReal, tentativa }
   }
@@ -163,7 +175,8 @@ export class RetornoDoLogin {
   /** Abre a página de login e espera o retorno desta tentativa; devolve a URL de retorno (a mesma que o navegador chamou). */
   esperar(tentativa: unknown, url: unknown): Promise<string> {
     if (tentativa !== this.tentativa) return Promise.reject(new LoginEncerrado('cancelado', ERRO_OUTRO))
-    const pedido = this.servidor ? lerPedidoTodo(url, this.portaReal) : null
+    const autorizado = this.opcoes.autorizar === undefined || (typeof url === 'string' && this.opcoes.autorizar(url, this.nonce))
+    const pedido = this.servidor && autorizado ? lerPedidoTodo(url, this.portaReal) : null
     if (!pedido) { this.fechar(); return Promise.reject(new Error(ERRO_PEDIDO)) }
     const anterior = this.espera
     if (anterior) { clearTimeout(anterior.timer); anterior.reject(new LoginEncerrado('cancelado', ERRO_OUTRO)) }
@@ -211,6 +224,9 @@ export class RetornoDoLogin {
    * de "retorno recebido") antes de a conexão cair.
    */
   fechar(html?: string) {
+    const nonce = this.nonce
+    this.nonce = null
+    this.opcoes.aoFechar?.(nonce)
     const espera = this.espera
     this.espera = null
     if (espera) { clearTimeout(espera.timer); espera.reject(new LoginEncerrado('cancelado', ERRO_CANCELADO)) }

@@ -12,6 +12,8 @@ export interface Dependencias {
   cliente(): Promise<import('../../../client/host-client').HostClient>
   /** O login do navegador (`connectorSignIn` → `connectorSignInFinish`); true só com o fim confirmado pelo Hub; desistir volta false. */
   entrar(id: string): Promise<boolean>
+  /** Desiste do login em andamento: fecha o ouvinte e invalida a tentativa antes de qualquer outra coisa. */
+  cancelarLogin(id: string): Promise<void>
   /** `connectorVerify`: devolve o estado que o Hub achou. */
   verificar(id: string): Promise<{ status: string }>
   /** `credentialUpdateConnector`: guarda a chave no cofre do Hub (nunca na tela); verified: false é chave só guardada. */
@@ -220,6 +222,7 @@ export class FluxoConectar extends Observable {
     const conta = this.conta
     if (!conta || this.passo === 'pronto' || this.passo === 'salva') return
     this.conta = null
+    await this.deps.cancelarLogin(conta.id).catch(() => undefined)
     // Hub ocupado ou link caído: uma segunda tentativa; se ainda assim falhar, a conta aparece em Minhas contas.
     for (let tentativa = 0; tentativa < 2; tentativa++) {
       try { await mercadoApi.desconectar(await this.deps.cliente(), conta.id); break } catch { /* tenta de novo; a leitura abaixo mostra o que ficou */ }

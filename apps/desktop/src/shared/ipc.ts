@@ -364,7 +364,7 @@ export interface CodyncBridge {
      */
     loginRetorno: {
       /** A porta e o número da tentativa; as demais chamadas levam esse número (uma tentativa antiga nunca mexe na atual). */
-      abrir(): Promise<{ porta: number; tentativa: number } | null>
+      abrir(nonce?: string): Promise<{ porta: number; tentativa: number } | null>
       esperar(tentativa: number, url: string): Promise<string>
       responder(tentativa: number, resultado: { ok: boolean; nome?: string; detalhe?: string }): void
       fechar(tentativa: number): void

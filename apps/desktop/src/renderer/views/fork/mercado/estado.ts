@@ -147,6 +147,7 @@ export class Mercado extends Observable {
     return new FluxoConectar(servico, tipo, {
       cliente,
       entrar: (id) => pluginsFor(this.store).signIn(id, cadastro ? cliente : undefined),
+      cancelarLogin: (id) => pluginsFor(this.store).cancelarLogin(id, cadastro ? cliente : undefined),
       verificar: (id) => cliente().then((c) => conferirConta(c, id)),
       guardarChave: (id, campos) => cliente().then((c) => market.updateConnectorCredentials(c, id, campos) as Promise<{ verified?: boolean; aviso?: string | null } | null>),
       reler: () => this.ler(),

@@ -300,3 +300,47 @@ test('abrir de novo com um login esperando cancela a espera antiga, e o encerrar
   retorno.responder(novo.tentativa, { ok: true, nome: 'N' })
   assert.equal((await pagina).status, 200)
 })
+
+test('com autorização do Hub, só abre a URL que o Hub devolveu para a tentativa; outra URL do renderer é recusada sem abrir nada', async () => {
+  let plano: string | null = null
+  const { retorno, abertas } = montar({ autorizar: (url) => { const igual = plano === url; plano = null; return igual } })
+  const ouvinte = (await retorno.abrir())!
+  const doHub = pedido(ouvinte.porta)
+  plano = doHub
+  const outra = pedido(ouvinte.porta, '&extra=1')
+  await assert.rejects(retorno.esperar(ouvinte.tentativa, outra), /não é o que este app espera/)
+  assert.deepEqual(abertas, [])
+  assert.equal(await recusada(ouvinte.porta), true, 'a recusa fecha o ouvinte')
+})
+
+test('o ouvinte entrega à autorização o identificador da tentativa viva e avisa quando deixa de valer', async () => {
+  const vistos: Array<string | null> = []
+  const fechados: Array<string | null> = []
+  const { retorno } = montar({ autorizar: (_url, nonce) => { vistos.push(nonce); return false }, aoFechar: (nonce) => fechados.push(nonce) })
+  const ouvinte = (await retorno.abrir('tentativa-do-hub-0001'))!
+  assert.equal(retorno.nonceVivo(), 'tentativa-do-hub-0001')
+  await assert.rejects(retorno.esperar(ouvinte.tentativa, pedido(ouvinte.porta)))
+  assert.deepEqual(vistos, ['tentativa-do-hub-0001'])
+  assert.equal(retorno.nonceVivo(), null, 'a recusa fecha o ouvinte e a tentativa deixa de valer')
+  const outro = (await retorno.abrir('tentativa-do-hub-0002'))!
+  assert.equal(retorno.nonceVivo(), 'tentativa-do-hub-0002')
+  retorno.encerrar(outro.tentativa)
+  assert.equal(retorno.nonceVivo(), null)
+  assert.ok(fechados.includes('tentativa-do-hub-0001') && fechados.includes('tentativa-do-hub-0002'))
+})
+
+test('com autorização do Hub, a URL do Hub abre uma única vez', async () => {
+  let plano: string | null = null
+  const { retorno, abertas } = montar({ autorizar: (url) => { const igual = plano === url; plano = null; return igual } })
+  const ouvinte = (await retorno.abrir())!
+  const doHub = pedido(ouvinte.porta)
+  plano = doHub
+  const espera = retorno.esperar(ouvinte.tentativa, doHub)
+  assert.deepEqual(abertas, [doHub])
+  retorno.fechar()
+  await assert.rejects(espera, LoginEncerrado)
+  const novo = (await retorno.abrir())!
+  await assert.rejects(retorno.esperar(novo.tentativa, doHub), /não é o que este app espera/)
+  assert.deepEqual(abertas, [doHub], 'a mesma URL não abre de novo')
+})
+

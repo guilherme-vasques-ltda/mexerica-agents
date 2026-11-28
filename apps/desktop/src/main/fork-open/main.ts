@@ -14,6 +14,9 @@ import { registerReleaseNotice } from '../fork-release-notice'
 import { aoMudarIdiomaDoApp, definirIdiomaDoApp, idiomaDoApp, iniciarIdiomaDoApp, suggestedLanguage } from '../fork-idioma'
 import { arquivoEscolhaEntrada, gravarEscolhaEntrada, lerEscolhaEntrada } from '../fork-modo-entrada'
 import { registerSpeech } from '../speech'
+import { PORTA_PRINCIPAL } from '../fork-oauth-loopback'
+import { registrarRetornoDoLogin } from '../fork-oauth-loopback-registro'
+import { consumirPlano, descartarPlano, ligarOuvinte } from './plano-login'
 import { isWindowSender } from '../fork-chat-sender'
 
 if (process.platform !== 'darwin' || !app.isPackaged || app.getName() !== open.name ||
@@ -89,6 +92,13 @@ if (!app.requestSingleInstanceLock()) {
     const daJanela = (event: IpcMainInvokeEvent | IpcMainEvent) =>
       isWindowSender(event, window, chatURL) && event.senderFrame?.url === chatURL
     registerSpeech(daJanela)
+    const retornoDoLogin = registrarRetornoDoLogin({
+      porta: PORTA_PRINCIPAL,
+      allowed: daJanela,
+      autorizar: consumirPlano,
+      aoFechar: (tentativa) => descartarPlano({ tentativa }),
+    })
+    ligarOuvinte(() => retornoDoLogin.nonceVivo())
     const avisoDeVersao = registerReleaseNotice({
       windows: () => (window && !window.isDestroyed() && window.webContents.getURL() === chatURL ? [window] : []),
       userDataDir: userData,

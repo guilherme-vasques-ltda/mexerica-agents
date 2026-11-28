@@ -24,6 +24,7 @@ function montar(responder: (c: Chamada) => unknown, extra: Partial<Dependencias>
   const deps: Dependencias = {
     cliente: async () => cliente as never,
     entrar: async (id) => { eventos.push(`entrar:${id}`); return true },
+    cancelarLogin: async () => undefined,
     verificar: async (id) => { eventos.push(`verificar:${id}`); return { status: 'ready' } },
     guardarChave: async () => undefined,
     reler: async () => { eventos.push('reler') },
@@ -116,6 +117,7 @@ test('login que falha para na fila, mostra o erro e "tentar de novo" repete só 
   let falhar = true
   const { chamadas, eventos, google } = montar((c) => ({ connector: conta(String(c.corpo.servico), 'x', String(c.corpo.servico), { auth: 'signedOut' }), proximoPasso: 'entrar' }), {
     entrar: async (id) => { eventos2.push(`entrar:${id}`); if (id === 'gmail' && falhar) throw new Error('redirect_uri_mismatch'); return true },
+    cancelarLogin: async () => undefined,
   })
   const eventos2: string[] = []
   const f = google([gmail, agenda], appSalvo)

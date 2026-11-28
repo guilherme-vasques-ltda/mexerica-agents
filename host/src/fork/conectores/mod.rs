@@ -24,6 +24,7 @@ pub(crate) mod oauth_registration;
 pub(crate) mod oauth_resource;
 pub(crate) mod oauth_runtime;
 pub(crate) mod oauth_scopes;
+pub(crate) mod oauth_tentativa;
 pub(crate) mod oauth_token_scopes;
 pub(crate) mod oauth_urls;
 pub(crate) mod operacao;

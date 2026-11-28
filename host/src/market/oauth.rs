@@ -27,7 +27,7 @@ use crate::fork::conectores::oauth_iss::Esperado;
 use crate::fork::conectores::oauth_refresh::{self, fresh};
 use crate::fork::conectores::oauth_runtime::RuntimeIntent;
 use crate::fork::conectores::oauth_urls as urls;
-use crate::fork::conectores::{oauth_registration, oauth_resource, oauth_scopes};
+use crate::fork::conectores::{oauth_registration, oauth_resource, oauth_scopes, oauth_tentativa};
 use crate::hub::Hub;
 use crate::market::{self, Connector};
 use crate::store::Store;
@@ -116,7 +116,28 @@ struct Pending {
     /// `false` no app próprio do Google: o servidor de login dele não usa o parâmetro `resource` (RFC 8707).
     enviar_resource: bool,
     iss: Esperado,
+    tentativa: Option<String>,
     started: Instant,
+}
+
+impl Pending {
+    fn viva(&self) -> Result<()> {
+        anyhow::ensure!(self.started.elapsed() < PENDING_FOR, "Este login expirou. Inicie o login de novo.");
+        oauth_tentativa::viva(self.tentativa.as_deref())
+    }
+
+    fn viva_travando(&self, trava: &oauth_tentativa::Trava) -> Result<()> {
+        anyhow::ensure!(self.started.elapsed() < PENDING_FOR, "Este login expirou. Inicie o login de novo.");
+        oauth_tentativa::viva_travando(self.tentativa.as_deref(), trava)
+    }
+}
+
+/// Cancelar vale por tentativa: a marca é gravada antes de tudo, e o que já estava registrado sai junto.
+pub(crate) fn cancelar_tentativa(tentativa: &str) {
+    oauth_tentativa::cancelar(tentativa);
+    if let Some(map) = PENDING.locked().as_mut() {
+        map.retain(|_, p| p.tentativa.as_deref() != Some(tentativa));
+    }
 }
 
 static PENDING: Mutex<Option<HashMap<String, Pending>>> = Mutex::new(None);
@@ -339,11 +360,17 @@ fn app_proprio_exige_recurso_endpoints_e_autenticacao_anunciados() {
 }
 
 /// Starts signing in to connector `id`: the page to open.
-pub(crate) async fn start(hub: &Arc<Hub>, intent: StartIntent, callback: Callback) -> Result<Value> {
+pub(crate) async fn start(
+    hub: &Arc<Hub>,
+    intent: StartIntent,
+    callback: Callback,
+    tentativa: Option<String>,
+) -> Result<Value> {
+    oauth_tentativa::viva(tentativa.as_deref())?;
     let store = &hub.store;
     let port = hub.port;
-    if crate::environment::Environment::is_open() {
-        bail!("login_fechado: o login pelo navegador não está liberado na Open; conecte com uma chave.");
+    if crate::environment::Environment::is_open() && !matches!(callback, Callback::Desktop(_)) {
+        bail!("login_sem_ouvinte: o retorno do login só chega pelo ouvinte do app neste computador.");
     }
     let app = app_uri(store);
     let redirect_uri = match callback {
@@ -516,10 +543,20 @@ pub(crate) async fn start(hub: &Arc<Hub>, intent: StartIntent, callback: Callbac
             q.append_pair("scope", &scopes.join(" "));
         }
     }
+    let mut anteriores = Vec::new();
     binding::check(store, &c, Some((hub, &origin)), || {
         let mut pending = PENDING.locked();
         let map = pending.get_or_insert_with(HashMap::new);
         map.retain(|_, p| p.started.elapsed() < PENDING_FOR);
+        if tentativa.is_some() {
+            map.retain(|_, p| {
+                let anterior = p.tentativa.is_some() && p.tentativa != tentativa && p.snapshot.id == c.id;
+                if anterior && let Some(velha) = p.tentativa.clone() {
+                    anteriores.push(velha);
+                }
+                !anterior
+            });
+        }
         map.insert(
             state,
             Pending {
@@ -531,11 +568,15 @@ pub(crate) async fn start(hub: &Arc<Hub>, intent: StartIntent, callback: Callbac
                 resource: resource.resource,
                 enviar_resource: !google,
                 iss,
+                tentativa,
                 started: Instant::now(),
             },
         );
         Ok(())
     })?;
+    for anterior in &anteriores {
+        oauth_tentativa::cancelar(anterior);
+    }
     let callback = match callback {
         Callback::Host => "host",
         Callback::App => "app",
@@ -565,6 +606,12 @@ pub(crate) async fn finish(
         None if p.callback == Callback::Host => {} // O state original autoriza o loopback, sem caller fabricado.
         _ => bail!("Callback não pertence ao operador original"),
     }
+    if error.is_some()
+        && let Some(tentativa) = p.tentativa.as_deref()
+    {
+        oauth_tentativa::cancelar(tentativa);
+    }
+    p.viva()?;
     binding::check(store, &p.snapshot, Some((hub, &p.origin)), || Ok(()))?;
     // M3-B: antes de usar o código ou mostrar qualquer erro vindo do retorno.
     p.iss.conferir(iss)?;
@@ -586,7 +633,7 @@ pub(crate) async fn finish(
     #[cfg(test)]
     upstream02_tests::after_token(hub).await;
     binding::check(store, &p.snapshot, Some((hub, &p.origin)), || {
-        anyhow::ensure!(p.started.elapsed() < PENDING_FOR, "Este login expirou. Inicie o login de novo.");
+        p.viva()?;
         Ok(())
     })?;
     let (status, v) = response?;
@@ -597,7 +644,7 @@ pub(crate) async fn finish(
             &p.snapshot,
             Some((hub, &p.origin)),
             || {
-                anyhow::ensure!(p.started.elapsed() < PENDING_FOR, "Este login expirou. Inicie o login de novo.");
+                p.viva()?;
                 Ok(())
             },
             oauth_registration::apagar,
@@ -606,24 +653,24 @@ pub(crate) async fn finish(
     if renewal != oauth_refresh::Renewal::Renewed {
         bail!("Não foi possível concluir a conexão. Inicie o login novamente.");
     }
+    let trava = oauth_tentativa::Trava::default();
     let (saved, ()) = binding::change(
         store,
         &p.snapshot,
         Some((hub, &p.origin)),
-        || {
-            anyhow::ensure!(p.started.elapsed() < PENDING_FOR, "Este login expirou. Inicie o login de novo.");
-            Ok(())
-        },
+        || p.viva_travando(&trava),
         |c| {
             c.oauth_binding.as_mut().ok_or_else(|| anyhow!("Vínculo ausente"))?.validate_login_scopes(&v)?;
             store_tokens(c, &v);
             Ok(())
         },
     )?;
-    binding::check(store, &saved, Some((hub, &p.origin)), || {
-        anyhow::ensure!(p.started.elapsed() < PENDING_FOR, "Este login expirou. Inicie o login de novo.");
+    let concluido = binding::check(store, &saved, Some((hub, &p.origin)), || {
+        p.viva_travando(&trava)?;
         Ok(saved.clone())
-    })
+    });
+    drop(trava);
+    concluido
 }
 
 /// Transporte separado da classificação OAuth; erros não carregam URL/query ou corpo externo.
