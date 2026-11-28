@@ -9,8 +9,8 @@ import { superficieIdioma, useIdioma, useT } from '../../../lib/fork-i18n/estado
 import { isolado } from '../../../../shared/bidi.ts'
 import { MarketBadge } from '../../marketplace/pieces'
 import type { ChaveTexto } from '../../../lib/fork-i18n/index.ts'
-import { mostrarApiDireta } from './api-direta'
-import { entrarComChatGPT, fraseDaFalha, FalhaChatGPT, lerEstadoChatGPT, sairDoChatGPT, type EstadoChatGPT } from './chatgpt-login'
+import { ehOpen } from './conexoes'
+import { chatgptDisponivel, entrarComChatGPT, fraseDaFalha, FalhaChatGPT, lerEstadoChatGPT, sairDoChatGPT, type EstadoChatGPT } from './chatgpt-login'
 import '../../settings/settings.css'
 
 /**
@@ -24,7 +24,7 @@ export function EntrarComChatGPT() {
   const idioma = useIdioma()
   const online = store.connection.kind === 'online' && !store.mismatch
   // O login abre o navegador do dono pelo retorno do loopback do desktop; na web não há retorno, sem card.
-  const visivel = window.codync?.web !== true && mostrarApiDireta(store.hello?.backends ?? [], store.isLoopback)
+  const visivel = chatgptDisponivel(window.codync?.web === true, ehOpen(window.codync), store.isLoopback)
   const [estado, setEstado] = useState<EstadoChatGPT | null>(null)
   const [falhou, setFalhou] = useState(false)
   const [erro, setErro] = useState<ChaveTexto | null>(null)
@@ -45,6 +45,10 @@ export function EntrarComChatGPT() {
     try {
       const lido = await lerEstadoChatGPT(client)
       if (minha !== geracao.current) return
+      if (lido.inconclusivo) {
+        setFalhou(true)
+        return
+      }
       setEstado(lido)
       setFalhou(false)
     } catch {

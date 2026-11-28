@@ -19,7 +19,12 @@ export interface EstadoChatGPT {
   rotulo?: string
   planoHabilitado: boolean
   precisaEntrar: boolean
+  /** A conferência com o emissor não terminou: o registro foi preservado e nada se afirma sobre a sessão. */
+  inconclusivo?: boolean
 }
+
+/** O login com ChatGPT existe só no app do computador do dono, fora da edição Open; não depende do Motor Mexerica. */
+export const chatgptDisponivel = (web: boolean, open: boolean, isLoopback: boolean) => !web && !open && isLoopback
 
 /** O desfecho do login: a conta como ficou, ou a recusa com código estável do Hub. */
 export type DesfechoChatGPT =

@@ -145,12 +145,12 @@ test('trocar de conta sem confirmação: a frase própria avisa, sem dizer que s
   assert.ok(!html.includes('Saiu deste computador.'), 'a frase do «Sair» não serve para a conta conectada')
 })
 
-test('a seção existe com o Hub deste computador e o motor ligado, e some nos outros casos', () => {
+test('a seção existe com o Hub deste computador, com ou sem o motor, e some nos outros casos', () => {
   const secao = renderiza(m.EntrarComChatGPT)
-  assert.ok(secao.includes('Plano do ChatGPT'), 'com Hub local e motor ligado a seção aparece')
+  assert.ok(secao.includes('Plano do ChatGPT'), 'com Hub local a seção aparece')
   assert.ok(secao.includes('chatgpt.com/settings/usage'), 'o rodapé do limite compartilhado aparece')
   assert.equal(renderiza(m.EntrarComChatGPT, {}, loja({ isLoopback: false })), '', 'Hub de outro computador: sem seção')
-  assert.equal(renderiza(m.EntrarComChatGPT, {}, loja({ hello: { hostId: 'hub-fixture', backends: [] } })), '', 'motor desligado: sem seção')
+  assert.ok(renderiza(m.EntrarComChatGPT, {}, loja({ hello: { hostId: 'hub-fixture', backends: [] } })).includes('Plano do ChatGPT'), 'motor desligado (Mac): a seção aparece')
 })
 
 test('na web a seção não aparece: o login pelo navegador é o retorno de loopback do desktop', () => {

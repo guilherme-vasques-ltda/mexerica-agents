@@ -1394,7 +1394,20 @@ async fn metodos_de_entrar_com_chatgpt_sao_so_deste_computador_e_nao_dependem_do
     // Com o Motor Mexerica desligado o dono local usa o estado normalmente; a conta nunca mostra token.
     let estado = login::call(&hub, &Caller::Local, "chatgptEstado", json!({})).await.unwrap();
     assert_eq!(estado["conectado"], false, "{estado}");
-    let verificado = login::call(&hub, &Caller::Local, "chatgptEstado", json!({"verificar": true})).await.unwrap();
+    let outro_space =
+        login::call(&hub, &Caller::Local, "chatgptEstado", json!({"verificar": true, "spaceId": "outro"}))
+            .await
+            .unwrap_err()
+            .to_string();
+    assert!(outro_space.starts_with("space_invalido"), "{outro_space}");
+    let verificado = login::call(
+        &hub,
+        &Caller::Local,
+        "chatgptEstado",
+        json!({"verificar": true, "spaceId": crate::fork::spaces::PERSONAL}),
+    )
+    .await
+    .unwrap();
     assert_eq!(verificado["conectado"], false, "{verificado}");
 }
 
@@ -1416,4 +1429,20 @@ async fn id_token_bem_assinado_passa_na_conferencia() {
     assert_eq!(identidade.sub, SUB);
     assert_eq!(identidade.email.as_deref(), Some(ROTULO));
     *login::BASE_EM_TESTE.locked() = None;
+}
+
+#[tokio::test]
+async fn verificar_com_falha_transitoria_devolve_inconclusivo_e_preserva_o_registro() {
+    let _serie = SERIE.lock().await;
+    let hub = hub_de_prova();
+    *login::BASE_EM_TESTE.locked() = None;
+    semear_conta(&hub, &conta_conectada(agora() - 60));
+    let antes = hub.store.kv_read(login::SLOT_CONTA).unwrap();
+    let corpo = json!({"verificar": true, "spaceId": crate::fork::spaces::PERSONAL});
+    let estado = login::call(&hub, &Caller::Local, "chatgptEstado", corpo).await.unwrap();
+    assert_eq!(estado["inconclusivo"], true, "{estado}");
+    assert_eq!(estado["conectado"], false, "{estado}");
+    assert_eq!(estado["precisaEntrar"], false, "{estado}");
+    assert!(!estado.to_string().contains(ACCESS_VELHO) && !estado.to_string().contains(REFRESH_VELHO));
+    assert_eq!(hub.store.kv_read(login::SLOT_CONTA).unwrap(), antes);
 }

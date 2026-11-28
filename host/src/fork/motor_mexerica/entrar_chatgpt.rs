@@ -169,8 +169,17 @@ pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Va
         "chatgptEntrarConcluir" => concluir(hub, &body).await,
         "chatgptEstado" => {
             // O pedido da tela confere a sessão: renova o que faltar e descarta o access, que nunca sai do Hub.
-            if body.get("verificar") == Some(&Value::Bool(true)) && token_fresco(hub).await.is_err() {
+            if body.get("verificar") != Some(&Value::Bool(true)) {
+                return estado(hub);
+            }
+            assegurar_space_pessoal(&body)?;
+            if token_fresco(hub).await.is_err() {
                 tracing::warn!("a renovação da sessão do `ChatGPT` não terminou");
+                let mut inconclusivo = estado(hub)?;
+                inconclusivo["conectado"] = json!(false);
+                inconclusivo["precisaEntrar"] = json!(false);
+                inconclusivo["inconclusivo"] = json!(true);
+                return Ok(inconclusivo);
             }
             estado(hub)
         }

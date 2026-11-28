@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { CATALOGOS } from '../../../lib/fork-i18n/index.ts'
 import type { HostClient } from '../../../client/host-client'
-import { entrarComChatGPT, fraseDaFalha, FalhaChatGPT, lerEstadoChatGPT, sairDoChatGPT, type EstadoChatGPT, type PonteDoOuvinte } from './chatgpt-login.ts'
+import { entrarComChatGPT, fraseDaFalha, FalhaChatGPT, lerEstadoChatGPT, sairDoChatGPT, type EstadoChatGPT, type PonteDoOuvinte, chatgptDisponivel } from './chatgpt-login.ts'
 
 const URL_DO_HUB = 'https://auth.exemplo.invalid/api/accounts/authorize?client_id=cliente-ficticio&redirect_uri=http%3A%2F%2F127.0.0.1%3A19424%2Fauth%2Fcallback&response_type=code&scope=openid&state=estado-1'
 
@@ -232,4 +232,11 @@ test('ler estado e sair chamam os métodos do Hub com o corpo esperado', async (
     { metodo: 'chatgptEstado', corpo: { verificar: true } },
     { metodo: 'chatgptSair', corpo: {} },
   ])
+})
+
+test('o login com ChatGPT aparece só no app local do dono, fora da Open e sem depender do motor', () => {
+  assert.equal(chatgptDisponivel(false, false, true), true)
+  assert.equal(chatgptDisponivel(true, false, true), false)
+  assert.equal(chatgptDisponivel(false, true, true), false)
+  assert.equal(chatgptDisponivel(false, false, false), false)
 })
