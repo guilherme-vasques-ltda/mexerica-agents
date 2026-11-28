@@ -2,10 +2,8 @@ use serde_json::{Value, json};
 
 pub(super) fn sanitizar(frame: &mut Value) {
     let Some(error) = frame.get_mut("err") else { return };
-    let status = match error["status"].as_u64() {
-        Some(n @ (400 | 401 | 403 | 404 | 409 | 429 | 500 | 503)) => n,
-        _ => 500,
-    };
+    let status =
+        error["status"].as_u64().filter(|&n| matches!(n, 400 | 401 | 403 | 404 | 409 | 429 | 500 | 503)).unwrap_or(500);
     let code = match (status, error["code"].as_str()) {
         (401, Some("auth_invalid")) => "auth_invalid",
         (401, Some("device_unpaired")) => "device_unpaired",
