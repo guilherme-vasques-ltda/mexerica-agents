@@ -1,7 +1,7 @@
 //! Renovação OAuth da Mexerica, sem nova autoridade nem registro de credenciais.
 //! A classificação conservadora e as guardas/CAS são adaptações da Mexerica.
-use super::catalogo_servicos::Auth;
-use super::{oauth_binding as binding, oauth_runtime::RuntimeIntent};
+use super::catalogo_servicos::{Auth, RegistroOauth};
+use super::{oauth_binding as binding, oauth_cimd, oauth_runtime::RuntimeIntent};
 use crate::hub::Hub;
 use crate::market::{
     self, Connector,
@@ -83,7 +83,7 @@ pub(crate) async fn fresh(hub: &Hub, c: &Connector, o: &OAuth, intent: &RuntimeI
     }
     let bound = c.oauth_binding.as_ref();
     let resource = bound.and_then(|binding| binding.resource());
-    let resource = match market::contas::auth_proprio(c).map_err(|_| anyhow!("{RETRY}"))? {
+    let resource = match market::contas::auth_da_conta(c).map_err(|_| anyhow!("{RETRY}"))? {
         Some(Auth::AppProprio { configuracao: Some(config), emissor, .. }) => {
             ensure!(
                 resource == Some(config.recurso)
@@ -94,6 +94,18 @@ pub(crate) async fn fresh(hub: &Hub, c: &Connector, o: &OAuth, intent: &RuntimeI
             resource
         }
         Some(Auth::AppProprio { provedor: "google", .. }) => None,
+        Some(Auth::Oauth { registro: RegistroOauth::Cimd, client_id_metadata_document_url }) => {
+            let url = oauth_cimd::url(*client_id_metadata_document_url)?;
+            ensure!(
+                resource.is_some()
+                    && bound.and_then(binding::Binding::registration_issuer).is_none()
+                    && o.client_id == url
+                    && o.client_secret.is_none()
+                    && !o.client_secret_basic,
+                "Entre novamente no conector em Extensões."
+            );
+            resource
+        }
         _ => resource,
     };
     if let Some(resource) = resource {

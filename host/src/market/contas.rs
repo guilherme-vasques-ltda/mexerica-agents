@@ -291,13 +291,8 @@ pub(crate) fn desktop_catalog(c: &Connector) -> bool {
     c.command.is_none() && tipo_da_conta(c).is_ok_and(|tipo| tipo.is_some())
 }
 
-/// O servidor de login que a ficha fixa, quando a conta entra com o app OAuth da própria pessoa. `None`: o caminho
-/// comum (descoberta + cadastro automático) ou conta sem ficha.
-pub(crate) fn auth_proprio(c: &Connector) -> Result<Option<&'static Auth>> {
-    Ok(tipo_da_conta(c)?.and_then(|tipo| match &tipo.auth {
-        auth @ Auth::AppProprio { .. } => Some(auth),
-        _ => None,
-    }))
+pub(crate) fn auth_da_conta(c: &Connector) -> Result<Option<&'static Auth>> {
+    Ok(tipo_da_conta(c)?.map(|tipo| &tipo.auth))
 }
 
 /// Escopos OAuth a pedir no login: só os dos grupos ligados. `None` = conta sem ficha (caminho antigo).

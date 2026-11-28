@@ -21,13 +21,13 @@
 // Em 2026-11-06 (M3-C): PRM validado por candidato e resource preso à tentativa/concessão.
 use crate::LockExt;
 use crate::api::devices::Caller;
-use crate::fork::conectores::catalogo_servicos::{AppProprioConfig, Auth};
+use crate::fork::conectores::catalogo_servicos::{AppProprioConfig, Auth, RegistroOauth};
 use crate::fork::conectores::oauth_binding::{self as binding, Origin, StartIntent};
 use crate::fork::conectores::oauth_iss::Esperado;
 use crate::fork::conectores::oauth_refresh::{self, fresh};
 use crate::fork::conectores::oauth_runtime::RuntimeIntent;
 use crate::fork::conectores::oauth_urls as urls;
-use crate::fork::conectores::{oauth_registration, oauth_resource, oauth_scopes, oauth_tentativa};
+use crate::fork::conectores::{oauth_cimd, oauth_registration, oauth_resource, oauth_scopes, oauth_tentativa};
 use crate::hub::Hub;
 use crate::market::{self, Connector};
 use crate::store::Store;
@@ -361,6 +361,24 @@ pub(crate) async fn start(
     callback: Callback,
     tentativa: Option<String>,
 ) -> Result<Value> {
+    iniciar(
+        hub,
+        intent,
+        callback,
+        tentativa,
+        #[cfg(test)]
+        None,
+    )
+    .await
+}
+
+async fn iniciar(
+    hub: &Arc<Hub>,
+    intent: StartIntent,
+    callback: Callback,
+    tentativa: Option<String>,
+    #[cfg(test)] cimd_teste: Option<(&Auth, &str)>,
+) -> Result<Value> {
     oauth_tentativa::viva(tentativa.as_deref())?;
     let store = &hub.store;
     let port = hub.port;
@@ -382,9 +400,28 @@ pub(crate) async fn start(
             })?,
     };
     let (origin, c) = intent.begin(hub)?;
+    let auth = market::contas::auth_da_conta(&c)?;
+    #[cfg(test)]
+    let auth = cimd_teste.map(|(auth, _)| auth).or(auth);
+    let cimd = match auth {
+        Some(Auth::Oauth { registro: RegistroOauth::Cimd, client_id_metadata_document_url }) => {
+            Some(oauth_cimd::url(*client_id_metadata_document_url)?)
+        }
+        _ => None,
+    };
+    let cimd = cimd
+        .map(|documento| -> Result<_> {
+            let permitidos = oauth_cimd::redirects(port);
+            anyhow::ensure!(
+                matches!(callback, Callback::Host | Callback::Desktop(_)) && permitidos.contains(&redirect_uri),
+                oauth_cimd::SO_LOOPBACK
+            );
+            Ok((documento, permitidos))
+        })
+        .transpose()?;
     // Conta com o app OAuth da própria pessoa (Google): o servidor de login é o que a ficha fixa, não o que a descoberta
     // disser, e não há cadastro automático (o ID e a chave são os do app dela).
-    let proprio = market::contas::auth_proprio(&c)?;
+    let proprio = auth.filter(|auth| matches!(auth, Auth::AppProprio { .. }));
     let google = matches!(proprio, Some(Auth::AppProprio { provedor: "google", configuracao: None, .. }));
     // O Google só volta pelo loopback (do app ou do Hub): a página da nuvem nunca recebe o código do app próprio.
     if proprio.is_some() && callback == Callback::App {
@@ -419,6 +456,9 @@ pub(crate) async fn start(
     binding::check(store, &c, Some((hub, &origin)), || Ok(()))?;
     // Fora do `with_context`: o app mostra exatamente esta frase.
     anyhow::ensure!(urls::pkce_s256(&meta), urls::PKCE);
+    if cimd.is_some() {
+        oauth_cimd::anunciar(&meta)?;
+    }
     let iss = Esperado::capturar(&issuer, &meta)?;
     let authorize = text(&meta["authorization_endpoint"]).ok_or_else(|| anyhow!("no authorization endpoint"))?;
     let token_endpoint = text(&meta["token_endpoint"]).ok_or_else(|| anyhow!("no token endpoint"))?;
@@ -449,6 +489,10 @@ pub(crate) async fn start(
 
     oauth_scopes::conferir_endpoint(&link)?;
     oauth_scopes::conferir_endpoint(&token_url)?;
+    if cimd.is_some() {
+        oauth_cimd::conferir_endpoint(&link)?;
+        oauth_cimd::conferir_endpoint(&token_url)?;
+    }
 
     // Reuso só com emissão vinculada pelo Hub ao mesmo issuer e redirects compatíveis.
     let desktop = match callback {
@@ -459,8 +503,20 @@ pub(crate) async fn start(
     let app = app.filter(|_| proprio.is_none());
     let wanted: Vec<String> = std::iter::once(loopback_uri(port)).chain(app).chain(desktop).collect();
     let mut oauth = c.oauth.clone().unwrap_or_default();
-    let needs_registration = proprio.is_some() || !oauth_registration::reutilizavel(&c, &issuer, &wanted);
-    if google {
+    let needs_registration =
+        cimd.is_none() && (proprio.is_some() || !oauth_registration::reutilizavel(&c, &issuer, &wanted));
+    if let Some((documento, permitidos)) = &cimd {
+        let cliente = oauth_cimd::cliente(
+            documento,
+            &redirect_uri,
+            permitidos,
+            #[cfg(test)]
+            cimd_teste.map(|(_, destino)| destino),
+        )
+        .await;
+        binding::check(store, &c, Some((hub, &origin)), || Ok(()))?;
+        oauth = cliente?;
+    } else if google {
         // O ID e a chave do app do Space vêm do cofre, a cada login (trocar o app não deixa cadastro antigo para trás).
         let app = market::google_app::para_a_conta(store, &c.space)?;
         oauth.client_id = app.client_id;
@@ -509,7 +565,9 @@ pub(crate) async fn start(
         |c| {
             c.oauth = Some(oauth);
             let binding = c.oauth_binding.as_mut().ok_or_else(|| anyhow!("Vínculo ausente"))?;
-            if needs_registration {
+            if cimd.is_some() {
+                binding.clear_registration();
+            } else if needs_registration {
                 binding.register(&issuer);
             }
             binding.grant(&resource.resource, &issuer, &redirect_uri, &scopes);

@@ -2,11 +2,49 @@
 use super::catalogo_fichas::servicos;
 use super::catalogo_json::{FICHA_DONO_A, FICHAS, ler};
 use super::catalogo_servicos::{
-    Auth, Curada, Grupo, Imposicao, PRAZO_CONFERENCIA_DIAS, Tipo, TipoConexao, dias_desde_conferencia,
+    Auth, Curada, Grupo, Imposicao, PRAZO_CONFERENCIA_DIAS, RegistroOauth, Tipo, TipoConexao, dias_desde_conferencia,
     filtrar_ferramentas, hoje, servico,
 };
 use chrono::NaiveDate;
 use serde_json::json;
+
+#[test]
+fn oauth_cimd_exige_url_de_documento_no_catalogo() {
+    let mut ficha: serde_json::Value =
+        serde_json::from_str(include_str!("../../../tests/fixtures/catalogo-filtro.json")).unwrap();
+    let auth = |registro: &str| json!({"modo": "oauth", "registro": registro});
+    ficha["tipos"][0]["auth"] = auth("dcr");
+    let dcr = ler(&ficha.to_string()).unwrap();
+    assert_eq!(serde_json::to_value(&dcr.tipos[0].auth).unwrap(), auth("dcr"));
+
+    ficha["tipos"][0]["auth"] = auth("cimd");
+    let recusa = |ficha: &serde_json::Value, erro: &str| {
+        assert!(ler(&ficha.to_string()).err().unwrap().to_string().contains(erro));
+    };
+    recusa(&ficha, super::oauth_cimd::AUSENTE);
+    for url in [
+        "",
+        "http://client.example.invalid/documento",
+        "https://client.example.invalid/",
+        "https://@client.example.invalid/documento",
+        "https://client.example.invalid/documento#",
+        "https://client.example.invalid/x/../documento",
+        "https:///client.example.invalid/documento",
+    ] {
+        ficha["tipos"][0]["auth"]["clientIdMetadataDocumentUrl"] = json!(url);
+        recusa(&ficha, super::oauth_cimd::URL_INVALIDA);
+    }
+    let url = "https://client.example.invalid:443/documento";
+    ficha["tipos"][0]["auth"]["clientIdMetadataDocumentUrl"] = json!(url);
+    let cimd = ler(&ficha.to_string()).unwrap();
+    assert!(matches!(
+        cimd.tipos[0].auth,
+        Auth::Oauth { registro: RegistroOauth::Cimd, client_id_metadata_document_url: Some(config) } if config == url
+    ));
+    assert_eq!(serde_json::to_value(&cimd.tipos[0].auth).unwrap(), auth("cimd"));
+    ficha["tipos"][0]["auth"]["registro"] = json!("dcr");
+    recusa(&ficha, "não pode ser usada no cadastro automático");
+}
 
 fn dia(texto: &str) -> NaiveDate {
     NaiveDate::parse_from_str(texto, "%Y-%m-%d").unwrap()
@@ -63,8 +101,11 @@ fn o_catalogo_nao_tem_segredo_nem_duplicata_e_as_fichas_tem_fonte_oficial() {
             assert!(tipo.grupos.iter().any(|g| g.padrao), "{} sem grupo padrão", tipo.id);
             let ids: Vec<_> = tipo.grupos.iter().map(|g| g.id).collect();
             assert_eq!(ids.iter().collect::<std::collections::BTreeSet<_>>().len(), ids.len());
-            if let Auth::Oauth { registro } = &tipo.auth {
-                assert_eq!(*registro, "dcr", "o Hub só se cadastra por DCR hoje");
+            if let Auth::Oauth { registro, client_id_metadata_document_url } = &tipo.auth {
+                match registro {
+                    RegistroOauth::Dcr => assert!(client_id_metadata_document_url.is_none()),
+                    RegistroOauth::Cimd => assert!(super::oauth_cimd::url(*client_id_metadata_document_url).is_ok()),
+                }
             }
         }
         // Tipo conectável precisa de um grupo padrão realmente disponível: a ficha nunca nasce sem liberação.
@@ -254,7 +295,7 @@ fn ficha_do_dono_a_vem_do_arquivo_e_so_libera_leitura_por_escopo() {
     assert_eq!(servicos()[0].id, ficha.id, "a ficha do dono A vai primeiro");
     assert_eq!(no_catalogo.nome, ficha.nome);
     let tipo = &ficha.tipos[0];
-    assert!(matches!(tipo.auth, Auth::Oauth { registro: "dcr" }));
+    assert!(matches!(tipo.auth, Auth::Oauth { registro: RegistroOauth::Dcr, client_id_metadata_document_url: None }));
     assert!(tipo.url.starts_with("https://") && tipo.url.ends_with("/api/mcp"), "endereço oficial fixo");
     let ler_g = tipo.grupos.iter().find(|g| g.id == "ler").unwrap();
     let escrever = tipo.grupos.iter().find(|g| g.id == "escrever").unwrap();

@@ -30,8 +30,11 @@ pub(crate) enum Tipo {
 #[serde(tag = "modo", rename_all = "snake_case")]
 #[allow(dead_code, reason = "a chave pelo cartão seguro ainda não tem ficha disponível")]
 pub(crate) enum Auth {
-    /// `registro`: "dcr" (o único que o Hub faz hoje).
-    Oauth { registro: &'static str },
+    Oauth {
+        registro: RegistroOauth,
+        #[serde(skip)]
+        client_id_metadata_document_url: Option<&'static str>,
+    },
     /// `destino`: "header" ou "env"; `nome` é o nome do campo, nunca o valor.
     #[serde(rename_all = "camelCase")]
     /// `prefixo`: o que vem antes da chave no valor do cabeçalho (ex.: `Bearer `); o app o junta ao que a pessoa cola.
@@ -47,6 +50,13 @@ pub(crate) enum Auth {
         #[serde(skip_serializing_if = "Option::is_none")]
         configuracao: Option<AppProprioConfig>,
     },
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum RegistroOauth {
+    Dcr,
+    Cimd,
 }
 
 #[derive(Clone, Copy, Debug, Serialize)]
