@@ -331,6 +331,7 @@ pub(crate) async fn call(hub: &Arc<Hub>, attempt: Attempt, name: &str, args: Val
         Ok(())
     };
     if let Some(token) = token {
+        let token = token.to_string();
         let limit = deadline_ns.min(answered_at.checked_add(u64::try_from(RETURN_WINDOW.as_nanos())?).context(DENIED)?);
         let wait_error = "O prazo venceu sem voltar à janela aprovada. Nenhum botão foi acionado.";
         loop {
