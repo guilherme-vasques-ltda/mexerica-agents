@@ -29,6 +29,7 @@ Não é parecer jurídico.
 - As logos dos serviços do catálogo de conectores em `apps/desktop/src/renderer/assets/marcas/` (marcas de seus titulares, só para identificar o serviço).
 - Electron (MIT), WebRTC de `stasel/WebRTC` (BSD-3-Clause) e o driver Cua (MIT): os textos de licença estão em `packaging/avisos/` e `packaging/cua-driver/`.
 - Clientes móveis em `apps/mobile/` (seção "Clientes móveis (apps/mobile)" abaixo): xterm.js, ThinkingOrbs, fontes Inter, Nunito e DM Sans (SIL OFL 1.1) e vetores do Material Symbols incluídos no repositório, e as dependências declaradas nos manifestos iOS e Android.
+- Código de Conduta em `CODE_OF_CONDUCT.md`: tradução pt-BR do Contributor Covenant 2.1 (CC BY 4.0), com o contato preenchido.
 - Registro de tstack (MIT), mantido: os arquivos de destino citados (`.claude/`, `AGENTS.md`, `.github/`) não estão nesta cópia.
 
 Registre abaixo cada cópia de código ou de ativo de terceiros, inclusive com ajustes. Adaptações reescritas e traduções não entram.
@@ -37,6 +38,7 @@ Registre abaixo cada cópia de código ou de ativo de terceiros, inclusive com a
 
 | Origem (repositório/URL) | Commit | Arquivo de origem | Arquivo de destino | Licença | Data (AAAA-MM-DD) |
 |---|---|---|---|---|---|
+| [Contributor Covenant](https://www.contributor-covenant.org/pt-br/version/2/1/code_of_conduct/) — Ethical Source | versão 2.1 (tradução pt-BR) | `code_of_conduct.md` | `CODE_OF_CONDUCT.md` (contato preenchido) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | 2026-11-27 |
 | [Exa MCP Server](https://github.com/exa-labs/exa-mcp-server) — Exa Labs | `a02cd621534313b8f01dbb03b829dac448decb8b` | `LICENSE` | `host/catalogo/skills/exa/exa-pesquisar-na-web/LICENSE` | [MIT](https://github.com/exa-labs/exa-mcp-server/blob/a02cd621534313b8f01dbb03b829dac448decb8b/LICENSE) | 2026-11-18 |
 | [Supabase Agent Skills](https://github.com/supabase/agent-skills) — Supabase | `c9be0e931b7930f7d02126d04774d904c381e7d7` | `LICENSE` | `host/catalogo/skills/supabase/supabase-revisar-seguranca/LICENSE` | [MIT](https://github.com/supabase/agent-skills/blob/c9be0e931b7930f7d02126d04774d904c381e7d7/LICENSE) | 2026-11-18 |
 | [Codync](https://github.com/leepokai/Codync) | `219935410dffccb950f90d0565bd1d9f1661bd5b` | `apps/desktop/src/renderer/lib/modal-stack.ts` (`stackModals`) e `modal-stack.test.ts` | `apps/desktop/src/renderer/lib/fork-modal-stack.ts` e `fork-modal-stack.test.ts` (modificados) | [Apache-2.0](https://github.com/leepokai/Codync/blob/219935410dffccb950f90d0565bd1d9f1661bd5b/LICENSE) | 2026-11-06 |

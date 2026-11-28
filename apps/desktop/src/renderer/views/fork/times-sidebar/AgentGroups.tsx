@@ -8,7 +8,7 @@ import { Icon } from '../../../components/Icon'
 import { spaceAllows } from '../../../lib/fork-space-capabilities'
 import { idiomaAtual, superficieIdioma, useIdioma, useT } from '../../../lib/fork-i18n/estado'
 import { tradutor } from '../../../lib/fork-i18n/index'
-import { collapseKey, groupOf, groupRoster, renameIntent, UNGROUPED } from '../../../lib/bot-groups'
+import { collapseKey, groupOf, groupRoster, renameIntent, stayVisibleWhenClosed, UNGROUPED } from '../../../lib/bot-groups'
 import { useModel } from '../../../lib/observable'
 import { usePref } from '../../../lib/prefs'
 import { gruposRecolhidos, migrarRecolhimento } from '../../bot-groups/prefs'
@@ -47,8 +47,8 @@ export function moveToGroupItems(store: BotStore, bot: Bot): MenuItem[] {
   return options
 }
 
-export function AgentGroups({ store, items, compact, filtering, dropTarget, renderRow }: {
-  store: BotStore; items: RosterItem[]; compact: boolean; filtering: boolean; dropTarget: string | null; renderRow: (item: RosterItem) => ReactNode
+export function AgentGroups({ store, items, compact, filtering, dropTarget, isSelected, renderRow }: {
+  store: BotStore; items: RosterItem[]; compact: boolean; filtering: boolean; dropTarget: string | null; isSelected: (item: RosterItem) => boolean; renderRow: (item: RosterItem) => ReactNode
 }) {
   const model = useModel(store.botGroups), idioma = useIdioma(), t = useT()
   const [collapsed, setCollapsed] = usePref(gruposRecolhidos)
@@ -90,7 +90,7 @@ export function AgentGroups({ store, items, compact, filtering, dropTarget, rend
               {!compact && !ungrouped ? <span className="agent-group-count">{t.plural('grupos.contagem', group.items.length)}</span> : null}<span className="agent-group-rule" /><Icon name="chevron.down" size={9} className="agent-group-chevron" />
             </button>}
         </div>
-        {open ? <>{group.items.map(renderRow)}{!ungrouped && !group.items.length && !compact ? <p className="agent-group-empty">{t('grupos.vazio')} {t('grupos.dica')}</p> : null}</> : null}
+        {open ? <>{group.items.map(renderRow)}{!ungrouped && !group.items.length && !compact ? <p className="agent-group-empty">{t('grupos.vazio')} {t('grupos.dica')}</p> : null}</> : group.items.filter((item) => stayVisibleWhenClosed(item.bot, isSelected(item))).map(renderRow)}
         {menu?.id === group.id ? <AnchoredMenu open onClose={() => setMenu(null)} point={{ x: menu.x, y: menu.y }} items={() => menuItems} language={superficieIdioma(idioma)} /> : null}
       </div>
     })}
