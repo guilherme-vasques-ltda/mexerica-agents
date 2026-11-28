@@ -65,10 +65,9 @@ pub(crate) async fn ambiente_do_bot(hub: &Arc<Hub>, cfg: &BotConfig, uso: Uso) -
     }
     let Some(plano) = cfg.model.as_deref().and_then(plano_do_modelo) else { return Ok(None) };
     ensure!(oferecido(&hub.store, plano), "plano_desligado: este plano ainda não está disponível neste computador.");
-    ensure!(
-        !(plano.so_conversa && uso == Uso::Automatico),
-        "plano_so_conversa: este plano só vale em conversa sua; rotinas, tarefas agendadas e pedidos de outros bots não o usam."
-    );
+    if plano.opcional && hub.store.kv_read(&slot_chave(plano))?.is_none() {
+        return Ok(None);
+    }
     ensure!(
         !(plano.so_conversa && uso == Uso::Automatico),
         "plano_so_conversa: este plano só vale em conversa sua; rotinas, tarefas agendadas e pedidos de outros bots não o usam."

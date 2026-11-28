@@ -10,6 +10,8 @@ import * as fsModule from 'node:fs'
 import * as pathModule from 'node:path'
 import * as cryptoModule from 'node:crypto'
 import * as rcProfileModule from '../shared/fork-rc-profile.ts'
+import * as idiomaModule from '../shared/fork-idioma.ts'
+import * as textosModule from '../renderer/lib/fork-i18n/index.ts'
 import { assinarArm64 } from '../shared/test-support/rc2-assinatura.ts'
 import { rcPaths } from '../shared/fork-rc-profile.ts'
 import * as profileModule from '../shared/fork-rc2-profile.ts'
@@ -172,6 +174,8 @@ test('entrada empacotada verifica manifesto e binários do artefato antes de qua
     const accesses: string[] = []
     const reads: string[] = []
     const exits: number[] = []
+    const notices: string[] = []
+    const diagnostics: string[] = []
     const quitHandlers: Array<() => void> = []
     let paradas = 0
     let ciclo: { sessao: () => unknown; transporte: unknown } | null = null
@@ -197,7 +201,14 @@ test('entrada empacotada verifica manifesto e binários do artefato antes de qua
       'electron': { app: { isPackaged: true, getName: () => profile.name, getVersion: () => version,
         getAppPath: () => project, getPath: (name: string) => name === 'home' ? '/fixture/home' : '/fixture/appdata',
         on: (name: string, handler: () => void) => { if (name === 'will-quit') quitHandlers.push(handler) },
-        exit: (code: number) => exits.push(code) } },
+        getPreferredSystemLanguages: () => ['pt-BR'],
+        exit: (code: number) => exits.push(code) },
+        dialog: { showErrorBox: (_title: string, message: string) => {
+          assert.deepEqual(exits, [])
+          notices.push(message)
+        } } },
+      '../shared/fork-idioma.ts': idiomaModule,
+      '../renderer/lib/fork-i18n/index.ts': textosModule,
       '../shared/fork-rc2-profile.ts': profileModule,
       './fork-rc2-artifact.ts': artifact,
       './fork-rc2-developer-id.ts': { rc2DeveloperIdVerifier: () => (_bytes: Buffer, component: Rc2Component) => {
@@ -215,8 +226,9 @@ test('entrada empacotada verifica manifesto e binários do artefato antes de qua
       } },
       './fork-rc2-transport.ts': { rc2NativeTransport: () => { transportLookups++; return transporte } },
     }, { process: { platform: 'darwin', arch, resourcesPath: join(project, 'resources') },
-      __MEXERICA_RC2_PROFILE__: profile.profile, __MEXERICA_RC2_MANIFEST_HASH__: pin })
-    return { accesses, reads, exits, transportLookups, quitHandlers, paradas: () => paradas, ciclo: () => ciclo }
+      __MEXERICA_RC2_PROFILE__: profile.profile, __MEXERICA_RC2_MANIFEST_HASH__: pin,
+      console: { error: (code: string) => diagnostics.push(code) } })
+    return { accesses, reads, exits, notices, diagnostics, transportLookups, quitHandlers, paradas: () => paradas, ciclo: () => ciclo }
   }
   for (const tamper of [
     { label: 'binário ausente', apply: () => {} },
@@ -226,8 +238,10 @@ test('entrada empacotada verifica manifesto e binários do artefato antes de qua
   ]) {
     if (tamper.label === 'binário ausente') rmSync(hubPath, { force: true })
     else { writeFileSync(hubPath, hubBytes); tamper.apply() }
-    const { accesses, reads, exits, transportLookups } = run('arm64', compiled.pin)
+    const { accesses, reads, exits, notices, diagnostics, transportLookups } = run('arm64', compiled.pin)
     assert.deepEqual(exits, [1], tamper.label)
+    assert.deepEqual(notices, ['Não foi possível verificar esta instalação. O Hub local não foi iniciado.\n\nRC2-VERIFY'])
+    assert.deepEqual(diagnostics, ['RC2-VERIFY'])
     assert.equal(transportLookups, 0, tamper.label)
     // a recusa acontece na etapa mais cedo possível: inspeção do caminho ou leitura pelo descritor fixado
     const porCaminho = tamper.label === 'binário ausente' || tamper.label === 'link simbólico'
@@ -238,6 +252,8 @@ test('entrada empacotada verifica manifesto e binários do artefato antes de qua
   writeFileSync(hubPath, hubBytes)
   const good = run('arm64', compiled.pin)
   assert.deepEqual(good.exits, [1])
+  assert.deepEqual(good.notices, ['Esta é uma versão de teste. O Hub local ainda não foi habilitado.\n\nRC2-INACTIVE'])
+  assert.deepEqual(good.diagnostics, ['RC2-INACTIVE'])
   assert.equal(good.transportLookups, 1)
   const hubLstat = good.reads.indexOf(`lstatSync:${hubPath}`)
   assert.ok(hubLstat > 2)
@@ -257,7 +273,7 @@ test('entrada empacotada verifica manifesto e binários do artefato antes de qua
   assert.ok(!good.accesses.includes('writeFileSync') && !good.accesses.includes('mkdirSync'))
   // Com transporte nativo disponível, a entrada registra o encerramento no will-quit e nada
   // roda enquanto o app vive: o runtime segue desligado até a prova nativa da ativação.
-  const transporteFixo = { marcador: 'transporte-do-teste' }
+  const transporteFixo = () => assert.fail('aviso não inicia o Hub')
   const ligado = run('arm64', compiled.pin, transporteFixo)
   assert.deepEqual(ligado.exits, [1])
   assert.equal(ligado.transportLookups, 1)
@@ -272,7 +288,11 @@ test('entrada empacotada verifica manifesto e binários do artefato antes de qua
     'node:fs': fsModule, 'node:path': pathModule,
     'electron': { app: { isPackaged: true, getName: () => profile.name, getVersion: () => version,
       getAppPath: () => project, getPath: (name: string) => name === 'home' ? '/fixture/raiz' : '/fixture/raiz/.mexerica-rc',
-      exit: (code: number) => overlappingExits.push(code) } },
+      getPreferredSystemLanguages: () => ['pt-BR'],
+      exit: (code: number) => overlappingExits.push(code) },
+      dialog: { showErrorBox: (_title: string, message: string) => assert.match(message, /RC2-VERIFY$/) } },
+    '../shared/fork-idioma.ts': idiomaModule,
+    '../renderer/lib/fork-i18n/index.ts': textosModule,
     '../shared/fork-rc2-profile.ts': profileModule,
     './fork-rc2-artifact.ts': source('./fork-rc2-artifact.ts', {
       'node:crypto': cryptoModule, 'node:fs': fsModule, 'node:path': pathModule,
