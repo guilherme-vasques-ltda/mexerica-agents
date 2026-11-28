@@ -1042,7 +1042,7 @@ async fn duas_sessoes_locais_separam_titulo_historico_e_thread_do_motor() {
             engine_accounts::{Account, AuthorizedScope, Backend, Billing, LaunchReference, Registry, State, managed},
             sessoes::api as sessions,
         },
-        store::{EntryKind, Lane, Scope},
+        store::{EntryKind, Lane, Scope, SpaceEntryAudience},
     };
     use serde_json::json;
     if !crate::environment::Environment::is_open() {
@@ -1138,7 +1138,6 @@ async fn duas_sessoes_locais_separam_titulo_historico_e_thread_do_motor() {
     assert_eq!(main_ids, [&json!(main_entry.id)]);
     let private_entry = hub.add_entry(&Lane::main(bot), EntryKind::Notice, 1, &json!({"text":"Aviso do Hub"})).unwrap();
     let space = crate::fork::spaces::PERSONAL;
-    use crate::store::SpaceEntryAudience;
     for (audience, expected) in
         [(SpaceEntryAudience::Device, &private_entry.id), (SpaceEntryAudience::Web, &main_entry.id)]
     {
