@@ -64,6 +64,7 @@ pub(crate) fn snapshot(db: &rusqlite::Connection, id: &str, connector: &str, met
             | "server-request"
             | "invalid"
             | "notifications/initialized"
+            | "notifications/cancelled"
     ) {
         bail!("Setup MCP admite somente handshake e descoberta, sem chamada de ferramenta");
     }

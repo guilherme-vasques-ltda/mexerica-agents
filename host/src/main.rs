@@ -462,6 +462,8 @@ enum McpServer {
     /// Launch a local connector without exposing its credentials in ACP config.
     Local {
         #[arg(long)]
+        catalog_local: bool,
+        #[arg(long)]
         connector: String,
         #[arg(long)]
         context: String,
@@ -898,8 +900,8 @@ async fn main() -> Result<()> {
         Sub::Mcp { server: McpServer::Manage { bot, port } } => mcp::serve(bot, port, mcp::Server::Manage).await,
         Sub::Mcp { server: McpServer::Memory { bot, port } } => mcp::serve(bot, port, mcp::Server::Memory).await,
         Sub::Mcp { server: McpServer::Tasks { bot, port } } => mcp::serve(bot, port, mcp::Server::Tasks).await,
-        Sub::Mcp { server: McpServer::Local { connector, port, context } } => {
-            mcp::serve_local(connector, port, context).await
+        Sub::Mcp { server: McpServer::Local { connector, port, context, catalog_local } } => {
+            mcp::serve_local(connector, port, context, catalog_local).await
         }
         Sub::Mcp { server: McpServer::Curated { port, context } } => fork::conectores::serve(port, context).await,
         Sub::Mcp { server: McpServer::Remote { connector, port, context } } => {

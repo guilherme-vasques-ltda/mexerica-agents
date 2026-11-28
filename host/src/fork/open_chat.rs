@@ -15,6 +15,9 @@ use std::{
 };
 use tokio::sync::watch;
 
+#[path = "open_chat_uso.rs"]
+mod uso;
+
 const TURN_LIMIT: Duration = Duration::from_secs(600);
 const COMPACT_LIMIT: Duration = Duration::from_secs(300);
 const MAX_REPLY: usize = 200_000;
@@ -282,6 +285,7 @@ pub(crate) fn run(
 ) {
     let hub = hub.clone();
     let instructions = instructions(&hub, cfg);
+    let cfg = cfg.clone();
     tokio::spawn(async move {
         let (entry_id, authority) = entry;
         let Ticket { bot, account, directory, model, mut cancel, done } = ticket;
@@ -314,7 +318,7 @@ pub(crate) fn run(
             &hub,
             &directory,
             &account,
-            &lane,
+            (&lane, &cfg),
             (&instructions, model.as_deref()),
             (Input::Text(&text), TURN_LIMIT),
             (&entry_id, authority.as_ref()),
@@ -382,7 +386,7 @@ pub(crate) async fn silent_turn(
         hub,
         &ticket.directory,
         &ticket.account,
-        lane,
+        (lane, cfg),
         (&instructions, ticket.model.as_deref()),
         (Input::Summary(prompt), timeout),
         ("", None),
@@ -398,6 +402,7 @@ pub(crate) async fn silent_turn(
 pub(crate) fn compact(hub: &Arc<Hub>, ticket: Ticket, cfg: &BotConfig, lane: Lane) {
     let hub = hub.clone();
     let instructions = instructions(&hub, cfg);
+    let cfg = cfg.clone();
     tokio::spawn(async move {
         let Ticket { bot, account, directory, model, mut cancel, done } = ticket;
         let mut reply = Stream::silent(&hub, &lane, &bot);
@@ -405,7 +410,7 @@ pub(crate) fn compact(hub: &Arc<Hub>, ticket: Ticket, cfg: &BotConfig, lane: Lan
             &hub,
             &directory,
             &account,
-            &lane,
+            (&lane, &cfg),
             (&instructions, model.as_deref()),
             (Input::Compact, COMPACT_LIMIT),
             ("", None),
@@ -457,7 +462,7 @@ pub(crate) async fn routine_turn(
                 hub,
                 &directory,
                 &account,
-                &lane,
+                (&lane, cfg),
                 (&instructions, model.as_deref()),
                 (Input::Text(&prompt), timeout),
                 ("", None),
@@ -488,7 +493,7 @@ async fn turn_in_profile(
     hub: &Hub,
     directory: &std::path::Path,
     account: &str,
-    lane: &Lane,
+    (lane, cfg): (&Lane, &BotConfig),
     (instructions, model): (&str, Option<&str>),
     (input, limit): (Input<'_>, Duration),
     (entry_id, authority): (&str, Option<&Autoridade>),
@@ -510,6 +515,8 @@ async fn turn_in_profile(
     })?;
     let mut rpc = Rpc::from_child(child)?;
     let stopped = cancel.clone();
+    let cursor_key = format!("{}.usage", thread_key(lane, account));
+    let mut cursor = None;
     // O ponto em que o texto passa a ser entregue ao Codex: um `stop` aterrissado durante o lançamento e uma
     // exclusão que tenha passado são conferidos aqui, antes de o `turn/start` seguir.
     let before_text = |thread: &str| {
@@ -525,6 +532,7 @@ async fn turn_in_profile(
             !*stopped.borrow() && matches!(hub.store.bot(&bot), Ok(Some(row)) if !row.deleted),
             "open_chat_cancelled"
         );
+        cursor = Some(uso::Cursor::iniciar(&hub.store, &bot, &cursor_key, thread, saved.as_deref() != Some(thread))?);
         Ok(())
     };
     // A mensagem só passa a `sent` quando o Codex aceita o turno: antes disso, o envio não aconteceu.
@@ -556,12 +564,21 @@ async fn turn_in_profile(
     )
     .await;
     match outcome {
-        Ok(_) => {
+        Ok(concluido) => {
             // O encerramento limpo confirma só o líder: o reap a seguir varre descendentes que tenham ficado no grupo.
             if rpc.finish().await.is_err() {
                 tracing::warn!("o Codex não encerrou de forma limpa; a conta segue reservada até a saída");
             }
             reap(&mut rpc).await;
+            crate::fork::uso_historico::record_open_codex(hub, account, &concluido.cotas);
+            if let Some(cursor) = cursor {
+                let mut efetivo = cfg.clone();
+                efetivo.model = concluido.model;
+                efetivo.fork_editor.engine_account_id = Some(account.to_owned());
+                if cursor.gravar(&hub.store, &efetivo, lane, reply.turn, concluido.thread, concluido.uso).is_err() {
+                    tracing::warn!("não foi possível gravar o uso do turno local");
+                }
+            }
             Ok(measured)
         }
         Err(error) => {
@@ -607,7 +624,7 @@ async fn turn_in_profile(
     _: &Hub,
     _: &std::path::Path,
     _: &str,
-    _: &Lane,
+    _: (&Lane, &BotConfig),
     _: (&str, Option<&str>),
     _: (Input<'_>, Duration),
     _: (&str, Option<&Autoridade>),
@@ -715,12 +732,19 @@ impl Stream {
     }
 }
 
-/// Um turno no app-server: retoma ou cria a thread, envia o texto e devolve o id da thread. Recusa qualquer pedido
-/// do servidor e qualquer item que não seja texto, interrompendo o turno. Uma resposta que chegue só no
-/// `item/completed`, sem deltas, também é gravada — uma vez, sem repetir o que os deltas já entregaram.
+#[derive(Debug)]
+struct TurnoConcluido {
+    thread: String,
+    model: Option<String>,
+    uso: Option<uso::Contagem>,
+    cotas: Vec<crate::usage::Window>,
+}
+
+/// Recusa pedidos do servidor e itens que não sejam texto. Entrega uma resposta que chegue
+/// só no `item/completed` uma vez, sem repetir o que os deltas já entregaram.
 #[cfg(test)]
 #[allow(clippy::too_many_arguments)]
-pub(crate) async fn drive(
+async fn drive(
     rpc: &mut Rpc,
     thread: Option<&str>,
     session: (&str, Option<&str>),
@@ -731,7 +755,7 @@ pub(crate) async fn drive(
     on_sent: impl FnOnce(),
     on_delta: impl FnMut(&str) -> bool,
     authority: Option<(&Hub, &Autoridade)>,
-) -> Result<String> {
+) -> Result<TurnoConcluido> {
     drive_usage(
         rpc,
         thread,
@@ -752,7 +776,7 @@ pub(crate) async fn drive(
 /// motor e o `modelContextWindow`, sem janela informada nada é medido). `Input::Compact` só vale numa thread
 /// retomada e pede `thread/compact/start`; um motor que não conhece o método recusa com `context_cannot_compact`.
 #[allow(clippy::too_many_arguments)]
-pub(crate) async fn drive_usage(
+async fn drive_usage(
     rpc: &mut Rpc,
     thread: Option<&str>,
     (instructions, model): (&str, Option<&str>),
@@ -764,7 +788,7 @@ pub(crate) async fn drive_usage(
     mut on_delta: impl FnMut(&str) -> bool,
     mut on_usage: impl FnMut(u64, u64),
     authority: Option<(&Hub, &Autoridade)>,
-) -> Result<String> {
+) -> Result<TurnoConcluido> {
     rpc.set_line_limit(LINE_LIMIT);
     let flow = async {
         rpc.initialize().await?;
@@ -800,6 +824,7 @@ pub(crate) async fn drive_usage(
             .filter(|id| valid_id(id))
             .ok_or_else(|| anyhow!("open_chat_failed"))?
             .to_owned();
+        let model = started["model"].as_str().filter(|id| !id.is_empty() && id.len() <= 128).map(str::to_owned);
         before_text(&thread)?;
         let turn_id = match input {
             Input::Compact => match rpc.request(4, "thread/compact/start", json!({"threadId": thread})).await? {
@@ -821,10 +846,16 @@ pub(crate) async fn drive_usage(
                     }
                     None => rpc.call(4, "turn/start", params).await?,
                 };
-                turn["turn"]["id"].as_str().unwrap_or_default().to_owned()
+                turn["turn"]["id"]
+                    .as_str()
+                    .filter(|id| valid_id(id))
+                    .ok_or_else(|| anyhow!("open_chat_failed"))?
+                    .to_owned()
             }
         };
         on_sent();
+        let mut uso = None;
+        let mut cotas = Vec::new();
         // Itens que já entregaram texto por deltas: o `item/completed` deles não repete o que já chegou.
         let mut streamed = std::collections::HashSet::new();
         loop {
@@ -837,6 +868,26 @@ pub(crate) async fn drive_usage(
             }
             let params = &message["params"];
             match message["method"].as_str().unwrap_or_default() {
+                "thread/tokenUsage/updated"
+                    if params["threadId"] == thread && (turn_id.is_empty() || params["turnId"] == turn_id) =>
+                {
+                    uso = uso::Contagem::do_protocolo(&params["tokenUsage"]["total"]);
+                    let usage = &params["tokenUsage"];
+                    if let (Some(used), Some(size)) =
+                        (usage["last"]["totalTokens"].as_u64(), usage["modelContextWindow"].as_u64().filter(|s| *s > 0))
+                    {
+                        on_usage(used, size);
+                    }
+                }
+                "account/rateLimits/updated" if params["rateLimits"]["limitId"] == "codex" => {
+                    let now = crate::store::now_ms();
+                    for cota in crate::usage::parse_codex(&params["rateLimits"], now) {
+                        if cota.resets_at.is_none_or(|at| at > now) {
+                            cotas.retain(|anterior: &crate::usage::Window| anterior.id != cota.id);
+                            cotas.push(cota);
+                        }
+                    }
+                }
                 "item/started" | "item/completed"
                     if !ALLOWED_ITEMS.contains(&params["item"]["type"].as_str().unwrap_or_default()) =>
                 {
@@ -863,17 +914,11 @@ pub(crate) async fn drive_usage(
                         bail!("open_chat_too_long");
                     }
                 }
-                "thread/tokenUsage/updated" => {
-                    let usage = &params["tokenUsage"];
-                    if let (Some(used), Some(size)) =
-                        (usage["last"]["totalTokens"].as_u64(), usage["modelContextWindow"].as_u64().filter(|s| *s > 0))
-                    {
-                        on_usage(used, size);
-                    }
-                }
-                "turn/completed" => {
+                "turn/completed"
+                    if params["threadId"] == thread && (turn_id.is_empty() || params["turn"]["id"] == turn_id) =>
+                {
                     ensure!(params["turn"]["status"] == "completed", "open_chat_failed");
-                    return Ok(thread);
+                    return Ok(TurnoConcluido { thread, model, uso, cotas });
                 }
                 _ => {}
             }

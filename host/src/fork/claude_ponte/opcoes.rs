@@ -2,9 +2,33 @@
 //! tela. Só as opções que o Hub envia hoje são aceitas; qualquer outra, ou um valor com tipo errado, recusa a sessão
 //! (falha fechada), para que nada seja ignorado em silêncio.
 
-use anyhow::{Result, bail, ensure};
+use anyhow::{Context as _, Result, bail, ensure};
 use serde_json::{Map, Value, json};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct PastaAdicional {
+    caminho: PathBuf,
+    #[cfg(unix)]
+    identidade: (u64, u64),
+}
+
+impl PastaAdicional {
+    fn conferir(original: &Path) -> Result<Self> {
+        ensure!(original.is_absolute(), "pasta adicional inválida");
+        let caminho = original.canonicalize().context("pasta adicional inválida")?;
+        let meta = caminho.symlink_metadata().context("pasta adicional inválida")?;
+        ensure!(meta.is_dir(), "pasta adicional inválida");
+        Ok(Self {
+            caminho,
+            #[cfg(unix)]
+            identidade: {
+                use std::os::unix::fs::MetadataExt as _;
+                (meta.dev(), meta.ino())
+            },
+        })
+    }
+}
 
 /// Servidor MCP da própria ponte (pedido de permissão). O Hub não pode usar este nome.
 pub(super) const SERVIDOR_PERMISSAO: &str = "mexerica_ponte";
@@ -40,7 +64,7 @@ pub(super) struct Opcoes {
     pub max_turnos: Option<u64>,
     pub modelo: Option<String>,
     pub esforco: Option<String>,
-    pub pastas: Vec<PathBuf>,
+    pastas: Vec<(PathBuf, PastaAdicional)>,
 }
 
 pub(super) const ESFORCOS: &[&str] = &["default", "low", "medium", "high", "xhigh", "max"];
@@ -219,8 +243,8 @@ pub(super) fn ler(params: &Value) -> Result<Opcoes> {
     if !params["additionalDirectories"].is_null() {
         for p in lista(&params["additionalDirectories"], "additionalDirectories")? {
             let p = PathBuf::from(p);
-            ensure!(p.is_absolute() && p.is_dir(), "pasta adicional inválida");
-            pastas.push(p);
+            let conferida = PastaAdicional::conferir(&p)?;
+            pastas.push((p, conferida));
         }
     }
     let mut opcoes = Opcoes {
@@ -313,7 +337,7 @@ pub(super) fn argumentos(
     modelo: &str,
     esforco: &str,
     arquivos: &Arquivos,
-) -> Vec<String> {
+) -> Result<Vec<String>> {
     let mut a: Vec<String> = [
         "-p",
         "--input-format",
@@ -371,14 +395,17 @@ pub(super) fn argumentos(
     if let Some(n) = o.max_turnos {
         a.push(format!("--max-turns={n}"));
     }
-    for p in &o.pastas {
-        a.push(format!("--add-dir={}", p.display()));
+    for (original, esperada) in &o.pastas {
+        let atual = PastaAdicional::conferir(original)?;
+        ensure!(&atual == esperada, "pasta adicional mudou desde a abertura da sessão");
+        let caminho = atual.caminho.to_str().context("caminho de pasta adicional não é UTF-8")?;
+        a.push(format!("--add-dir={caminho}"));
     }
     if !o.persistir {
         a.push("--no-session-persistence".into());
     }
     a.push(if retomar { format!("--resume={sessao}") } else { format!("--session-id={sessao}") });
-    a
+    Ok(a)
 }
 
 /// Configuração MCP: os servidores do Hub mais o servidor de permissão da ponte.
