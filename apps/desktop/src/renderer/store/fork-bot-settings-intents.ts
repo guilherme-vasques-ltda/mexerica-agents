@@ -1,3 +1,4 @@
+import { bundledMacLocalHub } from '../../shared/fork-features.ts'
 import type { Bot, BotDraft } from '../../shared/models'
 import { captureSkillSelection, captureSkillSelectionOrigin, sendSkillSelection, SkillSelectionOutcomeUnknown, SkillSelectionRefusal,
   type SkillSelectionItem, type SkillSelectionRefusalCode } from '../../shared/fork-skill-selection.ts'
@@ -20,6 +21,9 @@ export function engineSettingsIntent(backend: string, command: string | null = n
 
 /** O evento bot do Hub atualiza o mirror; esta intenção não mantém uma segunda cópia. */
 export async function saveBotSettingsIntent(store: BotStore, id: string, patch: BotSettingsIntent) {
+  if (bundledMacLocalHub && store.isLoopback && typeof patch.computer === 'boolean') {
+    return (await store.ready()).call('updateBot', { id, macLocalScreenEnabled: patch.computer })
+  }
   return (await store.ready()).call('updateBot', { id, ...patch })
 }
 

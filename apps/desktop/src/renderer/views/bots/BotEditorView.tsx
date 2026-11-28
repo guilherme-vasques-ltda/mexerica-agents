@@ -3,7 +3,7 @@ import { avatarDoBot } from '@shared/fork-avatar-config'
 import { botEditorUpdate, chooseNewBotPermission } from '@shared/bot-autonomy'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { fastModeRefusal, fastModeShown } from '@shared/fast-mode'
-import { showsComputerAccess } from '@shared/fork-features'
+import { bundledMacLocalHub, showsComputerAccess } from '@shared/fork-features'
 import { draftOf, type Bot, type BotDraft, type DirListing } from '@shared/models'
 import { AgentIcon } from '../../components/AgentIcon'
 import { DonnabotAvatar } from '../../fork/avatars/Avatar'
@@ -343,7 +343,7 @@ function BotSettingsForm({ draft, onChange, error, plugins, part = 'all' }: {
         <CardSection title={t('bots.editor.atividade')}>
           <SwitchRow title={t('bots.editor.notificacoes')} detail={t('bots.editor.notificacoesDetalhe')} on={draft.notify ?? true} onChange={(on) => set('notify', on)} />
           {/* Fork: o computador do bot é o Hub, sem tela; sem host local (D76) o interruptor e a dica ficam escondidos (showsComputerAccess). */}
-          {store.screen && part === 'all' && showsComputerAccess() ? (
+          {store.screen && part === 'all' && showsComputerAccess() && !(bundledMacLocalHub && store.isLoopback) ? (
             <SwitchRow
               title={t('bots.editor.usarComputador')}
               detail={

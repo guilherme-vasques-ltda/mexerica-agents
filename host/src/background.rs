@@ -20,6 +20,13 @@ pub fn start(hub: &Arc<Hub>, scope: crate::service::mac_local::Scope) {
     tokio::spawn(async move { backends::refresh_sign_in(&sign_in_hub.store).await });
     tokio::spawn(usage::poll(hub.clone()));
     tokio::spawn(update::automatic_loop(hub.clone()));
+    #[cfg(target_os = "macos")]
+    if screen::fork_mac_local::is_private(hub) {
+        tokio::spawn(screen::fork_mac_local::observe(hub.screen.clone()));
+    } else {
+        tokio::spawn(screen::serve_helpers(hub.screen.clone()));
+    }
+    #[cfg(not(target_os = "macos"))]
     tokio::spawn(screen::serve_helpers(hub.screen.clone()));
     // Hub local do Mac ("só neste Mac"): nenhuma conexão de saída ao relay.
     spawn_relay_if_allowed(scope, || {

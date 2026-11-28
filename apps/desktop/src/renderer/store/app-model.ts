@@ -1,6 +1,7 @@
 // Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { SpaceMirrors } from './fork-space-mirrors'
 import { trackBody } from '@shared/analytics'
+import { bundledMacLocalHub } from '@shared/fork-features'
 import type { HostSnapshot, LocalHost } from '@shared/ipc'
 import { isWorking, type AccessRequest, type Bot, type Computer } from '@shared/models'
 import { HostError, LoopbackTransport } from '../client/host-client'
@@ -268,8 +269,9 @@ export class AppModel extends Observable {
     const local = this.local
     if (!local) return
     try {
+      if (bundledMacLocalHub && !on) await local.setScreenEnabled(false)
       this.screenNeedsApproval = (await window.codync.app.setScreenAgent(on)).needsApproval
-      await local.setScreenEnabled(on)
+      if (!bundledMacLocalHub || on) await local.setScreenEnabled(on)
       this.screenError = null
     } catch (error) {
       this.screenError = error instanceof Error ? error.message : String(error)
@@ -279,7 +281,7 @@ export class AppModel extends Observable {
 
   /** Once per launch, keeps the agent registered while the host has Remote screen on. */
   private syncScreen(store: BotStore) {
-    if (this.screenSynced || !store.screen) return
+    if (bundledMacLocalHub || this.screenSynced || !store.screen) return
     this.screenSynced = true
     void window.codync.app.syncScreenAgent(store.screen.enabled).then((r) => {
       this.screenNeedsApproval = r.needsApproval

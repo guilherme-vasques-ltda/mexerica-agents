@@ -631,6 +631,18 @@ impl Hub {
             authority.require_current(self)?;
         }
         crate::fork_avatars::validate_patch(patch)?;
+        #[cfg(target_os = "macos")]
+        let screen_consent = if let Some(value) = patch.get("macLocalScreenEnabled") {
+            anyhow::ensure!(
+                crate::screen::fork_mac_local::is_private(self)
+                    && owner.is_some_and(crate::fork::autoridade::Autoridade::is_local)
+                    && patch.as_object().is_some_and(|fields| fields.len() == 2),
+                "screen settings require the local app"
+            );
+            Some(value.as_bool().context("macLocalScreenEnabled must be a boolean")?)
+        } else {
+            None
+        };
         anyhow::ensure!(
             owner.is_some() || patch.get("browserPreference").is_none(),
             "not_allowed: só o dono escolhe o navegador padrão do bot"
@@ -644,6 +656,10 @@ impl Hub {
         crate::fork::skill_selection::refuse_unprotected(patch, &row.config.skills)?;
         let mut merged = serde_json::to_value(&row.config)?;
         for (k, v) in patch.as_object().into_iter().flatten() {
+            #[cfg(target_os = "macos")]
+            if crate::screen::fork_mac_local::is_private(self) && k == "computer" {
+                continue;
+            }
             if !matches!(k.as_str(), "id" | "createdAt" | "createdBy" | "permissionChosenByUser")
                 && (k != "permission" || permission_chosen)
             {
@@ -712,6 +728,15 @@ impl Hub {
                                 .ok_or_else(|| anyhow!("unknown bot"))?
                                 .config
                                 .browser_preference;
+                        }
+                        #[cfg(target_os = "macos")]
+                        if let Some(enabled) = screen_consent {
+                            let row = Store::bot_on(db, &id)?.context("unknown bot")?;
+                            anyhow::ensure!(
+                                !row.deleted && !row.config.hidden && !row.config.is_group(),
+                                "screen settings unavailable for this bot"
+                            );
+                            crate::screen::fork_mac_consent::set_on(db, &id, enabled)?;
                         }
                         crate::fork::donna_fixa::como_dono(db, |db| crate::store::bots::save_bot(db, &cfg))
                     })?
