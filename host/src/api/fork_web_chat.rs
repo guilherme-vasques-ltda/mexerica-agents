@@ -40,7 +40,11 @@ pub(super) fn check_send(hub: &Hub, method: &str, body: &Value) -> Result<()> {
     if let Some(id) = body["replyTo"].as_str().filter(|id| !id.is_empty()) {
         let target = body[if method == "send" { "botId" } else { "conversationId" }].as_str();
         ensure!(
-            hub.store.entry(id).is_some_and(|e| Some(e.bot_id.as_str()) == target && visible(Some(&e.kind), &e.data)),
+            hub.store.entry(id).is_some_and(|e| {
+                Some(e.bot_id.as_str()) == target
+                    && (!crate::environment::Environment::is_open() || e.session_id == e.bot_id)
+                    && visible(Some(&e.kind), &e.data)
+            }),
             Forbidden
         );
     }
@@ -147,7 +151,10 @@ pub(super) fn rpc(method: &str) -> Option<Project> {
         },
         "donnaSpaces" => spaces,
         "botGroups" => groups,
-        "sessions" => |v| Some(json!({"sessions": rows(&v["sessions"], session)?, "sessionActions": ["send"]})),
+        "sessions" => |v| {
+            let actions = if crate::environment::Environment::is_open() { &[][..] } else { &["send"][..] };
+            Some(json!({"sessions": rows(&v["sessions"], session)?, "sessionActions": actions}))
+        },
         "donnaConversations" => |v| {
             let mut out = fields(v, &["hubId", "spaceId"])?;
             out["conversations"] = rows(&v["conversations"], conversation)?;
@@ -245,9 +252,10 @@ mod tests {
         let row =
             json!({"id":"session","chatId":"chat","title":"Conversa","engine":{"id":"privado"},"origin":"privado"});
         let expected = json!({"id":"session","chatId":"chat","title":"Conversa"});
+        let actions = if crate::environment::Environment::is_open() { json!([]) } else { json!(["send"]) };
         assert_eq!(
             rpc("sessions").unwrap()(&json!({"sessions":[row],"sessionActions":["engine","delete"]})),
-            Some(json!({"sessions":[expected],"sessionActions":["send"]}))
+            Some(json!({"sessions":[expected],"sessionActions":actions}))
         );
         assert_eq!(
             event(&json!({"type":"session","spaceId":"s","session":row})),

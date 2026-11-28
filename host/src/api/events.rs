@@ -156,7 +156,7 @@ pub fn scoped_events_stream_at(
     let snapshot_hub = hub.clone();
     let snapshot_space = space.clone();
     let head = stream::iter(catch_up).filter_map(move |v| {
-        let event = open_session_event_visible(local, &v)
+        let event = open_session_event_visible(audience, &v)
             .then(|| crate::fork::runtime_audiencia::revalidate_snapshot(&snapshot_hub, &snapshot_space, v))
             .flatten();
         async move { event }
@@ -172,7 +172,7 @@ pub fn scoped_events_stream_at(
             v["type"] == crate::fork::projetos::EVENT && v.as_object().is_some_and(|obj| obj.len() == 3)
         });
         let projected = match msg {
-            Ok(v) if !open_session_event_visible(local, &v) => None,
+            Ok(v) if !open_session_event_visible(audience, &v) => None,
             Ok(v) if v["type"] == crate::fork::projetos::EVENT => {
                 crate::fork::projetos::event(&event_hub, &tower_caller, &space, &v)
             }
@@ -214,12 +214,16 @@ pub fn scoped_events_stream_at(
     Ok(crate::fork::workspace::cortar(hub, &retrato, events))
 }
 
-fn open_session_event_visible(local: bool, event: &Value) -> bool {
-    if local || !crate::environment::Environment::is_open() {
+fn open_session_event_visible(audience: SpaceEntryAudience, event: &Value) -> bool {
+    if audience == SpaceEntryAudience::Local || !crate::environment::Environment::is_open() {
         return true;
     }
     match event["type"].as_str() {
-        Some("session" | "sessionDeleted") => false,
+        Some("session") => {
+            let session = &event["session"];
+            audience == SpaceEntryAudience::Web && session["id"].as_str().is_some_and(|id| session["chatId"] == id)
+        }
+        Some("sessionDeleted") => false,
         Some("entry") => {
             let entry = &event["entry"];
             entry["sessionId"].as_str().is_some_and(|id| entry["botId"] == id)

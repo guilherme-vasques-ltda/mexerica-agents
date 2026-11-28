@@ -105,7 +105,12 @@ const WHATSAPP_LOCAL: [&str; 22] = [
 pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
     match method {
         "respondPermission" => matches!(caller, Caller::Local) && crate::fork::open_tool_actions::app_response(body),
-        "history" => matches!(caller, Caller::Local) || body["sessionId"].is_null(),
+        "history" => {
+            matches!(caller, Caller::Local)
+                || body["sessionId"].is_null()
+                || body["sessionId"].as_str().is_some_and(|id| body["botId"] == id)
+        }
+        "sessions" => matches!(caller, Caller::Local) || caller.is_web_chat(),
         // Skills: só o dono local, e instalar só do catálogo embutido (sem source, sem texto escrito à mão).
         "installSkill" => {
             matches!(caller, Caller::Local)
@@ -140,7 +145,6 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
         | "credentialSaveLogin"
         | "credentialLabelLogin"
         | "credentialRemoveLogin"
-        | "sessions"
         | "sessionCreate"
         | "donnaTaskProposals"
         | "donnaTimes"
@@ -236,7 +240,7 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
             let local = matches!(caller, Caller::Local);
             match body.get("sessionId") {
                 None | Some(Value::Null) => local || no_attachments,
-                Some(Value::String(_)) => local && no_attachments,
+                Some(Value::String(id)) => (local || body["botId"] == id.as_str()) && no_attachments,
                 Some(_) => false,
             }
         }

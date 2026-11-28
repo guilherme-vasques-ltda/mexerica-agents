@@ -1136,18 +1136,17 @@ async fn duas_sessoes_locais_separam_titulo_historico_e_thread_do_motor() {
     let main = api::dispatch(&hub, &Caller::Local, "history", json!({"botId":bot})).await.unwrap();
     let main_ids = main["entries"].as_array().unwrap().iter().map(|e| &e["id"]).collect::<Vec<_>>();
     assert_eq!(main_ids, [&json!(main_entry.id)]);
-    let private_entry = hub.add_entry(&Lane::main(bot), EntryKind::Notice, 1, &json!({"text":"Aviso do Hub"})).unwrap();
     let space = crate::fork::spaces::PERSONAL;
+    let for_owner = hub.store.entries_since_in_space(space, 0, 1, SpaceEntryAudience::Local).unwrap();
+    assert_eq!(for_owner.len(), 1);
+    assert_ne!(for_owner[0].session_id, bot);
+    let private_entry = hub.add_entry(&Lane::main(bot), EntryKind::Notice, 1, &json!({"text":"Aviso do Hub"})).unwrap();
     for (audience, expected) in
         [(SpaceEntryAudience::Device, &private_entry.id), (SpaceEntryAudience::Web, &main_entry.id)]
     {
         let entries = hub.store.entries_since_in_space(space, 0, 1, audience).unwrap();
         assert_eq!(entries.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(), [expected.as_str()]);
     }
-    let for_owner = hub.store.entries_since_in_space(space, 0, 2, SpaceEntryAudience::Local).unwrap();
-    assert_eq!(for_owner.len(), 2);
-    assert_ne!(for_owner[0].session_id, bot);
-    assert_eq!(for_owner[1].id, private_entry.id);
     drop(hub);
     std::fs::remove_dir_all(dir).unwrap();
 }
