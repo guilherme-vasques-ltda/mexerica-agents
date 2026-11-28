@@ -8,6 +8,8 @@ use crate::{
 use std::process::Stdio;
 use std::time::Duration;
 
+const ACCOUNT: &str = "ac_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
 struct Fixture {
     source: LocalTurn,
     source_ticket: Ticket,
@@ -16,9 +18,26 @@ struct Fixture {
 }
 
 fn fixture() -> Fixture {
+    use crate::fork::engine_accounts::{Account, AuthorizedScope, Backend, Billing, LaunchReference, Registry, State};
     use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::Builder::new().permissions(std::fs::Permissions::from_mode(0o700)).tempdir().unwrap();
     let store = Store::open(&dir.path().join("hub.db")).unwrap();
+    let mut registry = Registry::load(&store).unwrap();
+    registry.accounts.push(Account {
+        id: ACCOUNT.into(),
+        backend: Backend::Codex,
+        billing: Billing::Subscription,
+        state: State::Connected,
+        launch: LaunchReference::CliProfile { executable: "/fixture/codex".into(), directory: dir.path().into() },
+        scope: AuthorizedScope::Owner,
+        quota_identity: None,
+        verified_at: None,
+        subscription_proof: None,
+        models: Vec::new(),
+        hidden_model_ids: Vec::new(),
+        managed: None,
+    });
+    registry.persist(&store).unwrap();
     let id = uuid::Uuid::new_v4().to_string();
     let target = uuid::Uuid::new_v4().to_string();
     for (id, name) in [(&id, "Origem"), (&target, "Destino")] {
@@ -33,7 +52,7 @@ fn fixture() -> Fixture {
         0,
     );
     let lane = Lane::main(&id);
-    let source_ticket = open_chat::admit_for_test(&hub, &id, "fixture").unwrap();
+    let source_ticket = open_chat::admit_for_test(&hub, &id, ACCOUNT).unwrap();
     let entry = hub
         .add_entry(
             &lane,
@@ -191,7 +210,7 @@ for line in sys.stdin:
         result = {"thread":{"id":"target-thread","ephemeral":True},"sandbox":{"type":"readOnly"},"approvalPolicy":"never"}
     elif method == "turn/start":
         assert params["threadId"] == "target-thread"
-        assert params["input"][0]["text"] == "Pedido fixo"
+        assert params["input"] == [{"type":"text","text":"Pedido fixo","text_elements":[]}]
         result = {"turn":{"id":"clean-turn"}}
     else:
         raise AssertionError(method)
@@ -213,7 +232,7 @@ async fn isolated_reply_is_held_on_commit_failure_and_not_replayed_after_restart
     }
     let f = fixture();
     let intent = intent(&f);
-    let ticket = open_chat::admit_for_test(&f.source.hub, &f.target, "fixture").unwrap();
+    let ticket = open_chat::admit_for_test(&f.source.hub, &f.target, ACCOUNT).unwrap();
     let a = ApprovedAsk { source: &f.source, intent: &intent, card: approved(&f, &intent).await };
     let (entries, receipt) = admit(&a, false).unwrap();
     let dispatch = Dispatch {
@@ -248,7 +267,7 @@ async fn isolated_reply_is_held_on_commit_failure_and_not_replayed_after_restart
                 |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?, r.get::<_, i64>(3)?)),
             )
             .unwrap(),
-        ("fixture".into(), 10, 2, 3),
+        (ACCOUNT.into(), 10, 2, 3),
     );
     db.locked()
         .execute_batch(
@@ -278,7 +297,7 @@ async fn returns_only_committed_reply_and_discards_late_output_after_stop_or_tim
     for case in ["complete", "source-stop", "target-stop", "timeout"] {
         let f = fixture();
         let intent = intent(&f);
-        let ticket = open_chat::admit_for_test(&f.source.hub, &f.target, "fixture").unwrap();
+        let ticket = open_chat::admit_for_test(&f.source.hub, &f.target, ACCOUNT).unwrap();
         let a = ApprovedAsk { source: &f.source, intent: &intent, card: approved(&f, &intent).await };
         let (entries, receipt) = admit(&a, false).unwrap();
         let mut dispatch = Dispatch {

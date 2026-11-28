@@ -9,9 +9,57 @@ use serde_json::json;
 
 type StoredTurn = (Option<f64>, String, Option<String>, Option<String>);
 /// Conta da fixture no formato canônico (`ac_` + 64 hex): a conversa nova do Pessoal retrata o padrão do bot (D372) e
-/// recusa um ID fora do formato. Não é conta cadastrada nem segredo.
+/// recusa um ID fora do formato.
 const ACCOUNT: &str = "ac_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 const ACCOUNT_OUTRA: &str = "ac_ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+
+fn store_with_account(path: &std::path::Path) -> Store {
+    use crate::fork::engine_accounts::{Account, AuthorizedScope, Backend, Billing, LaunchReference, Registry, State};
+
+    let store = Store::open(path).unwrap();
+    let mut registry = Registry::load(&store).unwrap();
+    registry.accounts.push(Account {
+        id: ACCOUNT.into(),
+        backend: Backend::Claude,
+        billing: Billing::Subscription,
+        state: State::Connected,
+        launch: LaunchReference::CliProfile { executable: "/fixture/claude".into(), directory: "/fixture".into() },
+        scope: AuthorizedScope::Owner,
+        quota_identity: None,
+        verified_at: None,
+        subscription_proof: None,
+        models: Vec::new(),
+        hidden_model_ids: Vec::new(),
+        managed: None,
+    });
+    registry.persist(&store).unwrap();
+    store
+}
+
+#[test]
+fn conclusao_de_turno_depois_da_exclusao_atualiza_so_o_teto() {
+    use crate::fork::engine_accounts::Registry;
+
+    let store = store_with_account(std::path::Path::new(":memory:"));
+    let cfg = config("b");
+    let mut turno = Pending::begin(&store, &cfg, &Lane::main("b"), "sessao", true, None).unwrap();
+    turno.dispatched(&store).unwrap();
+    let mut registry = Registry::load(&store).unwrap();
+    registry.accounts.clear();
+    registry.persist(&store).unwrap();
+
+    turno.observe(&json!({"cost":{"amount":0.5,"currency":"USD"}}));
+    turno.finish(&store, Some(&json!({"usage":{"inputTokens":10,"outputTokens":5}}))).unwrap();
+    let db = store.db.locked();
+    let gravado = db
+        .query_row("SELECT input_tokens,output_tokens,amount,currency FROM donna_ceiling_detached_usage", [], |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, f64>(2)?, r.get::<_, String>(3)?))
+        })
+        .unwrap();
+    assert_eq!(gravado, (10, 5, 0.5, "USD".into()));
+    assert!(turn_usage(&db, "b", "b", "b", 1).unwrap().is_none());
+    assert_eq!(report::report(&db, "hub", &Read::default()).unwrap()["total"]["turns"], 0);
+}
 
 fn config(id: &str) -> BotConfig {
     serde_json::from_value(json!({"id":id,"name":id,"backend":"claude","model":"modelo-real",
@@ -32,7 +80,7 @@ fn add(store: &Store, cfg: &BotConfig, lane: &Lane, acp: &str, fresh: bool, cost
 }
 #[test]
 fn records_turn_motor_deltas_unpriced_and_never_rewrites_past() {
-    let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+    let store = store_with_account(std::path::Path::new(":memory:"));
     let cfg = config("b");
     let lane = Lane::main("b");
     add(&store, &cfg, &lane, "new", true, Some(0.4));
@@ -75,7 +123,7 @@ fn children_roll_up_to_parent_once_bot_total_is_not_duplicated_and_restart_keeps
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("test.db");
     {
-        let store = Store::open(&path).unwrap();
+        let store = store_with_account(&path);
         let cfg = config("b");
         let other = config("other");
         // Catálogo descartável: exercita a referência explícita entre sessões.
@@ -150,7 +198,7 @@ fn children_roll_up_to_parent_once_bot_total_is_not_duplicated_and_restart_keeps
 
 #[test]
 fn report_groups_by_account_and_model_once_per_turn_within_the_month() {
-    let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+    let store = store_with_account(std::path::Path::new(":memory:"));
     let cfg = config("b");
     {
         let db = store.db.locked();
@@ -237,7 +285,7 @@ fn report_groups_by_account_and_model_once_per_turn_within_the_month() {
 /// → `estimado`; motor com custo nunca estima; faltas → `sem preço`.
 #[test]
 fn estimates_from_table_only_without_motor_cost_and_never_rewrites_past() {
-    let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+    let store = store_with_account(std::path::Path::new(":memory:"));
     let lane = Lane::main("b");
     let cfg = |model: &str| {
         serde_json::from_value::<BotConfig>(
@@ -323,7 +371,7 @@ fn estimates_from_table_only_without_motor_cost_and_never_rewrites_past() {
 /// escolhida pelo tamanho real do prompt.
 #[test]
 fn missing_cache_counts_or_prices_stay_unpriced_and_tiers_follow_prompt_size() {
-    let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+    let store = store_with_account(std::path::Path::new(":memory:"));
     let lane = Lane::main("b");
     let cfg = |backend: &str, model: &str| {
         serde_json::from_value::<BotConfig>(
@@ -398,7 +446,7 @@ fn missing_cache_counts_or_prices_stay_unpriced_and_tiers_follow_prompt_size() {
 /// → `sem preço`, nunca estima; atualização inválida não apaga o último válido.
 #[test]
 fn invalid_cost_fields_count_as_informed_and_never_estimate() {
-    let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+    let store = store_with_account(std::path::Path::new(":memory:"));
     let lane = Lane::main("b");
     let cfg = serde_json::from_value::<BotConfig>(
         json!({"id":"b","name":"b","backend":"claude","model":"claude-haiku-4-5","forkEditor":{"engineAccountId":ACCOUNT}}),
@@ -455,7 +503,7 @@ fn invalid_cost_fields_count_as_informed_and_never_estimate() {
 /// (`estimatedCosts`) por moeda, no total, nas contas e nos modelos.
 #[test]
 fn report_separates_informed_from_estimated_by_currency() {
-    let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+    let store = store_with_account(std::path::Path::new(":memory:"));
     let cfg = |model: &str| {
         serde_json::from_value::<BotConfig>(
             json!({"id":"b","name":"b","backend":"claude","model":model,"forkEditor":{"engineAccountId":ACCOUNT}}),
@@ -587,7 +635,7 @@ fn background_estimates_with_priced_model_and_stays_unpriced_without() {
 /// desconhecido ou versão divergente da pinada → ausente = `sem preço`.
 #[test]
 fn missing_cache_follows_the_measured_adapter_policy() {
-    let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+    let store = store_with_account(std::path::Path::new(":memory:"));
     let lane = Lane::main("b");
     let cfg = |backend: &str, model: &str| {
         serde_json::from_value::<BotConfig>(
@@ -690,7 +738,7 @@ fn interrupted_or_failed_finish_does_not_charge_the_next_turn() {
     let cfg = config("b");
     let lane = Lane::main("b");
     {
-        let store = Store::open(&path).unwrap();
+        let store = store_with_account(&path);
         add(&store, &cfg, &lane, "same-acp", true, Some(0.4));
         let mut lost = Pending::begin(&store, &cfg, &lane, "same-acp", false, None).unwrap();
         lost.dispatched(&store).unwrap();
@@ -764,7 +812,7 @@ async fn envio_de_fundo_sem_resposta_permanece_no_ledger() {
 /// sintética sem linha, de outro bot ou fora da principal continua recusada.
 #[test]
 fn report_accepts_background_synthetic_session_validated_by_ledger() {
-    let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+    let store = store_with_account(std::path::Path::new(":memory:"));
     for id in ["b", "other"] {
         let cfg = config(id);
         let db = store.db.locked();
@@ -804,7 +852,7 @@ fn report_accepts_background_synthetic_session_validated_by_ledger() {
 
 #[test]
 fn uso_do_turno_soma_so_o_que_o_motor_informou() {
-    let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+    let store = store_with_account(std::path::Path::new(":memory:"));
     let cfg = config("b");
     let lane = Lane::main("b");
     let run = |turn: Option<i64>, usage: Value| {

@@ -3,7 +3,7 @@ use super::{
     floor::Efeito,
     rule::{ApprovalLevel, Campo, Effect, Rule},
 };
-#[cfg(unix)]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 pub(crate) mod executor;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

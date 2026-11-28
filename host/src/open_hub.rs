@@ -83,7 +83,12 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
         | "pinMemory"
         | "archiveMemory"
         | "forgetMemory"
-        | "clearMemory" => matches!(caller, Caller::Local),
+        | "clearMemory"
+        | "nuncaFazer"
+        | "nuncaFazerAdicionar"
+        | "nuncaFazerEditar"
+        | "nuncaFazerRemover"
+        | "nuncaFazerReordenar" => matches!(caller, Caller::Local),
         crate::fork::native_catalog::ADD_METHOD => {
             // Fora do Pessoal, só com a conta de IA escolhida; o Hub a confere como na criação manual.
             matches!(caller, Caller::Local)
@@ -124,8 +129,12 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
                 && (matches!(caller, Caller::Local)
                     || ["skills", "skillSelection"].iter().all(|key| body.get(key).is_none()))
         }
-        // Só texto, na conversa principal do bot: sem anexos e sem sessão extra.
-        "send" => ["attachments", "sessionId"].iter().all(|key| body.get(key).is_none_or(Value::is_null)),
+        // Anexos só do dono local (o Hub entrega o conteúdo no turno); sempre na conversa principal, sem sessão extra.
+        "upload" => matches!(caller, Caller::Local),
+        "send" => {
+            body.get("sessionId").is_none_or(Value::is_null)
+                && (matches!(caller, Caller::Local) || body.get("attachments").is_none_or(|a| a.is_null() || a.as_array().is_some_and(Vec::is_empty)))
+        }
         _ if crate::fork::engine_setup::open_login_method(method) => true,
         _ => false,
     }
@@ -210,8 +219,14 @@ mod tests {
         assert!(!open_allows(&Caller::Local, "createBot", &json!({"cwd": "/tmp"})));
         assert!(open_allows(&Caller::Local, "send", &json!({"text": "oi"})));
         assert!(open_allows(&Caller::Local, "send", &json!({"attachments": null, "sessionId": null})));
-        assert!(!open_allows(&Caller::Local, "send", &json!({"attachments": ["arquivo"]})));
+        assert!(open_allows(&Caller::Local, "send", &json!({"attachments": ["arquivo"]})));
+        assert!(open_allows(&Caller::Local, "upload", &json!({})));
         assert!(!open_allows(&Caller::Local, "send", &json!({"sessionId": "extra"})));
+        let device = Caller::Device { key: "aparelho".into(), scopes: vec![Scope::Control], autoridade: None };
+        assert!(open_allows(&device, "send", &json!({"text": "oi"})));
+        assert!(!open_allows(&device, "send", &json!({"attachments": ["arquivo"]})));
+        assert!(open_allows(&device, "send", &json!({"attachments": []})));
+        assert!(!open_allows(&device, "upload", &json!({})));
     }
 
     const ROTINAS: [&str; 9] = [
@@ -225,6 +240,17 @@ mod tests {
         "setRoutinesPaused",
         "runRoutine",
     ];
+
+    #[test]
+    fn open_so_deixa_o_dono_local_ler_e_gravar_nunca_fazer() {
+        let device = Caller::Device { key: "aparelho".into(), scopes: vec![Scope::Control], autoridade: None };
+        for method in
+            ["nuncaFazer", "nuncaFazerAdicionar", "nuncaFazerEditar", "nuncaFazerRemover", "nuncaFazerReordenar"]
+        {
+            assert!(open_allows(&Caller::Local, method, &json!({})), "{method} é do dono local");
+            assert!(!open_allows(&device, method, &json!({})), "{method} não é de aparelho");
+        }
+    }
 
     #[test]
     fn open_so_deixa_o_dono_local_ler_e_escrever_manuais_do_bot() {
