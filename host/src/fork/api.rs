@@ -17,6 +17,9 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
     if method == super::browser::METHOD {
         return super::browser::status(hub, caller, body).map(ControlFlow::Break);
     }
+    if matches!(method, super::browser::local::STATE | super::browser::local::CONSENT | super::browser::local::FRAME) {
+        return super::browser::local::call(hub, caller, method, body).await.map(ControlFlow::Break);
+    }
     if method == super::workspace::METHOD {
         return super::workspace::call(hub, caller).map(ControlFlow::Break);
     }

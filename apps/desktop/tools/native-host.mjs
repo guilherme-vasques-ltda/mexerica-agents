@@ -11,6 +11,7 @@ import { execFileSync } from 'node:child_process'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import macArch from './mac-arch.cjs'
+import { buildHubSupervisor } from './fork-build-hub-supervisor.mjs'
 
 if (!['darwin', 'win32'].includes(process.platform)) process.exit(0)
 const env = process.argv[2]
@@ -34,6 +35,9 @@ if (process.platform === 'win32') {
   for (const exe of ['donnabot-host.exe', 'donnabot-hostw.exe']) copyFileSync(built(target, exe), join(out, env === 'dev' && exe === 'donnabot-hostw.exe' ? 'donnabot-dev-hostw.exe' : exe))
   run(process.execPath, [join(root, '../../packaging/cua-driver/fetch.mjs'), 'windows-x86_64', out])
 } else {
+  const supervisor = join(out, 'mexerica-hub-supervisor')
+  const arch = env === 'open' ? macArch() : process.arch === 'arm64' ? 'arm64' : 'x86_64'
+  buildHubSupervisor(supervisor, env === 'main' ? ['arm64', 'x86_64'] : [arch])
   if (env === 'open') {
     const target = macArch() === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin'
     run(cargo, ['build', '--locked', '--profile', profile, '--manifest-path', join(host, 'Cargo.toml'), '--target', target, '--bin', 'donnabot-host'])

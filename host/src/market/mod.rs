@@ -396,7 +396,7 @@ mod tests {
             identidade: None,
         };
         save_connectors(&store, &[c]).unwrap();
-        assert_eq!(verify::verify(&store, "exemplo-mcp", 19222).await.unwrap()["status"], "ready");
+        assert_eq!(verify::verify(&store, "exemplo-mcp", (19222, None)).await.unwrap()["status"], "ready");
         remove_connector(&store, "exemplo-mcp").unwrap();
         assert_eq!(connectors(&store).unwrap(), Vec::<Connector>::new());
     }

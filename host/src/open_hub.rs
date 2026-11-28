@@ -27,7 +27,7 @@ enum Command {
 
 pub(crate) fn cli() -> Cli {
     let Command::Serve { port, bind, only_this_mac } = OpenCli::parse().command;
-    Cli { cmd: Some(Sub::Serve { port, bind: Some(bind), only_this_mac, web_dir: None }) }
+    Cli { cmd: Some(Sub::Serve { port, bind: Some(bind), only_this_mac, web_dir: None, desktop_socket: false }) }
 }
 
 pub(crate) fn require_executor() -> std::io::Result<()> {
@@ -120,6 +120,10 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
         "donnaTaskProposals"
         | "donnaTimes"
         | crate::fork::pedidos_time::METHOD
+        | crate::fork::browser::METHOD
+        | crate::fork::browser::local::STATE
+        | crate::fork::browser::local::CONSENT
+        | crate::fork::browser::local::FRAME
         | crate::fork::native_catalog::METHOD
         | "skills"
         | "marketSkills"
@@ -459,6 +463,7 @@ pub(crate) use unix::serve;
 #[cfg(unix)]
 mod unix {
     use super::{Environment, Result, SOCKET_PEER};
+    use crate::fork::desktop_socket::{SocketFile, watch_stdin};
     use crate::fork::private_fs::{self, Directory};
     use crate::hub::Hub;
     use crate::service::mac_local::LOOPBACK;
@@ -469,11 +474,10 @@ mod unix {
     use std::io;
     use std::net::Ipv4Addr;
     use std::os::unix::ffi::OsStrExt;
-    use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
+    use std::os::unix::fs::MetadataExt;
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
-    use tokio::net::{TcpListener, UnixListener};
-    use tokio::sync::oneshot;
+    use tokio::net::TcpListener;
 
     const SYSTEM_PATH: &str = "/usr/bin:/bin:/usr/sbin:/sbin";
     const MARKER: &str = ".open-profile-v1";
@@ -624,52 +628,6 @@ mod unix {
         let _ = fs::remove_dir_all(&root);
     }
 
-    struct SocketFile {
-        path: PathBuf,
-        dev: u64,
-        ino: u64,
-    }
-
-    impl SocketFile {
-        fn bind(path: PathBuf) -> Result<(UnixListener, Self)> {
-            let listener = UnixListener::bind(&path).context("binding the private Mexerica Open socket")?;
-            let metadata = fs::symlink_metadata(&path)?;
-            ensure!(
-                metadata.file_type().is_socket() && metadata.uid() == private_fs::uid(),
-                "unexpected socket identity"
-            );
-            let file = Self { path, dev: metadata.dev(), ino: metadata.ino() };
-            fs::set_permissions(&file.path, fs::Permissions::from_mode(0o600))?;
-            Ok((listener, file))
-        }
-    }
-
-    impl Drop for SocketFile {
-        fn drop(&mut self) {
-            if fs::symlink_metadata(&self.path)
-                .is_ok_and(|m| m.file_type().is_socket() && m.dev() == self.dev && m.ino() == self.ino)
-            {
-                let _ = fs::remove_file(&self.path);
-            }
-        }
-    }
-
-    fn watch_stdin() -> Result<oneshot::Receiver<()>> {
-        let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
-        // SAFETY: fstat só escreve na estrutura válida; o descritor é stdin da invocação.
-        let result = unsafe { libc::fstat(libc::STDIN_FILENO, stat.as_mut_ptr()) };
-        ensure!(result == 0, "Mexerica Open requires piped stdin");
-        // SAFETY: fstat retornou sucesso.
-        let kind = unsafe { stat.assume_init() }.st_mode & libc::S_IFMT;
-        ensure!(matches!(kind, libc::S_IFIFO | libc::S_IFSOCK), "Mexerica Open requires piped stdin");
-        let (tx, rx) = oneshot::channel();
-        std::thread::Builder::new().name("open-stdin".into()).spawn(move || {
-            let _ = io::copy(&mut io::stdin().lock(), &mut io::sink());
-            let _ = tx.send(());
-        })?;
-        Ok(rx)
-    }
-
     pub(crate) async fn serve(port: u16, bind: Option<&str>, only_this_mac: bool) -> Result<()> {
         ensure!(
             only_this_mac && bind == Some(LOOPBACK) && port == Environment::Open.port(),
@@ -698,7 +656,7 @@ mod unix {
             () = &mut stop => return Ok(()),
             result = initialize(&profile, port) => result?,
         };
-        let socket_router = crate::api::open_socket_router(hub.clone()).layer(Extension(ConnectInfo(SOCKET_PEER)));
+        let socket_router = crate::api::desktop_socket_router(hub.clone()).layer(Extension(ConnectInfo(SOCKET_PEER)));
         let result = tokio::select! {
             biased;
             () = &mut stop => Ok(()),

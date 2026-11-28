@@ -66,6 +66,20 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
             .await?
         }
         "hello" => {
+            if matches!(caller, Caller::Device { scopes, .. } if scopes.contains(&crate::store::Scope::WebChat)) {
+                return Ok(ControlFlow::Break(json!({
+                    "hostId": hub.host_id,
+                    "computerId": hub.identity.computer_id(),
+                    "name": "Mexerica",
+                    "version": env!("CARGO_PKG_VERSION"),
+                    "minApp": crate::compat::MIN_APP,
+                    "rev": hub.store.current_rev(),
+                    "spacesContract": 1,
+                    "spaceId": space,
+                    "conversations": hub.store.space_conversations(space)?,
+                    "spaces": hub.store.spaces()?,
+                })));
+            }
             let port = hub.port;
             let device = tokio::task::spawn_blocking(crate::service::device).await?;
             // Conclui o I/O antes de projetar a identidade atual da tela.

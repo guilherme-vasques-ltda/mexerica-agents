@@ -210,6 +210,9 @@ pub fn authorize(hub: &Hub, key: &str) -> Result<Device, RejectCode> {
     if crate::fork::workspace::bloqueado(hub, &d) {
         return Err(RejectCode::Revoked);
     }
+    if !d.concessao_web_valida(now_ms()) {
+        return Err(RejectCode::LeaseExpired);
+    }
     if d.source == DeviceSource::Account
         && (!hub.cloud_synced.load(Ordering::Acquire) || d.lease_until.is_none_or(|t| t <= now_ms()))
     {
