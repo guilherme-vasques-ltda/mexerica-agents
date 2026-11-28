@@ -662,7 +662,7 @@ async fn open_cortada_antes_do_inicio_marca_falha_sem_iniciar_motor() {
             original.para_requisicao(hub.workspace.atual(), original.geracao_capturada().unwrap()).unwrap()
         };
         let e =
-            hub.store.insert_entry(&lane, EntryKind::User, 0, &json!({"text":"Fixture","status":"queued"})).unwrap();
+            hub.store.insert_entry(&lane, EntryKind::User, 0, &json!({"text":"Fixture","status":"sending"})).unwrap();
         let ticket = admit_for_test(&hub, bot, "fixture").unwrap();
         if cut {
             workspace::bump(&hub, Motivo::RoleChanged).unwrap();

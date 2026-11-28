@@ -319,7 +319,7 @@ pub(crate) fn run(
             if error.is::<crate::fork::autoridade::AutorizacaoEncerrada>()
                 || error.is::<crate::fork::autoridade::EpochDaRequisicaoEncerrado>()
             {
-                hub.fail_remote_turn(&entry_id, "queued");
+                hub.fail_remote_turn(&entry_id, "sending");
             } else {
                 tracing::warn!(%error, "open turn admission check unavailable");
                 mark_unsent(&hub, &entry_id, "open_chat_failed", &account);
@@ -367,7 +367,7 @@ pub(crate) fn run(
                 if error.is::<crate::fork::autoridade::AutorizacaoEncerrada>()
                     || error.is::<crate::fork::autoridade::EpochDaRequisicaoEncerrado>()
                 {
-                    hub.fail_remote_turn(&entry_id, "queued");
+                    hub.fail_remote_turn(&entry_id, "sending");
                 } else {
                     let (code, text) = notice(&error.to_string());
                     hub.add_entry(&lane, EntryKind::Notice, turn, &json!({"text": text, "code": code, "author": bot}));
