@@ -1,0 +1,52 @@
+{
+  "id": "zoom",
+  "nome": "Zoom",
+  "categoria": "Produtividade",
+  "descricao": "Encontre reuniões do Zoom por assunto ou período, sem criar nem alterar reuniões.",
+  "exemplos": ["Encontre minhas reuniões do Zoom sobre planejamento no último mês"],
+  "site": "https://www.zoom.com/",
+  "docs": "https://developers.zoom.us/docs/mcp/zoom/",
+  "links": {
+    "privacidade": "https://www.zoom.com/en/trust/privacy/privacy-statement/",
+    "termos": "https://www.zoom.com/en/trust/terms/"
+  },
+  "conferidaEm": "2026-11-28",
+  "fontes": [
+    "https://developers.zoom.us/docs/mcp/servers/connect-to-zoom-mcp-servers/",
+    "https://developers.zoom.us/docs/mcp/zoom/",
+    "https://developers.zoom.us/changelog/platform/pkce-loopback/",
+    "https://mcp.zoom.us/.well-known/oauth-protected-resource/mcp/zoom/streamable",
+    "https://zoom.us/.well-known/oauth-authorization-server"
+  ],
+  "aviso": "No Zoom App Marketplace, crie um General App, habilite PKCE para cliente confidencial e adicione só meeting:read:search. Use as credenciais desse app e os endereços de retorno exibidos abaixo.",
+  "tipos": [
+    {
+      "id": "zoom.oficial_app",
+      "tipo": "oficial_app",
+      "rotulo": "Oficial — seu app OAuth",
+      "mantidoPor": "Zoom",
+      "url": "https://mcp.zoom.us/mcp/zoom/streamable",
+      "auth": {
+        "modo": "app_proprio",
+        "emissor": "https://zoom.us",
+        "cadastro": "https://marketplace.zoom.us/",
+        "recurso": "https://mcp.zoom.us/mcp/zoom/streamable",
+        "autorizacao": "https://zoom.us/oauth/authorize",
+        "token": "https://zoom.us/oauth/token"
+      },
+      "grupos": [
+        {
+          "id": "buscar_reunioes",
+          "rotulo": "Buscar reuniões",
+          "escopos": ["meeting:read:search"],
+          "ferramentas": ["search_meetings"],
+          "padrao": true,
+          "disponivel": true,
+          "imposicao": "escopo"
+        }
+      ],
+      "recomendado": true,
+      "disponivel": true
+    }
+  ]
+}
