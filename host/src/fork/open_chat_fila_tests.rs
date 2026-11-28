@@ -68,6 +68,20 @@ fn ao_terminar_a_resposta_a_fila_segue_em_ordem_e_uma_recusa_nao_trava_as_outras
 }
 
 #[test]
+fn bot_livre_marca_a_mensagem_como_enviando_e_nao_como_fila() {
+    let bot = "bot-fila-livre";
+    let hub = hub_de_teste(bot);
+    let (a, cfg) = mensagem(&hub, bot, 1);
+    submit(&hub, &cfg, Lane::main(bot), 1, (a.clone(), None), "m1".into());
+    assert_eq!(status(&hub, &a), "failed", "sem conta a entrega falha: passou por sending, não ficou na fila");
+    let (b, _) = mensagem(&hub, bot, 2);
+    super::mark_sending(&hub, &b);
+    assert_eq!(status(&hub, &b), "sending");
+    super::recover(&hub.store).unwrap();
+    assert_eq!(status(&hub, &b), "failed", "o que ficou enviando numa execução anterior não fica preso");
+}
+
+#[test]
 fn na_partida_a_mensagem_que_ficou_na_fila_de_uma_execucao_anterior_vira_falha() {
     let bot = "bot-fila-boot";
     let hub = hub_de_teste(bot);

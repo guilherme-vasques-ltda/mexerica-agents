@@ -179,11 +179,18 @@ pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Va
     let mut view = dispatch(hub, caller, method, body).await?;
     // R7: com o plugin ligado, o Hub baixa o wacli oficial em segundo plano se faltar.
     let enabled = view["plugin"]["enabled"] == true;
-    let download = super::binario::follow(hub, enabled, method == "donnaWhatsappWacliRetry")?;
+    let download = super::binario::follow(hub, enabled, method == "donnaWhatsappWacliRetry");
     if let (Some(wacli), Value::Object(fields)) = (view["plugin"]["wacli"].as_object_mut(), download) {
         wacli.extend(fields);
     }
     Ok(view)
+}
+
+/// Parear e desconectar mexem no número pelo wacli: sem executor isolado (Open) nada é gravado nem apagado.
+fn require_executor() -> Result<()> {
+    crate::open_hub::require_executor().map_err(|_| {
+        anyhow::anyhow!("open_executor_unavailable: o WhatsApp precisa do executor isolado, que a Open não tem.")
+    })
 }
 
 async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, mut body: Value) -> Result<Value> {
@@ -195,6 +202,7 @@ async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, mut body: Value
     let view = || store::read(&hub.store, &hub.host_id, &hub.whatsapp);
     match method {
         "donnaWhatsappPair" => {
+            require_executor()?;
             let request: Pair = parse(body)?;
             let (method, phone) = match request.method {
                 PairMethod::Code => {
@@ -218,6 +226,7 @@ async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, mut body: Value
             view()
         }
         "donnaWhatsappDisconnect" => {
+            require_executor()?;
             let request: Disconnect = parse(body)?;
             let logout = number::disconnect(hub, &request.bot_id, request.erase).await?;
             let mut result = view()?;

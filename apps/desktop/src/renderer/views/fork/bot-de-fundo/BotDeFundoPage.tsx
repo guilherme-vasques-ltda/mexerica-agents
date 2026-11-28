@@ -45,7 +45,7 @@ function choiceText(data: FunctionSnapshot, row: FunctionRow, t: Tradutor) {
 /** O nome da função: do catálogo para as conhecidas; outra, o nome que o Hub mandou. */
 const nomeFuncao = (row: FunctionRow, t: Tradutor) => { const n = functionName(row); return 'key' in n ? t(n.key) : n.label }
 
-export function BotDeFundoPage({ openVoice, openActivity }: { openVoice: () => void; openActivity: () => void }) {
+export function BotDeFundoPage({ openVoice, openActivity }: { openVoice?: () => void; openActivity: () => void }) {
   const app = useApp()
   const [escolhido, setComputer] = useEstadoDaPagina('bot-de-fundo/computador', () => app.selectedStore?.computer.id ?? (app.computers.length === 1 ? app.computers[0]!.id : ''))
   // Um computador por vez (decisão do dono D1): com Space ativo é o dele; só com o Pessoal aberto a pessoa escolhe.
@@ -73,7 +73,7 @@ const GRUPOS = [
 ] as const satisfies readonly { id: Grupo; titulo: string; ajuda: string }[]
 const proposito = (row: FunctionRow): `fundo.proposito.${typeof KNOWN_FUNCTIONS[number]}` | null => (KNOWN_FUNCTIONS as readonly string[]).includes(row.definition.id) ? `fundo.proposito.${row.definition.id as typeof KNOWN_FUNCTIONS[number]}` : null
 
-function ComputerBackground({ host: source, openVoice, openActivity, spaceId }: { host: BotStore; openVoice: () => void; openActivity: () => void; spaceId: string | null }) {
+function ComputerBackground({ host: source, openVoice, openActivity, spaceId }: { host: BotStore; openVoice?: () => void; openActivity: () => void; spaceId: string | null }) {
   const host = useModel(source)
   const t = useT()
   const idioma = useIdioma()
@@ -151,7 +151,7 @@ function ComputerBackground({ host: source, openVoice, openActivity, spaceId }: 
         {rows.map((row) => g.id === 'voz'
           ? <div key={row.definition.id} className="background-row"><div className="background-row-text"><strong>{nomeFuncao(row, t)}</strong>{proposito(row) && <span>{t(proposito(row)!)}</span>}</div></div>
           : linha(row))}
-        {g.id === 'voz' ? <div className="background-row"><Spacer /><Button kind="secondary" onClick={openVoice}>{t('fundo.abrirVoz')}</Button></div> : null}
+        {g.id === 'voz' && openVoice ? <div className="background-row"><Spacer /><Button kind="secondary" onClick={openVoice}>{t('fundo.abrirVoz')}</Button></div> : null}
       </CardSection>
     })}
     {!data && online && state.loading && <p role="status" className="background-status"><Spinner size={12} /> {t('fundo.carregando')}</p>}

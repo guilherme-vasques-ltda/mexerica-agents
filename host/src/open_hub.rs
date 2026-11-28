@@ -44,6 +44,63 @@ pub(crate) fn check_request(caller: &Caller, method: &str, body: &Value) -> Resu
     Err(crate::api::devices::Forbidden.into())
 }
 
+/// Métodos das páginas de Ajustes religadas na Open (memória, Nunca fazer, Instruções, Delegação, Bot de fundo,
+/// Atividade, Armazenamento, Uso, Computadores e dispositivos e Lugares de trabalho), todos só do dono local.
+const SETTINGS_LOCAL: [&str; 26] = [
+    "restoreFunctionModel",
+    "restoreFunctionModels",
+    "donnaUsageHistory",
+    "donnaEngineAccountUsage",
+    "devices",
+    "pairing",
+    "revokeDevice",
+    "setApproval",
+    "accessRequests",
+    "decideAccessRequest",
+    "memoryProfile",
+    "saveMemoryProfile",
+    "memoryLearning",
+    "saveMemoryLearning",
+    "instrucaoGeral",
+    "instrucaoGeralSalvar",
+    "donnaDelegationRules",
+    "donnaDelegationRulesSave",
+    "functionModels",
+    "checkFunctionModel",
+    "saveFunctionModel",
+    "backgroundSpaceSelections",
+    "saveBackgroundSpaceSelection",
+    "backgroundHistory",
+    "donnaStorageReport",
+    "donnaCostReport",
+];
+
+/// Plugins (`WhatsApp` e Gerente de e-mail), também só do dono local.
+const WHATSAPP_LOCAL: [&str; 22] = [
+    "donnaMailManager",
+    "donnaMailManagerSave",
+    "donnaMailManagerConnect",
+    "donnaMailManagerDisconnect",
+    "donnaMailManagerGrant",
+    "donnaWhatsapp",
+    "donnaWhatsappSave",
+    "donnaWhatsappBotSave",
+    "donnaWhatsappChats",
+    "donnaWhatsappMessages",
+    "donnaWhatsappQueue",
+    "donnaWhatsappQueueDecide",
+    "donnaWhatsappMarkRead",
+    "donnaWhatsappChatMark",
+    "donnaWhatsappChatErase",
+    "donnaWhatsappGroupAuto",
+    "donnaWhatsappSend",
+    "donnaWhatsappSendDraft",
+    "donnaWhatsappPair",
+    "donnaWhatsappPairCancel",
+    "donnaWhatsappDisconnect",
+    "donnaWhatsappWacliRetry",
+];
+
 /// Lista fechada do que a Open aceita: todo método fora dela, inclusive os de conexões de IA, é recusado.
 pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
     match method {
@@ -88,6 +145,15 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
         | "nuncaFazerEditar"
         | "nuncaFazerRemover"
         | "nuncaFazerReordenar" => matches!(caller, Caller::Local),
+        // Ajustes completos e Plugins (WhatsApp): só o dono local, sem conta Mexerica, chave, SSH nem tela.
+        m if SETTINGS_LOCAL.contains(&m)
+            || WHATSAPP_LOCAL.contains(&m)
+            || crate::fork::onde_roda::tipos::METHODS.contains(&m) =>
+        {
+            matches!(caller, Caller::Local)
+        }
+
+
         crate::fork::native_catalog::ADD_METHOD => {
             // Fora do Pessoal, só com a conta de IA escolhida; o Hub a confere como na criação manual.
             matches!(caller, Caller::Local)
@@ -128,8 +194,12 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
                 && (matches!(caller, Caller::Local)
                     || ["skills", "skillSelection"].iter().all(|key| body.get(key).is_none()))
         }
-        // Só texto, na conversa principal do bot: sem anexos e sem sessão extra.
-        "send" => ["attachments", "sessionId"].iter().all(|key| body.get(key).is_none_or(Value::is_null)),
+        // Anexos só do dono local (o Hub entrega o conteúdo no turno); sempre na conversa principal, sem sessão extra.
+        "upload" => matches!(caller, Caller::Local),
+        "send" => {
+            body.get("sessionId").is_none_or(Value::is_null)
+                && (matches!(caller, Caller::Local) || body.get("attachments").is_none_or(|a| a.is_null() || a.as_array().is_some_and(Vec::is_empty)))
+        }
         _ if crate::fork::projetos::LOCAL_MANUAL_METHODS.contains(&method) => matches!(caller, Caller::Local),
         _ if crate::fork::engine_setup::open_login_method(method) => true,
         _ => false,
@@ -197,15 +267,40 @@ mod tests {
             "donnaTaskProposalDecide",
             "donnaTimesPreview",
             "donnaTimesSave",
-            "functionModels",
-            "backgroundSpaceSelections",
             "installSkill",
-            "donnaMailManager",
             "credentialLogins",
             "readUpload",
             "unknownMethod",
         ] {
             assert!(!open_allows(&Caller::Local, method, &json!({})), "{method}");
+        }
+    }
+
+    #[test]
+    fn open_religa_ajustes_e_whatsapp_so_ao_dono_local() {
+        let device = Caller::Device { key: "device".into(), scopes: vec![Scope::Control], autoridade: None };
+        let religados = super::SETTINGS_LOCAL.iter().chain(super::WHATSAPP_LOCAL.iter());
+        for method in religados {
+            assert!(open_allows(&Caller::Local, method, &json!({})), "{method} é do dono local");
+            assert!(!open_allows(&device, method, &json!({})), "{method} não é de aparelho");
+            let pairing = Caller::Pairing { key: "pareando".into() };
+            assert!(!open_allows(&pairing, method, &json!({})), "{method} não é de pareamento");
+        }
+        for method in crate::fork::onde_roda::tipos::METHODS {
+            assert!(open_allows(&Caller::Local, method, &json!({})), "{method} é do dono local");
+            assert!(!open_allows(&device, method, &json!({})), "{method} não é de aparelho");
+        }
+        for method in [
+            "donnaWorkplaceInexistente",
+            "setVoiceKey",
+            "voiceSession",
+            "voiceTranscribe",
+            "setScreenEnabled",
+            "donnaScreenAccess",
+            "installHostUpdate",
+            "donnaWhatsappUnknown",
+        ] {
+            assert!(!open_allows(&Caller::Local, method, &json!({})), "{method} continua fechado");
         }
     }
 
@@ -222,14 +317,7 @@ mod tests {
         assert!(open_allows(&Caller::Local, "donnaOnboardingStatus", &json!({})));
         assert!(open_allows(&Caller::Local, "donnaOnboardingDetect", &json!({})));
         assert!(open_allows(&Caller::Local, "marketCatalogo", &json!({})));
-        for method in [
-            "marketServico",
-            "marketContas",
-            "marketConectar",
-            "marketPersonalizado",
-            "donnaWhatsapp",
-            "credentialStatus",
-        ] {
+        for method in ["marketServico", "marketContas", "marketConectar", "marketPersonalizado", "credentialStatus"] {
             assert!(!open_allows(&Caller::Local, method, &json!({})));
         }
         assert!(!open_allows(&Caller::Local, "donnaOnboardingSave", &json!({})));
@@ -237,8 +325,14 @@ mod tests {
         assert!(!open_allows(&Caller::Local, "createBot", &json!({"cwd": "/tmp"})));
         assert!(open_allows(&Caller::Local, "send", &json!({"text": "oi"})));
         assert!(open_allows(&Caller::Local, "send", &json!({"attachments": null, "sessionId": null})));
-        assert!(!open_allows(&Caller::Local, "send", &json!({"attachments": ["arquivo"]})));
+        assert!(open_allows(&Caller::Local, "send", &json!({"attachments": ["arquivo"]})));
+        assert!(open_allows(&Caller::Local, "upload", &json!({})));
         assert!(!open_allows(&Caller::Local, "send", &json!({"sessionId": "extra"})));
+        let device = Caller::Device { key: "aparelho".into(), scopes: vec![Scope::Control], autoridade: None };
+        assert!(open_allows(&device, "send", &json!({"text": "oi"})));
+        assert!(!open_allows(&device, "send", &json!({"attachments": ["arquivo"]})));
+        assert!(open_allows(&device, "send", &json!({"attachments": []})));
+        assert!(!open_allows(&device, "upload", &json!({})));
     }
 
     const ROTINAS: [&str; 9] = [
@@ -323,13 +417,7 @@ mod tests {
         assert!(!open_allows(&device, "updateBot", &selecao), "ligar skill fora do dono local");
         assert!(!open_allows(&device, "createBot", &json!({"name": "n", "skills": ["grilling"]})));
         assert!(open_allows(&device, "updateBot", &json!({"id": "b", "name": "n"})));
-        for method in [
-            "extensaoEmTodosAplicar",
-            "extensaoNovosBotsDefinir",
-            "credentialStatus",
-            "donnaWhatsapp",
-            "marketConectar",
-        ] {
+        for method in ["extensaoEmTodosAplicar", "extensaoNovosBotsDefinir", "credentialStatus", "marketConectar"] {
             assert!(!open_allows(&Caller::Local, method, &json!({})), "{method} continua fechado");
         }
     }
