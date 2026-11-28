@@ -926,10 +926,33 @@ async fn comando_local_so_inicia_com_cartao_exato_e_turno_vivo() {
     };
     use serde_json::json;
 
+    const FLAG: &str = "MEXERICA_LOCAL_COMMANDS";
     if !crate::environment::Environment::is_open() {
         return;
     }
-    for scenario in ["allow", "shell", "deny", "cancel", "policy"] {
+    let enabled = match std::env::var("MEXERICA_TEST_LOCAL_COMMANDS_CHILD").as_deref() {
+        Ok("on") => true,
+        Ok("off") => false,
+        _ => {
+            for value in [None, Some("true"), Some("1")] {
+                let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+                child
+                    .args(["--exact", "fork::open_chat::tests::comando_local_so_inicia_com_cartao_exato_e_turno_vivo"])
+                    .env("MEXERICA_TEST_LOCAL_COMMANDS_CHILD", if value == Some("1") { "on" } else { "off" });
+                if let Some(value) = value {
+                    child.env(FLAG, value);
+                } else {
+                    child.env_remove(FLAG);
+                }
+                let output = child.output().unwrap();
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                assert!(output.status.success() && stdout.contains("1 passed"), "{stdout}");
+            }
+            return;
+        }
+    };
+    let scenarios: &[_] = if enabled { &["allow", "shell", "deny", "cancel", "policy"] } else { &["disabled"] };
+    for &scenario in scenarios {
         let bot = format!("bot-comando-{scenario}");
         let (hub, dir) = hub_de_teste(&bot);
         let cwd = dir.canonicalize().unwrap();
@@ -963,6 +986,29 @@ async fn comando_local_so_inicia_com_cartao_exato_e_turno_vivo() {
         };
         let payload = json!({"argv":argv,"cwd":cwd});
         let mut call = Box::pin(turn.call("run_local_command", &payload));
+        let catalog = super::super::open_tools::Turn::catalog();
+        assert_eq!(catalog.as_array().unwrap().iter().any(|tool| tool["name"] == "run_local_command"), enabled);
+        assert_eq!(super::super::open_tools::Turn::offered("run_local_command"), enabled);
+        if !enabled {
+            assert_eq!(call.await.unwrap_err().to_string(), "open_tools_command_disabled");
+            assert!(!effect.exists());
+            assert!(matches!(events.try_recv(), Err(tokio::sync::broadcast::error::TryRecvError::Empty)));
+            let card = hub
+                .add_entry(
+                    &lane,
+                    EntryKind::Permission,
+                    number,
+                    &json!({"toolKind":"open_local_command","status":"pending"}),
+                )
+                .unwrap();
+            let answer = json!({"source":"app","botId":bot,"entryId":card.id,"entryRev":card.rev,"optionId":"allow"});
+            let result = crate::api::dispatch(&hub, &Caller::Local, "respondPermission", answer).await;
+            assert!(format!("{result:?}").contains("open_tools_command_disabled"));
+            assert_eq!(hub.store.entry(&card.id).unwrap().data["status"], "pending");
+            drop(ticket);
+            std::fs::remove_dir_all(dir).unwrap();
+            continue;
+        }
         for consent in [true, false] {
             let card = tokio::select! {
                 result = &mut call => panic!("comando terminou sem cartão: {result:?}"),

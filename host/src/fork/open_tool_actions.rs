@@ -265,6 +265,9 @@ pub(super) fn respond(
             && (entry.data["toolKind"] != COMMAND_KIND || body["source"] == "app"),
         "open_tools_local_app_required"
     );
+    if entry.data["toolKind"] == COMMAND_KIND {
+        ensure!(super::open_tools::local_commands_enabled(), "open_tools_command_disabled");
+    }
     let mut pending = PENDING.locked();
     let current = pending.get(&entry.id).context("open_tools_approval_not_pending")?;
     ensure!(
@@ -325,6 +328,7 @@ pub(super) async fn approve_command(
     title: &str,
     detail: &str,
 ) -> Result<Entry> {
+    ensure!(super::open_tools::local_commands_enabled(), "open_tools_command_disabled");
     approve_card(hub, lane, turn, COMMAND_KIND, title, detail).await
 }
 

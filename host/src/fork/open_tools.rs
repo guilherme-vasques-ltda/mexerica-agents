@@ -8,6 +8,12 @@ use tokio::sync::watch;
 
 pub(super) const LOCAL_COMMAND: &str = "run_local_command";
 
+pub(super) fn local_commands_enabled() -> bool {
+    cfg!(any(target_os = "linux", target_os = "macos"))
+        && crate::environment::Environment::is_open()
+        && std::env::var_os("MEXERICA_LOCAL_COMMANDS").is_some_and(|value| value == "1")
+}
+
 pub(super) const GUIDANCE: &str = concat!(
     "Neste turno do dono local, use as ferramentas do Hub anunciadas para consultar os outros bots do seu espaço, ",
     "suas rotinas, as skills instaladas e ligadas e os conectores remotos vinculados ao seu bot. ",
@@ -62,7 +68,7 @@ impl<'a> Turn<'a> {
         catalog.extend(team::catalog());
         catalog.extend(open_mcp::catalog());
         #[cfg(any(target_os = "linux", target_os = "macos"))]
-        if crate::environment::Environment::is_open() {
+        if local_commands_enabled() {
             catalog.push(super::open_terminal::catalog());
         }
         Value::Array(catalog)
@@ -73,9 +79,7 @@ impl<'a> Turn<'a> {
             || super::open_tool_actions::offered(name)
             || matches!(name, team::ASK | team::STATUS)
             || open_mcp::offered(name)
-            || (cfg!(any(target_os = "linux", target_os = "macos"))
-                && crate::environment::Environment::is_open()
-                && name == LOCAL_COMMAND)
+            || (name == LOCAL_COMMAND && local_commands_enabled())
     }
 
     fn delegation_turn(&self) -> Result<team::LocalTurn> {

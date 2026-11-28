@@ -1,6 +1,6 @@
 use super::{
     open_tool_actions::{approve_command, check_card},
-    open_tools::LOCAL_COMMAND,
+    open_tools::{LOCAL_COMMAND, local_commands_enabled},
     open_turn::LocalTurn,
     rules::{
         avaliacao::{Decisao, Origem, Validade},
@@ -43,7 +43,7 @@ struct Arguments {
 }
 
 pub(super) async fn call(hub: &Arc<Hub>, proof: &LocalTurn, args: &Value) -> Result<Value> {
-    ensure!(crate::environment::Environment::is_open(), "open_tools_local_turn_required");
+    ensure!(local_commands_enabled(), "open_tools_command_disabled");
     let cfg = proof.check(hub)?;
     let Arguments { argv, cwd } = serde_json::from_value(args.clone())?;
     ensure!(
@@ -102,6 +102,7 @@ pub(super) async fn call(hub: &Arc<Hub>, proof: &LocalTurn, args: &Value) -> Res
             check_card(&tx, &consent)?;
             check_card(&tx, &card)?;
             ensure!(store::revision(&tx)? == snapshot.revision, "open_tools_command_policy_changed");
+            ensure!(local_commands_enabled(), "open_tools_command_disabled");
             let child = spawn()?;
             started = true;
             Ok(child)
