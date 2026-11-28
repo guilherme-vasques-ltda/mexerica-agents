@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { privateDirectory, validatePrivateFile } from '../shared/fork-private-files'
 import { spawnHubProcess } from './fork-hub-process'
-import { verifyBundledHub } from './fork-hub-signature'
+import { attestHubProcess, verifyBundledHub } from './fork-hub-signature'
 import { provarSocket } from './fork-proved-loopback'
 
 function readToken(dataDir: string) {
@@ -22,7 +22,7 @@ function readToken(dataDir: string) {
 }
 
 export function launchPrivateHub(options: {
-  executable: Parameters<typeof verifyBundledHub>[1]
+  executable: 'donnabot-host' | 'mexerica-open-hub'
   environment: string
   dataDir: string
   temp: string
@@ -50,8 +50,10 @@ export function launchPrivateHub(options: {
     privateDirectory(sessionDir)
     if (Buffer.byteLength(socketPath) > 103) throw new Error('hub_socket_path_too_long')
     const { args, env } = options.command(socketPath)
+    const supervisor = verifyBundledHub(process.resourcesPath, 'mexerica-hub-supervisor')
     identity = verifyBundledHub(process.resourcesPath, options.executable)
-    child = spawnHubProcess(identity.binary, args, { cwd: options.cwd, env })
+    child = spawnHubProcess(supervisor.binary, identity.binary, args, { cwd: options.cwd, env },
+      (pid) => attestHubProcess(pid, supervisor.cdhash))
   } catch (error) {
     cleanup()
     throw error
@@ -67,10 +69,20 @@ export function launchPrivateHub(options: {
   void child.exited.then(() => controller.abort())
   const ready = (async () => {
     const startup = AbortSignal.any([controller.signal, AbortSignal.timeout(30_000)])
+    const pid = await Promise.race([
+      child.started,
+      delay(30_000, undefined, { signal: startup, ref: false }).then(() => { throw new Error('hub_startup_failed') }),
+    ])
+    startup.throwIfAborted()
+    attestHubProcess(pid, identity.cdhash)
     while (!startup.aborted) {
-      try {
-        const stat = lstatSync(socketPath)
-        if (!stat.isSocket() || stat.uid !== process.getuid?.() || (stat.mode & 0o7777) !== 0o600) throw new Error('hub_socket_invalid')
+      const stat = lstatSync(socketPath, { throwIfNoEntry: false })
+      if (!stat?.isSocket() || stat.uid !== process.getuid?.() || (stat.mode & 0o7777) !== 0o600) {
+        await delay(150, undefined, { signal: startup })
+        continue
+      }
+      attestHubProcess(pid, identity.cdhash)
+      const candidate = await (async () => {
         const token = readToken(options.dataDir)
         const health = await provarSocket(socketPath, token, AbortSignal.any([startup, AbortSignal.timeout(2_000)]))
         startup.throwIfAborted()
@@ -79,9 +91,13 @@ export function launchPrivateHub(options: {
           throw new Error('hub_identity_invalid')
         }
         return { socketPath, token, signal: controller.signal, computerId: health.computerId }
-      } catch {
-        await delay(150, undefined, { signal: startup })
+      })().catch(() => null)
+      if (candidate) {
+        attestHubProcess(pid, identity.cdhash)
+        startup.throwIfAborted()
+        return candidate
       }
+      await delay(150, undefined, { signal: startup })
     }
     throw new Error('hub_startup_failed')
   })()
