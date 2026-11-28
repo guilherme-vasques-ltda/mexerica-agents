@@ -272,6 +272,14 @@ pub(crate) fn run(
             crate::fork::open_chat_fila::finish(&hub, &bot);
             return;
         }
+        if let Err(error) = crate::fork::teto::conversation_gate(&hub) {
+            tracing::warn!(%error, "open turn recusado pelo teto");
+            let (code, text) = notice("open_chat_ceiling");
+            hub.add_entry(&lane, EntryKind::Notice, turn, &json!({"text": text, "code": code, "author": bot}));
+            mark_unsent(&hub, &entry_id, code, &account);
+            crate::fork::open_chat_fila::finish(&hub, &bot);
+            return;
+        }
         let alive = || matches!(hub.store.bot(&bot), Ok(Some(row)) if !row.deleted);
         if !alive() {
             crate::fork::open_chat_fila::finish(&hub, &bot);
@@ -503,8 +511,9 @@ async fn turn_in_profile(
     bail!("open_codex_platform")
 }
 
-const NOTICE_CODES: [&str; 7] = [
+const NOTICE_CODES: [&str; 8] = [
     "open_chat_cancelled",
+    "open_chat_ceiling",
     "open_chat_too_long",
     "open_chat_tool_refused",
     "open_chat_timeout",
@@ -521,6 +530,9 @@ fn notice(message: &str) -> (&'static str, &'static str) {
         "open_chat_cancelled" => "Resposta interrompida.",
         "open_chat_tool_refused" => {
             "O Codex tentou usar uma ferramenta, e a Open só conversa por texto. Resposta encerrada."
+        }
+        "open_chat_ceiling" => {
+            "O teto de gasto foi atingido, então a resposta não foi iniciada. Revise o teto em Ajustes."
         }
         "open_chat_timeout" => "O Codex demorou demais para responder. Tente de novo.",
         "open_chat_too_long" => "A resposta passou do tamanho máximo e foi encerrada.",

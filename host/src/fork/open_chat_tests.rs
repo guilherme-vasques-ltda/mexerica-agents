@@ -358,6 +358,7 @@ fn notices_carry_only_known_codes() {
     assert_eq!(notice("open_chat_cancelled").0, "open_chat_cancelled");
     assert_eq!(notice("open_chat_too_long").0, "open_chat_too_long");
     assert_eq!(notice("open_chat_policy").0, "open_chat_policy");
+    assert_eq!(notice("open_chat_ceiling").0, "open_chat_ceiling");
     let (code, text) = notice("auth_protocol_invalid: detalhe interno");
     assert_eq!(code, "open_chat_failed");
     assert!(!text.contains("auth_protocol_invalid"));
@@ -723,4 +724,62 @@ fn um_delta_alem_do_limite_e_recusado_sem_crescer_o_acumulado() {
     assert!(!outra.push(&"y".repeat(MAX_REPLY + 1)));
     assert_eq!(outra.text.len(), 0, "nada foi anexado além do limite");
     let _ = std::fs::remove_dir_all(&dados);
+}
+
+#[tokio::test]
+async fn o_teto_salvo_barra_o_chat_local_antes_de_abrir_o_codex() {
+    use crate::store::{EntryKind, Lane};
+    use serde_json::json;
+    let bot = "open-fixture-teto";
+    let (hub, root) = hub_de_teste(bot);
+    let cfg = hub.store.bot(bot).unwrap().unwrap().config;
+    let lane = Lane::main(bot);
+    hub.store
+        .kv_set(
+            "donna.spend-ceiling.v1",
+            &json!({"enabled": true, "tokens": 100, "applyToConversations": true}).to_string(),
+        )
+        .unwrap();
+    hub.store
+        .db
+        .locked()
+        .execute(
+            "INSERT INTO donna_turn_usage(id,bot_id,chat_id,session_id,at,input_tokens,output_tokens,source)
+             VALUES('u1',?1,?1,'s',?2,200,0,'motor')",
+            rusqlite::params![bot, crate::fork::custo::month(None).unwrap().1 + 1],
+        )
+        .unwrap();
+    assert!(crate::fork::teto::conversation_gate(&hub).is_err());
+    let e = hub.store.insert_entry(&lane, EntryKind::User, 0, &json!({"text":"Fixture","status":"queued"})).unwrap();
+    let ticket = super::admit_for_test(&hub, bot, "fixture").unwrap();
+    let mut done = ticket.done.subscribe();
+    super::run(&hub, ticket, &cfg, lane.clone(), e.turn, (e.id.clone(), None), "Fixture".into());
+    assert!(tokio::time::timeout(Duration::from_secs(5), done.changed()).await.unwrap().is_err());
+    let data = hub.store.entry(&e.id).unwrap().data;
+    assert_eq!(data["status"], "failed");
+    assert_eq!(data["reason"]["code"], "open_chat_ceiling");
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn o_teto_so_vale_para_a_conversa_com_aplicar_as_conversas_ligado() {
+    use serde_json::json;
+    let (hub, root) = hub_de_teste("open-fixture-teto-livre");
+    hub.store
+        .kv_set(
+            "donna.spend-ceiling.v1",
+            &json!({"enabled": true, "tokens": 100, "applyToConversations": false}).to_string(),
+        )
+        .unwrap();
+    hub.store
+        .db
+        .locked()
+        .execute(
+            "INSERT INTO donna_turn_usage(id,bot_id,chat_id,session_id,at,input_tokens,output_tokens,source)
+             VALUES('u1','b','b','s',?1,200,0,'motor')",
+            rusqlite::params![crate::fork::custo::month(None).unwrap().1 + 1],
+        )
+        .unwrap();
+    assert!(crate::fork::teto::conversation_gate(&hub).is_ok());
+    std::fs::remove_dir_all(root).unwrap();
 }

@@ -20,6 +20,7 @@ const AVISOS_OPEN = {
   open_codex_unavailable: 'conversa.avisos.open.indisponivel',
   open_codex_platform: 'conversa.avisos.open.indisponivel',
   open_chat_failed: 'conversa.avisos.open.falhou',
+  open_chat_ceiling: 'conversa.avisos.open.teto',
   group_blocked: 'conversa.avisos.grupo.bloqueado',
   group_review: 'conversa.avisos.grupo.emConferencia',
 } as const
