@@ -50,10 +50,18 @@ const PRAZO_MS = 60_000
 /** O ouvinte corta a espera em 10 minutos; aqui corta um pouco antes, para a frase ser a de tempo e não a genérica. */
 const ESPERA_MAX_MS = 10 * 60_000 - 2_000
 
-/** Lê o estado da conta no Hub; a renovação que faltar por pouco o Hub mesmo resolve antes de responder. */
-export const lerEstadoChatGPT = (client: HostClient) =>
-  // A leitura pode renovar o access no caminho (um pedido ao emissor de até 15 s): o prazo cobre isso com folga.
-  client.call<EstadoChatGPT>('chatgptEstado', { verificar: true }, 30_000)
+/**
+ * Lê o estado da conta no Hub. Com o Space pessoal aberto (`space`), o Hub também confere a sessão e renova o que
+ * faltar; se a conferência não termina, a leitura passiva traz o registro como está e a resposta sai marcada como
+ * inconclusiva, para a tela não passar por confirmada uma sessão que não foi conferida. Fora do Pessoal só há leitura passiva.
+ */
+export const lerEstadoChatGPT = async (client: HostClient, space?: string): Promise<EstadoChatGPT> => {
+  // A conferência pode renovar o access no caminho (um pedido ao emissor de até 15 s): o prazo cobre isso com folga.
+  if (!space) return client.call<EstadoChatGPT>('chatgptEstado', {}, 30_000)
+  const conferido = await client.call<EstadoChatGPT>('chatgptEstado', { verificar: true, spaceId: space }, 30_000)
+  if (!conferido.inconclusivo) return conferido
+  return { ...(await client.call<EstadoChatGPT>('chatgptEstado', {}, 30_000)), inconclusivo: true }
+}
 
 /** Sai: o Hub revoga o que der e apaga os tokens deste computador de qualquer jeito. */
 export const sairDoChatGPT = (client: HostClient) =>

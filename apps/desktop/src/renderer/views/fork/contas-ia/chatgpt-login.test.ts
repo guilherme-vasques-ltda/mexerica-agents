@@ -229,7 +229,7 @@ test('ler estado e sair chamam os métodos do Hub com o corpo esperado', async (
   assert.deepEqual(await lerEstadoChatGPT(client), estado)
   assert.deepEqual(await sairDoChatGPT(client), { ok: true, revogado: false })
   assert.deepEqual(corpos, [
-    { metodo: 'chatgptEstado', corpo: { verificar: true } },
+    { metodo: 'chatgptEstado', corpo: {} },
     { metodo: 'chatgptSair', corpo: {} },
   ])
 })
@@ -239,4 +239,18 @@ test('o login com ChatGPT aparece só no app local do dono, fora da Open e sem d
   assert.equal(chatgptDisponivel(true, false, true), false)
   assert.equal(chatgptDisponivel(false, true, true), false)
   assert.equal(chatgptDisponivel(false, false, false), false)
+})
+
+test('com o Space pessoal a leitura confere a sessão; sem conferir, volta o registro marcado como inconclusivo', async () => {
+  const corpos: unknown[] = []
+  const client = {
+    call: async (_metodo: string, corpo: Record<string, unknown>) => {
+      corpos.push(corpo)
+      return corpo.verificar ? { conectado: false, precisaEntrar: false, planoHabilitado: false, inconclusivo: true } : { conectado: true, rotulo: 'Conta', planoHabilitado: true, precisaEntrar: false }
+    },
+  } as unknown as HostClient
+  const lido = await lerEstadoChatGPT(client, 'pessoal-1')
+  assert.deepEqual(corpos, [{ verificar: true, spaceId: 'pessoal-1' }, {}])
+  assert.equal(lido.inconclusivo, true)
+  assert.equal(lido.conectado, true)
 })

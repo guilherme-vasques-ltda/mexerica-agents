@@ -43,12 +43,9 @@ export function EntrarComChatGPT() {
     if (!client) return
     const minha = ++geracao.current
     try {
-      const lido = await lerEstadoChatGPT(client)
+      const aberto = store.spaceId ?? store.spaces?.personalSpaceId
+      const lido = await lerEstadoChatGPT(client, aberto !== undefined && aberto === store.spaces?.personalSpaceId ? aberto : undefined)
       if (minha !== geracao.current) return
-      if (lido.inconclusivo) {
-        setFalhou(true)
-        return
-      }
       setEstado(lido)
       setFalhou(false)
     } catch {
@@ -126,7 +123,7 @@ export function EntrarComChatGPT() {
     <div className="idioma-superficie" style={{ display: 'contents' }} {...superficieIdioma(idioma)}>
       <CardSection title={t('contas.chatgpt.titulo')} footer={t('contas.chatgpt.rodape')}>
         {!online ? <Text tone="secondary">{t('contas.apiDireta.semConexao')}</Text> : null}
-        {online && falhou && !estado ? (
+        {online && ((falhou && !estado) || estado?.inconclusivo) ? (
           <HStack gap={12}>
             <Text size="caption" tone="secondary" role="status">{t('contas.chatgpt.erro.estado')}</Text>
             <button className="settings-quiet-button" onClick={() => void reler()}>{t('ajustes.atualizacoes.tentar')}</button>
