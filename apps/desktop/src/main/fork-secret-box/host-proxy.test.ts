@@ -112,6 +112,36 @@ test('stream geral entrega data e end pelo handler real', async () => {
   await hub.close()
 })
 
+test('um remetente geral não fecha o stream de outra janela com o mesmo id', async (t) => {
+  let opened = 0
+  let closed = 0
+  const hub = await hubProva((request, response) => {
+    if (request.url !== '/events') return false
+    opened++
+    response.writeHead(200, { 'content-type': 'text/event-stream' })
+    response.write(': open\n\n')
+    response.socket!.once('close', () => { closed++ })
+    return true
+  })
+  t.after(() => hub.close())
+  const f = fixture()
+  const other = { isDestroyed: () => false, send: () => {} } as unknown as WebContents
+  f.invoke('host:stream:open', 's1', `${hub.url()}/events`, TOKEN_PROVA)
+  await esperar(() => opened === 1)
+  assert.equal(opened, 1)
+  f.invokeFrom(other, 'host:stream:close', 's1')
+  f.invokeFrom(other, 'host:stream:open', 's1', `${hub.url()}/events`, TOKEN_PROVA)
+  await esperar(() => opened === 2)
+  assert.equal(opened, 2)
+  assert.equal(closed, 0)
+  f.invokeFrom(other, 'host:stream:close', 's1')
+  await esperar(() => closed === 1)
+  assert.equal(closed, 1)
+  f.invoke('host:stream:close', 's1')
+  await esperar(() => closed === 2)
+  assert.equal(closed, 2)
+})
+
 const ateOFim = async (f: ReturnType<typeof fixture>) => {
   await esperar(() => f.sent.some((m) => m[0] === 'host:stream:end'))
 }

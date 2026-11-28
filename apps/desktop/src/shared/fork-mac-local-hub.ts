@@ -3,6 +3,7 @@
 // escolha é lida a cada chamada (nunca fixada quando o módulo carrega).
 
 export type HubLocation = 'mac' | 'remote'
+export const privateHubOrigin = 'http://mexerica-local.example.invalid'
 
 /** Preferência do usuário; qualquer valor desconhecido ou ausente é "remoto" (estado `disabled`). */
 export function hubLocation(read: (key: string) => unknown): HubLocation {

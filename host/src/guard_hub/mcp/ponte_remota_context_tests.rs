@@ -74,7 +74,7 @@ async fn bridge(url: &str) -> (Fixture, Server, Session<Bridge>) {
         .to_owned();
     let api = server(crate::api::router(f.hub.clone())).await;
     let session = Session::new(Bridge {
-        port: api.port,
+        http: crate::fork::bridge_http::BridgeHttp::new(api.port).expect("ponte fixture"),
         token: Zeroizing::new("test".into()),
         connector: "fixture".into(),
         context,
@@ -309,7 +309,7 @@ async fn bridge_do_catalogo() -> (Fixture, Server, Bridge, crate::market::Connec
         .to_owned();
     let api = server(crate::api::router(f.hub.clone())).await;
     let bridge = Bridge {
-        port: api.port,
+        http: crate::fork::bridge_http::BridgeHttp::new(api.port).expect("ponte fixture"),
         token: Zeroizing::new("test".into()),
         connector: "fixture".into(),
         context,
@@ -384,7 +384,7 @@ async fn duas_pontes_resposta_atrasada_e_descoberta_retida_nao_reabrem_o_inventa
     use crate::market::ferramentas::{self, PedidoLigar};
     let (f, _api, mut a, conta) = bridge_do_catalogo().await;
     let mut b = Bridge {
-        port: a.port,
+        http: a.http.clone(),
         token: Zeroizing::new("test".into()),
         connector: "fixture".into(),
         context: a.context.clone(),

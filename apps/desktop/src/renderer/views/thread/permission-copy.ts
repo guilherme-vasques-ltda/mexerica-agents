@@ -8,6 +8,7 @@ const pedido = (toolKind?: string): Pedido => {
     case 'mcp_memory':
       return 'memoria'
     case 'execute':
+    case 'open_local_command':
       return 'comando'
     case 'edit':
     case 'delete':
@@ -30,7 +31,10 @@ const ACOES = ['mcp_memory', 'execute', 'edit', 'delete', 'move', 'fetch', 'read
 type Acao = (typeof ACOES)[number]
 const ehAcao = (k: string | undefined): k is Acao => (ACOES as readonly string[]).includes(k ?? '')
 
-export const actionLabel = (t: Tradutor, toolKind?: string) => t(ehAcao(toolKind) ? `conversa.aprovacao.acao.${toolKind}` : 'conversa.aprovacao.acao.ferramenta')
+export const actionLabel = (t: Tradutor, toolKind?: string) => {
+  const kind = toolKind === 'open_local_command' ? 'execute' : toolKind
+  return t(ehAcao(kind) ? `conversa.aprovacao.acao.${kind}` : 'conversa.aprovacao.acao.ferramenta')
+}
 
 export function permissionDetail(t: Tradutor, toolKind: string | undefined, title: string | undefined) {
   if (toolKind !== 'mcp_memory' || !title) return title ?? ''

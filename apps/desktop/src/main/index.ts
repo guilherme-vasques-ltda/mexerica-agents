@@ -27,7 +27,8 @@ import { registerScreenIPC } from './screen'
 import { registerCloud } from './cloud'
 import { registerForkCloud } from './fork-cloud/register'
 import { registerForkCloudService } from './fork-cloud/service'
-import { forkFeatures, officialDesktop } from '../shared/fork-features'
+import { bundledMacLocalHub, forkFeatures, officialDesktop } from '../shared/fork-features'
+import { privateHubOrigin } from '../shared/fork-mac-local-hub'
 import { requireOfficialSession } from './fork-official-ipc'
 import { itensMenuApp, painelSobre } from '../shared/fork-menu-app'
 import { nomeVisivel } from '../shared/fork-nome-visivel'
@@ -124,7 +125,7 @@ const background = () => (nativeTheme.shouldUseDarkColors ? '#0A0A0A' : '#FFFFFF
 
 function snapshot(): HostSnapshot {
   if (officialDesktop && !accountConfirmed()) return { state: { kind: 'disabled' }, local: null, dev: false, logPath: '' }
-  return { state: host.state, local: host.local, dev: devPort !== null, logPath: host.logPath }
+  return { state: host.state, local: host.publicLocal, dev: devPort !== null, logPath: host.logPath }
 }
 
 /** The chat window: roster on the left, the conversation on the right (Grok Bot's desktop layout). */
@@ -244,7 +245,15 @@ function menu() {
 let avisoDeVersao: { refresh(): void } | undefined
 
 function registerIPC(tray: Tray) {
-  registerHostProxy()
+  const localHubCaller = (event: Pick<IpcMainInvokeEvent, 'sender' | 'senderFrame'>) =>
+    desktopSessionAllows() && generalWindows().some((w) => w.webContents === event.sender) &&
+    event.senderFrame !== null && event.senderFrame === event.sender.mainFrame &&
+    [rendererURL('chat'), rendererURL('pairing'), rendererURL('island')].includes(event.senderFrame.url)
+  registerHostProxy({
+    origin: privateHubOrigin,
+    target: () => host.privateTarget,
+    allowed: localHubCaller,
+  })
   registerMexeriquinhaProtocol(host)
   if (appIcon) registerAppIconIPC(appIcon, () => chat, rendererURL('chat'))
   registerVozIPC(() => chat, rendererURL('chat'), (comando) => send(comando))
@@ -268,16 +277,21 @@ function registerIPC(tray: Tray) {
     janela.setTitleBarOverlay({ ...cores, height: FAIXA_ALTURA })
   })
   ipcMain.on('app:debugOpen', (e) => (e.returnValue = app.isPackaged ? null : (process.env.CODYNC_DEBUG_OPEN ?? null)))
-  ipcMain.handle('host:snapshot', () => snapshot())
+  ipcMain.handle('host:snapshot', (event): HostSnapshot => !bundledMacLocalHub || localHubCaller(event)
+    ? snapshot()
+    : { state: { kind: 'disabled' }, local: null, dev: false, logPath: '' })
   if (!isRc) {
-    ipcMain.on('host:install', () => {
+    ipcMain.on('host:install', (event) => {
+      if (bundledMacLocalHub && !localHubCaller(event)) return
       if (process.platform === 'linux') {
         console.warn('host_install_linux_unsupported')
         return
       }
       void host.install()
     })
-    ipcMain.on('host:restart', () => host.restart())
+    ipcMain.on('host:restart', (event) => {
+      if (!bundledMacLocalHub || localHubCaller(event)) host.restart()
+    })
   }
   ipcMain.handle('host:onboardingDismissal', (event, userId: unknown, action: unknown) => {
     if (!pedidoDoChat(event)) return null
@@ -326,6 +340,7 @@ function registerIPC(tray: Tray) {
   ipcMain.handle('app:resetAllData', async (event) => {
     const janela = pedidoDoChat(event)
     if (!janela || apagando) return
+    if (bundledMacLocalHub) throw new Error('reset_unavailable_with_private_hub')
     const frame = event.senderFrame
     apagando = true
     try {
@@ -369,6 +384,16 @@ if (yieldsToInstall()) {
   if (!app.isPackaged) console.error(`${app.getName()} is already running. Quit it first, or run another copy beside it: npm run dev -- --name <name>`)
   app.quit()
 } else {
+  app.on('before-quit', (event) => {
+    if (!bundledMacLocalHub) return
+    const active = host.hasPrivateHub
+    const stopping = host.prepareForQuit()
+    if (!active) return
+    event.preventDefault()
+    void stopping.then(() => app.quit(), () => {
+      dialog.showErrorBox(app.getName(), traduzir(idiomaDoApp(), 'navegacao.janela.hub.falhaAoParar'))
+    })
+  })
   registerWindowNavigation(urlDoChat, () => !officialDesktop || account.officialSessionCurrent())
   registerSchemes(keepDockHiddenAfterLink)
   app.on('second-instance', (_e, argv) => {

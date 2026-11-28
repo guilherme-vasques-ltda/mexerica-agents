@@ -42,7 +42,7 @@ fn secured(routes: Router<Arc<Hub>>, hub: Arc<Hub>) -> Router {
 }
 
 #[cfg(unix)]
-pub(crate) fn open_socket_router(hub: Arc<Hub>) -> Router {
+pub(crate) fn desktop_socket_router(hub: Arc<Hub>) -> Router {
     secured(desktop_routes(), hub)
 }
 
