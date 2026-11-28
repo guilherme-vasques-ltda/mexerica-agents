@@ -63,6 +63,24 @@ for line in sys.stdin:
                 send({"method": "item/completed", "params": {**params, "item": {
                     "type": "dynamicToolCall", "tool": tool, "id": f"call-{i}"}}})
             complete(message["params"]["threadId"])
+        elif mode in ("hub-command-completed", "hub-command-forged-completion"):
+            params = {"threadId": "thread-1", "turnId": "turn-1"}
+            item = {"type": "dynamicToolCall", "tool": "run_local_command", "id": "call-0"}
+            send({"method": "item/started", "params": {**params, "item": item}})
+            send({"id": 100, "method": "item/tool/call", "params": {
+                **params, "tool": item["tool"], "callId": item["id"], "arguments": {}}})
+            response = sys.stdin.readline()
+            log.write(response)
+            log.flush()
+            import time
+            with open(os.environ["FAKE_LOG"] + ".received", "w") as received:
+                received.write("1")
+            while not os.path.exists(os.environ["FAKE_LOG"] + ".disabled"):
+                time.sleep(0.01)
+            if mode == "hub-command-forged-completion":
+                item["id"] = "call-other"
+            send({"method": "item/completed", "params": {**params, "item": item}})
+            complete()
         elif mode == "tool":
             send({"method": "item/started", "params": {"item": {"type": "commandExecution", "id": "i1"}}})
         elif mode == "image":
@@ -917,6 +935,87 @@ async fn ferramentas_da_open_so_rodam_no_turno_local_e_na_thread_certa() {
 
 #[tokio::test]
 #[cfg(any(target_os = "linux", target_os = "macos"))]
+async fn desligar_comandos_aceita_apenas_a_conclusao_da_chamada_admitida() {
+    use crate::{
+        api::devices::Caller,
+        hub::BotStatus,
+        store::{EntryKind, Lane},
+    };
+    use serde_json::json;
+
+    if !crate::environment::Environment::is_open() {
+        return;
+    }
+    for mode in ["hub-command-completed", "hub-command-forged-completion"] {
+        let (hub, dir) = hub_de_teste(mode);
+        let mut cfg = hub.store.bot(mode).unwrap().unwrap().config;
+        cfg.backend = "codex".into();
+        hub.store.save_bot(&cfg).unwrap();
+        let lane = Lane::main(mode);
+        let number = hub.store.alloc_turn(mode).unwrap();
+        let msg = hub
+            .add_entry(
+                &lane,
+                EntryKind::User,
+                number,
+                &json!({"text":"Teste","contentOrigin":{"ingress":{"caller":"local"}}}),
+            )
+            .unwrap();
+        hub.set_runtime(mode, |r| {
+            r.status = BotStatus::Working;
+            r.lane = Some(lane.clone());
+            r.message = Some(msg.id.clone());
+        });
+        let ticket = admit_for_test(&hub, mode, "fixture").unwrap();
+        let mut cancel = ticket_cancel(&ticket);
+        let auth = super::super::open_tools::Turn::capture(&hub, &lane, &msg.id, number, cancel.clone()).unwrap();
+        let enable = |enabled| {
+            crate::api::dispatch(&hub, &Caller::Local, "updateBot", json!({"id":mode,"localCommandsEnabled":enabled}))
+        };
+        enable(true).await.unwrap();
+        let child = tokio::process::Command::new("python3")
+            .args(["-I", "-c", FAKE])
+            .env("FAKE_MODE", mode)
+            .env("FAKE_LOG", dir.join("log"))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        let mut rpc = Rpc::from_child(crate::fork::motor_exec::fixture(child)).unwrap();
+        let (result, ()) = tokio::join!(
+            drive(
+                &mut rpc,
+                None,
+                ("Fixture", None),
+                "Teste",
+                Duration::from_secs(15),
+                &mut cancel,
+                |_| Ok(()),
+                || {},
+                |_| true,
+                None,
+                Some(&auth)
+            ),
+            async {
+                esperar_pid(&dir.join("log.received")).await;
+                enable(false).await.unwrap();
+                std::fs::write(dir.join("log.disabled"), b"").unwrap();
+            }
+        );
+        if mode == "hub-command-completed" {
+            assert!(result.is_ok(), "{result:?}");
+        } else {
+            assert_eq!(result.unwrap_err().to_string(), "open_chat_tool_refused");
+        }
+        let _ = rpc.finish().await;
+        drop(ticket);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[tokio::test]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 async fn comando_local_so_inicia_com_cartao_exato_e_turno_vivo() {
     use crate::{
         LockExt,
@@ -930,7 +1029,7 @@ async fn comando_local_so_inicia_com_cartao_exato_e_turno_vivo() {
         return;
     }
     'scenarios: for scenario in
-        ["disabled", "allow", "shell", "deny", "cancel", "policy", "revoke_card", "revoke_spawn"]
+        ["disabled", "allow", "shell", "deny", "cancel", "policy", "revoke_card", "revoke_spawn", "revoke_after_spawn"]
     {
         let bot = format!("bot-comando-{scenario}");
         let (hub, dir) = hub_de_teste(&bot);
@@ -971,10 +1070,12 @@ async fn comando_local_so_inicia_com_cartao_exato_e_turno_vivo() {
         }
         let mut events = hub.events.subscribe();
         let shell = std::fs::canonicalize("/bin/sh").unwrap();
-        let argv = if scenario == "shell" {
-            vec![shell.to_str().unwrap(), "-c", "printf 'texto do processo'; : > feito"]
-        } else {
-            vec!["/usr/bin/touch", "feito"]
+        let argv = match scenario {
+            "shell" => vec![shell.to_str().unwrap(), "-c", "printf 'texto do processo'; : > feito"],
+            "revoke_after_spawn" => {
+                vec![shell.to_str().unwrap(), "-c", "echo $$ > feito; while [ ! -f concluir ]; do sleep 0.01; done"]
+            }
+            _ => vec!["/usr/bin/touch", "feito"],
         };
         let payload = json!({"argv":argv,"cwd":cwd});
         let mut call = Box::pin(turn.call("run_local_command", &payload));
@@ -1043,14 +1144,24 @@ async fn comando_local_so_inicia_com_cartao_exato_e_turno_vivo() {
             assert_eq!(set_enabled(false).await["bot"]["localCommandsEnabled"], false);
             assert_eq!(set_enabled(true).await["bot"]["localCommandsEnabled"], true);
         }
+        if scenario == "revoke_after_spawn" {
+            tokio::select! {
+                result = &mut call => panic!("comando terminou antes da perda de autoridade: {result:?}"),
+                _ = esperar_pid(&effect) => {}
+            }
+            hub.set_runtime(&bot, |r| r.lane = None);
+            std::fs::write(cwd.join("concluir"), b"").unwrap();
+        }
         let result = call.await;
         let allowed = matches!(scenario, "allow" | "shell");
         if allowed {
             assert_eq!(result.unwrap(), json!({"status":"exited","exitCode":0}));
+        } else if scenario == "revoke_after_spawn" {
+            assert_eq!(result.unwrap(), json!({"status":"unknown"}));
         } else {
             assert!(result.is_err(), "{scenario}");
         }
-        assert_eq!(effect.exists(), allowed, "{scenario}");
+        assert_eq!(effect.exists(), allowed || scenario == "revoke_after_spawn", "{scenario}");
         drop(ticket);
         std::fs::remove_dir_all(dir).unwrap();
     }

@@ -111,9 +111,11 @@ pub(super) async fn call(hub: &Arc<Hub>, proof: &LocalTurn, args: &Value) -> Res
             Ok(child)
         })
         .await;
-    proof.check(hub)?;
-    let fim = match result {
-        Ok(result) => result.fim,
+    let fim = match result.and_then(|result| {
+        proof.check(hub)?;
+        Ok(result.fim)
+    }) {
+        Ok(fim) => fim,
         Err(_) if started => return Ok(json!({"status":"unknown"})),
         Err(error) => return Err(error),
     };
