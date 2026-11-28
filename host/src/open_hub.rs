@@ -79,7 +79,6 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
         | "marketFerramentaLigar"
         | "marketFerramentaDesligar"
         | "credentialStatus"
-        | "credentialSetOnePassword"
         | "credentialLogins"
         | "credentialSaveLogin"
         | "credentialLabelLogin"
@@ -276,7 +275,7 @@ mod tests {
         }
     }
 
-    const CONECTORES: [&str; 26] = [
+    const CONECTORES: [&str; 25] = [
         "marketPersonalizado",
         "marketServico",
         "marketContas",
@@ -299,7 +298,6 @@ mod tests {
         "marketFerramentaLigar",
         "marketFerramentaDesligar",
         "credentialStatus",
-        "credentialSetOnePassword",
         "credentialLogins",
         "credentialSaveLogin",
         "credentialLabelLogin",
@@ -322,7 +320,9 @@ mod tests {
                 assert!(!open_allows(&Caller::Local, method, &body), "{method} por comando é shell: {body}");
             }
         }
-        for method in ["importConnectors", "connectorTarget", "connectorCall", "connectorVerify"] {
+        for method in
+            ["importConnectors", "connectorTarget", "connectorCall", "connectorVerify", "credentialSetOnePassword"]
+        {
             assert!(!open_allows(&Caller::Local, method, &json!({})), "{method} continua fechado");
         }
     }

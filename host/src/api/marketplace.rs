@@ -44,12 +44,17 @@ pub(super) async fn call(
                 }
                 Ok(())
             })?;
-            let ready = market::verify::verify(&hub.store, id, hub.port).await?;
             for row in hub.store.bots()? {
                 if !row.deleted && !row.config.is_group() && row.config.connectors.iter().any(|c| c == id) {
                     hub.send_cmd(&row.config.id, Cmd::RefreshTools)?;
                 }
             }
+            if crate::environment::Environment::is_open() {
+                return Ok(ControlFlow::Break(json!({"saved": true, "verified": false, "status": "saved"})));
+            }
+            let mut ready = market::verify::verify(&hub.store, id, hub.port).await?;
+            ready["saved"] = json!(true);
+            ready["verified"] = json!(true);
             ready
         }
         "credentialStatus" => market::passwords::status(&hub.store)?,

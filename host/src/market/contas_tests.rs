@@ -1121,3 +1121,57 @@ async fn recibo_nasce_ou_falha_junto_com_a_acao_na_mesma_transacao() {
     assert_eq!(store.kv_read("connectors").unwrap(), antes);
     assert_eq!(nomes(&hub, PERSONAL), [("linear".into(), "Linear".into())]);
 }
+
+#[tokio::test]
+async fn open_guarda_a_chave_sem_verificar_e_recusa_1password_e_login_sem_ouvinte() {
+    if !crate::environment::Environment::is_open() {
+        return;
+    }
+    let hub = hub();
+    let conta = Connector {
+        id: "chave-1".into(),
+        name: "Chave".into(),
+        description: String::new(),
+        registry_name: None,
+        command: None,
+        args: vec![],
+        env: std::collections::BTreeMap::default(),
+        url: Some("https://servico.example.invalid/mcp".into()),
+        headers: [("Authorization".to_owned(), String::new())].into(),
+        oauth: None,
+        oauth_binding: None,
+        servico: None,
+        tipo: None,
+        liberacoes: vec![],
+        space: PERSONAL.into(),
+        identidade: None,
+    };
+    update_connectors(&hub.store, |todas| {
+        todas.push(conta);
+        Ok(())
+    })
+    .unwrap();
+    let resposta = crate::api::dispatch(
+        &hub,
+        &Caller::Local,
+        "credentialUpdateConnector",
+        json!({"id": "chave-1", "fields": {"Authorization": "Bearer fixture-only"}}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(resposta, json!({"saved": true, "verified": false, "status": "saved"}));
+    assert_eq!(connectors(&hub.store).unwrap()[0].headers["Authorization"], "Bearer fixture-only");
+
+    let err = crate::api::dispatch(&hub, &Caller::Local, "credentialSetOnePassword", json!({"token": "fixture-only"}))
+        .await
+        .unwrap_err();
+    assert!(err.is::<crate::api::devices::Forbidden>());
+    assert!(crate::market::passwords::resolve(&hub.store, "op://cofre/item/campo").await.is_err());
+
+    contas::conectar(&hub.store, &pedido(PERSONAL, None, Some("Conta do dono"))).unwrap();
+    let antes = connectors(&hub.store).unwrap();
+    let id = antes.iter().find(|c| c.servico.is_some()).unwrap().id.clone();
+    let err = crate::api::dispatch(&hub, &Caller::Local, "connectorSignIn", json!({"id": id})).await.unwrap_err();
+    assert!(err.to_string().starts_with("login_sem_ouvinte"), "{err}");
+    assert_eq!(connectors(&hub.store).unwrap(), antes, "o vínculo não muda antes do retorno");
+}
