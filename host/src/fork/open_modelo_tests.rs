@@ -232,3 +232,33 @@ async fn aba_usa_a_conta_gravada_na_criacao_e_nao_a_atual_do_bot() {
         "conta da aba indisponível recusa em vez de cair na do bot"
     );
 }
+
+#[tokio::test]
+async fn principal_usa_a_conta_atual_do_bot_e_a_aba_a_gravada() {
+    use crate::fork::sessoes::{admissao, origin::SessionOrigin, store as sessoes};
+    let env = env(vec![conta(CONTA, State::Connected), conta(OUTRA, State::Connected)]);
+    let principal = berga(&env.hub).id;
+    run(&env.hub, &set(CONTA, "gpt-padrao", Some(&principal))).unwrap();
+    let aba = sessoes::create(
+        &env.hub.store.db.locked(),
+        &sessoes::NewSession {
+            chat: principal.clone(),
+            origin: SessionOrigin::Owner,
+            source_session: None,
+            parent_session: None,
+            title: "Aba".into(),
+            runs_on: None,
+        },
+    )
+    .unwrap()
+    .id;
+    run(&env.hub, &set(OUTRA, "gpt-outro", Some(&principal))).unwrap();
+    let atual = berga(&env.hub);
+    let da_aba = crate::store::Lane { chat: principal.clone(), session: Some(aba) };
+    let da_principal = crate::store::Lane::main(&principal);
+    assert!(da_principal.session.is_none());
+    let mut aba_cfg = atual.clone();
+    admissao::apply_configured(&env.hub.store.db.locked(), &da_aba, &mut aba_cfg).unwrap();
+    assert_eq!(crate::fork::open_chat::account_profile(&env.hub, &atual).unwrap().0, OUTRA, "principal: conta atual");
+    assert_eq!(crate::fork::open_chat::account_profile(&env.hub, &aba_cfg).unwrap().0, CONTA, "aba: conta gravada");
+}

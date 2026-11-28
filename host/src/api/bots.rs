@@ -353,8 +353,9 @@ pub(super) async fn call(
                 (lane, effective)
             };
             let open_turn = crate::environment::Environment::is_open();
+            let open_config = if lane.session.is_some() { &effective } else { &row.config };
             if open_turn {
-                crate::fork::open_chat::precheck(hub, &effective, text)?;
+                crate::fork::open_chat::precheck(hub, open_config, text)?;
             }
             // `replyTo`: the message of this chat it answers (`chat::replies`).
             let reply = match quoted {
@@ -454,7 +455,7 @@ pub(super) async fn call(
                 tracing::warn!(%error, bot, "couldn't mark bot read after send");
             }
             if open_turn {
-                crate::fork::open_canal::deliver(hub, &effective, lane, &e, effect_authority, text);
+                crate::fork::open_canal::deliver(hub, open_config, lane, &e, effect_authority, text);
             } else if row.config.is_group() {
                 // Each member reads it in its room prompt (`chat::group`).
                 crate::chat::group::start_authorized(
