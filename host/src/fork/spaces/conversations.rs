@@ -443,7 +443,7 @@ fn send(hub: &Arc<Hub>, caller: &Caller, c: &Conversation, b: &Value) -> Result<
     let cmd = crate::agent::bot::Cmd::Send { lane, entry_id: entry.id.clone(), text: prompt };
     let delivery = match authority {
         Some(authority) => hub.login_command_sender(&c.bot_id).and_then(|sender| {
-            authority.com_saida(hub, None, || sender.send(cmd))?.map_err(|_| anyhow!("bot stopped"))
+            authority.com_saida(hub, None, || sender.send(cmd).map_err(|_| anyhow!("bot stopped")))?
         }),
         None => hub.send_cmd(&c.bot_id, cmd),
     };

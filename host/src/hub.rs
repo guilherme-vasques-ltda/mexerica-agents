@@ -402,11 +402,11 @@ impl Hub {
         self.fail_remote_turn_as(id, expected, None);
     }
 
-    pub(crate) fn fail_web_turn(&self, entry: &crate::store::Entry) -> Option<crate::store::Entry> {
+    pub(crate) fn fail_web_turn(&self, entry: &Entry) -> Option<Entry> {
         self.fail_remote_turn_as(&entry.id, "queued", Some(entry.rev))
     }
 
-    fn fail_remote_turn_as(&self, id: &str, expected: &str, web_revision: Option<i64>) -> Option<crate::store::Entry> {
+    fn fail_remote_turn_as(&self, id: &str, expected: &str, web_revision: Option<i64>) -> Option<Entry> {
         let _emit = self.emit_lock.locked();
         let saved = (|| -> Result<_> {
             let db = self.store.db.locked();

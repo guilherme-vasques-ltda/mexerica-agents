@@ -125,14 +125,15 @@ pub(crate) fn retry_turn(hub: &Hub, caller: &Caller, cfg: &BotConfig, chat: &str
         (entry, lane)
     };
     let text = crate::chat::prompt::of_entry(hub, cfg, &entry.data);
-    let enqueue = authority.com_saida(hub, None, || sender.send(Cmd::Send { lane, entry_id: entry.id.clone(), text }));
-    if !matches!(enqueue, Ok(Ok(()))) {
+    let enqueued =
+        authority.com_saida(hub, None, || sender.send(Cmd::Send { lane, entry_id: entry.id.clone(), text }).is_ok());
+    if !matches!(enqueued, Ok(true)) {
         return Ok(hub.fail_web_turn(&entry).unwrap_or(entry));
     }
     Ok(entry)
 }
 
-pub(crate) fn receipt(hub: &Hub, chat: &str, session: &str, proof: &Value) -> Result<Vec<crate::store::Entry>> {
+pub(crate) fn receipt(hub: &Hub, chat: &str, session: &str, proof: &Value) -> Result<Vec<Entry>> {
     let nonce = proof["nonce"].as_str().filter(|n| valid_nonce(n)).ok_or(Forbidden)?;
     let text = proof["text"].as_str().ok_or(Forbidden)?.trim();
     Ok(hub
