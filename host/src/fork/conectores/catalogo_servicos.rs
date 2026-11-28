@@ -361,6 +361,10 @@ impl TipoConexao {
         self.ligados(liberacoes).any(|g| g.imposicao == Some(Imposicao::Filtro))
     }
 
+    pub(crate) fn somente_endpoint_streamable(&self) -> bool {
+        self.id == "planetscale.oficial_chave"
+    }
+
     /// Endereço do MCP para os grupos ligados: o do último grupo que declara um, senão o da ficha.
     pub(crate) fn url_efetiva(&self, liberacoes: &[String]) -> &'static str {
         self.ligados(liberacoes).filter_map(|g| g.url).last().unwrap_or(self.url)

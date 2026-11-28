@@ -78,6 +78,7 @@ pub(super) const FICHAS: &[&str] = &[
     include_str!("fichas/agentmail.json"),
     include_str!("fichas/bright-data.json"),
     include_str!("fichas/prisma.json"),
+    include_str!("fichas/planetscale.json"),
 ];
 
 /// Cada string é vazada uma única vez na partida: o catálogo inteiro vive até o fim do processo.

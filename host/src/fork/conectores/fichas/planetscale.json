@@ -1,0 +1,48 @@
+{
+  "id": "planetscale",
+  "nome": "PlanetScale",
+  "categoria": "Dados",
+  "descricao": "Consulte métricas do Insights e recomendações de esquema sem executar SQL.",
+  "exemplos": ["Mostre as consultas mais lentas no Insights do meu banco"],
+  "site": "https://planetscale.com",
+  "docs": "https://planetscale.com/docs/mcp/service-token",
+  "links": {
+    "privacidade": "https://planetscale.com/legal/privacy",
+    "termos": "https://planetscale.com/legal/siteterms"
+  },
+  "conferidaEm": "2026-11-28",
+  "fontes": [
+    "https://planetscale.com/docs/mcp/service-token",
+    "https://planetscale.com/docs/mcp-server"
+  ],
+  "aviso": "Use um token restrito ao banco desejado. O Hub não verifica as permissões do token. A conexão não executa SQL, altera o banco nem inicia o Insights Agent.",
+  "tipos": [
+    {
+      "id": "planetscale.oficial_chave",
+      "tipo": "oficial_chave",
+      "rotulo": "Oficial — token de serviço",
+      "mantidoPor": "PlanetScale",
+      "url": "https://mcp.pscale.dev/mcp/planetscale-insights-only",
+      "auth": {
+        "modo": "chave",
+        "destino": "header",
+        "nome": "Authorization",
+        "prefixo": "Bearer ",
+        "comoCriarLeitura": "Na PlanetScale, abra Organization Settings → Service tokens. Crie um token só para o banco desejado, com read_database e read_branch."
+      },
+      "grupos": [
+        {
+          "id": "insights",
+          "rotulo": "Consultar Insights e recomendações",
+          "escopos": [],
+          "ferramentas": ["planetscale_get_insights", "planetscale_list_schema_recommendations"],
+          "padrao": true,
+          "disponivel": true,
+          "imposicao": "url"
+        }
+      ],
+      "recomendado": true,
+      "disponivel": true
+    }
+  ]
+}
