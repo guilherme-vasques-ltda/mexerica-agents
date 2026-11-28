@@ -1,10 +1,12 @@
 import type { Tradutor } from '../../lib/fork-i18n/estado'
 
 // Textos em conversa.aprovacao.* (lib/fork-i18n/<idioma>/conversa/aprovacao.ts).
-type Pedido = 'captura' | 'memoria' | 'comando' | 'arquivos' | 'web' | 'leitura' | 'ferramenta'
+type Pedido = 'clique' | 'captura' | 'memoria' | 'comando' | 'arquivos' | 'web' | 'leitura' | 'ferramenta'
 
 const pedido = (toolKind?: string): Pedido => {
   switch (toolKind) {
+    case 'mac_local_screen_click':
+      return 'clique'
     case 'mac_local_screen_action':
       return 'captura'
     case 'mcp_memory':
@@ -34,6 +36,7 @@ type Acao = (typeof ACOES)[number]
 const ehAcao = (k: string | undefined): k is Acao => (ACOES as readonly string[]).includes(k ?? '')
 
 export const actionLabel = (t: Tradutor, toolKind?: string) => {
+  if (toolKind === 'mac_local_screen_click') return t('conversa.aprovacao.acao.clique')
   if (toolKind === 'mac_local_screen_action') return t('conversa.aprovacao.acao.captura')
   const kind = toolKind === 'open_local_command' ? 'execute' : toolKind
   return t(ehAcao(kind) ? `conversa.aprovacao.acao.${kind}` : 'conversa.aprovacao.acao.ferramenta')
@@ -44,6 +47,10 @@ export function permissionDetail(t: Tradutor, toolKind: string | undefined, titl
   const technicalName = title.replace(/^Autorizar /, '').replace(/: memory$/, '')
   return technicalName.startsWith('mcp.') ? t('conversa.aprovacao.nomeTecnico', { nome: technicalName }) : ''
 }
+
+export const clickPermissionNote = (t: Tradutor, toolKind?: string) => toolKind === 'mac_local_screen_click'
+  ? t('conversa.aprovacao.notaClique')
+  : ''
 
 export const capturePermissionNote = (t: Tradutor, toolKind?: string) => toolKind === 'mac_local_screen_action'
   ? t('conversa.aprovacao.notaCaptura')

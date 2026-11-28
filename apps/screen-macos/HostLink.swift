@@ -145,6 +145,7 @@ final class ForkLocalScreenXPC {
     private var listener: xpc_connection_t?
     private var peers: [ObjectIdentifier: xpc_connection_t] = [:]
     private let instance = UUID().uuidString
+    private let click = ForkLocalClick()
 
     func start() {
         guard Bundle.main.object(forInfoDictionaryKey: "MexericaScreenService") as? String == Self.service,
@@ -217,6 +218,9 @@ final class ForkLocalScreenXPC {
             guard let permission = message["permission"] as? String else { throw HelperError("Missing permission.") }
             try ScreenPermissions.request(permission)
             return [:]
+        case "clickPrepare", "clickReady", "clickCommit":
+            let display = try authorize(message)
+            return try click.handle(message, display: display)
         case "screenshot":
             let display = try authorize(message)
             let bounds = CGDisplayBounds(display)

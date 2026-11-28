@@ -1,5 +1,12 @@
 // Fatia 2 (D454): conversa/aprovacao (registro.ts), cartão de aprovação, menu do escudo e o botão de segurar (views/thread). Chaves completas; docs/guides/idiomas.md.
 export const textos = {
+  "conversa.aprovacao.pedido.clique": "Quer acionar um botão",
+  "conversa.aprovacao.pedidoDe.clique": "{autor} quer acionar um botão",
+  "conversa.aprovacao.acao.clique": "Acionar botão",
+  "conversa.aprovacao.clique.app": "Aplicativo",
+  "conversa.aprovacao.clique.janela": "Janela",
+  "conversa.aprovacao.clique.botao": "Botão",
+  "conversa.aprovacao.notaClique": "Ao permitir, volte à janela indicada em até 10 segundos. Se o botão ou a janela mudar, nada será acionado.",
   "conversa.aprovacao.pedido.captura": "Quer capturar a tela principal",
   "conversa.aprovacao.pedidoDe.captura": "{autor} quer capturar a tela principal",
   "conversa.aprovacao.acao.captura": "Captura de tela",

@@ -3,6 +3,13 @@ import type { textos as fonte } from '../../pt-BR/conversa/aprovacao.ts'
 
 // Fatia 2 (D454): conversa/aprovacao (registro.ts). Chaves completas; docs/guides/idiomas.md.
 export const textos: Traducao<typeof fonte> = {
+  "conversa.aprovacao.pedido.clique": "Wants to press a button",
+  "conversa.aprovacao.pedidoDe.clique": "{autor} wants to press a button",
+  "conversa.aprovacao.acao.clique": "Press button",
+  "conversa.aprovacao.clique.app": "App",
+  "conversa.aprovacao.clique.janela": "Window",
+  "conversa.aprovacao.clique.botao": "Button",
+  "conversa.aprovacao.notaClique": "After allowing, return to the specified window within 10 seconds. If the button or window changes, nothing will be pressed.",
   "conversa.aprovacao.pedido.captura": "Wants to capture the main display",
   "conversa.aprovacao.pedidoDe.captura": "{autor} wants to capture the main display",
   "conversa.aprovacao.acao.captura": "Screenshot",

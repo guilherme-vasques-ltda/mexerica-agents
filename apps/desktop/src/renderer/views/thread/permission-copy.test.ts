@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 import { tradutor } from '../../lib/fork-i18n/index.ts'
-import { actionLabel, capturePermissionNote, memoryPermissionNote, permissionDetail, permissionHeadline, permissionTitle } from './permission-copy.ts'
+import { actionLabel, capturePermissionNote, clickPermissionNote, memoryPermissionNote, permissionDetail, permissionHeadline, permissionTitle } from './permission-copy.ts'
 
 const t = tradutor('pt-BR')
 const en = tradutor('en')
@@ -49,4 +49,12 @@ test('a captura informa a tela inteira, o motor e o possível envio ao provedor'
   assert.match(capturePermissionNote(t, 'mac_local_screen_action'), /tela principal inteira.*motor do bot.*provedor do modelo/)
   assert.match(capturePermissionNote(en, 'mac_local_screen_action'), /entire main display.*bot’s engine.*model provider/)
   assert.equal(capturePermissionNote(t, 'screen_access'), '')
+})
+
+test('o clique mostra a ação e pede voltar à janela aprovada', () => {
+  const kind = 'mac_local_screen_click'
+  assert.equal(permissionTitle(t, kind, 'Berga'), 'Berga quer acionar um botão')
+  assert.equal(actionLabel(t, kind), 'Acionar botão')
+  assert.match(clickPermissionNote(t, kind), /volte à janela.*10 segundos/i)
+  assert.equal(clickPermissionNote(t, 'mac_local_screen_action'), '')
 })

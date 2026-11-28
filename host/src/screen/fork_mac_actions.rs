@@ -7,6 +7,7 @@ use crate::{
     store::{Entry, EntryKind, Lane, Store},
 };
 use anyhow::{Context, Result, ensure};
+use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{
     collections::HashMap,
@@ -18,6 +19,7 @@ use tokio::{
 };
 
 pub(crate) const CARD: &str = "mac_local_screen_action";
+pub(crate) const CLICK_CARD: &str = "mac_local_screen_click";
 const DENIED: &str = "A ação de tela não foi autorizada para este turno.";
 const WAIT: Duration = Duration::from_secs(120);
 
@@ -42,6 +44,43 @@ fn capture_request(name: &str, args: &Value) -> Result<()> {
     Ok(())
 }
 
+const RETURN_WINDOW: Duration = Duration::from_secs(10);
+const CLICK_LEASE_NS: u64 = 500_000_000;
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ClickTarget {
+    bundle_id: String,
+    window: String,
+    button: String,
+}
+
+impl ClickTarget {
+    fn parse(args: Value) -> Result<Self> {
+        let target: Self = serde_json::from_value(args).context("Informe app, janela e botão exatos.")?;
+        ensure!(
+            target.bundle_id.len() <= 120
+                && target.bundle_id.split('.').count() >= 2
+                && target
+                    .bundle_id
+                    .split('.')
+                    .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'))
+                && label(&target.window)
+                && label(&target.button),
+            "O aplicativo, a janela ou o botão não têm uma identificação válida."
+        );
+        Ok(target)
+    }
+}
+
+fn label(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 120
+        && value.trim() == value
+        && !value.chars().any(|c| c.is_control()
+            || matches!(c, '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{2028}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '‹' | '›'))
+}
+
 pub(crate) async fn catalog(hub: &Arc<Hub>, caller: &Caller) -> Value {
     let Caller::Ponte { bot, sessao, .. } = caller else { return json!({"tools":[]}) };
     let allowed = || -> Result<()> {
@@ -61,7 +100,10 @@ pub(crate) async fn catalog(hub: &Arc<Hub>, caller: &Caller) -> Value {
 
     json!({"tools": [
         {"name":"screenshot","description":"Capture the main display, with the local owner's approval. Returns an image and the logical display size in points.",
-         "inputSchema":{"type":"object","properties":{},"additionalProperties":false},"annotations":{"readOnlyHint":true}}
+         "inputSchema":{"type":"object","properties":{},"additionalProperties":false},"annotations":{"readOnlyHint":true}},
+        {"name":"click","description":"Press one uniquely named native button in the exact frontmost window on the main display. The owner must approve and return to that window. No coordinate or keyboard input.",
+         "inputSchema":{"type":"object","properties":{"bundleId":{"type":"string","maxLength":120},"window":{"type":"string","maxLength":120},"button":{"type":"string","maxLength":120}},
+                        "required":["bundleId","window","button"],"additionalProperties":false}}
     ]})
 }
 
@@ -70,7 +112,7 @@ struct Waiting {
     attempt: Arc<Attempt>,
     card: Entry,
     deadline_ns: u64,
-    answer: oneshot::Sender<Entry>,
+    answer: oneshot::Sender<(Entry, u64)>,
 }
 static PENDING: LazyLock<Mutex<HashMap<String, Waiting>>> = LazyLock::new(Mutex::default);
 
@@ -160,6 +202,7 @@ pub(crate) fn respond(
         pending.remove(&entry.id).context(DENIED)?
     };
     let saved = (|| {
+        let answered_at = monotonic_ns()?;
         if option == Some("allow") {
             waiting.attempt.check_waiting()?;
         }
@@ -170,6 +213,7 @@ pub(crate) fn respond(
             }
             Ok(())
         })
+        .map(|saved| (saved, answered_at))
     })();
     let saved = match saved {
         Ok(saved) => saved,
@@ -198,7 +242,12 @@ async fn helper_target(xpc: &Xpc) -> Result<(String, u32)> {
 }
 
 pub(crate) async fn call(hub: &Arc<Hub>, attempt: Attempt, name: &str, args: Value) -> Result<Value> {
-    capture_request(name, &args)?;
+    let click = if name == "click" {
+        Some(ClickTarget::parse(args)?)
+    } else {
+        capture_request(name, &args)?;
+        None
+    };
     let xpc = hub.screen.mac_xpc.get().context("O helper autenticado não está disponível.")?;
     ensure!(attempt.private_consent.is_some(), DENIED);
     let (instance, display) = helper_target(xpc).await?;
@@ -218,6 +267,28 @@ pub(crate) async fn call(hub: &Arc<Hub>, attempt: Attempt, name: &str, args: Val
     let (send, receive) = oneshot::channel();
     let deadline = Instant::now() + WAIT;
     let deadline_ns = monotonic_ns()?.checked_add(u64::try_from(WAIT.as_nanos())?).context(DENIED)?;
+    let (kind, title, token) = if let Some(target) = click {
+        let prepare = json!({
+            "method":"clickPrepare","instance":instance,"display":display,"deadlineNs":deadline_ns.to_string(),
+            "bundleId":target.bundle_id,"window":target.window,"button":target.button,
+        });
+        let pending = attempt.with_private_screen_send(
+            |db| {
+                ensure!(hub.screen.enabled(), DENIED);
+                check_turn(db, &attempt).map(|_| ())
+            },
+            || xpc.send(&prepare),
+        )?;
+        let reply = tokio::task::spawn_blocking(move || pending.wait(3)).await??;
+        let token = reply["result"]["token"]
+            .as_str()
+            .and_then(|token| uuid::Uuid::parse_str(token).ok())
+            .context("Não encontrei um botão nativo único na janela ativa indicada.")?;
+        let title = format!("{}\n{}\n{}", target.bundle_id, target.window, target.button);
+        (CLICK_CARD, title, Some(token))
+    } else {
+        (CARD, format!("screenshot(display={display})"), None)
+    };
     let card = {
         let mut pending = PENDING.locked();
         let (card, _) = hub.add_entry_once(
@@ -226,7 +297,7 @@ pub(crate) async fn call(hub: &Arc<Hub>, attempt: Attempt, name: &str, args: Val
             EntryKind::Permission,
             turn,
             &json!({
-                "toolKind": CARD, "author": attempt.bot, "title": format!("screenshot(display={display})"),
+                "toolKind": kind, "author": attempt.bot, "title": title,
                 "status":"pending",
                 "options":[
                     {"optionId":"allow","kind":"allow_once","name":"Allow once"},
@@ -247,7 +318,7 @@ pub(crate) async fn call(hub: &Arc<Hub>, attempt: Attempt, name: &str, args: Val
         card
     };
     let _cancel = Cancel(hub, &card);
-    let approved = tokio::time::timeout_at(deadline, receive).await??;
+    let (approved, answered_at) = tokio::time::timeout_at(deadline, receive).await??;
     ensure!(approved.data["status"] == "answered" && approved.data["selected"] == "allow", DENIED);
     let request = json!({
         "method":"screenshot","instance":instance,"display":display,"deadlineNs":deadline_ns.to_string()
@@ -259,6 +330,41 @@ pub(crate) async fn call(hub: &Arc<Hub>, attempt: Attempt, name: &str, args: Val
         check_turn(db, &attempt)?;
         Ok(())
     };
+    if let Some(token) = token {
+        let limit = deadline_ns.min(answered_at.checked_add(u64::try_from(RETURN_WINDOW.as_nanos())?).context(DENIED)?);
+        let wait_error = "O prazo venceu sem voltar à janela aprovada. Nenhum botão foi acionado.";
+        loop {
+            before_deadline(limit).context(wait_error)?;
+            let probe = json!({
+                "method":"clickReady","instance":instance,"display":display,"token":token,"deadlineNs":limit.to_string()
+            });
+            let pending = attempt.with_private_screen_send(check, || xpc.send(&probe))?;
+            let reply = tokio::task::spawn_blocking(move || pending.wait(1))
+                .await?
+                .context("O helper não confirmou a janela a tempo. Nenhum botão foi acionado.")?;
+            match reply["result"]["state"].as_str() {
+                Some("waiting") => tokio::time::sleep(Duration::from_millis(125)).await,
+                Some("ready") => break,
+                _ => anyhow::bail!("A janela, o botão ou as permissões mudaram. Nenhum botão foi acionado."),
+            }
+        }
+        let pending = attempt.with_private_screen_send(check, || {
+            before_deadline(limit).context(wait_error)?;
+            let lease = limit.min(monotonic_ns()?.checked_add(CLICK_LEASE_NS).context(DENIED)?);
+            xpc.send(&json!({
+                "method":"clickCommit","instance":instance,"display":display,"token":token,"deadlineNs":lease.to_string()
+            }))
+        })?;
+        let reply = tokio::task::spawn_blocking(move || pending.wait(2))
+            .await?
+            .context("Não foi possível confirmar o clique. Não vou repetir a ação.")?;
+        let text = match reply["result"]["state"].as_str() {
+            Some("pressed") => "O botão aprovado foi acionado.",
+            Some("refused") => "A janela, o botão ou o prazo mudou. Nenhum botão foi acionado.",
+            _ => "Não foi possível confirmar o clique. Não vou repetir a ação.",
+        };
+        return Ok(json!({"content":[{"type":"text","text":text}]}));
+    }
     let sent = attempt.with_private_screen_send(check, || {
         before_deadline(deadline_ns)?;
         xpc.send(&request)
@@ -284,7 +390,14 @@ mod tests {
     fn only_capture_without_arguments_is_supported() {
         assert!(capture_request("screenshot", &json!({})).is_ok());
         assert!(capture_request("screenshot", &json!({"display": 1})).is_err());
-        assert!(capture_request("click", &json!({"x": 1, "y": 1})).is_err());
+        assert!(ClickTarget::parse(json!({"x": 1, "y": 1})).is_err());
+        assert!(
+            ClickTarget::parse(json!({"bundleId":"app.example.invalid", "window":"Janela", "button":"Ok"})).is_ok()
+        );
+        assert!(
+            ClickTarget::parse(json!({"bundleId":"app.example.invalid", "window":"Janela", "button":"Ok › Não"}))
+                .is_err()
+        );
     }
 
     #[test]
