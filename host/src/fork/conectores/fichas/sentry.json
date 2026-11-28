@@ -2,7 +2,7 @@
   "id": "sentry",
   "nome": "Sentry",
   "categoria": "Infraestrutura",
-  "descricao": "Monitoramento de erros e performance: consulta issues, traces, releases e projetos do Sentry para diagnosticar falhas.",
+  "descricao": "Erros e performance no Sentry: lê issues, traces e releases; só depois de você ligar cada ação ele altera issues e cria projetos.",
   "exemplos": [
     "Quais erros novos apareceram no Sentry hoje?",
     "Qual erro afeta mais usuários neste projeto?"
@@ -13,11 +13,14 @@
     "privacidade": "https://sentry.io/privacy/",
     "termos": "https://sentry.io/terms/"
   },
-  "conferidaEm": "2026-11-18",
+  "conferidaEm": "2026-11-27",
   "fontes": [
     "https://docs.sentry.io/product/sentry-mcp/",
-    "https://mcp.sentry.dev/oauth/register",
-    "https://mcp.sentry.dev/.well-known/oauth-authorization-server"
+    "https://mcp.sentry.dev/llms.txt",
+    "https://mcp.sentry.dev/.well-known/oauth-protected-resource/mcp",
+    "https://mcp.sentry.dev/.well-known/oauth-authorization-server",
+    "https://docs.sentry.io/api/permissions/",
+    "https://github.com/getsentry/toolkit/blob/main/packages/mcp-core/src/scopes.ts"
   ],
   "tipos": [
     {
@@ -32,23 +35,24 @@
       },
       "grupos": [
         {
-          "id": "ler",
-          "rotulo": "Ler",
+          "id": "usar",
+          "rotulo": "Usar com a sua conta",
           "escopos": [
             "org:read",
-            "project:read",
-            "team:read"
+            "project:write",
+            "team:write",
+            "event:write",
+            "alerts:write"
           ],
           "padrao": true,
-          "disponivel": false
+          "disponivel": true,
+          "imposicao": "filtro"
         }
       ],
       "recomendado": true,
-      "disponivel": false,
-      "motivoIndisponivel": "O Sentry não oferece um modo só de leitura; entra depois do filtro de ações perigosas."
+      "disponivel": true
     }
   ],
-  "emBreve": "O fornecedor não impõe leitura: entra depois do filtro de ações perigosas.",
   "skillsOficiais": [
     {
       "url": "https://github.com/getsentry/toolkit/tree/main/plugins/sentry-mcp",

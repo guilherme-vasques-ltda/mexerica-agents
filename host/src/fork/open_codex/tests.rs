@@ -17,6 +17,12 @@ struct Fixture {
     executable: PathBuf,
 }
 
+#[cfg(target_os = "macos")]
+#[tokio::test]
+async fn comando_mediado_recusa_troca_de_executavel_ou_pasta() -> anyhow::Result<()> {
+    crate::fork::rules::terminal::executor::tests::macos_executa_o_pedido_e_recusa_troca_de_executavel_ou_pasta().await
+}
+
 impl Fixture {
     fn new() -> Self {
         let scope = std::env::temp_dir().canonicalize().unwrap().join(format!("open-codex-{}", uuid::Uuid::new_v4()));

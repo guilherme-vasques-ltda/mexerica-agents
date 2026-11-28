@@ -119,6 +119,7 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
         m if super::delegacao::api::METHODS.contains(&m) => {
             super::delegacao::api::call(hub, caller, method, body).await.map(ControlFlow::Break)
         }
+        super::pedidos_time::METHOD => super::pedidos_time::call(hub, caller, body).await.map(ControlFlow::Break),
         "donnaTimes" | "donnaTimesPreview" | "donnaTimesSave" => {
             super::times::api::call(hub, caller, method, body).await
         }

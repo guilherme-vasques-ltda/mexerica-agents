@@ -108,10 +108,12 @@ static OFFICIAL: LazyLock<Arc<Downloader>> = LazyLock::new(|| {
 });
 
 /// Estado do wacli para a leitura do app; com o plugin ligado, baixa se faltar.
-pub(super) fn follow(hub: &Arc<Hub>, enabled: bool, retry: bool) -> Result<Value> {
-    crate::open_hub::require_executor()?;
+pub(super) fn follow(hub: &Arc<Hub>, enabled: bool, retry: bool) -> Value {
+    if crate::open_hub::require_executor().is_err() {
+        return json!({"state": "unsupported", "message": "A Open não tem executor isolado para o wacli."});
+    }
     let hub = hub.clone();
-    Ok(Downloader::follow(&OFFICIAL, enabled, retry, move || super::number::reconcile(&hub)))
+    Downloader::follow(&OFFICIAL, enabled, retry, move || super::number::reconcile(&hub))
 }
 
 impl Downloader {

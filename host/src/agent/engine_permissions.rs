@@ -26,25 +26,24 @@ pub fn repeated_answer(entry: &crate::store::Entry, option_id: Option<&str>) -> 
         && option_id.is_some_and(|id| entry.data["selected"].as_str() == Some(id))
 }
 
-/// O Codex usa `allow_always` também para permissões de sessão. Só essas podem continuar:
-/// regras persistentes pertencem ao Hub (D106), nunca ao `CODEX_HOME` compartilhado.
-pub fn codex_options(mut options: Vec<Value>) -> Vec<Value> {
-    options.retain_mut(|option| {
-        let id = option["optionId"].as_str().unwrap_or_default();
-        let kind = option["kind"].as_str().unwrap_or_default();
-        let session = matches!(id, "allow_for_session" | "allow_session" | "allow_permissions_session");
-        if id == "accept_execpolicy_amendment"
-            || id.starts_with("apply_network_policy_amendment:")
-            || (kind == "allow_always" && !session)
-        {
-            return false;
-        }
-        if session && kind == "allow_always" {
-            option["name"] = "Permitir nesta sessão".into();
-        }
-        true
-    });
+pub fn codex_options(options: Vec<Value>) -> Vec<Value> {
     options
+        .into_iter()
+        .filter(|option| {
+            option["optionId"].as_str().is_some_and(|id| {
+                !id.is_empty()
+                    && !matches!(
+                        id,
+                        "allow_always"
+                            | "allow_for_session"
+                            | "allow_session"
+                            | "allow_permissions_session"
+                            | "accept_execpolicy_amendment"
+                    )
+                    && !id.starts_with("apply_network_policy_amendment:")
+            }) && matches!(option["kind"].as_str(), Some("allow_once" | "reject_once" | "reject_always"))
+        })
+        .collect()
 }
 
 /// O Grok persiste `allow_always` no próprio perfil, fora do Hub. Aprovação persistente pertence ao Hub
@@ -103,12 +102,13 @@ mod tests {
     }
 
     #[test]
-    fn codex_so_oferece_decisoes_temporarias() {
+    fn codex_so_oferece_aprovacao_da_chamada_atual() {
         let options = codex_options(vec![
             json!({"optionId":"allow_once", "kind":"allow_once"}),
             json!({"optionId":"allow_for_session", "kind":"allow_always"}),
             json!({"optionId":"allow_session", "kind":"allow_always"}),
             json!({"optionId":"allow_permissions_session", "kind":"allow_always"}),
+            json!({"optionId":"allow_permissions_session", "kind":"allow_once"}),
             json!({"optionId":"accept_execpolicy_amendment", "kind":"allow_always"}),
             json!({"optionId":"apply_network_policy_amendment:0", "kind":"allow_always"}),
             json!({"optionId":"allow_always", "kind":"allow_always"}),
@@ -120,10 +120,6 @@ mod tests {
             json!({"optionId":"cancel", "kind":"reject_once"}),
         ]);
         let ids: Vec<_> = options.iter().map(|o| o["optionId"].as_str().unwrap()).collect();
-        assert_eq!(
-            ids,
-            ["allow_once", "allow_for_session", "allow_session", "allow_permissions_session", "decline", "cancel"]
-        );
-        assert!(options[1..4].iter().all(|o| o["name"] == "Permitir nesta sessão"));
+        assert_eq!(ids, ["allow_once", "decline", "cancel"]);
     }
 }

@@ -46,6 +46,7 @@ path = "src/bin/codync-hostw.rs"
 members = ["crates/memory", "crates/mail-read"]
 
 [dependencies]
+aho-corasick = "1.1"
 anyhow = "1.0.104"
 axum = { version = "0.8.9", features = ["ws"] }
 base64 = "0.23.1"

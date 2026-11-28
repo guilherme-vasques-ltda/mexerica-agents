@@ -76,10 +76,30 @@ pub(crate) fn migrate(c: &Connection) -> Result<()> {
          CREATE TRIGGER IF NOT EXISTS donna_ceiling_ledger_upd AFTER UPDATE ON donna_turn_usage
           BEGIN UPDATE donna_ceiling_ledger_gen SET n=n+1 WHERE id=1; END;
          CREATE TRIGGER IF NOT EXISTS donna_ceiling_ledger_del AFTER DELETE ON donna_turn_usage
+          BEGIN UPDATE donna_ceiling_ledger_gen SET n=n+1 WHERE id=1; END;
+         CREATE TABLE IF NOT EXISTS donna_ceiling_detached_usage(
+          receipt TEXT UNIQUE, at INTEGER NOT NULL, input_tokens INTEGER, output_tokens INTEGER,
+          amount REAL, currency TEXT);
+         CREATE INDEX IF NOT EXISTS donna_ceiling_detached_usage_at ON donna_ceiling_detached_usage(at);
+         CREATE TRIGGER IF NOT EXISTS donna_ceiling_detached_usage_ins AFTER INSERT ON donna_ceiling_detached_usage
+          BEGIN UPDATE donna_ceiling_ledger_gen SET n=n+1 WHERE id=1; END;
+         CREATE TRIGGER IF NOT EXISTS donna_ceiling_detached_usage_upd AFTER UPDATE ON donna_ceiling_detached_usage
           BEGIN UPDATE donna_ceiling_ledger_gen SET n=n+1 WHERE id=1; END;"
     ))?;
     migrate_kv_holds(c)?;
     migrate_legacy_d72(c)
+}
+
+pub(crate) fn preservar_uso_e_remover_historico(c: &Connection, account: &str) -> Result<()> {
+    c.execute(
+        "INSERT INTO donna_ceiling_detached_usage(receipt,at,input_tokens,output_tokens,amount,currency)
+         SELECT CASE WHEN source='fundo' AND input_tokens IS NULL AND output_tokens IS NULL THEN id END,
+                at,input_tokens,output_tokens,amount,currency
+         FROM donna_turn_usage WHERE account_id=?1",
+        [account],
+    )?;
+    c.execute("DELETE FROM donna_turn_usage WHERE account_id=?1", [account])?;
+    Ok(())
 }
 
 /// Espera da retomada D72 gravada por versão anterior (sem o campo `waiting`):
@@ -567,13 +587,22 @@ pub(crate) fn gate_on(c: &Connection, settings: &Settings) -> Result<Gate> {
         "SELECT COALESCE(SUM(CASE WHEN amount IS NULL OR currency IS NULL THEN 1 ELSE 0 END),0),
                 COALESCE(SUM(CASE WHEN input_tokens IS NULL OR output_tokens IS NULL THEN 1 ELSE 0 END),0),
                 COALESCE(SUM(COALESCE(input_tokens,0)+COALESCE(output_tokens,0)),0)
-         FROM donna_turn_usage WHERE at>=?1 AND at<?2",
+         FROM (
+           SELECT input_tokens,output_tokens,amount,currency FROM donna_turn_usage WHERE at>=?1 AND at<?2
+           UNION ALL
+           SELECT input_tokens,output_tokens,amount,currency FROM donna_ceiling_detached_usage WHERE at>=?1 AND at<?2
+         )",
         params![start, end],
         |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
     )?;
     let mut money_used = std::collections::HashMap::<String, f64>::new();
-    let mut stmt =
-        c.prepare("SELECT currency, SUM(amount) FROM donna_turn_usage WHERE at>=?1 AND at<?2 AND amount IS NOT NULL GROUP BY currency")?;
+    let mut stmt = c.prepare(
+        "SELECT currency, SUM(amount) FROM (
+          SELECT currency,amount FROM donna_turn_usage WHERE at>=?1 AND at<?2 AND amount IS NOT NULL
+          UNION ALL
+          SELECT currency,amount FROM donna_ceiling_detached_usage WHERE at>=?1 AND at<?2 AND amount IS NOT NULL
+        ) GROUP BY currency",
+    )?;
     let sums = stmt
         .query_map(params![start, end], |r| Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?)))?
         .collect::<rusqlite::Result<Vec<_>>>()?;

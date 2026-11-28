@@ -262,6 +262,7 @@ pub(crate) const METODOS: &[(&str, Classe)] = &[
     ("donnaTaskSessions", Leitura),
     ("donnaTaskProposals", Leitura),
     ("donnaTaskProposalDecide", Dono),
+    ("donnaTeamRequests", Leitura),
     ("donnaTimes", Leitura),
     ("donnaTimesPreview", Leitura),
     ("donnaTimesSave", Comum),
