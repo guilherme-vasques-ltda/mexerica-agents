@@ -56,7 +56,7 @@ export function EntrarComChatGPT() {
   }
   useEffect(() => {
     if (visivel && online) void reler()
-  }, [visivel, online, store.hello?.hostId])
+  }, [visivel, online, store.hello?.hostId, store.spaces?.personalSpaceId, store.spaceId])
   // Trocar de aba desiste do login em espera: sem o botão de Cancelar, o ouvinte não fica aberto.
   useEffect(() => () => cancelarRef.current?.(), [])
 
