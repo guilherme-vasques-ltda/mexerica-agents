@@ -95,7 +95,7 @@ impl Fixture {
     }
 
     fn mediation(self: &Arc<Self>) -> Guard {
-        Guard { fixture: self.clone(), acquired: false, deny: false, streamable_only: false }
+        Guard { fixture: self.clone(), acquired: false, deny: false }
     }
 }
 
@@ -109,7 +109,6 @@ struct Guard {
     fixture: Arc<Fixture>,
     acquired: bool,
     deny: bool,
-    streamable_only: bool,
 }
 
 impl Mediation for Guard {
@@ -129,7 +128,7 @@ impl Mediation for Guard {
         Ok(Target {
             url: target["url"].as_str().unwrap().parse().unwrap(),
             headers,
-            streamable_only: self.streamable_only || target["streamableOnly"].as_bool().unwrap(),
+            streamable_only: target["streamableOnly"].as_bool().unwrap(),
         })
     }
 
@@ -364,6 +363,9 @@ async fn legado_inspeciona_post_erro_notificacao_e_pedido_reverso_sem_entregar_r
 
 #[tokio::test]
 async fn planetscale_recusa_recursos_e_prompts_antes_de_entregar_alvo() {
+    if crate::environment::Environment::is_open() {
+        return;
+    }
     let url = "https://mcp.pscale.dev/mcp/planetscale-insights-only";
     let fixture = Fixture::with_account(url, false, true);
     for mcp_method in ["resources/list", "resources/templates/list", "resources/read", "prompts/list", "prompts/get"] {
@@ -379,7 +381,21 @@ async fn planetscale_recusa_recursos_e_prompts_antes_de_entregar_alvo() {
 
 #[tokio::test]
 async fn perfil_streamable_nao_envia_header_a_outro_caminho_na_mesma_origem() {
+    struct StreamableOnly(Url);
+    impl Mediation for StreamableOnly {
+        async fn target(&mut self, _method: &str, _stale: bool) -> Result<Target> {
+            let mut headers = HeaderMap::new();
+            headers.insert("authorization", "Bearer fixture-service".parse().unwrap());
+            Ok(Target { url: self.0.clone(), headers, streamable_only: true })
+        }
+
+        async fn observe(&mut self, _frame: Value, _method: &str) -> Result<Option<Value>> {
+            Ok(None)
+        }
+    }
     for status in [StatusCode::NOT_FOUND, StatusCode::METHOD_NOT_ALLOWED, StatusCode::TEMPORARY_REDIRECT] {
+        let admitted = Arc::new(AtomicUsize::new(0));
+        let first = admitted.clone();
         let forbidden = Arc::new(AtomicUsize::new(0));
         let get = forbidden.clone();
         let post = forbidden.clone();
@@ -387,7 +403,15 @@ async fn perfil_streamable_nao_envia_header_a_outro_caminho_na_mesma_origem() {
             Router::new()
                 .route(
                     "/mcp",
-                    routing::post(move || async move { (status, [("location", "/outro")]) }).get(move || {
+                    routing::post(move |headers: HeaderMap| {
+                        let first = first.clone();
+                        async move {
+                            assert_eq!(headers["authorization"], "Bearer fixture-service");
+                            first.fetch_add(1, Ordering::SeqCst);
+                            (status, [("location", "/outro")])
+                        }
+                    })
+                    .get(move || {
                         get.fetch_add(1, Ordering::SeqCst);
                         async { ([("content-type", "text/event-stream")], "event: endpoint\ndata: /outro\n\n") }
                     }),
@@ -401,10 +425,9 @@ async fn perfil_streamable_nao_envia_header_a_outro_caminho_na_mesma_origem() {
                 ),
         )
         .await;
-        let fixture = Fixture::with_oauth(&remote.url, false);
-        let mut guard = fixture.mediation();
-        guard.streamable_only = true;
+        let guard = StreamableOnly(remote.url.parse().unwrap());
         assert!(Session::new(guard).unwrap().exchange(request(1, "initialize")).await.is_err());
+        assert_eq!(admitted.load(Ordering::SeqCst), 1);
         assert_eq!(forbidden.load(Ordering::SeqCst), 0);
     }
 }

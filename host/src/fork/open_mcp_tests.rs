@@ -80,11 +80,6 @@ async fn server() -> Server {
 }
 
 fn fixture(endpoint: &Url, ingress: &str, same_space: bool) -> (Arc<Hub>, open_chat::Ticket, Option<LocalTurn>) {
-    let hub = oauth_binding::tests::hub();
-    let bot = uuid::Uuid::new_v4().to_string();
-    let lane = Lane::main(&bot);
-    let cfg = serde_json::from_value(json!({"id":bot,"name":"Fixture bot","connectors":[ACCOUNT]})).unwrap();
-    hub.store.save_bot(&cfg).unwrap();
     let catalog = catalogo_servicos::servico("linear").unwrap().tipo("linear.oficial_oauth").unwrap();
     let mut token = endpoint.join("token").unwrap();
     token.set_query(None);
@@ -93,6 +88,15 @@ fn fixture(endpoint: &Url, ingress: &str, same_space: bool) -> (Arc<Hub>, open_c
         "space":if same_space { crate::fork::spaces::PERSONAL } else { "00000000-0000-4000-8000-000000000099" },
         "oauth":{"clientId":"fixture-client","tokenEndpoint":token.as_str(),"accessToken":OLD,"refreshToken":"fixture-old-refresh"}
     })).unwrap();
+    fixture_with_account(account, ingress)
+}
+
+fn fixture_with_account(account: Connector, ingress: &str) -> (Arc<Hub>, open_chat::Ticket, Option<LocalTurn>) {
+    let hub = oauth_binding::tests::hub();
+    let bot = uuid::Uuid::new_v4().to_string();
+    let lane = Lane::main(&bot);
+    let cfg = serde_json::from_value(json!({"id":bot,"name":"Fixture bot","connectors":[ACCOUNT]})).unwrap();
+    hub.store.save_bot(&cfg).unwrap();
     market::save_connectors(&hub.store, &[account]).unwrap();
     let ticket = open_chat::admit_for_test(&hub, &bot, "fixture-codex").unwrap();
     let turn = hub.store.alloc_turn(&bot).unwrap();
@@ -178,17 +182,17 @@ async fn mcp_open_planetscale_nao_tenta_sse_legado() {
         }),
     );
     let task = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
-    let (hub, _ticket, proof) = fixture(&endpoint, "local", true);
-    let mut account = market::connectors(&hub.store).unwrap().remove(0);
     let catalog = catalogo_servicos::servico("planetscale").unwrap().tipo("planetscale.oficial_chave").unwrap();
-    account.url = Some(catalog.url.into());
-    account.servico = Some("planetscale".into());
-    account.tipo = Some(catalog.id.into());
-    account.liberacoes = vec!["insights".into()];
-    account.oauth = None;
-    account.headers.insert("Authorization".into(), "Bearer fixture-service".into());
-    market::save_connectors(&hub.store, &[account]).unwrap();
-    let result = Box::pin(run(&hub, &proof.unwrap(), LIST, &json!({"account":ACCOUNT}), Some(endpoint))).await;
+    let account = serde_json::from_value(json!({
+        "id":ACCOUNT,"name":"Fixture account","url":catalog.url,"servico":"planetscale","tipo":catalog.id,
+        "liberacoes":["insights"],"space":crate::fork::spaces::PERSONAL,
+        "headers":{"Authorization":"Bearer fixture-service"}
+    }))
+    .unwrap();
+    let (hub, _ticket, proof) = fixture_with_account(account, "local");
+    let proof = proof.unwrap();
+    RuntimeIntent::capture_open(&hub, &proof, ACCOUNT).unwrap().snapshot(&hub).unwrap();
+    let result = Box::pin(run(&hub, &proof, LIST, &json!({"account":ACCOUNT}), Some(endpoint))).await;
     task.abort();
     assert!(result.is_err());
     assert_eq!(calls.load(Ordering::SeqCst), 1);
