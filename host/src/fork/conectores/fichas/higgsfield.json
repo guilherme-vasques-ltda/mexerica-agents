@@ -2,7 +2,7 @@
   "id": "higgsfield",
   "nome": "Higgsfield",
   "categoria": "Design e mídia",
-  "descricao": "Plataforma de geração por IA (imagem, vídeo, áudio, dublagem, personagens Soul): o MCP roda as mesmas gerações do site.",
+  "descricao": "Gera imagem, vídeo, áudio e personagens Soul com os créditos da conta; cada ação só roda depois que você ligar.",
   "exemplos": [
     "Crie um vídeo curto a partir desta imagem",
     "Mostre as últimas criações da minha conta"
@@ -13,12 +13,13 @@
     "privacidade": "https://higgsfield.ai/privacy-policy",
     "termos": "https://higgsfield.ai/terms"
   },
-  "conferidaEm": "2026-11-18",
+  "conferidaEm": "2026-11-27",
   "fontes": [
     "https://higgsfield.ai/creator-hub/help-center/integrations/what-is-higgsfield-mcp",
-    "https://mcp.higgsfield.ai/.well-known/oauth-protected-resource"
+    "https://mcp.higgsfield.ai/.well-known/oauth-protected-resource",
+    "https://mcp.higgsfield.ai/.well-known/oauth-authorization-server"
   ],
-  "aviso": "Gasta créditos da sua conta do Higgsfield a cada criação.",
+  "aviso": "Cada geração desconta créditos, mesmo nos modelos Unlimited do site.",
   "tipos": [
     {
       "id": "higgsfield.oficial_oauth",
@@ -34,17 +35,20 @@
         {
           "id": "usar",
           "rotulo": "Usar com a sua conta",
-          "escopos": [],
+          "escopos": [
+            "openid",
+            "email",
+            "offline_access"
+          ],
           "padrao": true,
-          "disponivel": false
+          "disponivel": true,
+          "imposicao": "filtro"
         }
       ],
       "recomendado": true,
-      "disponivel": false,
-      "motivoIndisponivel": "O Higgsfield não oferece um modo só de leitura; entra depois do filtro de ações perigosas."
+      "disponivel": true
     }
   ],
-  "emBreve": "O fornecedor não impõe leitura: entra depois do filtro de ações perigosas.",
   "skillsOficiais": [
     {
       "url": "https://github.com/higgsfield-ai/skills",

@@ -727,7 +727,7 @@ mod tests {
             let options = crate::agent::engine_permissions::codex_options(vec![
                 json!({"optionId":"allow_for_session", "kind":"allow_always"}),
             ]);
-            assert_eq!(options[0]["name"], "Permitir nesta sessão");
+            assert_eq!(options, [] as [Value; 0]);
         }
         let frame = json!({"jsonrpc":"2.0", "id":1, "method":"tools/call",
             "params":{"name":"ler", "arguments":{}}});
