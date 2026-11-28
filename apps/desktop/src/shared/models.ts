@@ -53,6 +53,7 @@ export interface Bot {
   managedWorkspace: boolean
   /** Aviso do Hub para revisar uma pasta antiga recusada pela política atual. */
   workspaceIssue?: string | null
+  localCommandsEnabled?: boolean
   /** `ask` or `auto`. */
   permission: string
   model?: string | null
@@ -132,6 +133,7 @@ export function normalizeBot(raw: Partial<Bot> & { id: string }): Bot {
     cwd: raw.cwd ?? '',
     managedWorkspace: raw.managedWorkspace ?? false,
     workspaceIssue: raw.workspaceIssue ?? null,
+    ...(typeof raw.localCommandsEnabled === 'boolean' ? { localCommandsEnabled: raw.localCommandsEnabled } : {}),
     permission: raw.permission ?? 'auto',
     model: raw.model ?? null,
     modelOptions: raw.modelOptions ?? {},

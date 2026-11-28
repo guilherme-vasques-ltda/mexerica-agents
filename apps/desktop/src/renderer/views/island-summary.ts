@@ -166,7 +166,7 @@ const lastError = (entries: Entry[]) => entries.findLast((e) => e.kind === 'noti
 function pendingCards({ ref, bot, store }: RosterItem): IslandPermission[] {
   return store
     .allEntries(bot.id)
-    .filter((e) => e.kind === 'permission' && e.data.status === 'pending')
+    .filter((e) => e.kind === 'permission' && e.data.status === 'pending' && e.data.toolKind !== 'open_local_command')
     .map((e) => {
       const author = (e.data.author ? store.bots.get(e.data.author) : undefined) ?? bot
       return {
