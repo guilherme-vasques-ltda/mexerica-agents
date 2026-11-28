@@ -9,8 +9,10 @@ const disconnected = () => new Error('hub_offline')
 const timeout = 8_000
 const maxMessage = 400_000
 
-export type Terminal = { code: 'device_revoked' | 'device_unpaired' }
+type Terminal = { code: 'device_revoked' | 'device_unpaired' }
   | { code: 'device_revoked' | 'workspace_revoked' | 'role_changed'; epoch: number }
+export type ChannelEnd = Terminal | { code: 'transport_lost' }
+const transientCloseCodes = new Set([1000, 1001, 1005, 1006, 1011, 1012, 1013, 4011])
 export interface ChannelTarget {
   origin: string
   relayOrigin?: string
@@ -29,7 +31,7 @@ export function openRemoteChannel(
   device: AsyncSigner,
   signal: AbortSignal,
   pair: boolean,
-  ended: (reason?: Terminal) => void,
+  ended: (reason?: ChannelEnd) => void,
   connect: (url: string, headers?: Record<string, string>) => SocketLike =
     (url, headers) => headers ? browserSocket(url, headers) : new WebSocket(url),
 ) {
@@ -56,7 +58,7 @@ export function openRemoteChannel(
   let reject!: (error: Error) => void
   const ready = new Promise<void>((yes, no) => { resolve = yes; reject = no })
 
-  const close = (reason?: Terminal) => {
+  const close = (reason?: ChannelEnd) => {
     if (closed) return
     closed = true
     clearTimeout(deadline)
@@ -69,7 +71,8 @@ export function openRemoteChannel(
     if (!signal.aborted) ended(reason)
   }
   const abort = () => close()
-  const deadline = setTimeout(abort, timeout)
+  const transportLost = () => close({ code: 'transport_lost' })
+  const deadline = setTimeout(transportLost, timeout)
   signal.addEventListener('abort', abort, { once: true })
   const send = (frame: object) => {
     if (closed || signal.aborted || !opened || !socket) throw disconnected()
@@ -90,12 +93,15 @@ export function openRemoteChannel(
       if (!relay) { hello(); return }
       lastHeard = Date.now()
       heartbeat = setInterval(() => {
-        if (Date.now() - lastHeard >= DEFAULT_TIMINGS.silenceMs) { close(); return }
-        try { send({ t: 'ping' }) } catch { close() }
+        if (Date.now() - lastHeard >= DEFAULT_TIMINGS.silenceMs) { transportLost(); return }
+        try { send({ t: 'ping' }) } catch { transportLost() }
       }, DEFAULT_TIMINGS.pingMs)
     })
-    socket.addEventListener('close', abort)
-    socket.addEventListener('error', abort)
+    socket.addEventListener('close', ({ code }) => {
+      if (transientCloseCodes.has(code)) transportLost()
+      else close()
+    })
+    socket.addEventListener('error', transportLost)
     socket.addEventListener('message', ({ data }) => {
       if (closed) return
       try {
@@ -105,6 +111,7 @@ export function openRemoteChannel(
           lastHeard = Date.now()
           if (frame.t === 'presence') {
             if (frame.online === true && !started) hello()
+            else if (typeof frame.online === 'boolean') transportLost()
             else close()
             return
           }

@@ -5,7 +5,7 @@ import { WEB_UNAVAILABLE } from '../platform.ts'
 import type { RemoteHub } from './controller.ts'
 import { markDevice, remoteDevice } from './device.ts'
 import { createPartitions, partitionId } from './partitions.ts'
-import { channelOrigin, openRemoteChannel, type ChannelTarget, type Terminal } from './socket.ts'
+import { channelOrigin, openRemoteChannel, type ChannelEnd, type ChannelTarget } from './socket.ts'
 import { hubOffline, type WorkspaceContext } from './workspace-session.ts'
 import type { Workspace } from './workspaces.ts'
 
@@ -102,7 +102,7 @@ export function createRemoteHub(
       let expiresAt = 0
       let renewal: ReturnType<typeof setTimeout> | undefined
       let hardExpiry: ReturnType<typeof setTimeout> | undefined
-      const onEnd = (reason?: Terminal) => {
+      const onEnd = (reason?: ChannelEnd) => {
         if (signal.aborted) return
         if (reason?.code === 'device_revoked') {
           partitions.revokeHub(binding.hubId)
@@ -113,9 +113,10 @@ export function createRemoteHub(
           callbacks.needsPairing()
         } else if (context && (reason?.code === 'role_changed' || reason?.code === 'workspace_revoked')) {
           partitions.cut(context, reason.epoch)
-          callbacks.recoverContext()
+          if (reason.code === 'workspace_revoked') callbacks.accessLost(403, 'workspace_forbidden')
+          else callbacks.offline('stopped')
         } else {
-          callbacks.offline()
+          callbacks.offline(reason?.code === 'transport_lost' ? 'transport' : 'stopped')
         }
       }
       const link = deps.connect(binding, device.signer, signal, false, onEnd)

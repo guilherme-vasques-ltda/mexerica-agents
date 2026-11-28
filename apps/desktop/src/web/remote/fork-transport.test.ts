@@ -38,6 +38,7 @@ function fixture(options: { enrolled?: boolean; fresh?: boolean; renew?: boolean
   let epoch = context.workspaceEpoch
   let tokenRequests = 0
   let refuseHello = false
+  let relayOnline = true
   const messages: Envelope[] = []
   const receivedNonces = new Set<string>()
   const sockets: FakeSocket[] = []
@@ -62,12 +63,12 @@ function fixture(options: { enrolled?: boolean; fresh?: boolean; renew?: boolean
       queueMicrotask(() => {
         this.readyState = WebSocket.OPEN
         this.dispatchEvent(new Event('open'))
-        if (relay) this.deliver({ t: 'presence', online: true })
+        if (relay) this.deliver({ t: 'presence', online: relayOnline })
       })
     }
     close() {
       this.readyState = WebSocket.CLOSED
-      queueMicrotask(() => this.dispatchEvent(new Event('close')))
+      queueMicrotask(() => this.dispatchEvent(Object.assign(new Event('close'), { code: 1000 })))
     }
     deliver(frame: object) {
       queueMicrotask(() => this.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(frame) })))
@@ -173,6 +174,7 @@ function fixture(options: { enrolled?: boolean; fresh?: boolean; renew?: boolean
   const controller = createRemoteController(({ status }) => states.push(status), remote, createWorkspaceSession(async () => {}))
   return {
     remote, controller, messages, states, sockets, routes, advance: () => { epoch++; now++ }, advanceClock: (ms: number) => { now += ms },
+    setRelayOnline: (online: boolean) => { relayOnline = online },
     refuseNextHello: () => { refuseHello = true }, restoreEpoch: () => { epoch = context.workspaceEpoch },
     open: () => controller.setIdentity(context.userId, [], [personal]),
     close: () => controller.setIdentity(null, [], []),
@@ -184,6 +186,8 @@ async function until(check: () => boolean) {
   for (let i = 0; i < 100 && !check(); i++) await new Promise((resolve) => setTimeout(resolve, 1))
   assert.ok(check())
 }
+
+const flush = () => new Promise<void>((resolve) => setImmediate(resolve))
 
 test('pairs using independent Hub transcript/possession bytes and exposes only the events stream', async (t) => {
   const f = fixture({ enrolled: false })
@@ -286,7 +290,8 @@ test('missing binding or session token denies app access without sending authent
 })
 
 for (const code of ['role_changed', 'workspace_revoked', 'device_revoked'] as const) {
-  test(`signed ${code} fences responses and purges without replay`, async (t) => {
+  test(`signed ${code} fences responses and purges without reconnect or replay`, async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] })
     const f = fixture({ holdSend: true })
     t.after(f.close)
     await f.open()
@@ -294,17 +299,54 @@ for (const code of ['role_changed', 'workspace_revoked', 'device_revoked'] as co
     renderer.storage.setItem('sentinel', 'old')
     const local = (await renderer.host.snapshot()).local!
     const sending = assert.rejects(renderer.host.call(origin, local.token, 'send', {}, 1000))
-    await until(() => f.messages.some((m) => m.m === 'send'))
+    await flush()
+    assert.ok(f.messages.some((m) => m.m === 'send'))
     f.sockets[0].cut(code)
     await sending
-    await until(() => f.last() === (code === 'device_revoked' ? 'device_revoked' : 'active'))
+    t.mock.timers.tick(120_000)
+    await flush()
+    assert.equal(f.last(), { device_revoked: 'device_revoked', workspace_revoked: 'revoked', role_changed: 'hub_offline' }[code])
     assert.equal(renderer.storage.getItem('sentinel'), null)
     assert.equal((await renderer.host.snapshot()).local, null)
     assert.equal(f.remote.rendererContext()?.storage.getItem('sentinel') ?? null, null)
     assert.equal(f.messages.filter((m) => m.m === 'send').length, 1)
-    assert.equal(f.sockets.length, code === 'device_revoked' ? 1 : 2)
+    assert.equal(f.sockets.length, 1)
   })
 }
+
+test('reconnects to the relay after Hub restart without pairing again or replaying send', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const f = fixture({ relay: true, holdSend: true })
+  t.after(f.close)
+  await f.open()
+  assert.equal(f.last(), 'active')
+  const local = (await f.remote.host.snapshot()).local!
+  const pending = assert.rejects(f.remote.host.call(origin, local.token, 'send', {}, 10_000))
+  await flush()
+  assert.equal(f.messages.filter((m) => m.m === 'send').length, 1)
+  f.setRelayOnline(false)
+  f.sockets[0].close()
+  await pending
+  assert.equal(f.last(), 'hub_offline')
+  assert.equal(f.remote.rendererContext(), undefined)
+  for (const [i, delay] of [1_000, 2_000, 4_000, 8_000, 16_000].entries()) {
+    t.mock.timers.tick(delay)
+    await flush()
+    assert.equal(f.last(), 'hub_offline')
+    assert.equal(f.sockets.length, i + 2)
+  }
+  t.mock.timers.tick(10_000)
+  f.setRelayOnline(true)
+  t.mock.timers.tick(19_999)
+  assert.equal(f.sockets.length, 6)
+  t.mock.timers.tick(1)
+  await flush()
+  assert.equal(f.last(), 'active')
+  assert.deepEqual(f.routes, Array<string>(7).fill('relay'))
+  assert.equal(f.messages.filter((m) => m.m === 'send').length, 1)
+  assert.equal(f.messages.filter((m) => m.m === 'pair').length, 0)
+  await assert.rejects(f.remote.host.call(origin, local.token, 'send', {}, 1000))
+})
 
 for (const loss of ['unsigned reject', 'transport close'] as const) {
   test(`${loss} is offline and retains the partition until a new session attests an epoch change`, async (t) => {
