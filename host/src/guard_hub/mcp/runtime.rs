@@ -158,6 +158,7 @@ pub(super) fn remote_matches(namespace: &str, connector: &str, context: &str, br
         .is_some_and(|saved| saved == fingerprint)
 }
 
+#[derive(Clone, Copy)]
 pub(super) enum LocalDiscovery {
     Start { generation: i64, paginated: bool },
     Finish,
