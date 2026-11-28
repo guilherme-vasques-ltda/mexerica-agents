@@ -86,5 +86,6 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.aprovacao.acesso.navegador": "El bot pasa a usar el navegador de este ordenador.",
   "conversa.aprovacao.acesso.pasta": "El bot pasa a trabajar en esta carpeta:",
   "conversa.aprovacao.acesso.desfazer": "Deshacer",
+  "conversa.aprovacao.acesso.permitir": "Permitir hasta deshacer",
   "conversa.aprovacao.acesso.desfeito": "Acceso deshecho.",
 }

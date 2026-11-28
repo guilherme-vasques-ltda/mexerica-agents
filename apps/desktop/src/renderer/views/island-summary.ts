@@ -175,7 +175,7 @@ function pendingCards({ ref, bot, store }: RosterItem): IslandPermission[] {
         bot: { name: author.name, shape: author.avatarShape, color: botAccent(author), backend: store.backendName(author.backend), avatarConfig: avatarDoBot(author), avatarMood: store.avatarMoods.get(author.id), avatarLabel: author.name },
         headline: permissionHeadline(tIlha(), e.data.toolKind),
         title: permissionDetail(tIlha(), e.data.toolKind, e.data.title),
-        options: sortedOptions(e.data.options ?? []).map((o) => ({ id: o.optionId, label: optionLabel(tIlha(), o), kind: o.kind })),
+        options: sortedOptions(e.data.options ?? []).map((o) => ({ id: o.optionId, label: optionLabel(tIlha(), o, false, !!e.data.access), kind: o.kind })),
         answering: store.answering.get(e.id) ?? null,
       }
     })

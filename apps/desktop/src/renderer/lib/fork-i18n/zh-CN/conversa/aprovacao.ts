@@ -86,5 +86,6 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.aprovacao.acesso.navegador": "机器人将开始使用这台电脑的浏览器。",
   "conversa.aprovacao.acesso.pasta": "机器人将开始在此文件夹中工作：",
   "conversa.aprovacao.acesso.desfazer": "撤销",
+  "conversa.aprovacao.acesso.permitir": "允许，直到撤销",
   "conversa.aprovacao.acesso.desfeito": "已撤销访问权限。",
 }

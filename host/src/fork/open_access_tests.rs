@@ -82,7 +82,7 @@ async fn sem_o_aprovar_do_dono_nada_e_concedido_nem_em_aprovacao_automatica() {
     let revalidate = || Ok(hub.store.bot("bot")?.unwrap().config);
     let args = json!({"access":"computer","reason":"rodar os testes"});
     let mut events = hub.events.subscribe();
-    let mut waiting = Box::pin(call(&hub, &lane, 1, &args, revalidate));
+    let mut waiting = Box::pin(call(&hub, &lane, 1, &args, revalidate, || Ok(())));
     let card = tokio::select! {
         _ = &mut waiting => panic!("acesso concedido sem resposta do dono"),
         card = next_card(&hub, &mut events) => card,
@@ -93,7 +93,7 @@ async fn sem_o_aprovar_do_dono_nada_e_concedido_nem_em_aprovacao_automatica() {
     assert_eq!(hub.store.entry(&card.id).unwrap().data["status"], "cancelled");
     assert!(!commands(&hub));
 
-    let (refused, ()) = tokio::join!(call(&hub, &lane, 2, &args, revalidate), async {
+    let (refused, ()) = tokio::join!(call(&hub, &lane, 2, &args, revalidate, || Ok(())), async {
         let card = next_card(&hub, &mut events).await;
         answer(&hub, &card, "deny").await;
     });
@@ -112,7 +112,7 @@ async fn desfazer_tira_o_acesso_concedido_pelo_card() {
     let revalidate = || Ok(hub.store.bot("bot")?.unwrap().config);
     let mut events = hub.events.subscribe();
     let args = json!({"access":"computer","reason":"rodar os testes"});
-    let (granted, card) = tokio::join!(call(&hub, &lane, 1, &args, revalidate), async {
+    let (granted, card) = tokio::join!(call(&hub, &lane, 1, &args, revalidate, || Ok(())), async {
         let card = next_card(&hub, &mut events).await;
         answer(&hub, &card, "allow").await;
         card
@@ -143,16 +143,16 @@ async fn pasta_segue_as_regras_e_e_conferida_de_novo_ao_aplicar() {
     let home = crate::service::home();
     for path in [home.join(".ssh"), home.clone(), "/".into(), "/etc".into()] {
         let args = json!({"access":"folder","reason":"ler o projeto","path":path});
-        assert!(call(&hub, &lane, 1, &args, revalidate).await.is_err(), "{path:?}");
+        assert!(call(&hub, &lane, 1, &args, revalidate, || Ok(())).await.is_err(), "{path:?}");
     }
-    assert!(call(&hub, &lane, 1, &json!({"access":"folder","reason":"ler"}), revalidate).await.is_err());
+    assert!(call(&hub, &lane, 1, &json!({"access":"folder","reason":"ler"}), revalidate, || Ok(())).await.is_err());
 
     let work = tempfile::tempdir().unwrap();
     let trocada = work.path().join("projeto");
     std::fs::create_dir(&trocada).unwrap();
     let mut events = hub.events.subscribe();
     let args = json!({"access":"folder","reason":"ler o projeto","path":trocada});
-    let (refused, ()) = tokio::join!(call(&hub, &lane, 1, &args, revalidate), async {
+    let (refused, ()) = tokio::join!(call(&hub, &lane, 1, &args, revalidate, || Ok(())), async {
         let card = next_card(&hub, &mut events).await;
         std::fs::remove_dir(&trocada).unwrap();
         std::os::unix::fs::symlink("/etc", &trocada).unwrap();
@@ -165,7 +165,7 @@ async fn pasta_segue_as_regras_e_e_conferida_de_novo_ao_aplicar() {
     let projeto = work.path().join("outro");
     std::fs::create_dir(&projeto).unwrap();
     let args = json!({"access":"folder","reason":"ler o projeto","path":projeto});
-    let (granted, card) = tokio::join!(call(&hub, &lane, 2, &args, revalidate), async {
+    let (granted, card) = tokio::join!(call(&hub, &lane, 2, &args, revalidate, || Ok(())), async {
         let card = next_card(&hub, &mut events).await;
         answer(&hub, &card, "allow").await;
         card
@@ -174,4 +174,104 @@ async fn pasta_segue_as_regras_e_e_conferida_de_novo_ao_aplicar() {
     assert_eq!(cwd(&hub), std::fs::canonicalize(&projeto).unwrap().to_str().unwrap());
     dispatch(&hub, &Caller::Local, "undoAccessGrant", json!({"botId":"bot","entryId":card.id})).await.unwrap();
     assert_eq!(cwd(&hub), "");
+}
+
+#[tokio::test]
+async fn sem_a_reserva_do_turno_no_commit_nada_e_concedido() {
+    if !crate::environment::Environment::is_open() {
+        return;
+    }
+    let (hub, _directory) = fixture();
+    let lane = Lane::main("bot");
+    let revalidate = || Ok(hub.store.bot("bot")?.unwrap().config);
+    let mut events = hub.events.subscribe();
+    let args = json!({"access":"computer","reason":"rodar os testes"});
+    let lost = || -> Result<()> { anyhow::bail!("open_tools_local_turn_required") };
+    let (refused, card) = tokio::join!(call(&hub, &lane, 1, &args, revalidate, lost), async {
+        let card = next_card(&hub, &mut events).await;
+        answer(&hub, &card, "allow").await;
+        card
+    });
+    assert_eq!(refused.unwrap_err().to_string(), "open_tools_local_turn_required");
+    assert!(!commands(&hub));
+    assert_eq!(grants(&hub), 0);
+    assert_eq!(hub.store.entry(&card.id).unwrap().data["access"]["state"], "pending");
+}
+
+#[tokio::test]
+async fn desfazer_antigo_nao_sobrescreve_autorizacao_posterior_nem_outro_space() {
+    if !crate::environment::Environment::is_open() {
+        return;
+    }
+    let (hub, _directory) = fixture();
+    let lane = Lane::main("bot");
+    let revalidate = || Ok(hub.store.bot("bot")?.unwrap().config);
+    let mut events = hub.events.subscribe();
+    let args = json!({"access":"computer","reason":"rodar os testes"});
+    let (granted, card) = tokio::join!(call(&hub, &lane, 1, &args, revalidate, || Ok(())), async {
+        let card = next_card(&hub, &mut events).await;
+        answer(&hub, &card, "allow").await;
+        card
+    });
+    granted.unwrap();
+    {
+        let db = hub.store.db.locked();
+        open_command_settings::set(&db, "bot", false).unwrap();
+        open_command_settings::set(&db, "bot", true).unwrap();
+    }
+    let undo = json!({"botId":"bot","entryId":card.id});
+    let refused = dispatch(&hub, &Caller::Local, "undoAccessGrant", undo).await.unwrap_err();
+    assert!(format!("{refused:#}").contains("open_access_changed"), "{refused:#}");
+    assert!(commands(&hub));
+
+    let mut cfg = hub.store.bot("bot").unwrap().unwrap().config;
+    cfg.browser_preference = BrowserPreference::Off;
+    hub.store.save_bot_as_owner(&cfg).unwrap();
+    let args = json!({"access":"browser","reason":"abrir a página"});
+    let (granted, card) = tokio::join!(call(&hub, &lane, 2, &args, revalidate, || Ok(())), async {
+        let card = next_card(&hub, &mut events).await;
+        answer(&hub, &card, "allow").await;
+        card
+    });
+    granted.unwrap();
+    let key = format!("{GRANT}{}", card.id);
+    {
+        let db = hub.store.db.locked();
+        let raw: String = db.query_row("SELECT v FROM kv WHERE k=?1", [&key], |r| r.get(0)).unwrap();
+        let mut grant: Value = serde_json::from_str(&raw).unwrap();
+        grant["space"] = json!("outro-space");
+        db.execute("UPDATE kv SET v=?2 WHERE k=?1", params![key, grant.to_string()]).unwrap();
+    }
+    let undo = json!({"botId":"bot","entryId":card.id});
+    assert!(dispatch(&hub, &Caller::Local, "undoAccessGrant", undo).await.is_err());
+    assert_eq!(hub.store.bot("bot").unwrap().unwrap().config.browser_preference, BrowserPreference::Integrated);
+    assert_eq!(hub.store.entry(&card.id).unwrap().data["access"]["state"], "granted");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn pasta_que_passa_a_apontar_para_outro_destino_permitido_e_recusada() {
+    if !crate::environment::Environment::is_open() {
+        return;
+    }
+    let (hub, _directory) = fixture();
+    let lane = Lane::main("bot");
+    let revalidate = || Ok(hub.store.bot("bot")?.unwrap().config);
+    let work = tempfile::tempdir().unwrap();
+    let exibida = work.path().join("exibida");
+    let outra = work.path().join("outra");
+    std::fs::create_dir(&exibida).unwrap();
+    std::fs::create_dir(&outra).unwrap();
+    let mut events = hub.events.subscribe();
+    let args = json!({"access":"folder","reason":"ler o projeto","path":exibida});
+    let (refused, ()) = tokio::join!(call(&hub, &lane, 1, &args, revalidate, || Ok(())), async {
+        let card = next_card(&hub, &mut events).await;
+        assert!(card.data["detail"].as_str().unwrap().contains("Vale até você desfazer"));
+        std::fs::remove_dir(&exibida).unwrap();
+        std::os::unix::fs::symlink(&outra, &exibida).unwrap();
+        answer(&hub, &card, "allow").await;
+    });
+    assert!(format!("{:#}", refused.unwrap_err()).contains("open_access_changed"));
+    assert_eq!(cwd(&hub), "");
+    assert_eq!(grants(&hub), 0);
 }

@@ -107,8 +107,15 @@ impl<'a> Turn<'a> {
             return self.delegation_turn()?.status(args);
         }
         if name == super::open_access::TOOL {
-            return super::open_access::call(self.hub, self.proof.lane(), self.proof.turn(), args, || self.check())
-                .await;
+            return super::open_access::call(
+                self.hub,
+                self.proof.lane(),
+                self.proof.turn(),
+                args,
+                || self.check(),
+                || self.proof.reserve(self.hub),
+            )
+            .await;
         }
         if super::open_tool_actions::offered(name) {
             return super::open_tool_actions::call(

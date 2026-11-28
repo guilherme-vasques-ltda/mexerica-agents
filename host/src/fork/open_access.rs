@@ -1,6 +1,7 @@
 //! Pedido de acesso do agente no turno do dono local: computador, navegador ou pasta. Nada é concedido sem o
-//! Aprovar do dono no app, nem com o bot em aprovação automática; a pasta é conferida de novo ao aplicar e cada
-//! concessão guarda o estado anterior para o Desfazer.
+//! Aprovar do dono no app, nem com o bot em aprovação automática. A concessão vale até o Desfazer: o turno segue
+//! reservado e a pasta exibida é conferida de novo até o commit, e o cartão muda na mesma transação. Cada concessão
+//! guarda o estado anterior, o Space e a geração do acesso; mudança posterior desse acesso invalida o Desfazer.
 use super::{autoridade::Autoridade, browser::BrowserPreference, donna_fixa::como_dono, open_command_settings, pasta};
 use crate::{
     LockExt,
@@ -47,6 +48,8 @@ impl State {
 #[derive(Serialize, Deserialize)]
 struct Grant {
     bot: String,
+    space: String,
+    generation: String,
     before: State,
     after: State,
 }
@@ -75,12 +78,13 @@ pub(super) fn catalog() -> Value {
     })
 }
 
-pub(super) async fn call(
+pub(super) async fn call<T>(
     hub: &Arc<Hub>,
     lane: &Lane,
     turn: i64,
     args: &Value,
     revalidate: impl Fn() -> Result<BotConfig>,
+    reserve: impl FnOnce() -> Result<T>,
 ) -> Result<Value> {
     ensure!(crate::environment::Environment::is_open() && lane.session.is_none(), "open_tools_local_turn_required");
     let cfg = revalidate()?;
@@ -109,14 +113,14 @@ pub(super) async fn call(
     let (title, allows) = match access {
         Access::Computer => (
             "Liberar comandos no computador",
-            "Permite pedir comandos locais neste computador, cada um com aprovação no app. Os comandos rodam como você, com os seus arquivos e permissões, sem isolamento.",
+            "Permite pedir comandos locais neste computador, cada um com aprovação no app. Os comandos rodam como você, com os seus arquivos e permissões, sem isolamento. Vale até você desfazer.",
         ),
         Access::Browser => (
             "Liberar o navegador integrado",
-            "Permite usar o navegador integrado da Mexerica. No Mac, o navegador também precisa estar ligado nos ajustes.",
+            "Permite usar o navegador integrado da Mexerica. No Mac, o navegador também precisa estar ligado nos ajustes. Vale até você desfazer.",
         ),
         Access::Folder => {
-            ("Trocar a pasta de trabalho", "Permite ler e trabalhar nos arquivos desta pasta nas próximas respostas.")
+            ("Trocar a pasta de trabalho", "Permite ler e trabalhar nos arquivos desta pasta. Vale até você desfazer.")
         }
     };
     let path = match &after {
@@ -136,6 +140,7 @@ pub(super) async fn call(
         "open_tools_local_turn_required"
     );
     {
+        let _reservation = reserve()?;
         let _emit = hub.emit_lock.locked();
         let mut db = hub.store.db.locked();
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
@@ -147,14 +152,22 @@ pub(super) async fn call(
             .context("open_tools_local_turn_required")?;
         let before = read(&tx, &row.config, access)?;
         write(&tx, &row.config, &after)?;
-        let grant = Grant { bot: cfg.id.clone(), before, after };
+        let grant = Grant {
+            bot: cfg.id.clone(),
+            space: cfg.space_id.clone(),
+            generation: generation(&tx, &cfg.id, access)?,
+            before,
+            after,
+        };
         tx.execute(
             "INSERT INTO kv(k,v) VALUES(?1,?2)",
             params![format!("{GRANT}{}", approved.id), serde_json::to_string(&grant)?],
         )?;
+        let card = mark(&tx, &approved, "granted")?;
         tx.commit()?;
+        emit_entry(hub, &card);
     }
-    publish(hub, &cfg.id, &approved, "granted");
+    reconfigure(hub, &cfg.id);
     Ok(json!({"access":access,"granted":true}))
 }
 
@@ -166,14 +179,14 @@ struct Undo {
 }
 
 /// RPC `undoAccessGrant`: só o app deste computador, com a autoridade do dono reconferida na transação. Volta ao
-/// estado anterior apenas se o acesso ainda é o concedido pelo card.
+/// estado anterior apenas no mesmo Space e se o acesso ainda está na geração gravada pelo card.
 pub(crate) fn undo(hub: &Hub, caller: &Caller, body: &Value) -> Result<Value> {
     ensure!(matches!(caller, Caller::Local), "open_tools_local_app_required");
     let Undo { bot_id, entry_id } = serde_json::from_value(body.clone()).context("invalid_field")?;
     let owner = Autoridade::capturar(hub, caller)?;
-    {
+    let card = {
         let _emit = hub.emit_lock.locked();
-        owner.with_db(hub, None, |db| {
+        let card = owner.with_db(hub, None, |db| {
             let key = format!("{GRANT}{entry_id}");
             let raw: String = db
                 .query_row("SELECT v FROM kv WHERE k=?1", [&key], |r| r.get(0))
@@ -181,16 +194,26 @@ pub(crate) fn undo(hub: &Hub, caller: &Caller, body: &Value) -> Result<Value> {
                 .context("open_access_nothing_to_undo")?;
             let grant: Grant = serde_json::from_str(&raw)?;
             ensure!(grant.bot == bot_id, "open_access_nothing_to_undo");
-            let row = Store::bot_on(db, &bot_id)?.filter(|row| !row.deleted).context("open_access_nothing_to_undo")?;
-            ensure!(read(db, &row.config, grant.after.access())? == grant.after, "open_access_changed");
+            let row = Store::bot_on(db, &bot_id)?
+                .filter(|row| !row.deleted && row.config.space_id == grant.space)
+                .context("open_access_nothing_to_undo")?;
+            let access = grant.after.access();
+            ensure!(
+                generation(db, &bot_id, access)? == grant.generation && read(db, &row.config, access)? == grant.after,
+                "open_access_changed"
+            );
             write(db, &row.config, &grant.before)?;
             db.execute("DELETE FROM kv WHERE k=?1", [&key])?;
-            Ok(())
+            let card = Store::entry_on(db, &entry_id)?
+                .filter(|card| card.bot_id == bot_id)
+                .context("open_access_nothing_to_undo")?;
+            mark(db, &card, "undone")
         })?;
-    }
-    let card = hub.store.entry(&entry_id).context("open_access_nothing_to_undo")?;
-    publish(hub, &bot_id, &card, "undone");
-    Ok(json!({"entry": hub.store.entry(&entry_id)}))
+        emit_entry(hub, &card);
+        card
+    };
+    reconfigure(hub, &bot_id);
+    Ok(json!({"entry": card}))
 }
 
 fn folder(path: &str, bot: &str) -> Result<String> {
@@ -217,16 +240,33 @@ fn write(db: &Connection, cfg: &BotConfig, state: &State) -> Result<()> {
         }
         State::Browser(preference) => cfg.browser_preference = *preference,
         State::Folder(path) => {
-            cfg.cwd = if path.is_empty() { String::new() } else { folder(path, &cfg.id)? };
+            ensure!(path.is_empty() || folder(path, &cfg.id)? == *path, "open_access_changed");
+            cfg.cwd.clone_from(path);
         }
     }
     como_dono(db, |c| crate::store::bots::save_bot(c, &cfg)).map(drop)
 }
 
-fn publish(hub: &Hub, bot: &str, card: &Entry, state: &str) {
+fn generation(db: &Connection, bot: &str, access: Access) -> Result<String> {
+    Ok(match access {
+        Access::Computer => format!("{:?}", open_command_settings::revision(db, bot)?),
+        Access::Browser | Access::Folder => {
+            db.query_row("SELECT config FROM bots WHERE id=?1", [bot], |r| r.get(0)).context("open_access_changed")?
+        }
+    })
+}
+
+fn mark(db: &Connection, card: &Entry, state: &str) -> Result<Entry> {
     let mut data = card.data.clone();
     data["access"]["state"] = json!(state);
-    hub.set_entry(&card.id, &data);
+    Store::update_entry_on(db, &card.id, &data, None)?.context("open_access_nothing_to_undo")
+}
+
+fn emit_entry(hub: &Hub, card: &Entry) {
+    let _ = hub.events.send(json!({"type": "entry", "rev": card.rev, "entry": card}));
+}
+
+fn reconfigure(hub: &Hub, bot: &str) {
     if let Some(row) = hub.store.bot(bot).ok().flatten()
         && let Err(error) = hub.send_cmd(bot, Cmd::Reconfigure(Box::new(row.config)))
     {

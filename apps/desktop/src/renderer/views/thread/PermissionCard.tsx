@@ -25,7 +25,8 @@ export const sortedOptions = (options: PermissionOption[]) => [...options].sort(
 const SESSAO = ['allow_for_session', 'allow_session', 'allow_permissions_session']
 const naSessao = (o: PermissionOption) => o.kind === 'allow_always' && SESSAO.includes(o.optionId)
 
-export function optionLabel(t: Tradutor, o: PermissionOption, screen = false) {
+export function optionLabel(t: Tradutor, o: PermissionOption, screen = false, access = false) {
+  if (access && o.kind === 'allow_once') return t('conversa.aprovacao.acesso.permitir')
   if (screen) {
     switch (o.kind) {
       case 'allow_once': return t('conversa.aprovacao.tela.agora')
@@ -145,12 +146,12 @@ export function PermissionCard({ entry, hostName, answering, respond }: { entry:
           <>
             <div className="approval-actions">
               {opcoes.map((o) => o.kind.startsWith('allow') ? (
-                <HoldButton key={o.optionId} primary={o.optionId === prominent} label={optionLabel(t, o, screen)} disabled={answering !== null || semConexao} onConfirm={() => respond(o.optionId)}>
-                  <HStack as="span" gap={6}>{o.optionId === prominent ? <Icon name="checkmark" size={13} weight="semibold" /> : null}{optionLabel(t, o, screen)}{answering === o.optionId ? <Spinner size={12} /> : null}</HStack>
+                <HoldButton key={o.optionId} primary={o.optionId === prominent} label={optionLabel(t, o, screen, !!acesso)} disabled={answering !== null || semConexao} onConfirm={() => respond(o.optionId)}>
+                  <HStack as="span" gap={6}>{o.optionId === prominent ? <Icon name="checkmark" size={13} weight="semibold" /> : null}{optionLabel(t, o, screen, !!acesso)}{answering === o.optionId ? <Spinner size={12} /> : null}</HStack>
                 </HoldButton>
               ) : (
                 <button key={o.optionId} className="approval-deny" disabled={answering !== null || semConexao} onClick={() => respond(o.optionId)}>
-                  <HStack as="span" gap={6}>{optionLabel(t, o, screen)}{answering === o.optionId ? <Spinner size={12} /> : null}</HStack>
+                  <HStack as="span" gap={6}>{optionLabel(t, o, screen, !!acesso)}{answering === o.optionId ? <Spinner size={12} /> : null}</HStack>
                 </button>
               ))}
             </div>

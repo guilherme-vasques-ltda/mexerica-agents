@@ -74,3 +74,11 @@ test('detalhe curto: aprovação disponível e sem aviso de corte', () => {
   assert.doesNotMatch(card, /Texto cortado/)
   assert.match(card, /Recusar/)
 })
+
+test('cartão de acesso mostra a duração real da concessão no botão de aprovar', () => {
+  const entry = entrada('Permite usar o navegador integrado da Mexerica. Vale até você desfazer.')
+  ;(entry.data as Record<string, unknown>).access = { kind: 'browser', path: null, asUser: false, state: 'pending' }
+  const card = html(h(m.StoreContext.Provider, { value: store }, h(m.PermissionCard, { entry, hostName: 'Mac', answering: null, respond() {} })))
+  assert.match(card, /Permitir até desfazer/)
+  assert.doesNotMatch(card, /Permitir uma vez/)
+})
