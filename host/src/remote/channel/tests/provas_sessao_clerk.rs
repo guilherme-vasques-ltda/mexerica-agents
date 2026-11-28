@@ -7,6 +7,8 @@ use super::*;
 use crate::fork::sessao_clerk::{self as sessao, prova::*};
 use crate::fork::workspace::{EPOCH_FIELD, METHOD as CONTEXTO};
 
+mod web_chat;
+
 #[derive(Clone, Copy, Debug)]
 enum Via {
     Direto,
@@ -68,19 +70,65 @@ async fn parear(hub: &Arc<Hub>, afirmacoes: &Value) -> Result<SigningKey, Value>
 }
 
 async fn parear_em(hub: &Arc<Hub>, afirmacoes: &Value, plataforma: &str) -> Result<SigningKey, Value> {
+    parear_por(hub, afirmacoes, plataforma, plataforma == "web").await
+}
+
+async fn parear_por(
+    hub: &Arc<Hub>,
+    afirmacoes: &Value,
+    plataforma: &str,
+    navegador: bool,
+) -> Result<SigningKey, Value> {
     let key = SigningKey::from_bytes(&crypto::random());
+    readmitir_por(hub, &key, afirmacoes, plataforma, navegador).await.map(|()| key)
+}
+
+async fn readmitir_por(
+    hub: &Arc<Hub>,
+    key: &SigningKey,
+    afirmacoes: &Value,
+    plataforma: &str,
+    navegador: bool,
+) -> Result<(), Value> {
     let code = hub.pairing.locked().issue().code;
-    let mut p = Phone::direct(hub, key.clone());
+    let mut p = if navegador {
+        Phone::connect(hub, key.clone(), ChannelKind::DirectBrowser { peer: [10, 0, 0, 2].into() })
+    } else {
+        Phone::direct(hub, key.clone())
+    };
     assert!(matches!(p.hello(hub, true).await, Out::Msg(v) if v["t"] == "welcome"));
     let b = json!({"code": code, "name": "Aparelho fictício", "platform": plataforma, sessao::CAMPO_TOKEN: token(afirmacoes)});
-    p.send(json!({"id": 1, "m": "pair", "b": b, "pop": pop(&key, &hub.host_id, &p.th, "pair")})).await;
+    p.send(json!({"id": 1, "m": "pair", "b": b, "pop": pop(key, &hub.host_id, &p.th, "pair")})).await;
     let reply = p.recv().await.unwrap();
     if reply.get("ok").is_some() {
         assert_eq!(p.recv().await.unwrap_err().0, close::PAIRED);
-        Ok(key)
+        Ok(())
     } else {
         Err(reply)
     }
+}
+
+#[tokio::test]
+async fn novo_codigo_readmite_o_mesmo_navegador_com_um_novo_prazo() {
+    let hub = temp_hub();
+    vincular(&hub, &vinculo_pessoal());
+    let key = parear_em(&hub, &afirmacoes(DONO), "web").await.unwrap();
+    let dk = crypto::b64(key.verifying_key().as_bytes());
+    let antigo = now_ms() - 2 * Device::WEB_PAREAMENTO_MS;
+    hub.store
+        .db
+        .locked()
+        .execute(
+            "UPDATE devices SET created_at=?1, lease_until=?2 WHERE key=?3",
+            rusqlite::params![antigo, antigo + Device::WEB_PAREAMENTO_MS, dk],
+        )
+        .unwrap();
+    readmitir_por(&hub, &key, &afirmacoes(DONO), "web", true).await.unwrap();
+    let grant = hub.store.device(&dk).unwrap();
+    assert!(grant.created_at > antigo && grant.concessao_web_valida(now_ms()));
+    assert_eq!(grant.lease_until, Some(grant.created_at + Device::WEB_PAREAMENTO_MS));
+    let mut p = conectado_via(&hub, key, Via::Relay).await;
+    assert_eq!(autenticar(&mut p, &hub, 1, &token(&afirmacoes(DONO))).await["ok"]["userId"], DONO);
 }
 
 #[tokio::test]
@@ -90,9 +138,57 @@ async fn navegador_so_pareia_com_sessao_do_workspace() {
     vincular(&hub, &vinculo_pessoal());
     let recusa = parear_em(&hub, &afirmacoes(OUTRO), "web").await.unwrap_err();
     assert_eq!(codigo(&recusa), (&json!(403), &json!("workspace_forbidden")));
+    for (plataforma, navegador) in [("ios", true), ("web", false)] {
+        let recusa = parear_por(&hub, &afirmacoes(DONO), plataforma, navegador).await.unwrap_err();
+        assert_eq!(recusa["err"]["status"], 403);
+        assert!(hub.pairing.locked().open());
+    }
     let key = parear_em(&hub, &afirmacoes(DONO), "web").await.unwrap();
-    let mut p = conectado(&hub, key).await;
+    let dk = crypto::b64(key.verifying_key().as_bytes());
+    let grant = hub.store.device(&dk).unwrap();
+    assert_eq!(grant.scopes, [Scope::WebChat]);
+    assert_eq!(grant.lease_until, Some(grant.created_at + Device::WEB_PAREAMENTO_MS));
+    let mut p = conectado_via(&hub, key, Via::Relay).await;
     assert_eq!(autenticar(&mut p, &hub, 1, &token(&afirmacoes(DONO))).await["ok"]["userId"], DONO);
+    assert_eq!(hub.store.device(&dk).unwrap().lease_until, grant.lease_until);
+    let hello = com_posse(&mut p, &hub, 2, "hello", json!({})).await;
+    assert_eq!(hello["ok"]["computerId"], hub.identity.computer_id());
+    for chave in ["home", "screen", "urls", "device"] {
+        assert!(hello["ok"].get(chave).is_none());
+    }
+    assert_eq!(com_posse(&mut p, &hub, 3, "devices", json!({})).await["err"]["status"], 403);
+    let b = com_epoch(&hub, "sub:term", json!({}));
+    let pop = pop(&p.key, &hub.host_id, &p.th, "sub:term");
+    let term = pedir(&mut p, 4, json!({"sub": "term", "b": b, "pop": pop})).await;
+    assert_eq!(codigo(&term), (&json!(403), &json!("role_insufficient")));
+    assinar_eventos(&mut p, &hub, 5).await;
+}
+
+#[tokio::test]
+async fn prazo_do_grant_web_fecha_o_stream_ativo_sem_esperar_exp_do_clerk() {
+    let hub = temp_hub();
+    vincular(&hub, &vinculo_pessoal());
+    let key = parear_em(&hub, &afirmacoes(DONO), "web").await.unwrap();
+    let dk = crypto::b64(key.verifying_key().as_bytes());
+    let prazo = now_ms() + 8_000;
+    {
+        let mut db = hub.store.db.locked();
+        let tx = db.transaction().unwrap();
+        tx.execute("UPDATE devices SET lease_until=?1 WHERE key=?2", rusqlite::params![prazo, dk]).unwrap();
+        tx.execute(
+            "UPDATE fork_sessao_aparelho_usuario SET geracao=(SELECT geracao FROM donna_device_concessao WHERE chave=?1)
+             WHERE key=?1",
+            [&dk],
+        ).unwrap();
+        tx.commit().unwrap();
+    }
+    let mut p = conectado_via(&hub, key, Via::Relay).await;
+    let auth = autenticar(&mut p, &hub, 1, &token(&afirmacoes(DONO))).await;
+    assert!(auth["ok"]["expiresAt"].as_i64().unwrap() > prazo);
+    assinar_eventos(&mut p, &hub, 2).await;
+    let (close, motivo) = timeout(Duration::from_secs(15), fim(&mut p)).await.unwrap();
+    assert_eq!(close, RejectCode::LeaseExpired.close_code());
+    assert_eq!(motivo["code"], "leaseExpired");
 }
 
 async fn conectado_via(hub: &Arc<Hub>, key: SigningKey, via: Via) -> Phone {

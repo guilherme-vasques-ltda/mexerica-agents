@@ -23,6 +23,18 @@ pub async fn unlock(hub: Arc<crate::hub::Hub>) -> Result<()> {
     if crate::environment::Environment::is_open() {
         return Err(crate::api::devices::Forbidden.into());
     }
+    unlock_aberto(hub).await
+}
+
+/// Cofre da chamada de API. Na Open só o dono local o abre (conectar serviços); turno de bot, ponte e aparelho seguem recusados.
+pub(crate) async fn unlock_para(hub: Arc<crate::hub::Hub>, caller: &crate::api::devices::Caller) -> Result<()> {
+    if crate::environment::Environment::is_open() && !matches!(caller, crate::api::devices::Caller::Local) {
+        return Err(crate::api::devices::Forbidden.into());
+    }
+    unlock_aberto(hub).await
+}
+
+async fn unlock_aberto(hub: Arc<crate::hub::Hub>) -> Result<()> {
     #[cfg(test)]
     hub.store.vault_unlock_attempts.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     vault_unlock::unlock(hub).await

@@ -4,6 +4,7 @@
 use super::devices::Caller;
 use crate::LockExt;
 use crate::hub::Hub;
+use crate::store::SpaceEntryAudience;
 use anyhow::Result;
 use futures::{Stream, StreamExt, stream};
 use serde_json::{Value, json};
@@ -104,6 +105,11 @@ pub fn scoped_events_stream_at(
     workspace_epoch: Option<u64>,
 ) -> Result<impl Stream<Item = Value> + Send + use<>> {
     crate::fork::personal_bootstrap::guard_generic(hub, caller)?;
+    let web = caller.is_web_chat();
+    anyhow::ensure!(
+        !matches!(caller, Caller::Device { scopes, .. } if scopes.contains(&crate::store::Scope::WebChat)) || web,
+        super::devices::Forbidden
+    );
     let retrato = crate::fork::workspace::abrir(hub, super::origem(caller), workspace_epoch)?;
     let workspace = crate::fork::workspace::contexto(hub, caller, &retrato)?;
     let space = space.unwrap_or(crate::fork::spaces::PERSONAL).to_owned();
@@ -114,8 +120,14 @@ pub fn scoped_events_stream_at(
     for bot in hub.bots_json_in_space(since, &space)? {
         catch_up.push(json!({"type": "bot", "rev": bot["rev"], "bot": bot}));
     }
-    let main_only = !local && crate::environment::Environment::is_open();
-    for e in hub.store.entries_since_in_space(&space, since, CATCH_UP_PER_BOT, main_only)? {
+    let audience = if web {
+        SpaceEntryAudience::Web
+    } else if local {
+        SpaceEntryAudience::Local
+    } else {
+        SpaceEntryAudience::Device
+    };
+    for e in hub.store.entries_since_in_space(&space, since, CATCH_UP_PER_BOT, audience)? {
         catch_up.push(json!({"type": "entry", "rev": e.rev, "entry": e}));
     }
     catch_up.extend(crate::fork::sessoes::excluir::catch_up(&hub.store.db.locked(), &space, since)?);
@@ -196,7 +208,10 @@ pub fn scoped_events_stream_at(
             },
         )
     });
-    Ok(crate::fork::workspace::cortar(hub, &retrato, head.chain(tail)))
+    let events = head.chain(tail).filter_map(move |event| {
+        std::future::ready(if web { super::fork_web_chat::event(&event) } else { Some(event) })
+    });
+    Ok(crate::fork::workspace::cortar(hub, &retrato, events))
 }
 
 fn open_session_event_visible(local: bool, event: &Value) -> bool {

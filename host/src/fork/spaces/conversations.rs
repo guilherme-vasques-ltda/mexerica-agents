@@ -155,7 +155,7 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
         return Ok(Some(create(hub, &b)?));
     }
     if method == "donnaConversationHistory" {
-        return Ok(Some(history(hub, &get(hub, &b)?, &b)?));
+        return Ok(Some(history(hub, &get(hub, &b)?, &b, caller.is_web_chat())?));
     }
     let _guard = hub.store.travar_equipe().await;
     let conversation = get(hub, &b)?;
@@ -327,7 +327,7 @@ fn update(hub: &Hub, mut c: Conversation, b: &Value) -> Result<Value> {
     emit(hub, &c);
     Ok(json!({"conversation":c}))
 }
-fn history(hub: &Hub, c: &Conversation, b: &Value) -> Result<Value> {
+fn history(hub: &Hub, c: &Conversation, b: &Value, web: bool) -> Result<Value> {
     let before = b["beforeSeq"].as_i64().unwrap_or(i64::MAX);
     if before != i64::MAX {
         let owner: Option<String> = hub
@@ -342,9 +342,17 @@ fn history(hub: &Hub, c: &Conversation, b: &Value) -> Result<Value> {
     let mut entries = if let Some(query) = b["query"].as_str() {
         ensure!(query.len() <= 4096, "query_too_long");
         let terms = query.split_whitespace().take(8).map(str::to_lowercase).collect::<Vec<_>>();
-        let mut values = hub.store.search_messages(&c.id, &terms, Some(before.saturating_sub(1)), limit + 1)?;
+        let from = Some(before.saturating_sub(1));
+        let mut values = if web {
+            hub.store.search_web_messages(&c.id, &terms, from, limit + 1)?
+        } else {
+            hub.store.search_messages(&c.id, &terms, from, limit + 1)?
+        };
         values.reverse();
         values
+    } else if web {
+        let session = crate::environment::Environment::is_open().then_some(c.id.as_str());
+        hub.store.web_history(&c.id, session, before, limit + 1)?
     } else if crate::environment::Environment::is_open() {
         hub.store.history_in_session(&c.id, Some(&c.id), before, limit + 1)?
     } else {

@@ -153,11 +153,14 @@ pub(super) async fn call(
             let bot = str_arg(&b, "botId")?;
             let before = b["beforeSeq"].as_i64().unwrap_or(i64::MAX);
             let limit = b["limit"].as_i64().unwrap_or(100).clamp(1, 500);
-            let mut session = crate::fork::sessoes::api::history_session(hub, bot, &b)?;
-            if crate::environment::Environment::is_open() {
-                session = session.or(Some(bot));
-            }
-            json!({"entries": hub.store.history_in_session(bot, session, before, limit)?})
+            let session = crate::fork::sessoes::api::history_session(hub, bot, &b)?;
+            let session = session.or_else(|| crate::environment::Environment::is_open().then_some(bot));
+            let entries = if caller.is_web_chat() {
+                hub.store.web_history(bot, session, before, limit)?
+            } else {
+                hub.store.history_in_session(bot, session, before, limit)?
+            };
+            json!({"entries": entries})
         }
         // Notices between a bot and one peer (the newest 200), for the read-only bot conversation sheet.
         "botConversation" => {

@@ -7,6 +7,7 @@ mod bots;
 pub mod devices;
 mod events;
 pub(crate) mod files;
+mod fork_web_chat;
 mod host;
 mod http;
 mod marketplace;
@@ -124,10 +125,17 @@ pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -
     if let Some(recusa) = recusa_sem_classe(origem(caller), method) {
         return Err(recusa);
     }
+    let project = if caller.is_web_chat() { Some(fork_web_chat::rpc(method).ok_or(Forbidden)?) } else { None };
     crate::open_hub::check_request(caller, method, &b)?;
     let b = crate::fork::workspace::conferir_pedido(hub, origem(caller), b)?;
     // D368: a autoridade original do app do dono acompanha o pedido inteiro (`donna_fixa::pedido`).
-    crate::fork::donna_fixa::pedido::com_pedido(hub, caller, Box::pin(dispatch_pedido(hub, caller, method, b))).await
+    let answer =
+        crate::fork::donna_fixa::pedido::com_pedido(hub, caller, Box::pin(dispatch_pedido(hub, caller, method, b)))
+            .await?;
+    if let Some(project) = project {
+        return project(&answer).ok_or_else(|| Forbidden.into());
+    }
+    Ok(answer)
 }
 
 async fn dispatch_pedido(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -> Result<Value> {
@@ -189,6 +197,9 @@ async fn dispatch_pedido(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
     }
     crate::fork::secret_refs::reject_api(method, &b)?;
     crate::fork::spaces::guard(hub, method, &b)?;
+    if caller.is_web_chat() {
+        fork_web_chat::check_send(hub, method, &b)?;
+    }
     let mut b = b;
     // D545: a exclusão conserva o seletor obrigatório até a validação própria do pedido.
     if method != "sessionDelete"
@@ -344,10 +355,14 @@ async fn route(
         // Só chave/geração tocam o cofre: estado e transporte de quadros não
         // devem pedir desbloqueio do chaveiro ao exibir avatar.
         || matches!(method, "mexeriquinhaGeradorChave" | "mexeriquinhaGerar")
+        || matches!(
+            method,
+            "marketConectar" | "marketGoogleAppSalvar" | "marketAppProprioSalvar" | "marketPersonalizado" | "installConnector"
+        )
         || (matches!(method, "agentAuth" | "agentAuthenticate" | "setAgentEnv")
             && !b["backend"].as_str().is_some_and(crate::agent::backends::is_antigravity))
     {
-        market::vault::unlock(hub.clone()).await?;
+        market::vault::unlock_para(hub.clone(), caller).await?;
     }
     if let Some(attempt) = observation {
         let args = b.get("arguments").filter(|a| a.is_object()).cloned().unwrap_or_else(|| serde_json::json!({}));

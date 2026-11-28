@@ -14,7 +14,6 @@ import { CustomConnectorSheet } from './ConnectorSheets'
 import { connectorConfiguration, errorText, needsSignIn } from './market-models'
 import { EmptyState, FormSheet, ItemGrid, ItemRow, MarketBadge, MarketRow, MarketSearch, MarketSection, ScreenHeader, SkeletonGrid, SlideStack, TileIcon } from './pieces'
 import { PaginaSkills } from '../fork/catalogo-skills/PaginaSkills'
-import { extensoesSomenteCatalogo } from '../fork/extensoes/tela'
 import { PaginaConectores } from '../fork/mercado/PaginaConectores'
 import { SkillsInstaladas } from '../fork/catalogo-skills/SkillsInstaladas'
 import { detalheDe, filtrarLocal, selosDe, type Detalhe } from '../fork/meus-mcp/estado'
@@ -131,7 +130,7 @@ export function MarketplaceView({ computers, knownComputers, computer, onCompute
   const hub = store.hello?.hostId ?? null
   const link = store.connectedClient
   const epoch = store.principalEpoch
-  useEffect(() => { if (!extensoesSomenteCatalogo()) void plugins.refresh() }, [hub, link, epoch])
+  useEffect(() => { void plugins.refresh() }, [hub, link, epoch])
 
   const header = (
     <div className="market-heading">

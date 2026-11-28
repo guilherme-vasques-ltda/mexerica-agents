@@ -37,6 +37,19 @@ pub(crate) const ENTRY_COLS: &str =
     "seq, id, bot_id, rev, kind, turn, data, created_at, updated_at, COALESCE(session, bot_id)";
 /// A bot still winding down after its deletion can't leave lines behind (`?2` is the chat).
 const LIVE_CHAT: &str = "WHERE NOT EXISTS (SELECT 1 FROM bots WHERE id = ?2 AND deleted = 1)";
+const WEB_TEXT: &str = "CASE WHEN json_valid(data) THEN
+    json_type(data,'$.text') = 'text'
+    AND json_extract(data,'$.from') IS NOT 'host'
+    AND json_type(data,'$.choice_response') IS NULL
+    AND (kind = 'user' OR (kind = 'agent' AND json_type(data,'$.final') = 'true'))
+    ELSE 0 END";
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SpaceEntryAudience {
+    Local,
+    Device,
+    Web,
+}
 
 /// Consulta pura na transação do chamador; mantém o parser e a autoria canônicos.
 pub(crate) fn entry_on(c: &rusqlite::Connection, id: &str) -> Result<Option<Entry>> {
@@ -51,9 +64,20 @@ pub(crate) fn history_in_session_on(
     before_seq: i64,
     limit: i64,
 ) -> Result<Vec<Entry>> {
+    history_for(c, bot_id, session, before_seq, limit, "")
+}
+
+fn history_for(
+    c: &rusqlite::Connection,
+    bot_id: &str,
+    session: Option<&str>,
+    before_seq: i64,
+    limit: i64,
+    filter: &str,
+) -> Result<Vec<Entry>> {
     let mut st = c.prepare(&format!(
         "SELECT {ENTRY_COLS} FROM entries WHERE bot_id = ?1 AND seq < ?2
-           AND (?4 IS NULL OR CASE WHEN ?4 = bot_id THEN session IS NULL ELSE session = ?4 END)
+           AND (?4 IS NULL OR CASE WHEN ?4 = bot_id THEN session IS NULL ELSE session = ?4 END) {filter}
          ORDER BY seq DESC LIMIT ?3"
     ))?;
     let mut rows: Vec<Entry> =
@@ -316,16 +340,24 @@ impl Store {
         Ok(st.query_map(params![since, cap], row_entry)?.collect::<rusqlite::Result<_>>()?)
     }
 
-    pub fn entries_since_in_space(&self, space: &str, since: i64, cap: i64, main_only: bool) -> Result<Vec<Entry>> {
+    pub(crate) fn entries_since_in_space(
+        &self,
+        space: &str,
+        since: i64,
+        cap: i64,
+        audience: SpaceEntryAudience,
+    ) -> Result<Vec<Entry>> {
         let c = self.db.locked();
+        let main_only = crate::environment::Environment::is_open() && audience != SpaceEntryAudience::Local;
+        let web = audience == SpaceEntryAudience::Web;
         let sql = format!(
             "SELECT {ENTRY_COLS} FROM (SELECT e.*,ROW_NUMBER() OVER (PARTITION BY bot_id ORDER BY seq DESC) AS rn
-            FROM entries e WHERE (?4=0 OR COALESCE(e.session,e.bot_id)=e.bot_id)
+            FROM entries e WHERE (?4=0 OR COALESCE(e.session,e.bot_id)=e.bot_id) AND (?5=0 OR ({WEB_TEXT}))
                 AND EXISTS(SELECT 1 FROM donna_space_conversations c WHERE c.id=e.bot_id AND c.space_id=?1))
             WHERE rev>?2 AND (?2>0 OR rn<=?3) ORDER BY seq"
         );
         Ok(c.prepare(&sql)?
-            .query_map(params![space, since, cap, main_only], row_entry)?
+            .query_map(params![space, since, cap, main_only, web], row_entry)?
             .collect::<rusqlite::Result<_>>()?)
     }
 
@@ -343,6 +375,10 @@ impl Store {
         limit: i64,
     ) -> Result<Vec<Entry>> {
         history_in_session_on(&self.db.locked(), bot_id, session, before_seq, limit)
+    }
+
+    pub(crate) fn web_history(&self, chat: &str, session: Option<&str>, before: i64, limit: i64) -> Result<Vec<Entry>> {
+        history_for(&self.db.locked(), chat, session, before, limit, &format!("AND ({WEB_TEXT})"))
     }
 
     /// Cards still waiting for the user to sign in to agent `backend`, oldest first.
@@ -364,15 +400,42 @@ impl Store {
     // ponytail: substring scan, no index (CJK needs no tokenizer this way): 0.6 s over 180k messages of one bot.
     // An FTS5 trigram table once a bot's search passes a second.
     pub fn search_messages(&self, bot_id: &str, terms: &[String], from: Option<i64>, limit: i64) -> Result<Vec<Entry>> {
+        self.search_messages_for(bot_id, terms, from, limit, false)
+    }
+
+    pub(crate) fn search_web_messages(
+        &self,
+        bot_id: &str,
+        terms: &[String],
+        from: Option<i64>,
+        limit: i64,
+    ) -> Result<Vec<Entry>> {
+        self.search_messages_for(bot_id, terms, from, limit, true)
+    }
+
+    fn search_messages_for(
+        &self,
+        bot_id: &str,
+        terms: &[String],
+        from: Option<i64>,
+        limit: i64,
+        web: bool,
+    ) -> Result<Vec<Entry>> {
+        let visible =
+            if web { WEB_TEXT } else { "(kind = 'user' OR (kind = 'agent' AND json_extract(data, '$.final') = 1))" };
         let mut sql = format!(
             "SELECT {ENTRY_COLS} FROM entries WHERE bot_id = ?1 AND seq <= ?3 AND
-               (kind = 'user' OR (kind = 'agent' AND json_extract(data, '$.final') = 1))"
+               ({visible})"
         );
         if crate::environment::Environment::is_open() {
             sql.push_str(" AND session IS NULL");
         }
         for i in 0..terms.len() {
-            let _ = write!(sql, " AND instr(lower(json_extract(data, '$.text')), ?{}) > 0", i + 4);
+            let _ = write!(
+                sql,
+                " AND instr(lower(json_extract(CASE WHEN json_valid(data) THEN data END, '$.text')), ?{}) > 0",
+                i + 4
+            );
         }
         sql.push_str(" ORDER BY seq DESC LIMIT ?2");
         let mut args: Vec<rusqlite::types::Value> =

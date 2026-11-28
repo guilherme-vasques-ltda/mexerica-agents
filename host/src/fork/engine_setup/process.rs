@@ -303,7 +303,7 @@ pub(crate) async fn login_open_codex(
     directory: &Path,
     events: mpsc::Sender<Event>,
 ) -> Result<(std::path::PathBuf, probe::Observation)> {
-    let launch = crate::fork::open_codex::app_server(directory, false).await?;
+    let launch = crate::fork::open_codex::app_server(directory, false, None).await?;
     let executable = launch.executable.clone();
     let child = crate::fork::motor_exec::start_open_codex(launch).map_err(|_| anyhow!("open_codex_unavailable"))?;
     let proof = codex_device_flow(Rpc::from_child(child)?, &executable, directory, events).await?;

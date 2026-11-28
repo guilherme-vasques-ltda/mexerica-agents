@@ -22,6 +22,10 @@ const nav = (q.get('nav') ?? 'computer') as BrowserPreference
 const computer = q.get('computer') !== '0'
 const comTela = q.get('screen') !== '0'
 const tema = q.get('theme') === 'light' ? 'light' : 'dark'
+const navegadorLocal = q.get('local') === '1'
+const politicaGerenciada = q.get('policy') === 'managed'
+const quadroIndisponivel = q.get('frame') === 'error'
+let consentimento = false
 
 const TELA: ScreenState = {
   enabled: true, connected: true, platform: 'macos', capture: true, input: true,
@@ -42,6 +46,30 @@ const transport: HostTransport = {
   async call(method, body) {
     const params = (body ?? {}) as Record<string, unknown>
     if (['botEditorSave', 'updateBot', 'createBot', 'setVoiceKey'].includes(method)) throw new Error('QA_WRITE_FORBIDDEN')
+    if (navegadorLocal && method === 'donnaBrowserLocalState') {
+      return { supported: true, canChange: true, enabled: consentimento, ready: !politicaGerenciada, reason: politicaGerenciada ? 'browser_managed_policy' : null }
+    }
+    if (navegadorLocal && method === 'donnaBrowserLocalConsent') {
+      consentimento = params.enabled === true
+      return { enabled: consentimento }
+    }
+    if (navegadorLocal && method === 'donnaBrowserLocalFrame') {
+      if (!consentimento || params.hubId !== host.hostId || params.botId !== 'sprint') return { jpeg: null }
+      if (quadroIndisponivel) throw new Error('QA_FRAME_UNAVAILABLE')
+      const quadro = document.createElement('canvas')
+      quadro.width = 800
+      quadro.height = 450
+      const ctx = quadro.getContext('2d')
+      if (!ctx) return { jpeg: null }
+      ctx.fillStyle = '#f4f5f7'
+      ctx.fillRect(0, 0, quadro.width, quadro.height)
+      ctx.fillStyle = '#293140'
+      ctx.font = '32px sans-serif'
+      ctx.fillText('Página de exemplo', 48, 86)
+      ctx.font = '18px sans-serif'
+      ctx.fillText('preview.example.invalid', 48, 128)
+      return { jpeg: quadro.toDataURL('image/jpeg').split(',')[1] }
+    }
     if (method === 'donnaBrowserStatus') {
       return {
         version: 2, browserPreference: nav, scope: { hubId: params.hubId, spaceId: params.spaceId, botId: params.botId },

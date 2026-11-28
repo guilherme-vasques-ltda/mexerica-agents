@@ -101,6 +101,22 @@ fn cada_chamador_so_alcanca_a_sua_classe() {
 }
 
 #[test]
+fn navegador_so_usa_a_lista_de_chat_sem_misturar_escopos() {
+    let web = device(&[Scope::WebChat]);
+    let misto = device(&[Scope::WebChat, Scope::Control, Scope::Screen]);
+    assert!(permite_assinatura(&web, "events"));
+    assert!(!permite_assinatura(&web, "term"));
+    assert!(!permite_assinatura(&misto, "events"));
+    for metodo in WEB_CHAT {
+        assert!(permit(&web, metodo).is_ok(), "{metodo}");
+    }
+    for metodo in TABELA.iter().flat_map(|(_, metodos)| *metodos) {
+        assert_eq!(permit(&web, metodo).is_ok(), WEB_CHAT.contains(metodo), "{metodo}");
+        assert!(permit(&misto, metodo).is_err(), "{metodo}");
+    }
+}
+
+#[test]
 fn metodo_sem_classe_nega_a_todos_inclusive_local() {
     for metodo in ["", "metodoInexistente", "donnaWorkplaceUnknown", "PAIRING", "send ", "bootstrap.prove"] {
         assert_eq!(acesso(metodo), None, "{metodo}");

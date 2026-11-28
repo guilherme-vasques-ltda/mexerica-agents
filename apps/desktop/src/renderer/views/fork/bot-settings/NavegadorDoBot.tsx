@@ -9,6 +9,7 @@ import { useStore } from '../../../store/context'
 import type { BotStore } from '../../../store/bot-store'
 import type { BotSettingsStore } from './bot-settings-store'
 import { motivoDoIntegrado, nomeDoComputador, preferenciaConfirmadaDoNavegador, preferenciaDoNavegador, situacaoDoComputador, type MotivoDoIntegrado } from './navegador'
+import { useNavegadorLocal } from './navegador-local'
 import { superficieIdioma, useIdioma, useT } from '../../../lib/fork-i18n/estado'
 import { VerComputadores } from '../computador/UsarOComputador'
 
@@ -52,14 +53,14 @@ export function NavegadorDoBot({ bot, screen, editor, draft, model, disabled }: 
           selection={efetiva}
           options={[
             { id: 'computer', label: t('ajustes.navegador.computador'), detail: t('ajustes.navegador.computadorDetalhe') },
-            { id: 'integrated', label: t('ajustes.navegador.integrado'), detail: `${t('ajustes.navegador.integradoTag')}. ${t('ajustes.navegador.integradoDetalhe')}` },
+            { id: 'integrated', label: t('ajustes.navegador.integrado'), detail: t('ajustes.navegador.integradoDetalhe') },
             { id: 'off', label: t('ajustes.navegador.desligado'), detail: t('ajustes.navegador.desligadoDetalhe') },
           ]}
           onChange={escolher}
         />
       </fieldset>
       {confirmada === 'computer' ? <StatusComputador bot={bot} screen={screen} helloName={store.hello?.name} />
-        : confirmada === 'integrated' ? <StatusIntegrado motivo={motivo} />
+        : confirmada === 'integrated' ? <StatusIntegrado key={`${store.hello?.hostId}:${bot.spaceId}:${bot.id}`} store={store} bot={bot} motivo={motivo} disabled={disabled} />
         : confirmada === 'off' ? <Caixa tom="ok" icone="checkmark">
           <b>{t('ajustes.navegador.desligadoSalvoTitulo')}</b>
           <p>{t('ajustes.navegador.desligadoSalvoDetalhe')}</p>
@@ -129,8 +130,36 @@ function StatusComputador({ bot, screen, helloName }: { bot: Bot; screen: Screen
   </>
 }
 
-function StatusIntegrado({ motivo }: { motivo: MotivoDoIntegrado | 'carregando' }) {
+function StatusIntegrado({ store, bot, motivo, disabled }: {
+  store: BotStore; bot: Bot; motivo: MotivoDoIntegrado | 'carregando'; disabled: boolean
+}) {
   const t = useT()
+  const [aberto, setAberto] = useState(false)
+  const { estado, imagem, falhaNoQuadro, falhou, pendente, mudar } = useNavegadorLocal(
+    store, store.hello?.hostId ?? '', bot.spaceId ?? ESPACO_PADRAO, bot.id, aberto,
+  )
+  if (estado) {
+    const bloqueado = estado.reason === 'browser_managed_policy' || estado.reason === 'browser_policy_unverified'
+    return <Caixa tom={falhou || bloqueado ? 'warn' : 'quiet'} icone="info.circle">
+      {estado.canChange && <p>{t('ajustes.navegador.localAviso')}</p>}
+      {estado.canChange && !estado.ready && <p>{t(bloqueado
+        ? 'ajustes.navegador.localPolitica'
+        : estado.reason === 'engine_missing' ? 'ajustes.navegador.localInstale' : 'ajustes.navegador.motivo.generico')}</p>}
+      {falhou && <p>{t('ajustes.navegador.motivo.generico')}</p>}
+      <div className="navegador-acoes">
+        {estado.canChange && <Button kind="secondary" disabled={disabled || pendente || (!estado.enabled && !estado.ready)}
+          onClick={() => { setAberto(false); void mudar(!estado.enabled) }}>
+          {t(estado.enabled ? 'ajustes.navegador.localDesativar' : 'ajustes.navegador.localAtivar')}
+        </Button>}
+        {estado.enabled && estado.ready && <Button kind="secondary" onClick={() => setAberto(!aberto)}>
+          {t(aberto ? 'ajustes.navegador.localOcultar' : 'ajustes.navegador.localAssistir')}
+        </Button>}
+      </div>
+      {aberto && estado.enabled && estado.ready && (imagem
+        ? <img className="navegador-local-imagem" src={imagem} alt={t('ajustes.navegador.localImagem')} />
+        : <p>{t(falhaNoQuadro ? 'ajustes.navegador.localQuadroIndisponivel' : 'ajustes.navegador.localAguardando')}</p>)}
+    </Caixa>
+  }
   return <Caixa tom="quiet" icone="info.circle">
     <b>{t('ajustes.navegador.indisponivel')}</b>
     {motivo !== 'carregando' ? <p>{t(`ajustes.navegador.motivo.${motivo}`)}</p> : null}

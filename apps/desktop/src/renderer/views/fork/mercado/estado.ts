@@ -1,7 +1,6 @@
 // Marketplace (fatia 1b): o estado do app sobre o que o Hub diz. A tela só renderiza e chama estes métodos; cada
 // escrita é uma intenção enviada ao Hub, e a lista é relida depois (nunca se presume o resultado).
 import type { HostClient } from '../../../client/host-client'
-import { extensoesSomenteCatalogo } from '../extensoes/tela.ts'
 import { Observable, useModel } from '../../../lib/observable'
 import type { BotStore } from '../../../store/bot-store'
 import { market } from '../../marketplace/market-models'
@@ -11,11 +10,16 @@ import { mercadoApi, type PedidoPersonalizado } from './api'
 import { FluxoConectar } from './fluxo'
 import { FluxoGoogle } from './google-fluxo'
 import { cofreTrancado, ehDoGoogle } from './regras'
+import { isOpenDesktop } from '../../../../shared/fork-capacidades'
 import type { AppGoogle, Catalogo, Conta, FerramentasDaConta, PedidoDefinirVinculo, PedidoLigarFerramenta, ResultadoDesconectar, Servico, TipoConexao, VinculosDoBot } from './tipos'
 
 const mensagem = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
 // ───────────────────────────── O Marketplace de um computador/Space ─────────────────────────────
+
+// A Open não tem o executor isolado da conferência do Hub: o login só chega aqui com o fim confirmado pelo Hub, e a chave guardada fica "salva, não verificada" no fluxo.
+const conferirConta = (c: HostClient, id: string) =>
+  isOpenDesktop(globalThis.window?.codync) ? Promise.resolve({ status: 'ready' }) : market.verifyConnector(c, id)
 
 export class Mercado extends Observable {
   private lido: { origem: Origem<HostClient>; catalogo: Catalogo; contas: Conta[]; contasErro: string | null } | null = null
@@ -49,7 +53,7 @@ export class Mercado extends Observable {
     const vale = () => meu === this.pedido && mesmaOrigem(this.store, origem)
     try {
       const [catalogo, contas] = await Promise.allSettled([mercadoApi.catalogo(origem.client),
-        extensoesSomenteCatalogo() ? Promise.resolve([]) : mercadoApi.contas(origem.client)])
+        mercadoApi.contas(origem.client)])
       if (!vale()) return
       if (catalogo.status === 'rejected') throw catalogo.reason
       this.lido = { origem, catalogo: catalogo.value, contas: contas.status === 'fulfilled' ? contas.value : [], contasErro: contas.status === 'rejected' ? mensagem(contas.reason) : null }
@@ -76,7 +80,7 @@ export class Mercado extends Observable {
     const r = await mercadoApi.personalizado(cliente, pedido)
     try {
       if (r.proximoPasso === 'entrar') await pluginsFor(this.store).signIn(r.connector.id)
-      await market.verifyConnector(cliente, r.connector.id)
+      await conferirConta(cliente, r.connector.id)
     } catch { /* a conta existe; a tela de contas mostra o estado e o botão Reconectar */ } finally {
       await this.ler()
     }
@@ -102,7 +106,7 @@ export class Mercado extends Observable {
   /** Reconectar uma conta expirada: o mesmo login de sempre, depois a conferência. */
   async reconectar(id: string): Promise<void> {
     await pluginsFor(this.store).signIn(id)
-    await this.depois(this.store.ready().then((c) => market.verifyConnector(c, id)))
+    await this.depois(this.store.ready().then((c) => conferirConta(c, id)))
   }
 
   /** Liga estas contas nos bots marcados (nasce tudo desligado); um bot por vez, parando no primeiro erro. */
@@ -143,8 +147,8 @@ export class Mercado extends Observable {
     return new FluxoConectar(servico, tipo, {
       cliente,
       entrar: (id) => pluginsFor(this.store).signIn(id, cadastro ? cliente : undefined),
-      verificar: (id) => cliente().then((c) => market.verifyConnector(c, id)),
-      guardarChave: (id, campos) => cliente().then((c) => market.updateConnectorCredentials(c, id, campos)),
+      verificar: (id) => cliente().then((c) => conferirConta(c, id)),
+      guardarChave: (id, campos) => cliente().then((c) => market.updateConnectorCredentials(c, id, campos) as Promise<{ verified?: boolean; aviso?: string | null } | null>),
       reler: () => this.ler(),
     }, cadastro)
   }
