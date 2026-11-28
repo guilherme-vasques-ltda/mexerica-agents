@@ -158,6 +158,17 @@ pub(crate) async fn respond(hub: &Arc<Hub>, body: &Value) -> Result<Value> {
         Value::String(id) => Some(id.clone()),
         _ => bail!("Opção inválida: informe o identificador de uma opção do cartão."),
     };
+    #[cfg(target_os = "macos")]
+    if entry.data["toolKind"] == crate::screen::fork_mac_actions::CARD {
+        return crate::screen::fork_mac_actions::respond(
+            hub,
+            &entry,
+            revision,
+            &body["source"],
+            option_id.as_deref(),
+            origem.as_ref(),
+        );
+    }
     if crate::environment::Environment::is_open() || crate::fork::open_tool_actions::hub_card(&entry.data) {
         return crate::fork::open_tool_actions::respond(
             hub,

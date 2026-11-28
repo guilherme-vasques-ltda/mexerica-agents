@@ -133,12 +133,21 @@ impl Actor {
         binding: &crate::fork::sessoes::bindings::BindingRef,
     ) -> Result<(Value, crate::fork::conectores::Definitions)> {
         let catchup = self.active_routine.as_deref().is_some_and(|id| self.hub.routines.run_is_catchup(id));
-        let offered = crate::fork::spaces::tool_servers::decide(
-            &self.hub.store,
-            &self.cfg,
-            self.active_routine.is_some(),
-            catchup,
-        );
+        let cfg = &self.cfg;
+        #[cfg(target_os = "macos")]
+        let private_cfg;
+        #[cfg(target_os = "macos")]
+        let cfg = if crate::screen::fork_mac_local::is_private(&self.hub) {
+            private_cfg = crate::store::BotConfig {
+                computer: slot.is_none() && crate::screen::fork_mac_local::bot_enabled(&self.hub, &cfg.id),
+                ..cfg.clone()
+            };
+            &private_cfg
+        } else {
+            cfg
+        };
+        let offered =
+            crate::fork::spaces::tool_servers::decide(&self.hub.store, cfg, self.active_routine.is_some(), catchup);
         let Ok(exe) = std::env::current_exe() else {
             tracing::warn!("can't locate donnabot-host for MCP servers");
             return Ok((json!([]), crate::fork::conectores::Definitions::default()));

@@ -39,5 +39,5 @@ export function showsAccountControls(): boolean {
  * que o computador dos bots informa (`renderer/views/fork/computador/estado.ts`, D240).
  */
 export function showsComputerAccess(host?: { kind: string }): boolean {
-  return forkFeatures.localHost && host?.kind !== 'disabled'
+  return (forkFeatures.localHost || bundledMacLocalHub) && host?.kind !== 'disabled'
 }

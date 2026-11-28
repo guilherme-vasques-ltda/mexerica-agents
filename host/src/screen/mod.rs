@@ -41,6 +41,14 @@
 //! `text`, `key` in display points, plus `down`/`up` for touch drags and `clipboard {text}`.
 
 mod computer;
+#[cfg(target_os = "macos")]
+pub(crate) mod fork_mac_actions;
+#[cfg(any(target_os = "macos", test))]
+pub(crate) mod fork_mac_consent;
+#[cfg(any(target_os = "macos", test))]
+mod fork_mac_identity;
+#[cfg(target_os = "macos")]
+pub(crate) mod fork_mac_local;
 mod fork_observation;
 #[cfg(target_os = "linux")]
 mod fork_restore_notice;
@@ -137,6 +145,10 @@ struct Viewer {
 }
 
 pub struct Screen {
+    #[cfg(target_os = "macos")]
+    mac_xpc: std::sync::OnceLock<Arc<fork_mac_identity::macos::Xpc>>,
+    #[cfg(target_os = "macos")]
+    mac_status: Mutex<Option<HelperStatus>>,
     #[cfg(unix)]
     helper_socket: std::io::Result<std::path::PathBuf>,
     /// The user's choice; `None` until they make one (see [`Screen::enabled`]).
@@ -154,6 +166,10 @@ pub struct Screen {
 impl Screen {
     pub fn new(enabled: Option<bool>, events: broadcast::Sender<Value>) -> Self {
         Self {
+            #[cfg(target_os = "macos")]
+            mac_xpc: std::sync::OnceLock::new(),
+            #[cfg(target_os = "macos")]
+            mac_status: Mutex::default(),
             #[cfg(unix)]
             helper_socket: fork_socket::listener_path(&crate::service::data_dir()),
             enabled: Mutex::new(enabled),
@@ -187,6 +203,12 @@ impl Screen {
         let (st, connected) = {
             let link = self.link.locked();
             (self.status.locked().clone(), link.is_some())
+        };
+        #[cfg(target_os = "macos")]
+        let (st, connected) = if self.mac_xpc.get().is_some() {
+            self.mac_status.locked().clone().map_or((HelperStatus::default(), false), |status| (status, true))
+        } else {
+            (st, connected)
         };
         let viewers = self
             .sessions

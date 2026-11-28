@@ -20,6 +20,10 @@ export function engineSettingsIntent(backend: string, command: string | null = n
 
 /** O evento bot do Hub atualiza o mirror; esta intenção não mantém uma segunda cópia. */
 export async function saveBotSettingsIntent(store: BotStore, id: string, patch: BotSettingsIntent) {
+  if (store.privateMacScreen && typeof patch.computer === 'boolean') {
+    if (Object.keys(patch).length !== 1) throw new Error('macLocalScreenEnabled requires a dedicated update')
+    return (await store.ready()).call('updateBot', { id, macLocalScreenEnabled: patch.computer })
+  }
   return (await store.ready()).call('updateBot', { id, ...patch })
 }
 

@@ -3,6 +3,10 @@ import type { textos as fonte } from '../../pt-BR/conversa/aprovacao.ts'
 
 // Fatia 2 (D454): conversa/aprovacao (registro.ts). Chaves completas; docs/guides/idiomas.md.
 export const textos: Traducao<typeof fonte> = {
+  "conversa.aprovacao.pedido.captura": "يريد التقاط صورة للشاشة الرئيسية",
+  "conversa.aprovacao.pedidoDe.captura": "يريد {autor} التقاط صورة للشاشة الرئيسية",
+  "conversa.aprovacao.acao.captura": "لقطة شاشة",
+  "conversa.aprovacao.notaCaptura": "ستُرسل صورة الشاشة الرئيسية بالكامل إلى محرك البوت وقد تصل إلى مزوّد النموذج. أغلق المحتوى الحساس قبل السماح.",
   "conversa.aprovacao.pedido.memoria": "يريد استخدام أداة ذاكرة",
   "conversa.aprovacao.pedido.comando": "يريد تشغيل أمر",
   "conversa.aprovacao.pedido.arquivos": "يريد تغيير ملفات",

@@ -645,6 +645,10 @@ impl Hub {
         crate::fork::skill_selection::refuse_unprotected(patch, &row.config.skills)?;
         let mut merged = serde_json::to_value(&row.config)?;
         for (k, v) in patch.as_object().into_iter().flatten() {
+            #[cfg(target_os = "macos")]
+            if crate::screen::fork_mac_local::is_private(self) && k == "computer" {
+                continue;
+            }
             if !matches!(k.as_str(), "id" | "createdAt" | "createdBy" | "permissionChosenByUser")
                 && (k != "permission" || permission_chosen)
             {
