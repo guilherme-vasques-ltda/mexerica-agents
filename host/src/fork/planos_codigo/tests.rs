@@ -122,8 +122,15 @@ fn o_endereco_de_cada_plano_e_https_do_fornecedor_e_nunca_vem_do_app() {
         };
         let url = reqwest::Url::parse(lista).unwrap();
         assert_eq!(url.scheme(), "https", "{}", plano.id);
-        assert_eq!(url.host_str(), Some("opencode.ai"), "{}", plano.id);
-        assert!(url.username().is_empty() && url.query().is_none());
+        let host = match plano.id {
+            "openai-chave" => "api.openai.com",
+            "anthropic-chave" => "api.anthropic.com",
+            "google-chave" => "generativelanguage.googleapis.com",
+            "openrouter-chave" => "openrouter.ai",
+            _ => "opencode.ai",
+        };
+        assert_eq!(url.host_str(), Some(host), "{}", plano.id);
+        assert!(url.username().is_empty() && url.password().is_none());
     }
     let pedido = serde_json::from_value::<Pedido>(json!({"plano": "opencode-go", "url": "http://127.0.0.1"}));
     assert!(pedido.is_err(), "o pedido não aceita endereço");
@@ -134,7 +141,11 @@ fn o_plano_de_um_modelo_vem_do_prefixo() {
     assert_eq!(plano_do_modelo("opencode-go/glm-5.3").map(|p| p.id), Some("opencode-go"));
     assert!(plano_do_modelo("opencode-go/").is_none());
     assert!(plano_do_modelo("opencode-go").is_none());
-    assert!(plano_do_modelo("openai/gpt-6").is_none());
+    assert_eq!(plano_do_modelo("openai/gpt-6").map(|p| p.id), Some("openai-chave"));
+    assert_eq!(plano_do_modelo("anthropic/claude-x").map(|p| p.id), Some("anthropic-chave"));
+    assert_eq!(plano_do_modelo("google/gemini-x").map(|p| p.id), Some("google-chave"));
+    assert_eq!(plano_do_modelo("openrouter/anthropic/claude-x").map(|p| p.id), Some("openrouter-chave"));
+    assert!(plano_do_modelo("xai/grok-x").is_none());
     assert!(plano_do_modelo("").is_none());
 }
 
@@ -798,7 +809,17 @@ async fn glm_desligado_nao_aparece_nao_salva_nao_testa_e_nao_abre_o_opencode() {
     let hub = hub_de_prova();
     let ids: Vec<_> =
         listar(&hub.store).unwrap()["planos"].as_array().unwrap().iter().map(|p| p["id"].clone()).collect();
-    assert_eq!(ids, [json!("opencode-go"), json!("kimi-code")]);
+    assert_eq!(
+        ids,
+        [
+            json!("opencode-go"),
+            json!("kimi-code"),
+            json!("openai-chave"),
+            json!("anthropic-chave"),
+            json!("google-chave"),
+            json!("openrouter-chave")
+        ]
+    );
     for metodo in ["planoCodigoSalvar", "planoCodigoTestar"] {
         let erro = call(&hub, &Caller::Local, metodo, json!({"plano": "glm-coding-plan", "chave": CHAVE}))
             .await
@@ -831,7 +852,7 @@ async fn glm_desligado_nao_aparece_nao_salva_nao_testa_e_nao_abre_o_opencode() {
     assert_eq!(hub.store.kv_read("plano-codigo.modelos/glm-coding-plan").unwrap(), None);
     let ids: Vec<_> =
         listar(&hub.store).unwrap()["planos"].as_array().unwrap().iter().map(|p| p["id"].clone()).collect();
-    assert_eq!(ids, [json!("opencode-go"), json!("kimi-code")], "desligado continua fora da tela");
+    assert!(!ids.contains(&json!("glm-coding-plan")), "desligado continua fora da tela");
 }
 
 #[tokio::test]
@@ -859,4 +880,176 @@ async fn glm_liberado_salva_sem_chamada_e_conversa_com_o_perfil_e_a_extensao_do_
         ambiente_do_bot(&hub, &cfg, Uso::Automatico).await.unwrap().is_some(),
         "o GLM não tem a regra de só conversa"
     );
+}
+
+fn por_id(id: &str) -> &'static Plano {
+    PLANOS.iter().find(|plano| plano.id == id).unwrap()
+}
+
+#[test]
+fn as_chaves_de_api_ficam_no_provedor_certo_com_a_autenticacao_do_fornecedor() {
+    for (id, variavel, autenticacao) in [
+        ("openai-chave", "OPENAI_API_KEY", Autenticacao::Bearer),
+        ("anthropic-chave", "ANTHROPIC_API_KEY", Autenticacao::XApiKey),
+        ("google-chave", "GOOGLE_GENERATIVE_AI_API_KEY", Autenticacao::XGoogApiKey),
+        ("openrouter-chave", "OPENROUTER_API_KEY", Autenticacao::Bearer),
+    ] {
+        let plano = por_id(id);
+        assert_eq!((plano.variavel, plano.autenticacao), (variavel, autenticacao), "{id}");
+        assert!(plano.opcional && !plano.so_conversa && !plano.sob_consulta, "{id}");
+    }
+    assert_eq!(PLANOS.iter().filter(|plano| plano.opcional).count(), 4);
+}
+
+#[test]
+fn o_repasse_das_chaves_de_api_so_encaminha_as_rotas_do_fornecedor() {
+    let destino = |id: &str, caminho: &str| repasse::destino(por_id(id), caminho, None);
+    assert_eq!(destino("openai-chave", "/r/responses").as_deref(), Some("https://api.openai.com/v1/responses"));
+    assert_eq!(destino("openai-chave", "/r/files"), None);
+    assert_eq!(destino("openai-chave", "/r/models"), None);
+    assert_eq!(destino("anthropic-chave", "/r/messages").as_deref(), Some("https://api.anthropic.com/v1/messages"));
+    assert_eq!(destino("anthropic-chave", "/r/messages/batches"), None);
+    assert_eq!(
+        destino("google-chave", "/r/models/gemini-2.5-pro:generateContent").as_deref(),
+        Some("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent")
+    );
+    assert_eq!(destino("google-chave", "/r/models/a/b:generateContent"), None);
+    assert_eq!(destino("google-chave", "/r/models/x:deleteModel"), None);
+    assert_eq!(
+        destino("openrouter-chave", "/r/chat/completions").as_deref(),
+        Some("https://openrouter.ai/api/v1/chat/completions")
+    );
+    assert_eq!(destino("openrouter-chave", "/r/credits"), None);
+}
+
+#[tokio::test]
+async fn anthropic_manda_a_chave_em_x_api_key_com_a_versao_e_aceita_o_tipo_model() {
+    let corpo = r#"{"data":[{"type":"model","id":"claude-x","display_name":"Claude X"},{"type":"outro","id":"y"}]}"#;
+    let (url, pedidos) = servidor(http("200 OK", "", corpo)).await;
+    let modelos =
+        acesso::listar_modelos_de_prova_com("anthropic", &url, CHAVE, Autenticacao::XApiKey, Formato::DadosAnthropic)
+            .await
+            .unwrap();
+    assert_eq!(modelos, [acesso::Modelo { id: "anthropic/claude-x".into(), name: "Claude X".into() }]);
+    let pedido = pedidos.locked()[0].to_ascii_lowercase();
+    assert!(pedido.contains(&format!("x-api-key: {CHAVE}")) && pedido.contains("anthropic-version: "), "{pedido}");
+    assert!(!pedido.contains("authorization"), "{pedido}");
+}
+
+#[tokio::test]
+async fn google_manda_a_chave_em_x_goog_api_key_e_lista_so_quem_conversa() {
+    let corpo = r#"{"models":[
+        {"name":"models/gemini-x","displayName":"Gemini X","supportedGenerationMethods":["generateContent"]},
+        {"name":"models/embed-x","supportedGenerationMethods":["embedContent"]},
+        {"name":"models/sem-metodos"},
+        {"name":"models/gemini-x-tts","supportedGenerationMethods":["generateContent"]}]}"#;
+    let (url, pedidos) = servidor(http("200 OK", "", corpo)).await;
+    let modelos =
+        acesso::listar_modelos_de_prova_com("google", &url, CHAVE, Autenticacao::XGoogApiKey, Formato::Google)
+            .await
+            .unwrap();
+    assert_eq!(modelos, [acesso::Modelo { id: "google/gemini-x".into(), name: "Gemini X".into() }]);
+    let pedido = pedidos.locked()[0].to_ascii_lowercase();
+    assert!(pedido.contains(&format!("x-goog-api-key: {CHAVE}")), "{pedido}");
+}
+
+#[tokio::test]
+async fn openai_tira_voz_imagem_e_vetores_e_openrouter_guarda_o_id_com_barra() {
+    let corpo = r#"{"data":[{"id":"gpt-x"},{"id":"text-embedding-3"},{"id":"whisper-1"},{"id":"gpt-image-2"},{"id":"ft:gpt-x:org:audio-assistant:abc"},{"id":"ft:whisper-1:org:x:abc"}]}"#;
+    let (url, _) = servidor(http("200 OK", "", corpo)).await;
+    let modelos =
+        acesso::listar_modelos_de_prova_com("openai", &url, CHAVE, Autenticacao::Bearer, Formato::DadosOpenai)
+            .await
+            .unwrap();
+    assert_eq!(
+        modelos.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+        ["openai/gpt-x", "openai/ft:gpt-x:org:audio-assistant:abc"]
+    );
+    let corpo = r#"{"data":[{"id":"anthropic/claude-x","name":"Claude X"},{"id":"semfornecedor"}]}"#;
+    let (url, _) = servidor(http("200 OK", "", corpo)).await;
+    let modelos =
+        acesso::listar_modelos_de_prova_com("openrouter", &url, CHAVE, Autenticacao::Bearer, Formato::DadosAninhados)
+            .await
+            .unwrap();
+    assert_eq!(
+        modelos.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+        ["openrouter/anthropic/claude-x", "openrouter/semfornecedor"]
+    );
+}
+
+#[tokio::test]
+async fn chave_de_api_sem_chave_guardada_deixa_o_caminho_de_sempre_e_com_chave_isola_o_perfil() {
+    let hub = hub_de_prova();
+    let bot = bot("b1", "opencode", "anthropic/claude-x", crate::fork::spaces::PERSONAL);
+    assert!(
+        ambiente_do_bot(&hub, &bot, Uso::Conversa).await.unwrap().is_none(),
+        "sem chave: login do dono, como antes"
+    );
+    let plano = por_id("anthropic-chave");
+    let selada = crate::market::vault::seal(&hub.store, &slot_chave(plano), CHAVE).unwrap();
+    {
+        let db = hub.store.db.locked();
+        crate::market::vault::write_sealed(&db, &slot_chave(plano), &selada).unwrap();
+    }
+    hub.store.save_bot(&bot).unwrap();
+    let ambiente = ambiente_do_bot(&hub, &bot, Uso::Conversa).await.unwrap();
+    assert!(ambiente.is_some(), "com chave guardada, o plano isolado precisa valer");
+}
+
+#[tokio::test]
+async fn os_metodos_de_chave_do_app_no_mac_vao_so_para_os_quatro_planos_e_so_do_computador() {
+    use crate::store::Scope;
+    let hub = hub_de_prova();
+    let lista = chaves_do_app(&hub, &Caller::Local, "motorChaves", json!({})).await.unwrap();
+    let ids: Vec<_> = lista["fornecedores"].as_array().unwrap().iter().map(|f| f["id"].clone()).collect();
+    assert_eq!(ids, [json!("openai"), json!("anthropic"), json!("google"), json!("openrouter")]);
+    assert!(lista["fornecedores"].as_array().unwrap().iter().all(|f| f["configurada"] == false));
+    assert_eq!(lista["enderecos"], json!([]));
+    let aparelho = Caller::Device { key: "k".into(), scopes: vec![Scope::Control], autoridade: None };
+    for (chamador, metodo, corpo) in [
+        (&aparelho, "motorChaves", json!({})),
+        (&aparelho, "motorChaveSalvar", json!({"fornecedor": "openai", "chave": CHAVE})),
+        (&Caller::Local, "motorChaveSalvar", json!({"fornecedor": "xai", "chave": CHAVE})),
+        (&Caller::Local, "motorChaveSalvar", json!({"fornecedor": "meta", "chave": CHAVE})),
+        (&Caller::Local, "motorChaveSalvar", json!({"chave": CHAVE})),
+        (&Caller::Local, "motorEnderecoSalvar", json!({"nome": "x"})),
+    ] {
+        let erro = chaves_do_app(&hub, chamador, metodo, corpo).await.unwrap_err().to_string();
+        assert!(!erro.contains(CHAVE), "{erro}");
+    }
+    let sem_chave =
+        chaves_do_app(&hub, &Caller::Local, "motorChaveTestar", json!({"fornecedor": "google"})).await.unwrap();
+    assert_eq!(sem_chave["erro"], "sem_chave");
+}
+
+#[tokio::test]
+async fn testar_a_chave_guardada_nao_aceita_texto_claro_no_slot() {
+    let hub = hub_de_prova();
+    hub.store.kv_set(&slot_chave(por_id("anthropic-chave")), CHAVE).unwrap();
+    let erro = call(&hub, &Caller::Local, "planoCodigoTestar", json!({"plano": "anthropic-chave"}))
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(!erro.contains(CHAVE), "{erro}");
+}
+
+#[tokio::test]
+async fn catalogo_do_opencode_so_leva_os_modelos_dos_planos_ao_dono_local() {
+    use crate::store::Scope;
+    let hub = hub_de_prova();
+    let (url, _) = servidor(http("200 OK", "", CORPO_OK)).await;
+    salvar(&hub, &PLANOS[0], Some(&url), Zeroizing::new(CHAVE.into())).await.unwrap();
+    let corpo = json!({"backend": "opencode"});
+
+    let dono = crate::api::dispatch(&hub, &Caller::Local, "agentModels", corpo.clone()).await.unwrap();
+    assert!(dono.to_string().contains("opencode-go/glm-5.3"), "{dono}");
+    assert!(!dono.to_string().contains(CHAVE));
+
+    let aparelho = Caller::Device { key: "k".into(), scopes: vec![Scope::Control], autoridade: None };
+    let visto = match crate::api::dispatch(&hub, &aparelho, "agentModels", corpo).await {
+        Ok(valor) => valor.to_string(),
+        Err(erro) => erro.to_string(),
+    };
+    assert!(!visto.contains("opencode-go/"), "{visto}");
+    assert!(!visto.contains(CHAVE));
 }
