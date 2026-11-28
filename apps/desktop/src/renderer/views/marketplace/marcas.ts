@@ -69,6 +69,7 @@ import vidiq from '../../assets/marcas/vidiq.png'
 import wisprFlow from '../../assets/marcas/wispr-flow.png'
 import wix from '../../assets/marcas/wix.png'
 import wrike from '../../assets/marcas/wrike.png'
+import zoom from '../../assets/marcas/zoom.png'
 
 export const MARCAS: Readonly<Record<string, string>> = {
   agentmail,
@@ -139,6 +140,7 @@ export const MARCAS: Readonly<Record<string, string>> = {
   'wispr-flow': wisprFlow,
   wix,
   wrike,
+  zoom,
 }
 
 /** O arquivo da `marca` dada, ou `null` (o chamador usa o globo). Só chave conhecida; nunca um caminho vindo de fora. */

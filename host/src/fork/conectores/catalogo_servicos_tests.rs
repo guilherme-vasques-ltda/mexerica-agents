@@ -118,6 +118,7 @@ const CONECTAVEIS: &[&str] = &[
     "agentmail",
     "bright-data",
     "prisma",
+    "zoom",
 ];
 
 /// Id da ficha do dono A, lido do próprio arquivo JSON (nenhum nome de produto fora dele).
@@ -165,6 +166,19 @@ fn liberacoes_vem_so_da_ficha_e_o_padrao_do_linear_e_ler() {
     assert_eq!(linear.url_efetiva(&ler), "https://mcp.linear.app/mcp/readonly");
     assert_eq!(linear.escopos_efetivos(&ler), ["read"], "só o escopo do grupo, nunca os do fornecedor inteiro");
     assert!(linear.ferramentas_permitidas(&ler).is_none(), "leitura imposta pelo fornecedor, sem lista do Hub");
+}
+
+#[test]
+fn zoom_so_expoe_busca_de_reunioes() {
+    let ficha = servico("zoom").unwrap();
+    let tipo = ficha.exigir_conectavel("zoom.oficial_app", dia(ficha.conferida_em)).unwrap();
+    let grupos = tipo.liberacoes_validas(None).unwrap();
+    assert!(matches!(&tipo.auth, Auth::AppProprio { emissor: "https://zoom.us", .. }));
+    assert_eq!(tipo.grupos[0].imposicao, Some(Imposicao::Escopo));
+    assert_eq!(tipo.ferramentas_permitidas(&grupos).unwrap(), ["search_meetings"].into_iter().collect());
+    assert_eq!(tipo.escopos_efetivos(&grupos), ["meeting:read:search"]);
+    assert!(tipo.ferramentas_curadas(&grupos).is_empty());
+    assert!(tipo.liberacoes_validas(Some(&["admin".into()])).is_err());
 }
 
 static GRUPOS: &[Grupo] = &[
