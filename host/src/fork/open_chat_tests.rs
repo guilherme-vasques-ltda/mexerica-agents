@@ -1442,7 +1442,7 @@ async fn o_uso_de_um_turno_interrompido_entra_no_teto_do_proximo() {
         .unwrap();
     let mut rpc = Rpc::from_child(crate::fork::motor_exec::fixture(child)).unwrap();
     let (_cancel_tx, mut cancel) = watch::channel(false);
-    let parcial = std::sync::Mutex::new(None);
+    let parcial = std::sync::Mutex::<super::Parcial>::default();
     let mut cursor = None;
     let key = format!("{}.usage", thread_key(&lane, "fixture"));
     let result = super::drive_input(
@@ -1465,8 +1465,7 @@ async fn o_uso_de_um_turno_interrompido_entra_no_teto_do_proximo() {
     )
     .await;
     assert!(result.unwrap_err().to_string().starts_with("open_chat_tool_refused"));
-    let total = parcial.lock().unwrap().unwrap();
-    cursor.unwrap().gravar(&hub.store, &cfg, &lane, 1, "thread-1".into(), Some(total)).unwrap();
+    super::gravar_parcial(&hub, &cfg, "fixture", &lane, 1, cursor.unwrap(), &parcial);
     assert!(crate::fork::teto::conversation_gate(&hub).is_err());
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::remove_dir_all(root).unwrap();

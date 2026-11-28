@@ -529,8 +529,7 @@ async fn turn_in_profile(
     let stopped = cancel.clone();
     let cursor_key = format!("{key}.usage");
     let mut cursor = None;
-    let parcial = Mutex::new(None);
-    let thread_do_turno = Mutex::new(None);
+    let parcial = Mutex::<Parcial>::default();
     // O ponto em que o texto passa a ser entregue ao Codex: um `stop` aterrissado durante o lançamento e uma
     // exclusão que tenha passado são conferidos aqui, antes de o `turn/start` seguir.
     let before_text = |thread: &str| {
@@ -546,7 +545,6 @@ async fn turn_in_profile(
             !*stopped.borrow() && matches!(hub.store.bot(&bot), Ok(Some(row)) if !row.deleted),
             "open_chat_cancelled"
         );
-        *thread_do_turno.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(thread.to_owned());
         if let Some(marker) = &keep_legacy {
             ensure!(hub.store.kv_set_if_bot(&bot, marker, "1")?, "open_chat_cancelled");
         }
@@ -614,14 +612,8 @@ async fn turn_in_profile(
         }
         Err(error) => {
             reap(&mut rpc).await;
-            let total = *parcial.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            let thread = thread_do_turno.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
-            if let (Some(cursor), Some(total), Some(thread)) = (cursor, total, thread) {
-                let mut efetivo = cfg.clone();
-                efetivo.fork_editor.engine_account_id = Some(account.to_owned());
-                if let Err(error) = cursor.gravar(&hub.store, &efetivo, lane, reply.turn, thread, Some(total)) {
-                    tracing::error!(%error, "não foi possível gravar o uso do turno interrompido");
-                }
+            if let Some(cursor) = cursor {
+                gravar_parcial(hub, cfg, account, lane, reply.turn, cursor, &parcial);
             }
             Err(error)
         }
@@ -883,6 +875,36 @@ impl Stream {
     }
 }
 
+/// O que um turno já informou quando termina antes de concluir: o último total de tokens, a thread e o modelo.
+#[derive(Default)]
+struct Parcial {
+    uso: Option<uso::Contagem>,
+    thread: Option<String>,
+    model: Option<String>,
+}
+
+/// Grava o consumo medido de um turno que terminou em erro ou cancelamento, para o teto contar o que já foi gasto.
+fn gravar_parcial(
+    hub: &Hub,
+    cfg: &BotConfig,
+    account: &str,
+    lane: &Lane,
+    turn: i64,
+    cursor: uso::Cursor<'_>,
+    parcial: &Mutex<Parcial>,
+) {
+    let parcial = parcial.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let (Some(total), Some(thread)) = (parcial.uso, parcial.thread.clone()) else {
+        return;
+    };
+    let mut efetivo = cfg.clone();
+    efetivo.model.clone_from(&parcial.model);
+    efetivo.fork_editor.engine_account_id = Some(account.to_owned());
+    if let Err(error) = cursor.gravar(&hub.store, &efetivo, lane, turn, thread, Some(total)) {
+        tracing::error!(%error, "não foi possível gravar o uso do turno interrompido");
+    }
+}
+
 #[derive(Debug)]
 struct TurnoConcluido {
     thread: String,
@@ -944,7 +966,7 @@ async fn drive_input(
     authority: Option<(&Hub, &Autoridade)>,
     tools: Option<&super::open_tools::Turn<'_>>,
     browser: bool,
-    parcial: &Mutex<Option<uso::Contagem>>,
+    parcial: &Mutex<Parcial>,
 ) -> Result<TurnoConcluido> {
     drive_inner(
         rpc,
@@ -979,7 +1001,7 @@ async fn drive_inner(
     on_sent: impl FnOnce(),
     mut on_delta: impl FnMut(&str) -> bool,
     delivery: Delivery<'_>,
-    parcial: &Mutex<Option<uso::Contagem>>,
+    parcial: &Mutex<Parcial>,
 ) -> Result<TurnoConcluido> {
     let delegated = matches!(&delivery, Delivery::Delegated(_));
     let (tools, browser) = match &delivery {
@@ -1053,6 +1075,11 @@ async fn drive_inner(
             .ok_or_else(|| anyhow!("open_chat_failed"))?
             .to_owned();
         let model = started["model"].as_str().filter(|id| !id.is_empty() && id.len() <= 128).map(str::to_owned);
+        {
+            let mut parcial = parcial.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            parcial.thread = Some(thread.clone());
+            parcial.model.clone_from(&model);
+        }
         before_text(&thread)?;
         let params = json!({"threadId": thread, "input": input});
         let turn = match delivery {
@@ -1124,7 +1151,7 @@ async fn drive_inner(
             match message["method"].as_str().unwrap_or_default() {
                 "thread/tokenUsage/updated" if params["threadId"] == thread && params["turnId"] == turn_id => {
                     uso = uso::Contagem::do_protocolo(&params["tokenUsage"]["total"]);
-                    *parcial.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = uso;
+                    parcial.lock().unwrap_or_else(std::sync::PoisonError::into_inner).uso = uso;
                 }
                 "account/rateLimits/updated" if params["rateLimits"]["limitId"] == "codex" => {
                     let now = crate::store::now_ms();
