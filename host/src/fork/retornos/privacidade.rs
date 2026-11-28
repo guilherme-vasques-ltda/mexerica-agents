@@ -160,6 +160,15 @@ pub(super) enum MetadataProjection {
     RequesterStatus,
 }
 
+#[cfg(test)]
+pub(crate) fn resultado_so_existe_em_memoria(c: &Connection, request_id: &str) -> rusqlite::Result<bool> {
+    c.query_row(
+        "SELECT content='unreferenced' AND final_entry_id IS NULL FROM donna_session_results WHERE request_id=?1",
+        [request_id],
+        |row| row.get(0),
+    )
+}
+
 impl Qualification {
     pub(super) fn read_authorized(
         &self,

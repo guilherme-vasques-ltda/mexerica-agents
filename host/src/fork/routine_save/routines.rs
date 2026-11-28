@@ -73,6 +73,70 @@ pub(super) fn retain_history(next: &mut State) {
 }
 
 impl Routines {
+    pub(crate) fn save_open_action<T>(
+        &self,
+        hub: &Hub,
+        cfg: &crate::store::BotConfig,
+        body: &Value,
+        expected_updated_at: Option<i64>,
+        reserve: impl FnOnce() -> Result<T>,
+        in_transaction: impl FnOnce(&rusqlite::Connection) -> Result<()>,
+    ) -> Result<Value> {
+        use crate::fork::routine_creation::{self as creation, Creation};
+        crate::fork::open_rotinas::check_save(body)?;
+        let reservation = reserve()?;
+        let _emit = hub.emit_lock.locked();
+        let mut guard = self.state.locked();
+        let mut next = guard.clone();
+        if let Some(id) = body["id"].as_str() {
+            let old = next
+                .routines
+                .iter()
+                .find(|r| r.bot_id == cfg.id && r.id == id && !r.deleted)
+                .context("routine not found")?;
+            anyhow::ensure!(
+                Some(old.updated_at) == expected_updated_at && old.heartbeat.is_none(),
+                "open_tools_routine_changed"
+            );
+        }
+        let routine = save_in(&mut next, &cfg.id, body)?;
+        ensure_no_model_release(&guard, &next)?;
+        ensure_no_model_heartbeat(&guard, &next)?;
+        retain_history(&mut next);
+        let created = body.get("id").is_none();
+        let entries = hub.store.guard_routines_change_in_origin(Some(&cfg.id), None, |c| {
+            in_transaction(c)?;
+            let current = creation::bot_on(c, &cfg.space_id, &cfg.id)?;
+            let entries = if created {
+                match creation::record_creation_on(c, &cfg.space_id, &current, &routine, None, crate::store::now_ms())?
+                {
+                    Creation::Created(entries) => Some(entries),
+                    Creation::QuotaExceeded => {
+                        next = guard.clone();
+                        None
+                    }
+                }
+            } else {
+                Some(Vec::new())
+            };
+            let live = guard_live_runs(&next).map(|(bot, run)| (bot.to_owned(), run.to_owned())).collect();
+            Ok((entries, serde_json::to_string(&next)?, live))
+        })?;
+        drop(reservation);
+        let hooks_changed = hook_set(&guard) != hook_set(&next);
+        self.state.epoca.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        *guard = next;
+        drop(guard);
+        if hooks_changed {
+            self.hooks_rev.send_modify(|v| *v += 1);
+        }
+        if created {
+            creation::changed(hub, &cfg.space_id);
+        }
+        creation::publish(hub, entries.ok_or_else(creation::quota_error)?);
+        Ok(json!({"routine":public(&routine)}))
+    }
+
     pub(super) fn change_bound<T>(
         &self,
         store: &Store,

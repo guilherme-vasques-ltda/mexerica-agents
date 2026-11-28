@@ -64,12 +64,15 @@ async fn fim(p: &mut Phone) -> (u16, Value) {
 
 /// Pareia por código com o token de `afirmacoes` e devolve a chave.
 async fn parear(hub: &Arc<Hub>, afirmacoes: &Value) -> Result<SigningKey, Value> {
+    parear_em(hub, afirmacoes, "ios").await
+}
+
+async fn parear_em(hub: &Arc<Hub>, afirmacoes: &Value, plataforma: &str) -> Result<SigningKey, Value> {
     let key = SigningKey::from_bytes(&crypto::random());
     let code = hub.pairing.locked().issue().code;
     let mut p = Phone::direct(hub, key.clone());
     assert!(matches!(p.hello(hub, true).await, Out::Msg(v) if v["t"] == "welcome"));
-    let b =
-        json!({"code": code, "name": "Telefone fictício", "platform": "ios", sessao::CAMPO_TOKEN: token(afirmacoes)});
+    let b = json!({"code": code, "name": "Aparelho fictício", "platform": plataforma, sessao::CAMPO_TOKEN: token(afirmacoes)});
     p.send(json!({"id": 1, "m": "pair", "b": b, "pop": pop(&key, &hub.host_id, &p.th, "pair")})).await;
     let reply = p.recv().await.unwrap();
     if reply.get("ok").is_some() {
@@ -78,6 +81,18 @@ async fn parear(hub: &Arc<Hub>, afirmacoes: &Value) -> Result<SigningKey, Value>
     } else {
         Err(reply)
     }
+}
+
+#[tokio::test]
+async fn navegador_so_pareia_com_sessao_do_workspace() {
+    let hub = temp_hub();
+    assert_eq!(parear_em(&hub, &afirmacoes(DONO), "web").await.unwrap_err()["err"]["status"], 400);
+    vincular(&hub, &vinculo_pessoal());
+    let recusa = parear_em(&hub, &afirmacoes(OUTRO), "web").await.unwrap_err();
+    assert_eq!(codigo(&recusa), (&json!(403), &json!("workspace_forbidden")));
+    let key = parear_em(&hub, &afirmacoes(DONO), "web").await.unwrap();
+    let mut p = conectado(&hub, key).await;
+    assert_eq!(autenticar(&mut p, &hub, 1, &token(&afirmacoes(DONO))).await["ok"]["userId"], DONO);
 }
 
 async fn conectado_via(hub: &Arc<Hub>, key: SigningKey, via: Via) -> Phone {

@@ -692,7 +692,7 @@ pub(super) async fn relay(
 ) -> Result<()> {
     use crate::guard_hub::mcp::stdio::{Frame, Frames};
     use tokio::io::AsyncWriteExt;
-    let client = reqwest::Client::new();
+    let client = crate::fork::bridge_http::BridgeHttp::new(port)?;
     let mut input = Frames::with_limit(input, 64 * 1024);
     let mut sequence = 0_u64;
     let mut queued: Option<Value> = None;
@@ -711,7 +711,7 @@ pub(super) async fn relay(
             let request_id = frame.get("id").cloned();
             let can_queue = mcp::http::method(&frame).is_ok_and(|method| method == "notifications/initialized");
             let request = client
-                .post(format!("http://127.0.0.1:{port}/api/donnaConectorFrame"))
+                .post("donnaConectorFrame")
                 .bearer_auth(token.trim())
                 .json(&json!({"context":context,"sequence":sequence,"frame":frame}))
                 .timeout(Duration::from_secs(270))
@@ -751,7 +751,7 @@ pub(super) async fn relay(
     }
     .await;
     let _ = client
-        .post(format!("http://127.0.0.1:{port}/api/donnaConectorRelease"))
+        .post("donnaConectorRelease")
         .bearer_auth(token.trim())
         .json(&json!({"context":context}))
         .timeout(Duration::from_secs(10))

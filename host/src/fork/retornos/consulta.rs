@@ -211,6 +211,24 @@ pub(super) fn ler_autorizado_na(
         |r| r.get(0),
     )?;
     ensure!(pessoal, FORA_DO_ALCANCE);
+    let status = projetar_na(c, chamador, &origem, id, caller, None)?;
+    Ok((origem, status))
+}
+
+pub(crate) fn consultar_open_na(c: &Connection, source: &SessionRef, space: &str, args: &Value) -> Result<Value> {
+    let id = pedido(args)?;
+    let status = projetar_na(c, &source.chat_id, source, id, None, Some(space))?;
+    Ok(status.json(id))
+}
+
+fn projetar_na(
+    c: &Connection,
+    chamador: &str,
+    origem: &SessionRef,
+    id: &str,
+    caller: Option<&ReadAuthority<'_>>,
+    open_space: Option<&str>,
+) -> Result<Estado> {
     // Tipo de coluna inesperado também falha fechado, sem ecoar valores.
     let linha = c
         .query_row(
@@ -219,8 +237,12 @@ pub(super) fn ler_autorizado_na(
                s.schema_version,s.outcome,s.end_reason
              FROM donna_session_requests r
              LEFT JOIN donna_session_results s ON s.request_id=r.id AND s.attempt=r.attempt
-             WHERE r.id=?1 AND r.requester_bot_id=?2 AND r.requester_chat_id=?3 AND r.requester_session_id=?4",
-            params![id, chamador, origem.chat_id, origem.id],
+             WHERE r.id=?1 AND r.requester_bot_id=?2 AND r.requester_chat_id=?3 AND r.requester_session_id=?4
+               AND (?5 IS NULL OR EXISTS(SELECT 1 FROM donna_chain_roots root WHERE root.id=r.chain_id
+                 AND root.version=1 AND root.bot_id=r.requester_bot_id AND root.run_id=r.requester_execution_ref
+                 AND json_extract(root.scope,'$.kind')='turno_hub_open'
+                 AND json_extract(root.scope,'$.space_id')=?5))",
+            params![id, chamador, origem.chat_id, origem.id, open_space],
             |r| {
                 Ok(Linha {
                     versao: r.get(0)?,
@@ -239,7 +261,7 @@ pub(super) fn ler_autorizado_na(
         .map_err(|_| anyhow!(INVALIDO))?
         .ok_or_else(|| anyhow!(INDISPONIVEL))?;
     ensure!(privacidade::metadata_visible_na(c, id, MetadataProjection::RequesterStatus, caller)?, INDISPONIVEL);
-    Ok((origem, estado(&linha)?))
+    estado(&linha)
 }
 
 /// Leitura numa Tx descartada (nada é gravado); revalidação canônica fora do lock, antes de

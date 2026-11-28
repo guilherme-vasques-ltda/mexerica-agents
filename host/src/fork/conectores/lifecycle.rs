@@ -73,7 +73,7 @@ impl Definitions {
         for instance in super::selected(hub, bot) {
             let id = super::register(hub, bot, &instance, lane)?;
             this.servers.push(json!({"name":format!("donna-curado-{instance}"),"command":exe,
-                "args":["mcp","curated","--context",id,"--port",hub.port.to_string()]}));
+                "args":["mcp","curated","--context",id,"--port",hub.bridge_port().to_string()]}));
             this.handles.push(id);
         }
         Ok(this)

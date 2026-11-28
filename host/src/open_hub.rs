@@ -27,7 +27,7 @@ enum Command {
 
 pub(crate) fn cli() -> Cli {
     let Command::Serve { port, bind, only_this_mac } = OpenCli::parse().command;
-    Cli { cmd: Some(Sub::Serve { port, bind: Some(bind), only_this_mac, web_dir: None }) }
+    Cli { cmd: Some(Sub::Serve { port, bind: Some(bind), only_this_mac, web_dir: None, desktop_socket: false }) }
 }
 
 pub(crate) fn require_executor() -> std::io::Result<()> {
@@ -104,6 +104,7 @@ const WHATSAPP_LOCAL: [&str; 22] = [
 /// Lista fechada do que a Open aceita: todo método fora dela, inclusive os de conexões de IA, é recusado.
 pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
     match method {
+        "respondPermission" => matches!(caller, Caller::Local) && crate::fork::open_tool_actions::app_response(body),
         // Skills: só o dono local, e instalar só do catálogo embutido (sem source, sem texto escrito à mão).
         "installSkill" => {
             matches!(caller, Caller::Local)
@@ -213,20 +214,30 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
         | "donnaConversations"
         | "donnaConversationHistory"
         | "donnaConversationRead"
+        | "sessions"
+        | "sessionCreate"
         | "stop"
         | "deleteBot"
         | "reorderBots" => true,
         "createBot" | "updateBot" => {
             body.get("cwd").is_none_or(|cwd| cwd.as_str() == Some(""))
                 && (matches!(caller, Caller::Local)
-                    || ["skills", "skillSelection"].iter().all(|key| body.get(key).is_none()))
+                    || ["skills", "skillSelection", crate::fork::open_command_settings::FIELD]
+                        .iter().all(|key| body.get(key).is_none()))
         }
-        // Anexos só do dono local (o Hub entrega o conteúdo no turno); sempre na conversa principal, sem sessão extra.
         "upload" => matches!(caller, Caller::Local),
+        // Anexos só do dono local (o Hub entrega o conteúdo no turno); a aba (sessão extra) é indicada por 'sessionId'
+        // em texto, sem anexos, e o Hub confere bot e estado.
         "send" => {
-            body.get("sessionId").is_none_or(Value::is_null)
-                && (matches!(caller, Caller::Local) || body.get("attachments").is_none_or(|a| a.is_null() || a.as_array().is_some_and(Vec::is_empty)))
+            let no_attachments = body.get("attachments").is_none_or(|a| a.is_null() || a.as_array().is_some_and(Vec::is_empty));
+            let owner_attachments = matches!(caller, Caller::Local) || no_attachments;
+            match body.get("sessionId") {
+                None | Some(Value::Null) => owner_attachments,
+                Some(Value::String(_)) => no_attachments,
+                Some(_) => false,
+            }
         }
+        _ if crate::fork::projetos::LOCAL_MANUAL_METHODS.contains(&method) => matches!(caller, Caller::Local),
         _ if crate::fork::engine_setup::open_login_method(method) => true,
         _ => false,
     }
@@ -244,6 +255,28 @@ mod tests {
         let body = json!({"name": "Space", "principal": {"backend": "codex", "engineAccountId": "conta"}});
         assert!(open_allows(&Caller::Local, "donnaSpaceBirth", &body));
         assert!(!open_allows(&device, "donnaSpaceBirth", &body));
+    }
+
+    #[test]
+    fn open_projetos_manuais_so_para_o_dono_local() {
+        let device = Caller::Device { key: "device".into(), scopes: vec![Scope::Control], autoridade: None };
+        let pairing = Caller::Pairing { key: "pairing".into() };
+        for method in crate::fork::projetos::LOCAL_MANUAL_METHODS {
+            assert!(open_allows(&Caller::Local, method, &json!({})), "{method}");
+            assert!(!open_allows(&device, method, &json!({})), "{method}");
+            assert!(!open_allows(&pairing, method, &json!({})), "{method}");
+        }
+        for method in [
+            "donnaTaskStart",
+            "donnaTaskSchedule",
+            "donnaTaskAgenda",
+            "donnaTaskSessions",
+            "donnaTaskComment",
+            "donnaTaskComments",
+            "donnaTaskProposalDecide",
+        ] {
+            assert!(!open_allows(&Caller::Local, method, &json!({})), "{method}");
+        }
     }
 
     #[test]
@@ -330,12 +363,27 @@ mod tests {
         assert!(open_allows(&Caller::Local, "send", &json!({"attachments": null, "sessionId": null})));
         assert!(open_allows(&Caller::Local, "send", &json!({"attachments": ["arquivo"]})));
         assert!(open_allows(&Caller::Local, "upload", &json!({})));
-        assert!(!open_allows(&Caller::Local, "send", &json!({"sessionId": "extra"})));
+        assert!(open_allows(&Caller::Local, "send", &json!({"sessionId": "extra", "text": "oi"})));
+        assert!(!open_allows(&Caller::Local, "send", &json!({"sessionId": ["extra"]})));
+        assert!(!open_allows(&Caller::Local, "send", &json!({"sessionId": "extra", "attachments": ["arquivo"]})));
         let device = Caller::Device { key: "aparelho".into(), scopes: vec![Scope::Control], autoridade: None };
         assert!(open_allows(&device, "send", &json!({"text": "oi"})));
         assert!(!open_allows(&device, "send", &json!({"attachments": ["arquivo"]})));
         assert!(open_allows(&device, "send", &json!({"attachments": []})));
         assert!(!open_allows(&device, "upload", &json!({})));
+        for method in ["sessions", "sessionCreate"] {
+            assert!(open_allows(&Caller::Local, method, &json!({"botId": "b"})), "{method}");
+        }
+        for method in [
+            "sessionClose",
+            "sessionContinue",
+            "sessionRename",
+            "sessionEngineSet",
+            "sessionDelete",
+            "sessionAutoCloseConfig",
+        ] {
+            assert!(!open_allows(&Caller::Local, method, &json!({"botId": "b"})), "{method} continua fechado na Open");
+        }
     }
 
     const ROTINAS: [&str; 9] = [
@@ -488,6 +536,7 @@ pub(crate) use unix::serve;
 #[cfg(unix)]
 mod unix {
     use super::{Environment, Result, SOCKET_PEER};
+    use crate::fork::desktop_socket::{SocketFile, watch_stdin};
     use crate::fork::private_fs::{self, Directory};
     use crate::hub::Hub;
     use crate::service::mac_local::LOOPBACK;
@@ -498,11 +547,10 @@ mod unix {
     use std::io;
     use std::net::Ipv4Addr;
     use std::os::unix::ffi::OsStrExt;
-    use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
+    use std::os::unix::fs::MetadataExt;
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
-    use tokio::net::{TcpListener, UnixListener};
-    use tokio::sync::oneshot;
+    use tokio::net::TcpListener;
 
     const SYSTEM_PATH: &str = "/usr/bin:/bin:/usr/sbin:/sbin";
     const MARKER: &str = ".open-profile-v1";
@@ -653,52 +701,6 @@ mod unix {
         let _ = fs::remove_dir_all(&root);
     }
 
-    struct SocketFile {
-        path: PathBuf,
-        dev: u64,
-        ino: u64,
-    }
-
-    impl SocketFile {
-        fn bind(path: PathBuf) -> Result<(UnixListener, Self)> {
-            let listener = UnixListener::bind(&path).context("binding the private Mexerica Open socket")?;
-            let metadata = fs::symlink_metadata(&path)?;
-            ensure!(
-                metadata.file_type().is_socket() && metadata.uid() == private_fs::uid(),
-                "unexpected socket identity"
-            );
-            let file = Self { path, dev: metadata.dev(), ino: metadata.ino() };
-            fs::set_permissions(&file.path, fs::Permissions::from_mode(0o600))?;
-            Ok((listener, file))
-        }
-    }
-
-    impl Drop for SocketFile {
-        fn drop(&mut self) {
-            if fs::symlink_metadata(&self.path)
-                .is_ok_and(|m| m.file_type().is_socket() && m.dev() == self.dev && m.ino() == self.ino)
-            {
-                let _ = fs::remove_file(&self.path);
-            }
-        }
-    }
-
-    fn watch_stdin() -> Result<oneshot::Receiver<()>> {
-        let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
-        // SAFETY: fstat só escreve na estrutura válida; o descritor é stdin da invocação.
-        let result = unsafe { libc::fstat(libc::STDIN_FILENO, stat.as_mut_ptr()) };
-        ensure!(result == 0, "Mexerica Open requires piped stdin");
-        // SAFETY: fstat retornou sucesso.
-        let kind = unsafe { stat.assume_init() }.st_mode & libc::S_IFMT;
-        ensure!(matches!(kind, libc::S_IFIFO | libc::S_IFSOCK), "Mexerica Open requires piped stdin");
-        let (tx, rx) = oneshot::channel();
-        std::thread::Builder::new().name("open-stdin".into()).spawn(move || {
-            let _ = io::copy(&mut io::stdin().lock(), &mut io::sink());
-            let _ = tx.send(());
-        })?;
-        Ok(rx)
-    }
-
     pub(crate) async fn serve(port: u16, bind: Option<&str>, only_this_mac: bool) -> Result<()> {
         ensure!(
             only_this_mac && bind == Some(LOOPBACK) && port == Environment::Open.port(),
@@ -727,7 +729,7 @@ mod unix {
             () = &mut stop => return Ok(()),
             result = initialize(&profile, port) => result?,
         };
-        let socket_router = crate::api::open_socket_router(hub.clone()).layer(Extension(ConnectInfo(SOCKET_PEER)));
+        let socket_router = crate::api::desktop_socket_router(hub.clone()).layer(Extension(ConnectInfo(SOCKET_PEER)));
         let result = tokio::select! {
             biased;
             () = &mut stop => Ok(()),

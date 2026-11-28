@@ -365,22 +365,26 @@ impl Pending {
 fn finish_notices(hub: &Hub, entries: &[String], status: RequestStatus, detail: &str, reply: Option<&str>) {
     for id in entries {
         if let Some(mut e) = hub.store.entry(id) {
-            if let Some(message) = e.data.get_mut("botMessage").and_then(Value::as_object_mut) {
-                if let Some(reply) = reply {
-                    message.insert("reply".into(), reply.into());
-                }
-                if matches!(status, RequestStatus::Failed | RequestStatus::Cancelled) {
-                    message.insert("detail".into(), detail.into());
-                }
-            }
-            e.data["status"] = json!(status);
-            let heading = e.data["heading"].as_str().unwrap_or("Bot request");
-            e.data["text"] = format!("{heading}\n{detail}").into();
-            if !matches!(status, RequestStatus::Completed) {
-                e.data["style"] = "error".into();
-            }
+            terminal_notice(&mut e.data, status, detail, reply);
             hub.set_entry(id, &e.data);
         }
+    }
+}
+
+pub(crate) fn terminal_notice(data: &mut Value, status: RequestStatus, detail: &str, reply: Option<&str>) {
+    if let Some(message) = data.get_mut("botMessage").and_then(Value::as_object_mut) {
+        if let Some(reply) = reply {
+            message.insert("reply".into(), reply.into());
+        }
+        if matches!(status, RequestStatus::Failed | RequestStatus::Cancelled) {
+            message.insert("detail".into(), detail.into());
+        }
+    }
+    data["status"] = json!(status);
+    let heading = data["heading"].as_str().unwrap_or("Bot request");
+    data["text"] = format!("{heading}\n{detail}").into();
+    if !matches!(status, RequestStatus::Completed) {
+        data["style"] = "error".into();
     }
 }
 
@@ -461,6 +465,31 @@ fn visible_bot(hub: &Hub, id: &str) -> Result<BotConfig> {
         .ok_or_else(|| anyhow!("unknown or hidden bot"))
 }
 
+pub(crate) fn list_bots(hub: &Hub, source: &BotConfig) -> Result<Value> {
+    let teams = crate::fork::times::listagem::consultar(&hub.store, &source.space_id)?;
+    let bots: Vec<Value> = hub
+        .store
+        .bots()?
+        .into_iter()
+        .filter(|b| {
+            !b.deleted
+                && !b.config.hidden
+                && !b.config.is_group()
+                && b.config.id != source.id
+                && b.config.space_id == source.space_id
+        })
+        .map(|b| {
+            let (team, chief) = teams.get(&b.config.id).cloned().unwrap_or_default();
+            json!({
+                "id": b.config.id, "name": b.config.name, "description": b.config.description,
+                "backend": b.config.backend, "cwd": b.config.cwd,
+                "status": hub.bot_json(&b)["status"], "team": team, "teamChief": chief,
+            })
+        })
+        .collect();
+    Ok(json!({"bots": bots}))
+}
+
 fn check_subscription_delegation(hub: &Hub, source: &BotConfig, target: &BotConfig, lane: &Lane) -> Result<()> {
     let mut source = source.clone();
     let mut target = target.clone();
@@ -524,29 +553,9 @@ async fn call_bound(
     let source = visible_bot(hub, from)?;
     match name {
         "list_bots" => {
-            let teams = crate::fork::times::listagem::consultar(&hub.store, &source.space_id)?;
-            let bots: Vec<Value> = hub
-                .store
-                .bots()?
-                .into_iter()
-                .filter(|b| {
-                    !b.deleted
-                        && !b.config.hidden
-                        && !b.config.is_group()
-                        && b.config.id != from
-                        && b.config.space_id == source.space_id
-                })
-                .map(|b| {
-                    let (team, chief) = teams.get(&b.config.id).cloned().unwrap_or_default();
-                    json!({
-                        "id": b.config.id, "name": b.config.name, "description": b.config.description,
-                        "backend": b.config.backend, "cwd": b.config.cwd,
-                        "status": hub.bot_json(&b)["status"], "team": team, "teamChief": chief,
-                    })
-                })
-                .collect();
+            let bots = list_bots(hub, &source)?;
             bindings::recheck_optional(hub, execution)?;
-            Ok(json!({"bots": bots}))
+            Ok(bots)
         }
         "ask_bot" => {
             let to = args["botId"].as_str().ok_or_else(|| anyhow!("botId is required"))?;

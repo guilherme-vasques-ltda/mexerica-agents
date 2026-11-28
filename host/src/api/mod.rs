@@ -18,7 +18,7 @@ pub use events::events_stream;
 pub use events::scoped_events_stream;
 pub use events::{scoped_events_stream_at, term_events};
 #[cfg(unix)]
-pub(crate) use http::open_socket_router;
+pub(crate) use http::desktop_socket_router;
 pub use http::router;
 
 use crate::LockExt;
@@ -363,6 +363,9 @@ async fn route(
         let desktop = crate::fork::conectores::oauth_desktop::do_pedido(&b)?;
         let callback = match (caller, desktop) {
             (Caller::Local, Some(port)) => market::oauth::Callback::Desktop(port),
+            (Caller::Local, None) if hub.desktop_socket.get().is_some() => {
+                anyhow::bail!("O Hub local precisa da porta de retorno do app para iniciar o login.");
+            }
             (Caller::Local, None) => market::oauth::Callback::Host,
             (_, None) => market::oauth::Callback::App,
             (_, Some(_)) => anyhow::bail!(crate::fork::conectores::oauth_desktop::RECUSA),

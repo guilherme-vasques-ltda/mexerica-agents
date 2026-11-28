@@ -15,7 +15,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard};
+use std::sync::{Arc, Mutex, OnceLock, RwLock, RwLockReadGuard};
 use std::time::Duration;
 use tokio::sync::{broadcast, watch};
 
@@ -123,6 +123,7 @@ pub struct Hub {
     /// Repasse local dos planos de código (iniciado sob demanda).
     pub(crate) planos: tokio::sync::OnceCell<Arc<crate::fork::planos_codigo::Repasse>>,
     pub port: u16,
+    pub(crate) desktop_socket: OnceLock<std::path::PathBuf>,
     pub events: broadcast::Sender<Value>,
     /// Held across "mutate store + broadcast" so events leave in rev order.
     pub(crate) emit_lock: Mutex<()>,
@@ -161,7 +162,7 @@ pub struct Hub {
     /// Códigos de login de dois fatores: só memória, somem com o Hub.
     pub(crate) login_codes: crate::market::login_codes::Codes,
     /// Interface Web local (`--web-dir`): presente só quando o `serve` a ativa.
-    pub(crate) web_local: std::sync::OnceLock<Arc<crate::fork::web_local::WebState>>,
+    pub(crate) web_local: OnceLock<Arc<crate::fork::web_local::WebState>>,
     /// `workspaceEpoch` atual; streams abertos terminam quando ele sobe.
     pub(crate) workspace: crate::fork::workspace::Sinal,
     /// JWKS e nonces da sessão Clerk do acesso remoto (Hub com vínculo).
@@ -169,6 +170,14 @@ pub struct Hub {
 }
 
 impl Hub {
+    pub(crate) fn bridge_port(&self) -> u16 {
+        if self.desktop_socket.get().is_some() { crate::fork::bridge_http::SOCKET_PORT } else { self.port }
+    }
+
+    pub(crate) fn bridge_destination(&self) -> (u16, Option<&std::path::Path>) {
+        (self.bridge_port(), self.desktop_socket.get().map(std::path::PathBuf::as_path))
+    }
+
     pub fn busy(&self) -> bool {
         self.runtime.locked().values().any(|r| matches!(r.status, BotStatus::Working | BotStatus::NeedsInput))
             || self.terms.busy()
@@ -196,6 +205,7 @@ impl Hub {
             consumidos: Mutex::new(crate::fork::prova_health::Consumidos::new()),
             planos: tokio::sync::OnceCell::new(),
             port,
+            desktop_socket: OnceLock::new(),
             events,
             emit_lock: Mutex::new(()),
             bots: Mutex::default(),
@@ -222,7 +232,7 @@ impl Hub {
             screen,
             terms: Arc::default(),
             login_codes: crate::market::login_codes::Codes::default(),
-            web_local: std::sync::OnceLock::new(),
+            web_local: OnceLock::new(),
             workspace,
             sessao_clerk: crate::fork::sessao_clerk::Estado::default(),
         })
@@ -1104,10 +1114,21 @@ impl Hub {
         execution: Option<&crate::fork::sessoes::ExecutionRef>,
         chain: &crate::fork::cadeias::equipe::Entrada,
     ) -> Result<([Entry; 2], Option<crate::fork::cadeias::modelo::Recibo>)> {
+        self.add_team_notices_with(source, turn, notices, crate::store::TeamOrigin::Actor(execution), chain)
+    }
+
+    pub(crate) fn add_team_notices_with(
+        &self,
+        source: &Lane,
+        turn: Option<i64>,
+        notices: &[Value; 2],
+        origin: crate::store::TeamOrigin<'_>,
+        chain: &crate::fork::cadeias::equipe::Entrada,
+    ) -> Result<([Entry; 2], Option<crate::fork::cadeias::modelo::Recibo>)> {
         #[cfg(test)]
         crate::fork::sessoes::call_tests::before_effect(&self.store, "team_notices_commit");
         let _guard = self.emit_lock.locked();
-        let (pair, receipt) = self.store.insert_team_notices(source, turn, notices, execution, chain)?;
+        let (pair, receipt) = self.store.insert_team_notices(source, turn, notices, origin, chain)?;
         for (marker, entry) in &pair {
             for entry in marker.iter().chain([entry]) {
                 let _ = self.events.send(json!({"type":"entry","rev":entry.rev,"entry":entry}));

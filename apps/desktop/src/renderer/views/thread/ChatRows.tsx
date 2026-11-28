@@ -115,7 +115,7 @@ export const ChatRow = memo(function ChatRow({ entry, groupStart, chat, openTrac
 /** Follows the store: the card shows a spinner while its answer is on its way. */
 function LivePermission({ entry }: { entry: Entry }) {
   const store = useLiveStore()
-  return <PermissionCard entry={entry} hostName={store.hostName} answering={store.answering.get(entry.id) ?? null} respond={(o) => store.respond(entry, o)} />
+  return <PermissionCard entry={entry} hostName={store.hostName} answering={store.answering.get(entry.id) ?? null} respond={(o) => store.respond(entry, o, entry.data.toolKind === 'open_local_command' ? 'app' : undefined)} />
 }
 
 /** Who wrote a message in a group: their avatar and name in their color. */
@@ -234,6 +234,7 @@ export function AgentBubble({ entry, openTrace, reply, meta = false, face = fals
   const copy = () => entry.data.text && window.codync.app.copy(entry.data.text)
   // A direct chat's replies may come without an author: they are the chat's own bot.
   const author = entry.data.author ? store.bots.get(entry.data.author) : fallbackAuthor && !isGroup(fallbackAuthor) ? fallbackAuthor : undefined
+  const authorName = author?.name ?? store.authorName(entry.data.author)
   return (
     <div ref={row} className={`message agent${face ? ' with-face' : ''}`} title={fullDate.format(entry.createdAt)} onMouseEnter={() => setHovering(true)} onMouseLeave={() => setHovering(false)}>
       {face ? <span className="message-face" aria-hidden>{meta && author ? <BotAvatar bot={author} size={28} animated={false} /> : null}</span> : null}
@@ -251,9 +252,9 @@ export function AgentBubble({ entry, openTrace, reply, meta = false, face = fals
           {meta ? (
             <div className="bubble-meta">
               {/* In `ink`, like the design's meta: a bot's own color could fall under 4.5:1 on glass. */}
-              <span className="bubble-meta-name">{store.authorName(entry.data.author)}</span>
+              <span className="bubble-meta-name">{authorName}</span>
               <time className="bubble-meta-time">{relativeTime.time(entry.createdAt)}</time>
-              {receipt ? <ReceiptTrigger anchor={receipt} botId={receiptBot} botName={store.authorName(entry.data.author)} /> : null}
+              {receipt ? <ReceiptTrigger anchor={receipt} botId={receiptBot} botName={authorName} /> : null}
             </div>
           ) : null}
           {/* D169 (ToolSteps): the work comes first, under the name, then the answer. */}
@@ -266,7 +267,7 @@ export function AgentBubble({ entry, openTrace, reply, meta = false, face = fals
         <MessageActions className="trailing" visible={hovering} reactions={reactionPick(store, entry)} reply={reply} trace={openTrace} copy={copy}
           explain={receipt ? (from) => setExplain({ rect: bubbleRect(from), from }) : undefined} />
       </div>
-      {receipt && explain ? <ReceiptPopover anchor={receipt} rect={explain.rect} botId={receiptBot} botName={store.authorName(entry.data.author)} returnFocus={explain.from} onClose={() => setExplain(null)} /> : null}
+      {receipt && explain ? <ReceiptPopover anchor={receipt} rect={explain.rect} botId={receiptBot} botName={authorName} returnFocus={explain.from} onClose={() => setExplain(null)} /> : null}
     </div>
   )
 }

@@ -20,15 +20,17 @@ export class ProvaRecusada extends Error {}
 
 /** Um pedido no agente da rodada. `errado` marca a conexão que não é a provada. */
 type Pedido = { method: string; headers: Record<string, string>; body?: string }
+type Destino = string | { socketPath: string }
 
-function pedir(agente: Agent, url: string, init: Pedido, errado: (socket: Socket) => boolean, timeoutMs: number, signal?: AbortSignal): Promise<{ res: IncomingMessage; socket: Socket }> {
+function pedir(agente: Agent, destino: Destino, path: string, init: Pedido, errado: (socket: Socket) => boolean, timeoutMs: number, signal?: AbortSignal): Promise<{ res: IncomingMessage; socket: Socket }> {
   return new Promise((resolve, reject) => {
-    const alvo = new URL(url)
+    const alvo = typeof destino === 'string' ? new URL(`${destino}${path}`) : null
     const req = request(
       {
-        hostname: alvo.hostname.startsWith('[') ? alvo.hostname.slice(1, -1) : alvo.hostname,
-        port: Number(alvo.port),
-        path: `${alvo.pathname}${alvo.search}`,
+        hostname: alvo ? alvo.hostname.startsWith('[') ? alvo.hostname.slice(1, -1) : alvo.hostname : 'localhost',
+        port: alvo ? Number(alvo.port) : undefined,
+        socketPath: typeof destino === 'string' ? undefined : destino.socketPath,
+        path: alvo ? `${alvo.pathname}${alvo.search}` : path,
         method: init.method,
         headers: init.headers,
         agent: agente,
@@ -69,7 +71,31 @@ function texto(res: IncomingMessage): Promise<string> {
  * Uma rodada provada: a prova sai sem credencial nenhuma; conferido o recibo, o pedido segue
  * pela mesma conexão. O agente da rodada vive até o corpo terminar ou a resposta fechar.
  */
-async function umaVez(url: string, path: string, token: string, pedido: Pedido, timeoutMs: number, signal?: AbortSignal, atual?: () => boolean): Promise<IncomingMessage> {
+async function provar(agente: Agent, destino: Destino, token: string, timeoutMs: number, signal?: AbortSignal) {
+  const prova = consultaProvada(token)
+  const saude = await pedir(agente, destino, `/health${prova.query}`, { method: 'GET', headers: {} }, () => false, timeoutMs, signal)
+  if (saude.res.statusCode !== 200) {
+    saude.res.resume()
+    throw new ProvaRecusada(`a prova foi recusada (${saude.res.statusCode})`)
+  }
+  const lido: unknown = JSON.parse(await texto(saude.res))
+  const health = lido !== null && typeof lido === 'object' ? lido as LocalHealth : null
+  if (!health || !reciboConfere(token, prova.nonce, health)) throw new ProvaRecusada()
+  return { health, socket: saude.socket }
+}
+
+export async function provarSocket(socketPath: string, token: string, signal: AbortSignal): Promise<LocalHealth> {
+  const destino = { socketPath }
+  const agente = new Agent({ keepAlive: true, maxSockets: 1 })
+  try {
+    const { health } = await provar(agente, destino, token, 2_000, signal)
+    return health
+  } finally {
+    agente.destroy()
+  }
+}
+
+async function umaVez(destino: Destino, path: string, token: string, pedido: Pedido, timeoutMs: number, signal?: AbortSignal, atual?: () => boolean): Promise<IncomingMessage> {
   signal?.throwIfAborted()
   const agente = new Agent({ keepAlive: true, maxSockets: 1 })
   agentes.add(agente)
@@ -77,22 +103,10 @@ async function umaVez(url: string, path: string, token: string, pedido: Pedido, 
     if (agentes.delete(agente)) agente.destroy()
   }
   try {
-    const prova = consultaProvada(token)
-    const saude = await pedir(agente, `${url}/health${prova.query}`, { method: 'GET', headers: {} }, () => false, timeoutMs, signal)
-    if (saude.res.statusCode !== 200) {
-      saude.res.resume()
-      throw new ProvaRecusada(`a prova foi recusada (${saude.res.statusCode})`)
-    }
-    const corpo = await texto(saude.res)
-    let health: LocalHealth | null = null
-    try {
-      const lido: unknown = JSON.parse(corpo)
-      if (lido !== null && typeof lido === 'object') health = lido as LocalHealth
-    } catch { /* corpo quebrado não é recibo */ }
-    if (!health || !reciboConfere(token, prova.nonce, health)) throw new ProvaRecusada('a resposta não trouxe o recibo do token') // textos-ok: erro técnico interno; quem chama converte em mensagem do catálogo, este texto nunca aparece
+    const saude = await provar(agente, destino, token, timeoutMs, signal)
     signal?.throwIfAborted()
     if (atual && !atual()) throw new ProvaRecusada()
-    const { res } = await pedir(agente, `${url}${path}`, pedido, (socket) => socket !== saude.socket, timeoutMs, signal)
+    const { res } = await pedir(agente, destino, path, pedido, (socket) => socket !== saude.socket, timeoutMs, signal)
     res.once('end', fechar)
     res.once('close', fechar)
     res.once('error', fechar)
@@ -107,7 +121,7 @@ async function umaVez(url: string, path: string, token: string, pedido: Pedido, 
  * POST com bearer no loopback: a prova e a credencial passam pela mesma conexão, uma atrás da
  * outra. Quem chama deve consumir ou destruir a resposta para fechar a rodada.
  */
-export function postProvado(url: string, path: string, token: string, body: string, timeoutMs: number, options?: { signal?: AbortSignal; atual?: () => boolean }): Promise<IncomingMessage> {
+export function postProvado(url: Destino, path: string, token: string, body: string, timeoutMs: number, options?: { signal?: AbortSignal; atual?: () => boolean }): Promise<IncomingMessage> {
   const prazo = AbortSignal.timeout(timeoutMs)
   const signal = options?.signal ? AbortSignal.any([options.signal, prazo]) : prazo
   return umaVez(url, path, token, {
@@ -122,10 +136,10 @@ export function postProvado(url: string, path: string, token: string, body: stri
  * O stream fica aberto nessa conexão o tempo que quiser — o agente da rodada vive com ele, sem
  * segurar nem atrapalhar as outras chamadas, que provam as conexões delas.
  */
-export function streamProvado(url: string, path: string, token: string, signal: AbortSignal, timeoutMs: number): Promise<IncomingMessage> {
+export function streamProvado(url: Destino, path: string, token: string, signal: AbortSignal, timeoutMs: number, atual?: () => boolean): Promise<IncomingMessage> {
   return umaVez(url, path, token, {
     method: 'GET', headers: { Authorization: `Bearer ${token}`, Accept: 'text/event-stream' },
-  }, timeoutMs, signal)
+  }, timeoutMs, signal, atual)
 }
 
 /** Para testes: destrói os agentes de todas as rodadas vivas. */

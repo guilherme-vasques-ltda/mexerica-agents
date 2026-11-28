@@ -19,6 +19,11 @@ pub(super) async fn call(
     execution: Option<&crate::fork::sessoes::ExecutionRef>,
 ) -> Result<ControlFlow<Value, Value>> {
     market::reject_registry_request(method, &b)?;
+    if hub.desktop_socket.get().is_some()
+        && matches!(method, "importConnectors" | "installConnector" | "marketPersonalizado")
+    {
+        return Err(super::devices::Forbidden.into());
+    }
     if crate::fork::skill_catalog::methods(method) {
         return crate::fork::skill_catalog::call(hub, caller, method, b).await.map(ControlFlow::Break);
     }
@@ -31,6 +36,9 @@ pub(super) async fn call(
             let fields = b["fields"].as_object().ok_or_else(|| anyhow!("Credential fields are required"))?;
             market::update_connectors(&hub.store, |all| {
                 let c = all.iter_mut().find(|c| c.id == id).ok_or_else(|| anyhow!("Unknown connector"))?;
+                if hub.desktop_socket.get().is_some() && !market::contas::desktop_catalog(c) {
+                    return Err(super::devices::Forbidden.into());
+                }
                 let values = if c.command.is_some() { &mut c.env } else { &mut c.headers };
                 for (key, value) in fields {
                     if !values.contains_key(key) {
@@ -66,7 +74,7 @@ pub(super) async fn call(
                     json!({"saved": true, "verified": false, "status": "saved", "aviso": aviso}),
                 ));
             }
-            let mut ready = market::verify::verify(&hub.store, id, hub.port).await?;
+            let mut ready = market::verify::verify(&hub.store, id, hub.bridge_destination()).await?;
             ready["saved"] = json!(true);
             ready["verified"] = json!(true);
             ready["aviso"] = json!(aviso);
@@ -127,7 +135,7 @@ pub(super) async fn call(
         }
         // MX-209: leitura do cartão para a janela segura; nunca devolve valor.
         "connectorRequestGet" => market::requests::inspect(hub, &b)?,
-        "connectorVerify" => market::verify::verify(&hub.store, str_arg(&b, "id")?, hub.port).await?,
+        "connectorVerify" => market::verify::verify(&hub.store, str_arg(&b, "id")?, hub.bridge_destination()).await?,
         "connectors" => market::list_connectors(&hub.store)?,
         "importConnectors" => {
             let space = market::contas::space_do_pedido(&hub.store, &b)?;
@@ -169,6 +177,35 @@ pub(super) async fn call(
 mod tests {
     use super::*;
     use crate::store::BotConfig;
+
+    #[tokio::test]
+    async fn desktop_hub_refuses_custom_connector_creation_and_verification() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let store = crate::store::Store::open(std::path::Path::new(":memory:"))?;
+        let saved = serde_json::from_value(json!({
+            "id":"saved", "name":"Saved", "url":"https://fixture.example.invalid/mcp"
+        }))?;
+        market::save_connectors(&store, &[saved])?;
+        let hub = Hub::new(
+            store,
+            "fixture".into(),
+            crate::remote::identity::Identity::load_or_create(dir.path())?,
+            "fixture".into(),
+            19222,
+        );
+        hub.desktop_socket.set(dir.path().join("s")).expect("private transport");
+        for (method, body) in [
+            ("installConnector", json!({"name":"Fixture", "command":"unused"})),
+            ("importConnectors", json!({"config":r#"{"mcpServers":{"Fixture":{"command":"unused"}}}"#})),
+        ] {
+            let error = call(&hub, &Caller::Local, method, body, None).await.unwrap_err();
+            assert!(error.downcast_ref::<super::super::devices::Forbidden>().is_some());
+        }
+        let error = call(&hub, &Caller::Local, "connectorVerify", json!({"id":"saved"}), None).await.unwrap_err();
+        assert!(error.to_string().contains("só conecta contas do catálogo"));
+        assert_eq!(market::connectors(&hub.store)?.len(), 1);
+        Ok(())
+    }
 
     #[tokio::test]
     async fn new_mcp_connectors_and_saved_logins_stay_off_without_revoking_existing_access() {

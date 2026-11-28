@@ -158,6 +158,16 @@ pub(crate) async fn respond(hub: &Arc<Hub>, body: &Value) -> Result<Value> {
         Value::String(id) => Some(id.clone()),
         _ => bail!("Opção inválida: informe o identificador de uma opção do cartão."),
     };
+    if crate::environment::Environment::is_open() || crate::fork::open_tool_actions::hub_card(&entry.data) {
+        return crate::fork::open_tool_actions::respond(
+            hub,
+            &entry,
+            revision,
+            body,
+            option_id.as_deref(),
+            origem.as_ref(),
+        );
+    }
     let refusal = option_id.as_deref().is_none_or(|id| {
         entry.data["options"].as_array().is_some_and(|options| {
             options.iter().any(|option| {
@@ -244,7 +254,7 @@ pub(crate) fn commit(
 }
 
 /// `commit` com uma conferência síncrona na mesma `Connection` da guarda, antes de gravar.
-fn commit_checked(
+pub(super) fn commit_checked(
     hub: &Hub,
     id: &str,
     data: &Value,

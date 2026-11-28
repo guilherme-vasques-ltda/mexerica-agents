@@ -223,6 +223,9 @@ pub(super) async fn call(
             .await??})
         }
         "updateBot" => {
+            if b.get(crate::fork::open_command_settings::FIELD).is_some() {
+                return crate::fork::open_command_settings::update(hub, caller, b).map(ControlFlow::Break);
+            }
             // c1: intenção tipada de uma célula; captura antes de team_lock, sem recaptura.
             if let Some(selection) = crate::fork::skill_selection::Selection::capture(hub, caller, &b)? {
                 let guard = hub.store.team_lock.clone().lock_owned().await;
@@ -343,9 +346,19 @@ pub(super) async fn call(
             }
             // Open: recusas que não dependem de resposta em curso saem antes de gravar; com resposta em curso a
             // mensagem entra na fila do Hub (`fork::open_chat_fila`).
+            let (lane, effective) = {
+                let db = hub.store.db.locked();
+                let lane = crate::fork::sessoes::api::send_lane(&db, bot, &b)?;
+                let mut effective = row.config.clone();
+                if !row.config.is_group() {
+                    crate::fork::sessoes::admissao::apply_configured(&db, &lane, &mut effective)?;
+                }
+                (lane, effective)
+            };
             let open_turn = crate::environment::Environment::is_open();
+            let open_config = if lane.session.is_some() { &effective } else { &row.config };
             if open_turn {
-                crate::fork::open_chat::precheck(hub, &row.config, text)?;
+                crate::fork::open_chat::precheck(hub, open_config, text)?;
             }
             // `replyTo`: the message of this chat it answers (`chat::replies`).
             let reply = match quoted {
@@ -400,15 +413,6 @@ pub(super) async fn call(
             if crate::api::AUTOMATICO.try_get().is_ok() {
                 data["contentOrigin"]["hubOrigin"] = json!("automatico");
             }
-            let (lane, effective) = {
-                let db = hub.store.db.locked();
-                let lane = crate::fork::sessoes::api::send_lane(&db, bot, &b)?;
-                let mut effective = row.config.clone();
-                if !row.config.is_group() {
-                    crate::fork::sessoes::admissao::apply_configured(&db, &lane, &mut effective)?;
-                }
-                (lane, effective)
-            };
             let antigravity_owner = if crate::agent::backends::is_antigravity(&effective.backend) {
                 crate::fork::antigravity::config(&effective)?;
                 data[crate::fork::antigravity::ENTRY_MARKER] = json!(true);
@@ -454,7 +458,7 @@ pub(super) async fn call(
                 tracing::warn!(%error, bot, "couldn't mark bot read after send");
             }
             if open_turn {
-                crate::fork::open_canal::deliver(hub, &row.config, lane, &e, effect_authority, text);
+                crate::fork::open_canal::deliver(hub, open_config, lane, &e, effect_authority, text);
             } else if row.config.is_group() {
                 // Each member reads it in its room prompt (`chat::group`).
                 crate::chat::group::start_authorized(

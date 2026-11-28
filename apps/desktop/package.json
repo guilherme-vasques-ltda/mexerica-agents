@@ -29,7 +29,7 @@
     "dist:mac:official": "node tools/fork-official-dist.cjs darwin",
     "dist:win:official": "node tools/fork-official-dist.cjs win32",
     "dist:linux:official": "node tools/fork-official-dist.cjs linux",
-    "test:open": "node --test tools/open-isolation.test.mjs tools/open-hub.test.mjs",
+    "test:open": "node --test --experimental-strip-types tools/open-isolation.test.mjs tools/open-hub.test.mjs src/main/fork-hub-signature.test.ts src/main/fork-hub-process.test.ts",
     "dist:mac:main": "node tools/account-config.mjs main && node tools/native-host.mjs main && node tools/native-screen.mjs main && electron-vite build && electron-builder --mac",
     "dist:linux:dev": "node tools/account-config.mjs dev && electron-vite build && electron-builder --linux --config tools/dev-builder.cjs",
     "dist:linux:main": "node tools/account-config.mjs main && electron-vite build && electron-builder --linux",
