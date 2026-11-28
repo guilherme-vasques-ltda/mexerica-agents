@@ -111,6 +111,7 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
                 || body["sessionId"].as_str().is_some_and(|id| body["botId"] == id)
         }
         "sessions" => matches!(caller, Caller::Local) || caller.is_web_chat(),
+        "botGroups" => caller.is_web_chat(),
         // Skills: só o dono local, e instalar só do catálogo embutido (sem source, sem texto escrito à mão).
         "installSkill" => {
             matches!(caller, Caller::Local)
@@ -374,6 +375,10 @@ mod tests {
         assert!(!open_allows(&Caller::Local, "send", &json!({"sessionId": ["extra"]})));
         assert!(!open_allows(&Caller::Local, "send", &json!({"sessionId": "extra", "attachments": ["arquivo"]})));
         let device = Caller::Device { key: "aparelho".into(), scopes: vec![Scope::Control], autoridade: None };
+        let web = Caller::Device { key: "web-ficticia".into(), scopes: vec![Scope::WebChat], autoridade: None };
+        assert!(open_allows(&web, "botGroups", &json!({})));
+        assert!(!open_allows(&web, "botGroupsEdit", &json!({})));
+        assert!(!open_allows(&device, "botGroups", &json!({})));
         assert!(open_allows(&device, "send", &json!({"text": "oi"})));
         assert!(!open_allows(&device, "send", &json!({"sessionId": "extra"})));
         assert!(!open_allows(&device, "history", &json!({"sessionId": "extra"})));
