@@ -13,21 +13,27 @@ export function spawnHubProcess(
   stopTimeout = 26000,
 ) {
   const child = spawn(supervisor, [executable, ...args], { ...options, detached: true, stdio: ['pipe', 'pipe', 'ignore'] })
-  const started = Promise.withResolvers<number>()
-  const exited = Promise.withResolvers<void>()
+  let resolveStarted!: (pid: number) => void
+  let rejectStarted!: (error: unknown) => void
+  let resolveExited!: () => void
+  const started = new Promise<number>((resolve, reject) => {
+    resolveStarted = resolve
+    rejectStarted = reject
+  })
+  const exited = new Promise<void>(resolve => { resolveExited = resolve })
   let authorised = false
   let stopping: Promise<void> | undefined
   let closed = false
   const finished = new Promise<boolean>(resolve => child.once('close', (code) => {
     closed = true
-    started.reject(invalid())
-    exited.resolve()
+    rejectStarted(invalid())
+    resolveExited()
     resolve(child.pid === undefined || (authorised && code === 0))
   }))
   const end = () => { child.stdin.end() }
   const protocolFailed = () => {
-    started.reject(invalid())
-    exited.resolve()
+    rejectStarted(invalid())
+    resolveExited()
     end()
   }
   child.on('error', protocolFailed)
@@ -41,7 +47,7 @@ export function spawnHubProcess(
       authorised = true
       child.stdin.write('s')
     } catch (error) {
-      started.reject(error)
+      rejectStarted(error)
       end()
     }
   })
@@ -55,12 +61,12 @@ export function spawnHubProcess(
       buffer = buffer.slice(newline + 1)
       if (authorised && state === 'starting' && /^[1-9][0-9]{0,9}$/.test(line) && Number(line) !== child.pid) {
         state = 'running'
-        started.resolve(Number(line))
+        resolveStarted(Number(line))
         continue
       }
       if (state === 'running' && line === 'x') {
         state = 'exited'
-        exited.resolve()
+        resolveExited()
         continue
       }
       protocolFailed()
@@ -69,8 +75,8 @@ export function spawnHubProcess(
     if (buffer.length > 10) protocolFailed()
   })
   return {
-    started: started.promise,
-    exited: exited.promise,
+    started,
+    exited,
     stop() {
       if (stopping) return stopping
       end()
