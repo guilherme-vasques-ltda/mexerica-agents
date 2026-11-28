@@ -24,6 +24,7 @@ pub enum DeviceSource {
 pub enum Scope {
     Control,
     Screen,
+    WebChat,
     Executor,
     #[serde(rename = "owner.devices")]
     OwnerDevices,
@@ -43,6 +44,25 @@ pub struct Device {
     pub lease_until: Option<i64>,
     pub created_at: i64,
     pub last_seen_at: Option<i64>,
+}
+
+impl Device {
+    pub(crate) const WEB_PAREAMENTO_MS: i64 = 24 * 60 * 60 * 1000;
+
+    pub(crate) fn concessao_web_valida(&self, agora: i64) -> bool {
+        match self.platform.as_str() {
+            "web" => {
+                self.source == DeviceSource::Local
+                    && self.grant_id.is_none()
+                    && self.scopes == [Scope::WebChat]
+                    && self.created_at <= agora
+                    && self.lease_until.is_some_and(|prazo| {
+                        prazo > agora && prazo <= self.created_at.saturating_add(Self::WEB_PAREAMENTO_MS)
+                    })
+            }
+            _ => !self.scopes.contains(&Scope::WebChat),
+        }
+    }
 }
 
 /// A push ticket with the device's push key (§6.7) and account context.
@@ -74,11 +94,14 @@ fn row_device(r: &rusqlite::Row) -> rusqlite::Result<Device> {
     })
 }
 
+pub(crate) fn device_on(c: &rusqlite::Connection, key: &str) -> rusqlite::Result<Option<Device>> {
+    c.query_row(&format!("SELECT {DEVICE_COLS} FROM devices WHERE key = ?1"), [key], row_device).optional()
+}
+
 impl Store {
     pub fn device(&self, key: &str) -> Option<Device> {
         let c = self.db.locked();
-        let row = c.query_row(&format!("SELECT {DEVICE_COLS} FROM devices WHERE key = ?1"), [key], row_device);
-        logged("device", row.optional()).flatten()
+        logged("device", device_on(&c, key)).flatten()
     }
 
     pub fn devices(&self) -> Result<Vec<Device>> {
@@ -242,7 +265,7 @@ pub(crate) fn put_device_on(c: &rusqlite::Connection, d: &Device) -> Result<()> 
         "INSERT INTO devices(key, name, platform, source, grant_id, scopes, lease_until, created_at)
          VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
          ON CONFLICT(key) DO UPDATE SET name = ?2, platform = ?3, source = ?4, grant_id = ?5,
-           scopes = ?6, lease_until = ?7",
+           scopes = ?6, lease_until = ?7, created_at = CASE WHEN excluded.platform = 'web' THEN excluded.created_at ELSE devices.created_at END",
         params![
             d.key,
             d.name,

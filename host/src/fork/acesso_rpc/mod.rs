@@ -144,6 +144,11 @@ pub(crate) fn permite(caller: &Caller, method: &str) -> bool {
         Caller::Local => acesso != Acesso::Executor,
         Caller::Ponte { .. } => acesso == Acesso::Ponte,
         Caller::Pairing { .. } | Caller::Bootstrap { .. } => false,
+        Caller::Device { scopes, .. } if scopes.contains(&Scope::WebChat) => {
+            scopes == &[Scope::WebChat]
+                && matches!(acesso, Acesso::Control | Acesso::Proprio)
+                && WEB_CHAT.contains(&method)
+        }
         Caller::Device { scopes, .. } if acesso == Acesso::Executor => scopes == &[Scope::Executor],
         Caller::Device { scopes, .. } if scopes.contains(&Scope::Executor) => false,
         Caller::Device { scopes, .. } => match acesso {
@@ -155,6 +160,30 @@ pub(crate) fn permite(caller: &Caller, method: &str) -> bool {
         },
     }
 }
+
+pub(crate) fn permite_assinatura(caller: &Caller, tipo: &str) -> bool {
+    match caller {
+        Caller::Device { scopes, .. } if scopes.contains(&Scope::WebChat) => {
+            scopes == &[Scope::WebChat] && tipo == "events"
+        }
+        _ => permite(caller, "subscribe"),
+    }
+}
+
+pub(crate) const WEB_CHAT: &[&str] = &[
+    "botGroups",
+    "donnaConversationHistory",
+    "donnaConversations",
+    "donnaConversationSend",
+    "donnaConversationStartupLookup",
+    "donnaSpaces",
+    "hello",
+    "history",
+    "keepConversation",
+    "send",
+    "sessions",
+    "workspaceContext",
+];
 
 pub(crate) const SO_LOCAL: &[&str] = &[
     "bootstrapInstallGrant",

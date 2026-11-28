@@ -19,6 +19,7 @@ const context: WorkspaceContext = {
 }
 const origin = 'https://hub.example.invalid'
 const target = { origin: 'wss://hub.example.invalid', hubId: context.hubId, signKey: protocol.b64url(host.publicKey) }
+const relayOrigin = 'wss://relay.example.invalid'
 const replyToken = 'fixture-token'
 const b64 = (data: Uint8Array) => Buffer.from(data).toString('base64url')
 const raw = (data: string) => Buffer.from(data, 'base64url')
@@ -31,15 +32,17 @@ const be = (n: number) => {
 
 type Envelope = { id: number; m?: string; sub?: string; cancel?: boolean; b: Record<string, unknown>; pop: { v: number; ts: number; nonce: string; sig: string } }
 
-function fixture(options: { enrolled?: boolean; renew?: boolean; mismatch?: boolean; holdSend?: boolean; noToken?: boolean; failMarkPaired?: boolean } = {}) {
+function fixture(options: { enrolled?: boolean; fresh?: boolean; renew?: boolean; mismatch?: boolean; holdSend?: boolean; noToken?: boolean; failMarkPaired?: boolean; relay?: boolean } = {}) {
   let joined = options.enrolled ?? true
   let now = Date.now()
   let epoch = context.workspaceEpoch
   let tokenRequests = 0
   let refuseHello = false
+  let relayOnline = true
   const messages: Envelope[] = []
   const receivedNonces = new Set<string>()
   const sockets: FakeSocket[] = []
+  const routes: string[] = []
 
   class FakeSocket extends EventTarget {
     readyState: number = WebSocket.CONNECTING
@@ -49,18 +52,23 @@ function fixture(options: { enrolled?: boolean; renew?: boolean; mismatch?: bool
     private sendCount = 0
     private received = 0
 
-    constructor(url: string) {
+    constructor(url: string, relay: boolean, headers?: Record<string, string>) {
       super()
-      assert.equal(url, target.origin + '/channel?v=1')
+      const expected = relay ? `${relayOrigin}/v1/relay/device/${protocol.computerIdOf(host.publicKey)}?v=1`
+        : target.origin + '/channel?v=1'
+      assert.equal(url, expected)
+      assert.equal(Object.hasOwn(headers ?? {}, 'Codync-Sig'), relay)
+      routes.push(relay ? 'relay' : 'direct')
       sockets.push(this)
       queueMicrotask(() => {
         this.readyState = WebSocket.OPEN
         this.dispatchEvent(new Event('open'))
+        if (relay) this.deliver({ t: 'presence', online: relayOnline })
       })
     }
     close() {
       this.readyState = WebSocket.CLOSED
-      queueMicrotask(() => this.dispatchEvent(new Event('close')))
+      queueMicrotask(() => this.dispatchEvent(Object.assign(new Event('close'), { code: 1000 })))
     }
     deliver(frame: object) {
       queueMicrotask(() => this.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(frame) })))
@@ -136,36 +144,37 @@ function fixture(options: { enrolled?: boolean; renew?: boolean; mismatch?: bool
         assert.equal(m.b.since, 12)
         return this.answer({ id: m.id, ev: { type: 'entry', value: 'fixture', extension: true } })
       }
-      if (m.sub === 'term') {
-        assert.equal(m.b.term, 'fixture')
-        return this.answer({ id: m.id, ev: { type: 'output', data: 'fixture' } })
-      }
       if (m.m === 'send' && options.holdSend) return
       if (m.m === 'send' && options.mismatch) return this.answer({ id: m.id, err: { status: 409, code: 'workspace_epoch_mismatch' } })
       this.answer({ id: m.id, ok: { value: m.b.value ?? 7, extra: true } })
     }
   }
 
-  let record: 'new' | 'paired' | 'revoked' = options.failMarkPaired ? 'new' : 'paired'
+  let record: 'new' | 'paired' | 'revoked' | undefined = options.fresh ? undefined : options.failMarkPaired ? 'new' : 'paired'
   const remote = createRemoteHub(() => ({
-    ...target, userId: context.userId, getSessionToken: async () => {
+    ...target, ...(options.relay && { relayOrigin }), userId: context.userId, getSessionToken: async () => {
       tokenRequests++
       return options.noToken ? null : replyToken
     },
   }), {
-    device: async () => ({ signer: webDevice, state: record }),
+    device: async (_scope, create) => {
+      if (!record && create) record = 'new'
+      return record ? { signer: webDevice, state: record } : null
+    },
     mark: async (_scope, state) => {
       if (options.failMarkPaired && state === 'paired') throw new Error('fixture_storage_failed')
       record = state
     },
     now: () => now,
     connect: (hub, signer, signal, pair, end) =>
-      openRemoteChannel(hub, signer, signal, pair, end, (url) => new FakeSocket(url) as unknown as WebSocket),
+      openRemoteChannel(hub, signer, signal, pair, end, (url, headers) =>
+        new FakeSocket(url, !!options.relay && !pair, headers) as unknown as WebSocket),
   })
   const states: string[] = []
   const controller = createRemoteController(({ status }) => states.push(status), remote, createWorkspaceSession(async () => {}))
   return {
-    remote, controller, messages, states, sockets, advance: () => { epoch++; now++ }, advanceClock: (ms: number) => { now += ms },
+    remote, controller, messages, states, sockets, routes, advance: () => { epoch++; now++ }, advanceClock: (ms: number) => { now += ms },
+    setRelayOnline: (online: boolean) => { relayOnline = online },
     refuseNextHello: () => { refuseHello = true }, restoreEpoch: () => { epoch = context.workspaceEpoch },
     open: () => controller.setIdentity(context.userId, [], [personal]),
     close: () => controller.setIdentity(null, [], []),
@@ -178,7 +187,9 @@ async function until(check: () => boolean) {
   assert.ok(check())
 }
 
-test('opens and pairs using independent Hub transcript/possession bytes, then delivers unfiltered RPCs and events', async (t) => {
+const flush = () => new Promise<void>((resolve) => setImmediate(resolve))
+
+test('pairs using independent Hub transcript/possession bytes and exposes only the events stream', async (t) => {
   const f = fixture({ enrolled: false })
   t.after(f.close)
   await f.open()
@@ -193,12 +204,28 @@ test('opens and pairs using independent Hub transcript/possession bytes, then de
       (line) => { stop(); resolve(JSON.parse(line)) }, reject)
   })
   assert.deepEqual(event, { type: 'entry', value: 'fixture', extension: true })
-  const terminal = await new Promise((resolve, reject) => {
-    const stop = f.remote.host.stream(origin + '/term/fixture', local.token,
-      (line) => { stop(); resolve(JSON.parse(line)) }, reject)
+  const terminal = await new Promise((resolve) => {
+    f.remote.host.stream(origin + '/term/fixture', local.token, () => assert.fail('unexpected terminal data'), resolve)
   })
-  assert.deepEqual(terminal, { type: 'output', data: 'fixture' })
-  assert.deepEqual(f.messages.map((m) => m.m ?? m.sub), ['pair', 'sessionAuthenticate', 'workspaceContext', 'hello', 'send', 'events', 'term'])
+  assert.notEqual(terminal, null)
+  assert.deepEqual(f.messages.map((m) => m.m ?? m.sub), ['pair', 'sessionAuthenticate', 'workspaceContext', 'hello', 'send', 'events'])
+})
+
+test('pairs directly, then confirms through the signed relay without replay or a direct fallback', async (t) => {
+  const f = fixture({ enrolled: false, fresh: true, relay: true })
+  t.after(f.close)
+  await f.open()
+  assert.equal(f.last(), 'device_unpaired')
+  await f.controller.pair('fixture-code')
+  assert.equal(f.last(), 'active')
+  assert.deepEqual(f.routes, ['direct', 'relay'])
+  f.sockets.at(-1)!.deliver({ t: 'presence', online: false })
+  await until(() => f.last() === 'hub_offline')
+  assert.equal(f.remote.rendererContext(), undefined)
+  await f.controller.retry()
+  assert.equal(f.last(), 'active')
+  assert.deepEqual(f.routes, ['direct', 'relay', 'relay'])
+  assert.equal(f.messages.filter((m) => m.m === 'pair').length, 1)
 })
 
 test('renews before the authenticated expiry on the same channel; no mutation is retried', async (t) => {
@@ -263,7 +290,8 @@ test('missing binding or session token denies app access without sending authent
 })
 
 for (const code of ['role_changed', 'workspace_revoked', 'device_revoked'] as const) {
-  test(`signed ${code} fences responses and purges without replay`, async (t) => {
+  test(`signed ${code} fences responses and purges without reconnect or replay`, async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] })
     const f = fixture({ holdSend: true })
     t.after(f.close)
     await f.open()
@@ -271,17 +299,54 @@ for (const code of ['role_changed', 'workspace_revoked', 'device_revoked'] as co
     renderer.storage.setItem('sentinel', 'old')
     const local = (await renderer.host.snapshot()).local!
     const sending = assert.rejects(renderer.host.call(origin, local.token, 'send', {}, 1000))
-    await until(() => f.messages.some((m) => m.m === 'send'))
+    await flush()
+    assert.ok(f.messages.some((m) => m.m === 'send'))
     f.sockets[0].cut(code)
     await sending
-    await until(() => f.last() === (code === 'device_revoked' ? 'device_revoked' : 'active'))
+    t.mock.timers.tick(120_000)
+    await flush()
+    assert.equal(f.last(), { device_revoked: 'device_revoked', workspace_revoked: 'revoked', role_changed: 'hub_offline' }[code])
     assert.equal(renderer.storage.getItem('sentinel'), null)
     assert.equal((await renderer.host.snapshot()).local, null)
     assert.equal(f.remote.rendererContext()?.storage.getItem('sentinel') ?? null, null)
     assert.equal(f.messages.filter((m) => m.m === 'send').length, 1)
-    assert.equal(f.sockets.length, code === 'device_revoked' ? 1 : 2)
+    assert.equal(f.sockets.length, 1)
   })
 }
+
+test('reconnects to the relay after Hub restart without pairing again or replaying send', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const f = fixture({ relay: true, holdSend: true })
+  t.after(f.close)
+  await f.open()
+  assert.equal(f.last(), 'active')
+  const local = (await f.remote.host.snapshot()).local!
+  const pending = assert.rejects(f.remote.host.call(origin, local.token, 'send', {}, 10_000))
+  await flush()
+  assert.equal(f.messages.filter((m) => m.m === 'send').length, 1)
+  f.setRelayOnline(false)
+  f.sockets[0].close()
+  await pending
+  assert.equal(f.last(), 'hub_offline')
+  assert.equal(f.remote.rendererContext(), undefined)
+  for (const [i, delay] of [1_000, 2_000, 4_000, 8_000, 16_000].entries()) {
+    t.mock.timers.tick(delay)
+    await flush()
+    assert.equal(f.last(), 'hub_offline')
+    assert.equal(f.sockets.length, i + 2)
+  }
+  t.mock.timers.tick(10_000)
+  f.setRelayOnline(true)
+  t.mock.timers.tick(19_999)
+  assert.equal(f.sockets.length, 6)
+  t.mock.timers.tick(1)
+  await flush()
+  assert.equal(f.last(), 'active')
+  assert.deepEqual(f.routes, Array<string>(7).fill('relay'))
+  assert.equal(f.messages.filter((m) => m.m === 'send').length, 1)
+  assert.equal(f.messages.filter((m) => m.m === 'pair').length, 0)
+  await assert.rejects(f.remote.host.call(origin, local.token, 'send', {}, 1000))
+})
 
 for (const loss of ['unsigned reject', 'transport close'] as const) {
   test(`${loss} is offline and retains the partition until a new session attests an epoch change`, async (t) => {

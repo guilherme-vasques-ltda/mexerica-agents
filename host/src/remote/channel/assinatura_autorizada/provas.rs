@@ -16,7 +16,7 @@ async fn terminal_cancelado_envia_so_end_e_conserva_transporte() -> Result<()> {
     hub.store.put_device(&Device {
         key: key.clone(),
         name: "Fixture".into(),
-        platform: "web".into(),
+        platform: "android".into(),
         source: DeviceSource::Local,
         grant_id: None,
         scopes: vec![Scope::Control],

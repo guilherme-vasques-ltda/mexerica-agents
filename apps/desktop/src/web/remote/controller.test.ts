@@ -41,7 +41,7 @@ test('permite selecionar de novo após falha de confirmação sem reaproveitar a
   assert.equal(signals[1].aborted, false)
 })
 
-test('estado offline aborta o stream; só abre nova sessão quando a pessoa tenta novamente', async () => {
+test('estado offline aborta o stream e retry manual substitui a tentativa agendada', async () => {
   type Callbacks = Parameters<RemoteHub['confirm']>[1]
   const attempts: Callbacks[] = []
   const states: RemoteViewState[] = []
@@ -57,7 +57,7 @@ test('estado offline aborta o stream; só abre nova sessão quando a pessoa tent
   assert.equal(states.at(-1)?.status, 'active')
   attempts[0].accessLost(403, 'role_insufficient')
   assert.equal(attempts[0].acceptsResponse(), true)
-  attempts[0].offline()
+  attempts[0].offline('transport')
   assert.equal(states.at(-1)?.status, 'hub_offline')
   assert.equal(attempts[0].signal.aborted, true)
   assert.equal(attempts.length, 1)
@@ -71,4 +71,42 @@ test('estado offline aborta o stream; só abre nova sessão quando a pessoa tent
   assert.equal(states.at(-1)?.status, 'device_revoked')
   assert.deepEqual(states.at(-1)?.workspaces.map(({ id }) => id), [team.id])
   await c.setIdentity(null, [], [])
+})
+
+test('limita o backoff e cancela uma tentativa agendada na troca de conta', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const attempts: Parameters<RemoteHub['confirm']>[1][] = []
+  let status: RemoteViewState['status'] | undefined
+  let down = false
+  const controller = createRemoteController((state) => { status = state.status }, {
+    confirm: async (workspace, callbacks) => {
+      attempts.push(callbacks)
+      if (down) callbacks.offline('transport')
+      return context(workspace)
+    },
+  }, createWorkspaceSession(async () => {}))
+  const tick = async (ms: number) => {
+    t.mock.timers.tick(ms)
+    await new Promise<void>((resolve) => setImmediate(resolve))
+  }
+  await controller.setIdentity('u1', [], [personal])
+  down = true
+  attempts[0].offline('transport')
+  for (const [i, delay] of [1_000, 2_000, 4_000, 8_000, 16_000, 30_000].entries()) {
+    await tick(delay - 1)
+    assert.equal(attempts.length, i + 1)
+    await tick(1)
+    assert.equal(attempts.length, i + 2)
+    assert.equal(status, 'hub_offline')
+  }
+  await tick(120_000)
+  assert.equal(attempts.length, 7)
+  down = false
+  await controller.retry()
+  assert.equal(status, 'active')
+  attempts.at(-1)!.offline('transport')
+  await controller.setIdentity(null, [], [])
+  await tick(120_000)
+  assert.equal(attempts.length, 8)
+  assert.equal(status, 'signed_out')
 })

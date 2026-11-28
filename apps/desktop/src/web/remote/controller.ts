@@ -5,7 +5,7 @@ import type { RemoteViewState } from './view.ts'
 export interface RemoteHub {
   confirm(workspace: Workspace, callbacks: {
     signal: AbortSignal
-    offline(): void
+    offline(cause: 'transport' | 'stopped'): void
     accessLost(status: number, code: unknown): void
     recoverContext(): void
     needsPairing(): void
@@ -16,6 +16,9 @@ export interface RemoteHub {
   }, pairingCode?: string): Promise<WorkspaceContext>
 }
 
+const retryDelays = [1_000, 2_000, 4_000, 8_000, 16_000, 30_000]
+const stableMs = 60_000
+
 export function createRemoteController(
   render: (state: RemoteViewState) => void,
   hub?: RemoteHub,
@@ -25,6 +28,7 @@ export function createRemoteController(
   let workspaces: Workspace[] = []
   let selected: string | null = null
   let attempt = 0
+  let retryTimer: ReturnType<typeof setTimeout> | undefined
   let status: RemoteViewState['status'] = 'loading'
 
   const show = (next: RemoteViewState['status']) => {
@@ -32,13 +36,15 @@ export function createRemoteController(
     render({ status, workspaces, activeId: selected, signedIn: userId !== null })
   }
 
-  const select = async (id: string, recovering = false, pairingCode?: string) => {
+  const select = async (id: string, recovering = false, pairingCode?: string, retries = 0) => {
     if (!recovering && selected === id && (status === 'active' || status === 'switching')) return
     const workspace = workspaces.find((candidate) => candidate.id === id)
     if (!userId || !workspace || !hub) return
+    clearTimeout(retryTimer)
     const run = ++attempt
     selected = id
     let deviceRevoked = false
+    let activeSince: number | undefined
     try {
       const opening = session.open(workspace, userId, () => {
         if (run !== attempt) return
@@ -49,7 +55,7 @@ export function createRemoteController(
       show('switching')
       const lease = await opening
       if (!lease || run !== attempt) return
-      const offline = () => {
+      const offline = (cause: 'transport' | 'stopped') => {
         if (lease.signal.aborted || run !== attempt) return
         const disconnect = ++attempt
         void session.close().catch(() => {
@@ -58,6 +64,14 @@ export function createRemoteController(
           show('unavailable')
         })
         show(hubOffline.code)
+        if (cause !== 'transport' || (activeSince === undefined && retries === 0)) return
+        const next = activeSince !== undefined && performance.now() - activeSince >= stableMs ? 0 : retries
+        const delay = retryDelays[next]
+        if (delay !== undefined) retryTimer = setTimeout(() => {
+          if (disconnect === attempt && selected === id && status === hubOffline.code) {
+            void select(id, false, undefined, next + 1)
+          }
+        }, delay)
       }
       const context = await hub.confirm(workspace, {
         signal: lease.signal,
@@ -91,8 +105,10 @@ export function createRemoteController(
         onDispose: lease.onDispose,
       }, pairingCode)
       if (run !== attempt || lease.signal.aborted) return
-      if (lease.acceptsResponse() || lease.acceptContext(context)) show('active')
-      else await lease.revoke()
+      if (lease.acceptsResponse() || lease.acceptContext(context)) {
+        activeSince = performance.now()
+        show('active')
+      } else await lease.revoke()
     } catch {
       if (run === attempt && status !== 'revoked' && status !== 'device_revoked') {
         void session.close().catch(() => {})
@@ -104,6 +120,7 @@ export function createRemoteController(
 
   return {
     async setIdentity(id: string | null, organizations: readonly ClerkOrganization[], grants: readonly HubWorkspaceGrant[]) {
+      clearTimeout(retryTimer)
       const run = ++attempt
       userId = id
       workspaces = []
