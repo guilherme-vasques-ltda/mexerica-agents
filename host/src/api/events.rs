@@ -68,6 +68,7 @@ impl Drop for PhoneClientGuard {
 /// Event types only this computer's own apps receive.
 const LOCAL_EVENTS: &[&str] = &["accessRequests", "cloud"];
 
+mod fork_web_chat;
 #[cfg(test)]
 mod tests;
 
@@ -192,5 +193,9 @@ pub fn scoped_events_stream_at(
             },
         )
     });
-    Ok(crate::fork::workspace::cortar(hub, &retrato, head.chain(tail)))
+    let web = matches!(caller, Caller::Device { scopes, .. } if scopes.contains(&crate::store::Scope::WebChat));
+    let events = head
+        .chain(tail)
+        .filter_map(move |event| std::future::ready(if web { fork_web_chat::project(event) } else { Some(event) }));
+    Ok(crate::fork::workspace::cortar(hub, &retrato, events))
 }

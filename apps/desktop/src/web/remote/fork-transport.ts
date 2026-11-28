@@ -228,18 +228,15 @@ export function createRemoteHub(
         void (async () => {
           const url = new URL(raw)
           const c = connection(url.origin, token)
-          const path = /^\/term\/([^/]+)$/.exec(url.pathname)
-          const kind = url.pathname === '/events' ? 'events' : path ? 'term' : null
-          if (!kind || url.hash || url.username || url.password) throw inactive
+          if (url.pathname !== '/events' || url.hash || url.username || url.password) throw inactive
           const body = {
-            ...(path ? { term: decodeURIComponent(path[1]) } : {}),
             ...(url.searchParams.has('spaceId') ? { spaceId: url.searchParams.get('spaceId') } : {}),
             ...(url.searchParams.has('client') ? { client: url.searchParams.get('client') } : {}),
             ...(url.searchParams.has('since') ? { since: Number(url.searchParams.get('since')) } : {}),
             workspaceEpoch: c.context.workspaceEpoch,
           }
           const allowed = () => active && c.authorized()
-          sub = await c.link.subscribe(kind, body, (event) => {
+          sub = await c.link.subscribe('events', body, (event) => {
             if (allowed()) onData(JSON.stringify(event))
           }, (error) => {
             if (error) recover(c, error.code)
