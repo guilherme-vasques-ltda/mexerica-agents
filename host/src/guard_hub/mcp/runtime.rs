@@ -4,6 +4,7 @@ use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet},
     sync::{LazyLock, Mutex},
+    time::{Duration, Instant},
 };
 use zeroize::Zeroizing;
 
@@ -22,6 +23,7 @@ struct ConnectorSecrets {
     leases: HashSet<Lease>, // Inclui pontes cujo ambiente não tem segredo.
     touched: u64,
     remote: HashMap<Lease, String>,
+    local_discovery: HashMap<Lease, (String, i64, bool, Instant)>,
 }
 
 #[derive(Default)]
@@ -74,6 +76,7 @@ impl Cache {
             let keep = |(c, b): &Lease| c != context || bridge.is_some_and(|expected| b != expected);
             entry.leases.retain(keep);
             entry.remote.retain(|lease, _| keep(lease));
+            entry.local_discovery.retain(|lease, _| keep(lease));
             for secret in &mut entry.values {
                 secret.leases.retain(keep);
             }
@@ -129,7 +132,10 @@ pub(super) fn remote_fingerprint(connector: &crate::market::Connector) -> String
     use sha2::{Digest, Sha256};
     use std::fmt::Write as _;
     let config = Zeroizing::new(
-        serde_json::json!({"url":connector.url,"headers":connector.headers,"command":connector.command,"binding":connector.oauth_binding}).to_string(),
+        serde_json::json!({
+            "url":connector.url,"headers":connector.headers,"command":connector.command,"binding":connector.oauth_binding,
+            "servico":connector.servico,"tipo":connector.tipo,"liberacoes":connector.liberacoes,"space":connector.space
+        }).to_string(),
     );
     Sha256::digest(config.as_bytes()).iter().fold(String::with_capacity(64), |mut hex, byte| {
         let _ = write!(hex, "{byte:02x}");
@@ -150,6 +156,50 @@ pub(super) fn remote_matches(namespace: &str, connector: &str, context: &str, br
         .get(&(namespace.into(), connector.into()))
         .and_then(|entry| entry.remote.get(&(context.into(), bridge.into())))
         .is_some_and(|saved| saved == fingerprint)
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum LocalDiscovery {
+    Start { generation: i64, paginated: bool },
+    Finish,
+    Cancel,
+}
+
+pub(super) fn local_discovery(
+    namespace: &str,
+    connector: &str,
+    context: &str,
+    bridge: &str,
+    request: &str,
+    action: LocalDiscovery,
+) -> anyhow::Result<Option<(i64, bool)>> {
+    use anyhow::{anyhow, ensure};
+    let mut cache = CACHE.locked();
+    let lease = (context.into(), bridge.into());
+    let entry = cache
+        .connectors
+        .get_mut(&(namespace.into(), connector.into()))
+        .filter(|entry| entry.leases.contains(&lease))
+        .ok_or_else(|| anyhow!("Lease MCP local indisponível"))?;
+    let pending = entry.local_discovery.get(&lease).filter(|(_, _, _, at)| at.elapsed() < Duration::from_secs(90));
+    if let LocalDiscovery::Start { generation, paginated } = action {
+        if pending.is_some() {
+            return Ok(None);
+        }
+        entry.local_discovery.insert(lease, (request.into(), generation, paginated, Instant::now()));
+        return Ok(Some((generation, paginated)));
+    }
+    if matches!(action, LocalDiscovery::Cancel) {
+        if pending.is_some_and(|(id, _, _, _)| id == request) {
+            entry.local_discovery.remove(&lease);
+        }
+        return Ok(None);
+    }
+    let (id, generation, paginated, _) = pending.ok_or_else(|| anyhow!("Descoberta MCP local não iniciada"))?;
+    ensure!(id == request, "Resposta de descoberta MCP local não correlacionada");
+    let result = (*generation, *paginated);
+    entry.local_discovery.remove(&lease);
+    Ok(Some(result))
 }
 
 fn opaque(value: &str) -> bool {

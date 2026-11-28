@@ -406,8 +406,8 @@ fn failure(error: &str) -> Value {
 }
 
 /// O fork medeia stdio antes de qualquer retorno externo chegar ao motor.
-pub async fn serve_local(connector: String, port: u16, context: String) -> Result<()> {
-    crate::guard_hub::mcp::stdio::serve(connector, port, context).await
+pub async fn serve_local(connector: String, port: u16, context: String, catalog_local: bool) -> Result<()> {
+    crate::guard_hub::mcp::stdio::serve(connector, port, context, catalog_local).await
 }
 
 #[cfg(test)]
