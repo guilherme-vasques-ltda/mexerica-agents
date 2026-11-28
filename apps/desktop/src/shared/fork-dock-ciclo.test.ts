@@ -1136,7 +1136,7 @@ test('modo Hub privado recusa apagar dados mesmo do chat autorizado', async () =
     await app.boot()
     const sender = app.chat().webContents
     await assert.rejects(
-      app.handle('app:resetAllData')!({ sender, senderFrame: sender.mainFrame }),
+      async () => app.handle('app:resetAllData')!({ sender, senderFrame: sender.mainFrame }),
       /reset_unavailable_with_private_hub/,
     )
     assert.equal(confirmacoes, 0)
