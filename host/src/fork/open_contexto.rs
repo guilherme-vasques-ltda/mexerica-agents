@@ -88,35 +88,35 @@ fn load(hub: &Hub, chat: &str, account: &str) -> State {
     hub.store.kv_get(&state_key(chat, account)).and_then(|raw| serde_json::from_str(&raw).ok()).unwrap_or_default()
 }
 
-fn save(hub: &Hub, chat: &str, account: &str, state: &State) {
+fn save(hub: &Hub, (bot, chat): (&str, &str), account: &str, state: &State) {
     let Ok(raw) = serde_json::to_string(state) else { return };
-    if let Err(error) = hub.store.kv_set_if_bot(chat, &state_key(chat, account), &raw) {
+    if let Err(error) = hub.store.kv_set_if_bot(bot, &state_key(chat, account), &raw) {
         tracing::warn!(%error, "a medida de contexto da Open não foi guardada");
     }
 }
 
 /// Guarda a medida do último turno: used é o tamanho do contexto na última chamada ao modelo.
-pub(crate) fn record(hub: &Hub, lane: &Lane, account: &str, used: u64, size: u64) {
+pub(crate) fn record(hub: &Hub, (bot, lane): (&str, &Lane), account: &str, used: u64, size: u64) {
     let mut state = load(hub, &lane.chat, account);
     state.usage = Some(Usage { epoch: state.epoch, used, size, updated_at: now_ms() });
-    save(hub, &lane.chat, account, &state);
+    save(hub, (bot, &lane.chat), account, &state);
 }
 
 /// A compactação terminou: época nova (o app fecha o pedido por ela) e, se o motor já mediu o contexto novo, a medida.
-pub(crate) fn compacted(hub: &Hub, lane: &Lane, account: &str, measured: Option<(u64, u64)>) {
+pub(crate) fn compacted(hub: &Hub, (bot, lane): (&str, &Lane), account: &str, measured: Option<(u64, u64)>) {
     let mut state = load(hub, &lane.chat, account);
     state.epoch += 1;
     state.unsupported = false;
     state.last_compaction = Some(Compaction { at: now_ms(), by_host: true });
     state.usage = measured.map(|(used, size)| Usage { epoch: state.epoch, used, size, updated_at: now_ms() });
-    save(hub, &lane.chat, account, &state);
+    save(hub, (bot, &lane.chat), account, &state);
 }
 
-pub(crate) fn unsupported(hub: &Hub, lane: &Lane, account: &str) {
+pub(crate) fn unsupported(hub: &Hub, (bot, lane): (&str, &Lane), account: &str) {
     let mut state = load(hub, &lane.chat, account);
     state.unsupported = true;
     state.unsupported_at = now_ms();
-    save(hub, &lane.chat, account, &state);
+    save(hub, (bot, &lane.chat), account, &state);
 }
 
 /// O resumo que a conversa limpa herda, entregue ao Codex como instrução do turno.
@@ -220,19 +220,23 @@ pub(crate) async fn clear(hub: &Arc<Hub>, caller: &Caller, body: Value) -> Resul
     };
     let chat = resolve(hub, &read)?;
     open_chat::precheck(hub, &chat.cfg, "")?;
-    let mut ticket = open_chat::admit_locked(&mut RUNNING.locked(), hub, &chat.cfg)?;
-    let result = clear_chat(hub, &mut ticket, &chat).await;
+    let (mut ticket, cutoff) = {
+        let _ordem = crate::fork::open_chat_fila::ordem();
+        let ticket = open_chat::admit_locked(&mut RUNNING.locked(), hub, &chat.cfg)?;
+        let cutoff: i64 = hub.store.db.locked().query_row(
+            "SELECT COALESCE(MAX(seq), 0) FROM entries WHERE bot_id = ?1",
+            [&chat.id],
+            |row| row.get(0),
+        )?;
+        (ticket, cutoff)
+    };
+    let result = clear_chat(hub, &mut ticket, &chat, cutoff).await;
     open_chat::release(hub, ticket);
     result
 }
 
-async fn clear_chat(hub: &Arc<Hub>, ticket: &mut open_chat::Ticket, chat: &Chat) -> Result<Value> {
+async fn clear_chat(hub: &Arc<Hub>, ticket: &mut open_chat::Ticket, chat: &Chat, cutoff: i64) -> Result<Value> {
     let lane = Lane::main(&chat.id);
-    let cutoff: i64 = hub.store.db.locked().query_row(
-        "SELECT COALESCE(MAX(seq), 0) FROM entries WHERE bot_id = ?1",
-        [&chat.id],
-        |row| row.get(0),
-    )?;
     let previous = hub.store.kv_get(&summary_key(&chat.id)).filter(|text| !text.trim().is_empty());
     let mut summary = None;
     if chat.thread.is_some() {
@@ -298,12 +302,13 @@ fn save_facts(hub: &Hub, cfg: &BotConfig, facts: &[String]) -> Result<()> {
     }
     let _write = hub.memory_write()?;
     let db = hub.store.db.locked();
+    let tx = db.unchecked_transaction()?;
     for text in facts {
-        let rev = crate::store::next_rev(&db)?;
+        let rev = crate::store::next_rev(&tx)?;
         let new = New { bot: Some(cfg.memory_id()), text, room: None, evidence: &[] };
-        match mem::add(&db, Writer::Bot(&cfg.id), new, now_ms(), rev) {
+        match mem::add(&tx, Writer::Bot(&cfg.id), new, now_ms(), rev) {
             Ok(_) => {
-                db.execute(
+                tx.execute(
                     "INSERT INTO kv(k,v) VALUES('memory.rev',?1) ON CONFLICT(k) DO UPDATE SET v=excluded.v",
                     [rev],
                 )?;
@@ -315,6 +320,7 @@ fn save_facts(hub: &Hub, cfg: &BotConfig, facts: &[String]) -> Result<()> {
             }
         }
     }
+    tx.commit()?;
     drop(db);
     crate::chat::memory::changed(hub, Some(&cfg.id));
     Ok(())

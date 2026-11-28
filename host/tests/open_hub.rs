@@ -392,7 +392,10 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
         session_client.post("http://localhost/api/send").bearer_auth(&credential).json(&message).send().await.unwrap();
     assert_eq!(refused.status(), reqwest::StatusCode::BAD_REQUEST);
     assert!(refused.text().await.unwrap().contains("open_chat_account_required"));
-    for (key, value) in [("attachments", json!(["upload-fixture"])), ("sessionId", json!("session-fixture"))] {
+    for (key, value, expected) in [
+        ("attachments", json!(["upload-fixture"]), reqwest::StatusCode::BAD_REQUEST),
+        ("sessionId", json!("session-fixture"), reqwest::StatusCode::FORBIDDEN),
+    ] {
         let mut body = message.clone();
         body[key] = value;
         let status = session_client
@@ -403,7 +406,7 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
             .await
             .unwrap()
             .status();
-        assert_eq!(status, reqwest::StatusCode::FORBIDDEN, "{key}");
+        assert_eq!(status, expected, "{key}");
     }
     let after = rpc(&session_client, &credential, "donnaConversationHistory", conversation).await;
     assert_eq!(after["entries"], before["entries"], "a refused message is not saved");

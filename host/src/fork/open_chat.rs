@@ -259,12 +259,12 @@ pub(crate) fn member_thread_key(lane: &Lane, account: &str, bot: &str) -> String
     if bot == lane.chat { key } else { format!("{key}.{bot}") }
 }
 
-/// Marca a mensagem que o Codex nunca aceitou: a Open não tem fila de despacho, então a entrada não pode ficar
-/// `queued` — sem isso ela sai da conversa e só o aviso de falha aparece. Depois do aceite a entrada já está
+/// Marca a mensagem que o Codex nunca aceitou: a entrada não pode ficar `queued` nem `sending`, senão ela sai da
+/// conversa e só o aviso de falha aparece. Depois do aceite a entrada já está
 /// `sent` e segue assim, mesmo que o turno aceite falhe depois.
 pub(crate) fn mark_unsent(hub: &Hub, entry_id: &str, code: &str, account: &str) {
     if let Some(entry) = hub.store.entry(entry_id)
-        && entry.data["status"] == "queued"
+        && matches!(entry.data["status"].as_str(), Some("queued" | "sending"))
     {
         let mut data = entry.data;
         data["status"] = if code == "open_chat_cancelled" { json!("cancelled") } else { json!("failed") };
@@ -285,6 +285,14 @@ pub(crate) fn run(
 ) {
     let hub = hub.clone();
     let instructions = instructions(&hub, cfg, &lane.chat);
+    let attachments = hub.store.entry(&entry.0).map_or_else(
+        || {
+            tracing::warn!("open turn entry missing; sending without attachments");
+            Value::Null
+        },
+        |e| e.data["attachments"].clone(),
+    );
+    let uploads_cfg = hub.store.bot(&lane.chat).ok().flatten().map_or_else(|| cfg.clone(), |row| row.config);
     let cfg = cfg.clone();
     tokio::spawn(async move {
         let (entry_id, authority) = entry;
@@ -306,6 +314,15 @@ pub(crate) fn run(
             crate::fork::open_chat_fila::finish(&hub, &bot);
             return;
         }
+        let Ok((text, images)) = tokio::task::spawn_blocking(move || {
+            crate::fork::open_chat_anexos::prepare(&uploads_cfg, &attachments, &text)
+        })
+        .await
+        else {
+            mark_unsent(&hub, &entry_id, "open_chat_failed", &account);
+            crate::fork::open_chat_fila::finish(&hub, &bot);
+            return;
+        };
         hub.set_runtime(&bot, |r| {
             r.status = BotStatus::Working;
             r.lane = Some(lane.clone());
@@ -320,7 +337,7 @@ pub(crate) fn run(
             &account,
             (&lane, &cfg),
             (&instructions, model.as_deref()),
-            (Input::Text(&text), TURN_LIMIT),
+            (Input::Text(&text), TURN_LIMIT, &images),
             (&entry_id, authority.as_ref()),
             &mut cancel,
             &mut reply,
@@ -393,7 +410,7 @@ pub(crate) async fn silent_turn(
         &ticket.account,
         (lane, cfg),
         (&instructions, ticket.model.as_deref()),
-        (Input::Summary(prompt), timeout),
+        (Input::Summary(prompt), timeout, &[]),
         ("", None),
         &mut ticket.cancel,
         &mut reply,
@@ -417,7 +434,7 @@ pub(crate) fn compact(hub: &Arc<Hub>, ticket: Ticket, cfg: &BotConfig, lane: Lan
             &account,
             (&lane, &cfg),
             (&instructions, model.as_deref()),
-            (Input::Compact, COMPACT_LIMIT),
+            (Input::Compact, COMPACT_LIMIT, &[]),
             ("", None),
             &mut cancel,
             &mut reply,
@@ -426,11 +443,11 @@ pub(crate) fn compact(hub: &Arc<Hub>, ticket: Ticket, cfg: &BotConfig, lane: Lan
         let alive = matches!(hub.store.bot(&bot), Ok(Some(row)) if !row.deleted);
         if alive {
             match &outcome {
-                Ok(measured) => crate::fork::open_contexto::compacted(&hub, &lane, &account, *measured),
+                Ok(measured) => crate::fork::open_contexto::compacted(&hub, (&bot, &lane), &account, *measured),
                 Err(error) => {
                     tracing::warn!(%error, "a compactação da conversa da Open falhou");
                     if error.to_string().starts_with("context_cannot_compact") {
-                        crate::fork::open_contexto::unsupported(&hub, &lane, &account);
+                        crate::fork::open_contexto::unsupported(&hub, (&bot, &lane), &account);
                     }
                     let (code, text) = notice(&error.to_string());
                     hub.add_entry(
@@ -469,7 +486,7 @@ pub(crate) async fn routine_turn(
                 &account,
                 (&lane, cfg),
                 (&instructions, model.as_deref()),
-                (Input::Text(&prompt), timeout),
+                (Input::Summary(&prompt), timeout, &[]),
                 ("", None),
                 &mut cancel,
                 &mut reply,
@@ -500,7 +517,7 @@ async fn turn_in_profile(
     account: &str,
     (lane, cfg): (&Lane, &BotConfig),
     (instructions, model): (&str, Option<&str>),
-    (input, limit): (Input<'_>, Duration),
+    (input, limit, images): (Input<'_>, Duration, &[PathBuf]),
     (entry_id, authority): (&str, Option<&Autoridade>),
     cancel: &mut watch::Receiver<bool>,
     reply: &mut Stream,
@@ -553,7 +570,7 @@ async fn turn_in_profile(
         &mut rpc,
         saved.as_deref(),
         (instructions, model),
-        input,
+        (input, images),
         limit,
         cancel,
         before_text,
@@ -562,7 +579,7 @@ async fn turn_in_profile(
         |used, size| {
             measured = Some((used, size));
             if matches!(input, Input::Text(_)) {
-                crate::fork::open_contexto::record(hub, lane, account, used, size);
+                crate::fork::open_contexto::record(hub, (&cfg.id, lane), account, used, size);
             }
         },
         authority.map(|proof| (hub, proof)),
@@ -631,7 +648,7 @@ async fn turn_in_profile(
     _: &str,
     _: (&Lane, &BotConfig),
     _: (&str, Option<&str>),
-    _: (Input<'_>, Duration),
+    _: (Input<'_>, Duration, &[PathBuf]),
     _: (&str, Option<&Autoridade>),
     _: &mut watch::Receiver<bool>,
     _: &mut Stream,
@@ -749,10 +766,11 @@ struct TurnoConcluido {
 /// só no `item/completed` uma vez, sem repetir o que os deltas já entregaram.
 #[cfg(test)]
 #[allow(clippy::too_many_arguments)]
+#[cfg(test)]
 async fn drive(
     rpc: &mut Rpc,
     thread: Option<&str>,
-    session: (&str, Option<&str>),
+    model: (&str, Option<&str>),
     text: &str,
     limit: Duration,
     cancel: &mut watch::Receiver<bool>,
@@ -764,8 +782,8 @@ async fn drive(
     drive_usage(
         rpc,
         thread,
-        session,
-        Input::Text(text),
+        model,
+        (Input::Text(text), &[]),
         limit,
         cancel,
         before_text,
@@ -780,12 +798,13 @@ async fn drive(
 /// `drive` com a medição de contexto: `on_usage(usado, janela)` a cada `thread/tokenUsage/updated` (o `last` do
 /// motor e o `modelContextWindow`; sem janela informada a janela vem 0 e a medida anterior deixa de valer). `Input::Compact` só vale numa thread
 /// retomada e pede `thread/compact/start`; um motor que não conhece o método recusa com `context_cannot_compact`.
+/// Imagens anexadas vão junto do texto.
 #[allow(clippy::too_many_arguments)]
 async fn drive_usage(
     rpc: &mut Rpc,
     thread: Option<&str>,
     (instructions, model): (&str, Option<&str>),
-    input: Input<'_>,
+    (input, images): (Input<'_>, &[PathBuf]),
     limit: Duration,
     cancel: &mut watch::Receiver<bool>,
     before_text: impl FnOnce(&str) -> Result<()>,
@@ -841,8 +860,9 @@ async fn drive_usage(
                 }
             },
             Input::Text(text) | Input::Summary(text) => {
-                let params =
-                    json!({"threadId": thread, "input": [{"type": "text", "text": text, "text_elements": []}]});
+                let mut content = vec![json!({"type": "text", "text": text, "text_elements": []})];
+                content.extend(images.iter().map(|path| json!({"type": "localImage", "path": path})));
+                let params = json!({"threadId": thread, "input": content});
                 let turn = match authority {
                     Some((hub, proof)) => {
                         rpc.call_guarded(4, "turn/start", params, |effect| {

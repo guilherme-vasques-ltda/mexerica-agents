@@ -41,11 +41,11 @@ test('abas do painel (A3): a aba que sumiu grava a primeira; quando ela volta, a
   assert.equal(abaQueSumiu(visibleTabs(tabs, { extra: true }), 'c'), null)
 })
 
-// Dono, 07/11: a aba "Recente" e a seção "Atividade recente" saíram do painel; o bot tem Sessões, Rotinas e WhatsApp.
+// Dono, 07/11: a aba "Recente" e a seção "Atividade recente" saíram do painel; o bot tem Sessões, Rotinas, Time e WhatsApp.
 test('painel do bot: sem aba Recente nem Atividade recente', async () => {
   const { readFileSync } = await import('node:fs')
   const src = readFileSync(new URL('./BotDetailsPanel.tsx', import.meta.url), 'utf8')
   const line = src.split('\n').find((l) => l.startsWith('const BOT_TABS')) ?? ''
-  assert.deepEqual([...line.matchAll(/id: '([a-z]+)'/g)].map((m) => m[1]), ['sessions', 'routines', 'whatsapp'])
+  assert.deepEqual([...line.matchAll(/id: '([a-z]+)'/g)].map((m) => m[1]), ['sessions', 'routines', 'time', 'whatsapp'])
   assert.ok(!/Atividade recente|RecentActivity|'recent'/.test(src))
 })

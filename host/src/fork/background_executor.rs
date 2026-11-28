@@ -483,21 +483,27 @@ async fn execute(
         // modelo da conversa. O conector precisa confirmá-la antes do pedido.
         let model_response = crate::agent::bot::select_model(&acp, &res, &sid, cfg).await?;
         verify_selection(&model_response, cfg)?;
+        let lock = super::engine_accounts::MUTATION.lock().await;
         check_send_boundary(hub, selected, boundary)?;
-        // MX-145: a fronteira real do envio de fundo — a mesma decisão fail-closed
-        // do turno; qualquer indecisão recusa o prompt (trabalho autônomo).
-        crate::fork::teto::background_gate(hub, &cfg.id, job)?;
-        // Daqui em diante o prompt pode consumir: a linha do ledger nasce ANTES do
-        // envio (tokens NULL), então cancelar este future (timeout, heartbeat,
-        // queda) nunca apaga o envio; `run_job` só completa o uso. Sem linha, sem envio.
-        observed.sent = Some(crate::fork::custo::begin_background(
-            &hub.store,
-            &cfg.id,
-            job,
-            cfg.model.as_deref(),
-            cfg.fork_editor.engine_account_id.as_deref(),
-        )?);
+        observed.sent = Some(crate::fork::teto::background_boundary(hub, &cfg.id, job, |db| {
+            crate::fork::custo::begin_background_on(
+                db,
+                &cfg.id,
+                job,
+                cfg.model.as_deref(),
+                cfg.fork_editor.engine_account_id.as_deref(),
+            )
+        })?);
         let prompt = acp.request("session/prompt", json!({"sessionId": sid, "prompt": [{"type": "text", "text": text}]}));
+        tokio::pin!(prompt);
+        let first = std::future::poll_fn(|cx| std::task::Poll::Ready(prompt.as_mut().poll(cx))).await;
+        drop(lock);
+        let prompt = async {
+            match first {
+                std::task::Poll::Ready(result) => result,
+                std::task::Poll::Pending => prompt.await,
+            }
+        };
         tokio::pin!(prompt);
         let deadline = tokio::time::sleep(TIMEOUT);
         tokio::pin!(deadline);

@@ -395,6 +395,7 @@ pub(crate) const CONTROLE: &[&str] = &[
     "donnaTaskSchedule",
     "donnaTaskSessions",
     "donnaTaskStart",
+    "donnaTeamRequests",
     "donnaTimes",
     "donnaTimesPreview",
     "donnaTimesSave",
