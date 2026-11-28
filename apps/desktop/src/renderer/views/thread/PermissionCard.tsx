@@ -71,7 +71,9 @@ export function PermissionCard({ entry, hostName, answering, respond }: { entry:
   const hasDetail = !screen && (!!d.command || !!d.detail || !!d.diffs?.length)
   const options = sortedOptions(d.options ?? [])
   // O corte tira só as opções de aprovar; recusar segue disponível.
-  const opcoes = detalheCortado ? options.filter((o) => !o.kind.startsWith('allow')) : options
+  const comandoLocal = d.toolKind === 'open_local_command'
+  const comandoLocalSemDetalhe = comandoLocal && (!d.detail || !expanded)
+  const opcoes = detalheCortado || comandoLocalSemDetalhe ? options.filter((o) => !o.kind.startsWith('allow')) : options
   // The narrowest allow is the prominent one (`allow_once`, else the first allow the Hub offers).
   const prominent = (options.find((o) => o.kind === 'allow_once') ?? options.find((o) => o.kind.startsWith('allow')))?.optionId
   const store = useStoreRef()
@@ -93,7 +95,7 @@ export function PermissionCard({ entry, hostName, answering, respond }: { entry:
   )
   return (
     <div className="agent-inset idioma-superficie" {...superficieIdioma(idioma)}>
-      <section className="approval-card" aria-label={title}>
+      <section className={`approval-card${comandoLocal ? ' approval-card-local-command' : ''}`} aria-label={title}>
         {pending ? (
           <span className="approval-badge waiting"><Icon name="clock" size={13} />{t('conversa.aprovacao.esperando')}</span>
         ) : (

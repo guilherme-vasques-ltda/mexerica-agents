@@ -19,6 +19,12 @@ fn ler_fato(db: &Connection, dk: &str) -> anyhow::Result<Option<RecusaEstavel>> 
     if bloqueado {
         return Ok(Some(RecusaEstavel::DeviceRevoked));
     }
+    if tem_linha
+        && crate::store::device_on(db, dk)?
+            .is_some_and(|d| d.platform == "web" && !d.concessao_web_valida(crate::store::now_ms()))
+    {
+        return Ok(Some(RecusaEstavel::DeviceUnpaired));
+    }
     if !tem_linha && geracao.is_some_and(|g| g > 1 && g < i64::MAX) {
         return Ok(Some(RecusaEstavel::DeviceUnpaired));
     }

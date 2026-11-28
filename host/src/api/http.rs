@@ -11,7 +11,7 @@ use crate::{market, usage};
 use axum::body::Bytes;
 use axum::extract::ws::WebSocketUpgrade;
 use axum::extract::{ConnectInfo, DefaultBodyLimit, FromRequest as _, Path, Query, Request, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -42,7 +42,7 @@ fn secured(routes: Router<Arc<Hub>>, hub: Arc<Hub>) -> Router {
 }
 
 #[cfg(unix)]
-pub(crate) fn open_socket_router(hub: Arc<Hub>) -> Router {
+pub(crate) fn desktop_socket_router(hub: Arc<Hub>) -> Router {
     secured(desktop_routes(), hub)
 }
 
@@ -291,13 +291,29 @@ async fn channel(
     State(hub): State<Arc<Hub>>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     Query(q): Query<ChannelQuery>,
+    headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Response {
     if q.v != Some(1) {
         return (StatusCode::UPGRADE_REQUIRED, Json(json!({"error": {"code": "upgradeRequired"}}))).into_response();
     }
+    let mut origins = headers.get_all(header::ORIGIN).iter();
+    let browser = if let Some(origin) = origins.next() {
+        use crate::fork::sessao_clerk::{Exigencia, exigencia};
+        let permitido = origins.next().is_none()
+            && origin.to_str().is_ok_and(|origin| {
+                origin.starts_with("https://")
+                    && matches!(exigencia(&hub), Exigencia::Sessao(v) if v.azp.iter().any(|azp| azp == origin))
+            });
+        if !permitido {
+            return StatusCode::FORBIDDEN.into_response();
+        }
+        true
+    } else {
+        false
+    };
     ws.max_message_size(crate::remote::channel::MAX_WS_MESSAGE)
-        .on_upgrade(move |socket| crate::remote::channel::serve_direct(hub, socket, peer.ip()))
+        .on_upgrade(move |socket| crate::remote::channel::serve_direct(hub, socket, peer.ip(), browser))
 }
 
 #[derive(Deserialize)]

@@ -6,7 +6,7 @@ import type { ChaveTexto } from '../lib/fork-i18n/index.ts'
 import { ErroComChave, type Mensagem } from '../views/fork/bot-settings/mensagem.ts'
 
 /** Controles existentes: cada intenção exclui identidade, autoria e gestão. Skills têm intenção própria (c1). */
-export type BotSettingsIntent = Partial<Pick<BotDraft, 'backend' | 'command' | 'model' | 'modelOptions' | 'fastMode' | 'cwd' | 'connectors' | 'logins' | 'notify' | 'computer' | 'ownerPreferences'>>
+export type BotSettingsIntent = Partial<Pick<BotDraft, 'backend' | 'command' | 'model' | 'modelOptions' | 'fastMode' | 'cwd' | 'connectors' | 'logins' | 'notify' | 'computer' | 'ownerPreferences'> & Pick<Bot, 'localCommandsEnabled'>>
 
 /** Motor salvo não gera patch; custom só chega ao Hub com comando preenchido. */
 export function engineSettingsIntent(backend: string, command: string | null = null, savedBackend?: string): BotSettingsIntent | null {
