@@ -158,14 +158,20 @@ pub(super) fn remote_matches(namespace: &str, connector: &str, context: &str, br
         .is_some_and(|saved| saved == fingerprint)
 }
 
+pub(super) enum LocalDiscovery {
+    Start { generation: i64, paginated: bool },
+    Finish,
+    Cancel,
+}
+
 pub(super) fn local_discovery(
     namespace: &str,
     connector: &str,
     context: &str,
     bridge: &str,
     request: &str,
-    start: Option<(i64, bool)>,
-) -> anyhow::Result<(i64, bool)> {
+    action: LocalDiscovery,
+) -> anyhow::Result<Option<(i64, bool)>> {
     use anyhow::{anyhow, ensure};
     let mut cache = CACHE.locked();
     let lease = (context.into(), bridge.into());
@@ -175,16 +181,24 @@ pub(super) fn local_discovery(
         .filter(|entry| entry.leases.contains(&lease))
         .ok_or_else(|| anyhow!("Lease MCP local indisponível"))?;
     let pending = entry.local_discovery.get(&lease).filter(|(_, _, _, at)| at.elapsed() < Duration::from_secs(90));
-    if let Some((generation, paginated)) = start {
-        ensure!(pending.is_none(), "Descoberta MCP local já em voo");
+    if let LocalDiscovery::Start { generation, paginated } = action {
+        if pending.is_some() {
+            return Ok(None);
+        }
         entry.local_discovery.insert(lease, (request.into(), generation, paginated, Instant::now()));
-        return Ok((generation, paginated));
+        return Ok(Some((generation, paginated)));
+    }
+    if matches!(action, LocalDiscovery::Cancel) {
+        if pending.is_some_and(|(id, _, _, _)| id == request) {
+            entry.local_discovery.remove(&lease);
+        }
+        return Ok(None);
     }
     let (id, generation, paginated, _) = pending.ok_or_else(|| anyhow!("Descoberta MCP local não iniciada"))?;
     ensure!(id == request, "Resposta de descoberta MCP local não correlacionada");
     let result = (*generation, *paginated);
     entry.local_discovery.remove(&lease);
-    Ok(result)
+    Ok(Some(result))
 }
 
 fn opaque(value: &str) -> bool {

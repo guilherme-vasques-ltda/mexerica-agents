@@ -230,6 +230,7 @@ impl ServicoJson {
         for tipo in &self.tipos {
             if tipo.tipo == Tipo::Local
                 && (!tipo.url.is_empty()
+                    || matches!(tipo.auth, AuthJson::Chave { .. })
                     || tipo.grupos.iter().any(|g| g.url.is_some() || g.ferramentas.is_empty())
                     || super::catalogo_local::da_ficha(&self.id, &tipo.id).is_none())
             {

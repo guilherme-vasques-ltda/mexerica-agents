@@ -99,38 +99,49 @@ impl Artefato {
     ) -> anyhow::Result<(tempfile::TempDir, tokio::process::Command)> {
         #[cfg(unix)]
         {
-            use anyhow::ensure;
+            use anyhow::{Context, ensure};
             use sha2::{Digest, Sha256};
             use tokio::io::{AsyncReadExt, AsyncWriteExt};
             let origem = raiz.join("mcp-artifacts").join(self.arquivo);
-            ensure!(tokio::fs::symlink_metadata(&origem).await?.is_file(), "Artefato MCP inválido");
+            let metadata = tokio::fs::symlink_metadata(&origem).await.context("Artefato MCP não instalado")?;
+            ensure!(metadata.is_file(), "Artefato MCP inválido");
             let mut origem = tokio::fs::OpenOptions::new()
                 .read(true)
                 .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
                 .open(origem)
-                .await?;
-            ensure!(origem.metadata().await?.is_file(), "Artefato MCP inválido");
+                .await
+                .context("Não foi possível abrir o artefato MCP")?;
+            ensure!(
+                origem.metadata().await.context("Não foi possível verificar o arquivo MCP")?.is_file(),
+                "Artefato MCP inválido"
+            );
             let dir = tempfile::Builder::new()
                 .permissions(std::os::unix::fs::PermissionsExt::from_mode(0o700))
-                .tempdir_in("/tmp")?;
+                .tempdir_in("/tmp")
+                .context("Não foi possível criar o diretório privado do MCP")?;
             let destino = dir.path().join("mcp");
-            let mut arquivo =
-                tokio::fs::OpenOptions::new().create_new(true).write(true).mode(0o500).open(&destino).await?;
+            let mut arquivo = tokio::fs::OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .mode(0o500)
+                .open(&destino)
+                .await
+                .context("Não foi possível criar a cópia privada do MCP")?;
             let mut hash = Sha256::new();
             let mut total = 0_usize;
             let mut bloco = vec![0; 64 * 1024];
             loop {
-                let n = origem.read(&mut bloco).await?;
+                let n = origem.read(&mut bloco).await.context("Não foi possível ler o artefato MCP")?;
                 if n == 0 {
                     break;
                 }
                 total += n;
                 ensure!(total <= 128 * 1024 * 1024, "Artefato MCP acima do limite");
                 hash.update(&bloco[..n]);
-                arquivo.write_all(&bloco[..n]).await?;
+                arquivo.write_all(&bloco[..n]).await.context("Não foi possível gravar a cópia privada do MCP")?;
             }
             ensure!(hash.finalize().as_slice() == self.sha256, "Integridade do artefato MCP inválida");
-            arquivo.flush().await?;
+            arquivo.flush().await.context("Não foi possível finalizar a cópia privada do MCP")?;
             drop(arquivo);
             let mut command = tokio::process::Command::new(destino);
             command.env_clear().current_dir(dir.path()).env("HOME", dir.path());

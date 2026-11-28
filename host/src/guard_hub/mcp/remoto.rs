@@ -82,7 +82,8 @@ pub(super) async fn call(
     }
     if action == "donnaGuardRuntime" {
         if let Some((saved, _)) = local_snapshot {
-            if !matches!(method, "initialize" | "ping" | "tools/list" | "tools/call" | "notifications/initialized") {
+            if !matches!(method, "initialize" | "ping" | "tools/list" | "tools/call" |
+                "notifications/initialized" | "notifications/cancelled") {
                 return Ok(json!({"ruleDenied":true}));
             }
             if let Some(context) = &context {
@@ -100,14 +101,21 @@ pub(super) async fn call(
                     .filter(|id| uuid::Uuid::parse_str(id).is_ok())
                     .ok_or_else(|| anyhow!("Pedido de descoberta local inválido"))?;
                 let generation = crate::market::ferramentas::geracao(&hub.store, connector)?;
-                runtime::local_discovery(
+                if runtime::local_discovery(
                     namespace,
                     connector,
                     id,
                     bridge,
                     request,
-                    Some((generation, !body["params"]["cursor"].is_null())),
-                )?;
+                    runtime::LocalDiscovery::Start { generation, paginated: !body["params"]["cursor"].is_null() },
+                )?.is_none() {
+                    return Ok(json!({"ruleDenied":true}));
+                }
+            } else if method == "notifications/cancelled" {
+                let request = body["params"]["requestId"].as_str()
+                    .filter(|id| uuid::Uuid::parse_str(id).is_ok())
+                    .ok_or_else(|| anyhow!("Cancelamento MCP local inválido"))?;
+                runtime::local_discovery(namespace, connector, id, bridge, request, runtime::LocalDiscovery::Cancel)?;
             }
             return Ok(json!({"valid":true}));
         }
@@ -268,7 +276,9 @@ pub(super) async fn call(
                 .as_str()
                 .filter(|id| body["frame"]["id"] == *id)
                 .ok_or_else(|| anyhow!("Resposta de descoberta local inválida"))?;
-            let (generation, paginated) = runtime::local_discovery(namespace, connector, id, bridge, request, None)?;
+            let (generation, paginated) =
+                runtime::local_discovery(namespace, connector, id, bridge, request, runtime::LocalDiscovery::Finish)?
+                    .ok_or_else(|| anyhow!("Resposta de descoberta local sem geração"))?;
             (Some(generation), json!({"cursor":paginated.then_some(true)}))
         } else {
             (crate::market::ferramentas::encerrar_descoberta(bridge, connector), body["params"].clone())
