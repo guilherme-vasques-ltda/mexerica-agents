@@ -1,0 +1,19 @@
+{
+  "fonte": "POST https://mcp.context7.com/mcp tools/list, sem credencial",
+  "observadoEm": "2026-11-18",
+  "servidor": "Context7 4.7.3 (initialize.serverInfo.version)",
+  "protocolo": "2025-06-18",
+  "conteudo": "de cada ferramenta, só o nome, o digest (ler_ferramenta, a mesma função da ponte) e o readOnlyHint; o texto do fornecedor não é arquivado",
+  "tools": [
+    {
+      "name": "resolve-library-id",
+      "digest": "d50c6c3e89450731ea6497a82a9697caf1570124d211dd80189ffa899ff27d3e",
+      "readOnlyHint": true
+    },
+    {
+      "name": "query-docs",
+      "digest": "3fa4035254d5885ef7af7069ccdfeeccc52072f6faed4704027a9fc85bfdec7d",
+      "readOnlyHint": true
+    }
+  ]
+}

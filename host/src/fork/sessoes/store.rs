@@ -66,7 +66,7 @@ pub(crate) fn ensure_principal(c: &Connection, chat: &str) -> Result<()> {
          VALUES(?1,?1,1,?2,'','principal',?3,?3,?4)",
         params![chat, SessionOrigin::Owner.column()?, now, next_rev(c)?],
     )?;
-    super::engine_choice::snapshot_on_create(c, chat, chat, true)?;
+    super::engine_choice::snapshot_on_create(c, chat, chat, true, &[])?;
     Ok(())
 }
 
@@ -90,6 +90,11 @@ pub(crate) struct SessionRef {
 /// O produtor único das sessões extras: valida tudo e grava na transação do chamador. Times e o 2b chamam esta
 /// função, sem DDL própria. Sessões extras só existem no chat próprio de um bot do Pessoal.
 pub(crate) fn create(c: &Connection, new: &NewSession) -> Result<SessionRef> {
+    create_in(c, new, &[])
+}
+
+/// `create` com as contas em reconexão, que a escolha automática da conta da aba rebaixa (só na Open).
+pub(crate) fn create_in(c: &Connection, new: &NewSession, reconnecting: &[String]) -> Result<SessionRef> {
     ensure!(personal_on(c, &new.chat)?, "session_chat_unsupported");
     ensure_principal(c, &new.chat)?;
     let same_chat = |id: &str| -> Result<Option<i64>> {
@@ -127,7 +132,7 @@ pub(crate) fn create(c: &Connection, new: &NewSession) -> Result<SessionRef> {
         ],
     )?;
     // D372: a extra nasce com o padrão do bot de agora, não do primeiro envio.
-    super::engine_choice::snapshot_on_create(c, &id, &new.chat, false)?;
+    super::engine_choice::snapshot_on_create(c, &id, &new.chat, false, reconnecting)?;
     Ok(SessionRef { id, chat_id: new.chat.clone() })
 }
 

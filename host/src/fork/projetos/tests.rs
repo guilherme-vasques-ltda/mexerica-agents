@@ -107,6 +107,39 @@ fn task() -> Value {
 }
 
 #[tokio::test]
+async fn dono_local_edita_projetos_manuais_sem_disparar_bots() {
+    let f = Fixture::new();
+    let list = f.call("donnaProjects", f.context()).await.unwrap();
+    assert_eq!(list["projects"], json!([]));
+    let capabilities = &list["capabilities"];
+    for cap in ["manualProjects", "taskList", "taskMeta", "defaultProject"] {
+        assert!(capabilities.as_array().unwrap().contains(&json!(cap)), "{cap}");
+    }
+    for cap in ["taskComments", "taskStart", "taskSchedule", "taskAgenda", "taskSessions"] {
+        assert_eq!(
+            capabilities.as_array().unwrap().contains(&json!(cap)),
+            !crate::environment::Environment::is_open(),
+            "{cap}"
+        );
+    }
+    let created = f.call("donnaProjectCreate", f.create()).await.unwrap();
+    let mut update = f.save(&created["snapshot"]);
+    let tarefa = task();
+    update["tasks"] = json!([tarefa.clone()]);
+    let saved = f.call("donnaProjectSave", update).await.unwrap();
+    let mut query = f.context();
+    query["projectId"] = saved["snapshot"]["project"]["id"].clone();
+    let reopened = f.call("donnaProject", query.clone()).await.unwrap();
+    assert_eq!(reopened["tasks"][0]["id"], tarefa["id"]);
+    let tasks = f.call("donnaTasks", f.context()).await.unwrap();
+    assert_eq!(tasks["page"]["tasks"][0]["title"], "Tarefa fictícia");
+    query["spaceId"] = "space-inexistente".into();
+    assert!(f.call("donnaProject", query).await.is_err());
+    assert_eq!(f.count("donna_task_declarations"), 0);
+    assert!(f.hub.store.history("visible", i64::MAX, 20).unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn tarefa_nova_do_dono_grava_origem_uma_vez() {
     use super::delegacao_meta::{OriginKind, RequesterKind, admit, load_space};
     let f = Fixture::new();
