@@ -1028,11 +1028,13 @@ async fn desligar_comandos_aceita_apenas_a_conclusao_da_chamada_admitida() {
             .spawn()
             .unwrap();
         let mut rpc = Rpc::from_child(crate::fork::motor_exec::fixture(child)).unwrap();
+        let no_options = BTreeMap::new();
         let (result, ()) = tokio::join!(
             drive(
                 &mut rpc,
                 None,
                 ("Fixture", None),
+                &no_options,
                 "Teste",
                 Duration::from_secs(15),
                 &mut cancel,
