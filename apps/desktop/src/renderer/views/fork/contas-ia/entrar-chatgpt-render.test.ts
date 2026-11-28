@@ -88,6 +88,14 @@ test('conectado com o plano: o rótulo da conta, o selo de plano habilitado e o 
   assert.ok(!html.includes('Ativar o uso do plano'), 'não oferece ativar o que já está ativo')
 })
 
+test('leitura não conferida: sem selo de plano nem ativar, e o Sair continua', () => {
+  const html = plano({ conectado: true, rotulo: 'pessoa@example.invalid', planoHabilitado: true, precisaEntrar: false, inconclusivo: true })
+  assert.ok(html.includes('pessoa@example.invalid'), 'o rótulo do registro aparece')
+  assert.ok(!html.includes('Plano habilitado'), 'o selo não passa por confirmado')
+  assert.ok(!html.includes('Ativar o uso do plano'), 'não oferece ativar sem conferir')
+  assert.ok(html.includes('Sair'), 'o botão de sair continua')
+})
+
 test('conectado sem o plano: o aviso e o botão de ativar o uso do plano', () => {
   const html = plano({ conectado: true, rotulo: 'pessoa@example.invalid', planoHabilitado: false, precisaEntrar: false })
   assert.ok(html.includes('O uso do plano não está habilitado neste app.'), 'o aviso aparece')
