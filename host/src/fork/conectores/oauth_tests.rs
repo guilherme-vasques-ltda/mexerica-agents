@@ -469,6 +469,16 @@ async fn upstream02_removal_before_callback_and_after_token_response_leaves_no_r
     }
 }
 #[tokio::test]
+async fn upstream02_cancelar_invalida_a_tentativa_e_o_retorno_depois_nao_conclui() {
+    let f = Fixture::new().await;
+    let state = f.start().await;
+    let (_, _) = f.rpc("connectorSignInFinish", json!({"state": state, "error": "cancelado"})).await;
+    let before = f.saved();
+    assert!(!f.callback(&state).await.contains("notes conectado"));
+    assert_eq!(f.saved(), before);
+}
+
+#[tokio::test]
 async fn upstream02_new_grant_wins_over_old_callback_and_state_is_one_use() {
     let f = Fixture::new().await;
     let old = f.start().await;

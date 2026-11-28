@@ -13,6 +13,7 @@ function montar(responder: (c: Chamada) => unknown, extra: Partial<Dependencias>
   const deps: Dependencias = {
     cliente: async () => cliente as never,
     entrar: async (id) => { eventos.push(`entrar:${id}`); return true },
+    cancelarLogin: async (id) => { eventos.push(`cancelarLogin:${id}`) },
     verificar: async (id) => { eventos.push(`verificar:${id}`); return { status: 'ready' } },
     guardarChave: async (id, campos) => { eventos.push(`chave:${id}:${Object.keys(campos)[0]}`) },
     reler: async () => { eventos.push('reler') },
@@ -273,4 +274,18 @@ test('aviso do Hub depois de gravar a chave aparece no fluxo sem virar erro de g
   assert.equal(f.passo, 'salva')
   assert.equal(f.aviso, 'bot_nao_atualizado')
   assert.equal(f.falhaDeEntrada, null)
+})
+
+test('cancelar fecha o login antes de tentar apagar a conta, e apagar falhar não desfaz isso', async () => {
+  const s = ficha([])
+  const ordem: string[] = []
+  const { deps } = montar((c) => {
+    if (c.metodo === 'marketConectar') return { connector: conta('stripe-8', 'Stripe', 'stripe', { auth: 'signedOut' }), proximoPasso: 'entrar' }
+    ordem.push('desconectar')
+    throw new Error('core_StoreBusy')
+  }, { entrar: async () => false, cancelarLogin: async (id) => { ordem.push('login:' + id) } })
+  const f = new FluxoConectar(s, s.tipos[0], deps)
+  await f.confirmar()
+  await f.cancelar()
+  assert.deepEqual(ordem, ['login:stripe-8', 'desconectar', 'desconectar'])
 })

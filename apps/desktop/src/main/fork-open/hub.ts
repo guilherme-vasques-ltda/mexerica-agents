@@ -9,6 +9,7 @@ import { open } from './isolation'
 import { launchPrivateHub } from '../fork-private-hub'
 import { postProvado, streamProvado } from '../fork-proved-loopback'
 import { beforeDeviceLogin, createCodexPreparer, CodexPreparationError } from './fork-codex-provision'
+import { guardarPlano } from './plano-login'
 import { isLoginPageURL, openApiPath, loginPageDeadline, openStreamPath, readOpenEventData, readOpenResponse } from './hub-transport'
 
 const origin = `http://127.0.0.1:${open.port}`
@@ -103,6 +104,7 @@ export function registerOpenHub(profile: string, temp: string, chatURL: string, 
       if (!target.signal.aborted && (method === 'donnaEngineSetupStart' || method === 'donnaEngineSetupAction')) {
         loginDeadline = loginPageDeadline(value, Date.now())
       }
+      if (!target.signal.aborted && method === 'connectorSignIn') guardarPlano(value)
       return { ok: true, value }
     } catch (error) {
       if (error instanceof CodexPreparationError) return { ok: false, error: { status: 422, code: error.code, message: error.code } satisfies CallError }

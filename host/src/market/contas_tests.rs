@@ -1123,7 +1123,7 @@ async fn recibo_nasce_ou_falha_junto_com_a_acao_na_mesma_transacao() {
 }
 
 #[tokio::test]
-async fn open_guarda_a_chave_sem_verificar_e_recusa_1password_e_login_pelo_navegador() {
+async fn open_guarda_a_chave_sem_verificar_e_recusa_1password_e_login_sem_ouvinte() {
     if !crate::environment::Environment::is_open() {
         return;
     }
@@ -1171,9 +1171,7 @@ async fn open_guarda_a_chave_sem_verificar_e_recusa_1password_e_login_pelo_naveg
     contas::conectar(&hub.store, &pedido(PERSONAL, None, Some("Conta do dono"))).unwrap();
     let antes = connectors(&hub.store).unwrap();
     let id = antes.iter().find(|c| c.servico.is_some()).unwrap().id.clone();
-    for method in ["connectorSignIn", "connectorSignInFinish"] {
-        let err = crate::api::dispatch(&hub, &Caller::Local, method, json!({"id": id})).await.unwrap_err();
-        assert!(err.is::<crate::api::devices::Forbidden>(), "{method}: {err}");
-    }
+    let err = crate::api::dispatch(&hub, &Caller::Local, "connectorSignIn", json!({"id": id})).await.unwrap_err();
+    assert!(err.to_string().starts_with("login_sem_ouvinte"), "{err}");
     assert_eq!(connectors(&hub.store).unwrap(), antes, "o vínculo não muda antes do retorno");
 }

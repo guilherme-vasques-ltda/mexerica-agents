@@ -104,6 +104,8 @@ export interface Opcoes {
   porta: number
   abrir: (url: string) => Promise<boolean>
   idioma: () => AppLanguage
+  /** Quando dado, só abre a URL que o Hub devolveu para esta tentativa (uso único); o renderer nunca escolhe o endereço. */
+  autorizar?: (url: string) => boolean
   esperaMs?: number
   respostaMs?: number
 }
@@ -163,7 +165,8 @@ export class RetornoDoLogin {
   /** Abre a página de login e espera o retorno desta tentativa; devolve a URL de retorno (a mesma que o navegador chamou). */
   esperar(tentativa: unknown, url: unknown): Promise<string> {
     if (tentativa !== this.tentativa) return Promise.reject(new LoginEncerrado('cancelado', ERRO_OUTRO))
-    const pedido = this.servidor ? lerPedidoTodo(url, this.portaReal) : null
+    const autorizado = this.opcoes.autorizar === undefined || (typeof url === 'string' && this.opcoes.autorizar(url))
+    const pedido = this.servidor && autorizado ? lerPedidoTodo(url, this.portaReal) : null
     if (!pedido) { this.fechar(); return Promise.reject(new Error(ERRO_PEDIDO)) }
     const anterior = this.espera
     if (anterior) { clearTimeout(anterior.timer); anterior.reject(new LoginEncerrado('cancelado', ERRO_OUTRO)) }
