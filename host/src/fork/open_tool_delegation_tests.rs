@@ -14,7 +14,7 @@ struct Fixture {
     source: LocalTurn,
     source_ticket: Ticket,
     target: String,
-    _dir: tempfile::TempDir,
+    dir: tempfile::TempDir,
 }
 
 fn fixture() -> Fixture {
@@ -71,7 +71,7 @@ fn fixture() -> Fixture {
     });
     let source =
         LocalTurn::capture(&hub, &lane, &entry.id, 7, &source_ticket.cancel(), crate::fork::spaces::PERSONAL).unwrap();
-    Fixture { source, source_ticket, target, _dir: dir }
+    Fixture { source, source_ticket, target, dir }
 }
 
 async fn approved(f: &Fixture, intent: &Intent<'_>) -> Entry {
@@ -296,7 +296,7 @@ async fn async_turn_groups_two_requests_after_seal_and_never_replays() {
         }
         ticket.release(hub);
         f.source_ticket.release(hub);
-        let reopened = Store::open(&f._dir.path().join("hub.db")).unwrap();
+        let reopened = Store::open(&f.dir.path().join("hub.db")).unwrap();
         for _ in 0..2 {
             retornos::recuperar(&reopened).unwrap();
             let result: Vec<_> = reopened

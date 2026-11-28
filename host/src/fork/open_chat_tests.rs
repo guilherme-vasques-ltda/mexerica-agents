@@ -928,6 +928,7 @@ async fn duas_sessoes_locais_separam_titulo_historico_e_thread_do_motor() {
     }
     let bot = "open-sessoes-fixture";
     let (hub, dir) = hub_de_teste(bot);
+    let main_entry = hub.add_entry(&Lane::main(bot), EntryKind::User, 1, &json!({"text":"Principal"})).unwrap();
     let mut ids = Vec::new();
     for (message, engine_thread) in [("Planejar viagem", "thread-viagem"), ("Revisar texto", "thread-revisao")] {
         let created = api::dispatch(&hub, &Caller::Local, "sessionCreate", json!({"botId":bot})).await.unwrap();
@@ -982,7 +983,14 @@ async fn duas_sessoes_locais_separam_titulo_historico_e_thread_do_motor() {
         );
     }
     let main = api::dispatch(&hub, &Caller::Local, "history", json!({"botId":bot})).await.unwrap();
-    assert!(main["entries"].as_array().unwrap().is_empty());
+    let main_ids = main["entries"].as_array().unwrap().iter().map(|e| &e["id"]).collect::<Vec<_>>();
+    assert_eq!(main_ids, [&json!(main_entry.id)]);
+    let space = crate::fork::spaces::PERSONAL;
+    let for_device = hub.store.entries_since_in_space(space, 0, 1, true).unwrap();
+    let for_owner = hub.store.entries_since_in_space(space, 0, 1, false).unwrap();
+    assert_eq!(for_device.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(), [main_entry.id.as_str()]);
+    assert_eq!(for_owner.len(), 1);
+    assert_ne!(for_owner[0].session_id, bot);
     drop(hub);
     std::fs::remove_dir_all(dir).unwrap();
 }

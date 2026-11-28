@@ -316,12 +316,17 @@ impl Store {
         Ok(st.query_map(params![since, cap], row_entry)?.collect::<rusqlite::Result<_>>()?)
     }
 
-    pub fn entries_since_in_space(&self, space: &str, since: i64, cap: i64) -> Result<Vec<Entry>> {
+    pub fn entries_since_in_space(&self, space: &str, since: i64, cap: i64, main_only: bool) -> Result<Vec<Entry>> {
         let c = self.db.locked();
-        let sql=format!("SELECT {ENTRY_COLS} FROM (SELECT e.*,ROW_NUMBER() OVER (PARTITION BY bot_id ORDER BY seq DESC) AS rn
-            FROM entries e WHERE EXISTS(SELECT 1 FROM donna_space_conversations c WHERE c.id=e.bot_id AND c.space_id=?1))
-            WHERE rev>?2 AND (?2>0 OR rn<=?3) ORDER BY seq");
-        Ok(c.prepare(&sql)?.query_map(params![space, since, cap], row_entry)?.collect::<rusqlite::Result<_>>()?)
+        let sql = format!(
+            "SELECT {ENTRY_COLS} FROM (SELECT e.*,ROW_NUMBER() OVER (PARTITION BY bot_id ORDER BY seq DESC) AS rn
+            FROM entries e WHERE (?4=0 OR COALESCE(e.session,e.bot_id)=e.bot_id)
+                AND EXISTS(SELECT 1 FROM donna_space_conversations c WHERE c.id=e.bot_id AND c.space_id=?1))
+            WHERE rev>?2 AND (?2>0 OR rn<=?3) ORDER BY seq"
+        );
+        Ok(c.prepare(&sql)?
+            .query_map(params![space, since, cap, main_only], row_entry)?
+            .collect::<rusqlite::Result<_>>()?)
     }
 
     /// Older entries of a chat.

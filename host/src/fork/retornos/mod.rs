@@ -555,7 +555,14 @@ pub(crate) fn fim_do_turno(
 }
 
 /// Grava o término antes do oneshot/avisos finais. Erro é registrado sem texto do usuário.
-pub(crate) fn registrar_fim(store: &Store, pedido: &str, bot: &str, andamento: Andamento, fim: Fim) -> Registro {
+pub(crate) fn registrar_fim(
+    store: &Store,
+    pedido: &str,
+    bot: &str,
+    andamento: Andamento,
+    fim: Fim,
+    corpo: Option<&str>,
+) -> Registro {
     let encerrar = |decisao| {
         encerrar(store, pedido, decisao).map(|gravado| if gravado { Registro::Gravado } else { Registro::Decidido })
     };
@@ -565,9 +572,9 @@ pub(crate) fn registrar_fim(store: &Store, pedido: &str, bot: &str, andamento: A
         (Andamento::Aceito, Fim::FalhaInicio) => encerrar(Decisao::FalhaInicio),
         (Andamento::Aceito, Fim::Turno(_)) => encerrar(Decisao::NaoIniciado).map(|_| Registro::Decidido),
         (Andamento::EmExecucao(fence), Fim::FalhaInicio) => {
-            gravar(store, pedido, bot, fence, Encerramento::falha_inicio())
+            gravar(store, pedido, bot, fence, Encerramento::falha_inicio(), None)
         }
-        (Andamento::EmExecucao(fence), Fim::Turno(fim)) => gravar(store, pedido, bot, fence, fim),
+        (Andamento::EmExecucao(fence), Fim::Turno(fim)) => gravar(store, pedido, bot, fence, fim, corpo),
     };
     gravado.unwrap_or_else(|_| {
         tracing::error!(request = pedido, error_code = "retorno_gravacao_falhou", "conclusão do pedido não registrada");
@@ -575,12 +582,23 @@ pub(crate) fn registrar_fim(store: &Store, pedido: &str, bot: &str, andamento: A
     })
 }
 
-fn gravar(store: &Store, pedido: &str, bot: &str, fence: i64, fim: Encerramento) -> Result<Registro> {
+fn gravar(
+    store: &Store,
+    pedido: &str,
+    bot: &str,
+    fence: i64,
+    fim: Encerramento,
+    corpo: Option<&str>,
+) -> Result<Registro> {
     let termino = Termino { pedido: pedido.into(), bot: bot.into(), attempt: 1, fence, fim };
     com_tx(store, |c| {
         Ok(match concluir_na(c, &termino)? {
             Conclusao::CorpoRetido => Registro::CorpoRetido,
-            Conclusao::Gravada(_) => Registro::Gravado,
+            Conclusao::Gravada(_) => {
+                let corpo = corpo.filter(|_| termino.fim.desfecho == Desfecho::Concluiu);
+                entrega::stage_on(c, pedido, corpo)?;
+                Registro::Gravado
+            }
             Conclusao::Vencida => Registro::Decidido,
         })
     })

@@ -105,7 +105,6 @@ const WHATSAPP_LOCAL: [&str; 22] = [
 pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
     match method {
         "respondPermission" => matches!(caller, Caller::Local) && crate::fork::open_tool_actions::app_response(body),
-        "sessions" | "sessionCreate" => matches!(caller, Caller::Local),
         "history" => matches!(caller, Caller::Local) || body["sessionId"].is_null(),
         // Skills: só o dono local, e instalar só do catálogo embutido (sem source, sem texto escrito à mão).
         "installSkill" => {
@@ -114,7 +113,9 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
                 && body.get("source").is_none()
                 && body.get("name").is_none()
         }
-        "donnaTaskProposals"
+        "sessions"
+        | "sessionCreate"
+        | "donnaTaskProposals"
         | "donnaTimes"
         | crate::fork::pedidos_time::METHOD
         | crate::fork::native_catalog::METHOD
@@ -188,8 +189,6 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
         | "donnaConversations"
         | "donnaConversationHistory"
         | "donnaConversationRead"
-        | "sessions"
-        | "sessionCreate"
         | "stop"
         | "deleteBot"
         | "reorderBots" => true,

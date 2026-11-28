@@ -230,8 +230,15 @@ impl BotRequest {
     }
 
     /// Grava o término antes do canal em memória e dos avisos finais.
-    pub(crate) fn record_end(&self, store: &crate::store::Store, bot: &str, fim: retornos::Fim) -> retornos::Registro {
-        retornos::registrar_fim(store, &self.id, bot, self.retorno, fim)
+    pub(crate) fn record_end(
+        &self,
+        store: &crate::store::Store,
+        bot: &str,
+        fim: retornos::Fim,
+        body: Option<&str>,
+    ) -> retornos::Registro {
+        let body = body.filter(|_| matches!(self.completion, Completion::ReportInRecipientChat(_)));
+        retornos::registrar_fim(store, &self.id, bot, self.retorno, fim, body)
     }
 
     /// Permissão concedida e prompt a caminho: o pedido saiu da fila. Para `message_bot` os dois
@@ -290,8 +297,7 @@ impl BotRequest {
                 let _ = reply.send(result);
             }
             Completion::ReportInRecipientChat(mut message) => {
-                let body = if cancelled { None } else { result.as_deref().ok() };
-                if retornos::entrega::complete(&message.hub, &message.id, body).is_err() {
+                if retornos::entrega::complete(&message.hub, &message.id).is_err() {
                     tracing::warn!("não foi possível encaminhar o resultado do pedido");
                 }
                 if cancelled {
@@ -427,7 +433,7 @@ impl Drop for MessageLifetime {
             if let Err(error) = retornos::encerrar(&self.hub.store, &self.id, decisao) {
                 tracing::error!(request = %self.id, error = format!("{error:#}"), "decisão do pedido não registrada");
             }
-            if retornos::entrega::complete(&self.hub, &self.id, None).is_err() {
+            if retornos::entrega::complete(&self.hub, &self.id).is_err() {
                 tracing::warn!("não foi possível encaminhar o encerramento do pedido");
             }
             let detail = if self.started {

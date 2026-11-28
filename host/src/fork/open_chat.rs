@@ -880,7 +880,7 @@ async fn drive_inner(
     let offered = |name: &str| {
         tools.is_some_and(|turn| turn.allows(name)) || (forward.is_some() && name == super::open_tool_delegation::ASK)
     };
-    let no_web = delegated || tools.is_some_and(|turn| turn.is_coordination());
+    let no_web = delegated || tools.is_some_and(super::open_tools::Turn::is_coordination);
     rpc.set_line_limit(LINE_LIMIT);
     let flow = async {
         if tools.is_some() || forward.is_some() {

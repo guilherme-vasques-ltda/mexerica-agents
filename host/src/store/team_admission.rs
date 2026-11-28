@@ -132,7 +132,10 @@ impl Store {
                 retornos::aceitar_open_na(&tx, &base.com_execucao((session, reference)))?;
             }
         }
-        if receipt.is_some() && !chain.espera() && notices[0]["botMessage"]["taskDispatch"].is_null() {
+        if !matches!(origin, TeamOrigin::Actor(None))
+            && !chain.espera()
+            && notices[0]["botMessage"]["taskDispatch"].is_null()
+        {
             retornos::entrega::add_on(&tx, chain.pedido(), &space, source_turn)?;
         }
         check(&tx, source, notices, origin)?;

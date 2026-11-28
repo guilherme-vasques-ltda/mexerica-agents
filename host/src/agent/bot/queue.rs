@@ -1017,7 +1017,8 @@ impl Actor {
         fim: crate::fork::retornos::Fim,
     ) {
         if let Some(ask) = self.active_request.take() {
-            let result = match ask.record_end(&self.hub.store, &self.cfg.id, fim) {
+            let body = if cancelled { None } else { result.as_deref().ok() };
+            let result = match ask.record_end(&self.hub.store, &self.cfg.id, fim, body) {
                 crate::fork::retornos::Registro::ErroDeGravacao => {
                     Err(anyhow!("{}", crate::fork::retornos::ERRO_DE_GRAVACAO))
                 }

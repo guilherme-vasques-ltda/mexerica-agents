@@ -114,7 +114,8 @@ pub fn scoped_events_stream_at(
     for bot in hub.bots_json_in_space(since, &space)? {
         catch_up.push(json!({"type": "bot", "rev": bot["rev"], "bot": bot}));
     }
-    for e in hub.store.entries_since_in_space(&space, since, CATCH_UP_PER_BOT)? {
+    let main_only = !local && crate::environment::Environment::is_open();
+    for e in hub.store.entries_since_in_space(&space, since, CATCH_UP_PER_BOT, main_only)? {
         catch_up.push(json!({"type": "entry", "rev": e.rev, "entry": e}));
     }
     catch_up.extend(crate::fork::sessoes::excluir::catch_up(&hub.store.db.locked(), &space, since)?);

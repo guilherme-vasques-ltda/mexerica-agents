@@ -26,7 +26,7 @@ const TOOLS: &[(&str, &str)] = &[
     (CHAIN, "Só leitura: a quem você reporta e quem reporta diretamente a você. Reportar não dá autoridade."),
     (
         WORKPLACE,
-        "Se não houver colega adequado, mostre ao dono um cartão para abrir uma conversa separada. Nunca execute o trabalho nesta conversa.",
+        "Se não houver colega adequado, mostre ao dono um cartão para escolher outra conversa ou indicar um bot. Nunca execute o trabalho nesta conversa.",
     ),
     ("list_routines", "Lista suas rotinas e o estado confirmado pelo Hub."),
     ("list_skills", "Lista as skills de texto do catálogo já instaladas, e quais estão ligadas para você."),
@@ -160,7 +160,7 @@ impl<'a> Turn<'a> {
                 .await?;
                 self.check()?;
                 if new_chat {
-                    json!({"where":"separate_conversation","next":"Peça ao dono que abra outra conversa pelo botão + e envie o trabalho lá. Não execute nem reenvie por ele."})
+                    json!({"where":"separate_conversation","next":"Peça ao dono que use outra conversa para tratar do pedido. Se precisar de ferramentas, deve escolher um bot que já as tenha; outra aba deste bot não libera ferramentas. Não execute nem reenvie por ele."})
                 } else {
                     json!({"where":"another_bot","next":"Pergunte qual bot o dono quer usar. Não execute nem reenvie sem um destino escolhido."})
                 }

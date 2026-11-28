@@ -345,12 +345,10 @@ fn history(hub: &Hub, c: &Conversation, b: &Value) -> Result<Value> {
         let mut values = hub.store.search_messages(&c.id, &terms, Some(before.saturating_sub(1)), limit + 1)?;
         values.reverse();
         values
+    } else if crate::environment::Environment::is_open() {
+        hub.store.history_in_session(&c.id, Some(&c.id), before, limit + 1)?
     } else {
-        if crate::environment::Environment::is_open() {
-            hub.store.history_in_session(&c.id, Some(&c.id), before, limit + 1)?
-        } else {
-            hub.store.history(&c.id, before, limit + 1)?
-        }
+        hub.store.history(&c.id, before, limit + 1)?
     };
     let more = entries.len() > usize::try_from(limit)?;
     if more {
