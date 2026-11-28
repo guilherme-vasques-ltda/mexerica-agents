@@ -38,6 +38,10 @@ pub enum Caller {
 }
 
 impl Caller {
+    pub(crate) fn is_web_chat(&self) -> bool {
+        matches!(self, Self::Device { scopes, .. } if scopes == &[Scope::WebChat])
+    }
+
     /// The key push and Live Activity tickets are bound to.
     pub fn device_key(&self) -> &str {
         match self {

@@ -1,0 +1,150 @@
+use super::*;
+use crate::fork::spaces::PERSONAL;
+use crate::store::{BotConfig, EntryKind, Lane, bot_groups::Edit};
+
+#[tokio::test]
+async fn navegador_recebe_so_dados_de_chat_por_rpc_e_eventos() {
+    let hub = temp_hub();
+    let mut spaces = hub.store.spaces().unwrap();
+    spaces.spaces[0].owner = Some(crate::fork::spaces::OwnerPresentation {
+        name: "omitir-perfil".into(),
+        initials: "OP".into(),
+        photo: None,
+    });
+    let mut other = spaces.spaces[0].clone();
+    other.id = "outro-espaco".into();
+    other.name = "Outro Space".into();
+    other.kind = "space".into();
+    other.position = 1;
+    spaces.spaces.push(other);
+    hub.store.kv_set("donna.spaces.v1", &serde_json::to_string(&spaces).unwrap()).unwrap();
+    for (id, space) in [("chat", PERSONAL), ("outro-chat", "outro-espaco")] {
+        let bot: BotConfig =
+            serde_json::from_value(json!({"id": id, "name": id, "spaceId": space, "cwd":"."})).unwrap();
+        hub.store.save_bot(&bot).unwrap();
+    }
+    hub.store
+        .edit_bot_groups(PERSONAL, Edit::Add { name: "Grupo de chat".into(), bot_id: Some("chat".into()) })
+        .unwrap();
+    hub.store
+        .db
+        .locked()
+        .execute(
+            "UPDATE donna_space_conversations SET engine_account_id='omitir-conta', continuity=?1 WHERE id='chat'",
+            [json!({"interno":"omitir-continuity"}).to_string()],
+        )
+        .unwrap();
+
+    let lane = Lane::main("chat");
+    let ask = hub.store.insert_entry(&lane, EntryKind::User, 1,
+        &json!({"text":"mensagem visível","status":"sent","attachments":[{"path":"omitir-arquivo"}],"extension":{"x":"omitir-extensao"}})).unwrap();
+    let answer = hub
+        .store
+        .insert_entry(
+            &lane,
+            EntryKind::Agent,
+            1,
+            &json!({"text":"resposta visível","final":true,"executionBinding":"omitir-vinculo"}),
+        )
+        .unwrap();
+    let mut host_entry = None;
+    for (kind, data) in [
+        (EntryKind::Tool, json!({"text":"omitir-ferramenta"})),
+        (EntryKind::Thought, json!({"text":"omitir-raciocinio"})),
+        (EntryKind::Permission, json!({"text":"omitir-aprovacao"})),
+        (EntryKind::Agent, json!({"text":"omitir-parcial","final":false})),
+        (EntryKind::User, json!({"text":"omitir-origem","from":"host"})),
+        (EntryKind::User, json!({"text":"omitir-escolha","choice_response":null})),
+    ] {
+        let stored = hub.store.insert_entry(&lane, kind, 1, &data).unwrap();
+        if data["from"] == "host" {
+            host_entry = Some(stored.id);
+        }
+    }
+    hub.store
+        .insert_entry(&Lane::main("outro-chat"), EntryKind::User, 1, &json!({"text":"somente outro Space"}))
+        .unwrap();
+
+    vincular(&hub, &vinculo_pessoal());
+    let key = parear_em(&hub, &afirmacoes(DONO), "web").await.unwrap();
+    let mut peer = conectado_via(&hub, key, Via::Relay).await;
+    assert_eq!(autenticar(&mut peer, &hub, 1, &token(&afirmacoes(DONO))).await["ok"]["userId"], DONO);
+
+    let fixture = json!({"hubId":hub.host_id,"spaceId":PERSONAL});
+    for (id, method, body, field, expected) in [
+        (2, "hello", json!({}), "/spaces/spaces/1/name", json!("Outro Space")),
+        (3, "donnaSpaces", fixture.clone(), "/spaces/1/name", json!("Outro Space")),
+        (4, "donnaConversations", fixture.clone(), "/conversations/0/id", json!("chat")),
+        (5, "sessions", json!({"botId":"chat"}), "/sessionActions", json!(["send"])),
+        (6, "botGroups", json!({}), "/groups/0/bots", json!(["chat"])),
+        (7, "history", json!({"botId":"chat","limit":1}), "/entries/0/id", json!(answer.id)),
+        (8, "history", json!({"botId":"chat","beforeSeq":answer.seq,"limit":1}), "/entries/0/id", json!(ask.id)),
+        (
+            9,
+            "donnaConversationHistory",
+            json!({"hubId":hub.host_id,"conversationId":"chat","limit":1}),
+            "/hasMore",
+            json!(true),
+        ),
+        (
+            10,
+            "donnaConversationHistory",
+            json!({"hubId":hub.host_id,"conversationId":"chat","query":"omitir"}),
+            "/entries",
+            json!([]),
+        ),
+    ] {
+        let reply = com_posse(&mut peer, &hub, id, method, body).await;
+        assert_eq!(reply["ok"].pointer(field), Some(&expected), "{method}");
+        for field in
+            ["omitir-", "\"engine\"", "\"origin\"", "\"titleSource\"", "\"engineAccountId\"", "\"attachments\""]
+        {
+            assert!(!reply["ok"].to_string().contains(field), "{method}: {field}");
+        }
+    }
+    let forbidden =
+        com_posse(&mut peer, &hub, 11, "send", json!({"botId":"chat","text":"texto","attachments":["arquivo"]})).await;
+    assert_eq!(forbidden["err"]["status"], 403);
+    let forbidden =
+        com_posse(&mut peer, &hub, 12, "send", json!({"botId":"chat","text":"texto","replyTo":host_entry.unwrap()}))
+            .await;
+    assert_eq!(forbidden["err"]["status"], 403);
+    for (id, method, body) in [
+        (13, "history", json!({"botId":"outro-chat","spaceId":PERSONAL})),
+        (14, "history", json!({"botId":"chat","sessionId":"outro-chat"})),
+        (15, "donnaConversationHistory", json!({"hubId":hub.host_id,"conversationId":"outro-chat","spaceId":PERSONAL})),
+    ] {
+        let reply = com_posse(&mut peer, &hub, id, method, body).await;
+        assert!(reply.get("err").is_some(), "{method}");
+    }
+    let other_history =
+        com_posse(&mut peer, &hub, 16, "history", json!({"botId":"outro-chat","spaceId":"outro-espaco"})).await;
+    assert_eq!(other_history["ok"]["entries"][0]["data"]["text"], "somente outro Space");
+
+    let b = com_epoch(&hub, "sub:events", json!({"since":0}));
+    peer.send(json!({"id":17,"sub":"events","b":b,"pop":pop(&peer.key,&hub.host_id,&peer.th,"sub:events")})).await;
+    let hello = peer.recv().await.unwrap();
+    assert_eq!(hello["ev"]["type"], "hello");
+    assert_eq!(hello["ev"]["botGroups"]["groups"][0]["name"], "Grupo de chat");
+    assert_eq!(hello["ev"]["spaces"]["spaces"][0]["owner"], Value::Null);
+    assert!(hello["ev"]["conversations"][0].get("engineAccountId").is_none());
+
+    hub.events.send(json!({"type":"session","session":{"id":"chat","chatId":"chat","state":"open","engine":{"account":"omitir-conta"}}})).unwrap();
+    let mut ids = Vec::new();
+    loop {
+        let frame = timeout(Duration::from_secs(2), peer.recv()).await.unwrap().unwrap();
+        assert!(!frame.to_string().contains("omitir-"));
+        assert!(!frame.to_string().contains("somente outro Space"));
+        if frame["ev"]["type"] == "session" {
+            assert!(frame["ev"]["session"].get("engine").is_none());
+            break;
+        }
+        if frame["ev"]["type"] == "entry" {
+            ids.push(frame["ev"]["entry"]["id"].clone());
+        }
+    }
+    assert_eq!(ids, [json!(ask.id), json!(answer.id)]);
+
+    let local = api::dispatch(&hub, &Caller::Local, "history", json!({"botId":"chat","limit":1})).await.unwrap();
+    assert_eq!(local["entries"][0]["data"]["text"], "omitir-escolha");
+}

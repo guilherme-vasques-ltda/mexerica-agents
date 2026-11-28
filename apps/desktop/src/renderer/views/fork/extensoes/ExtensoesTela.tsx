@@ -12,7 +12,7 @@ import { useModel } from '../../../lib/observable'
 import { StoreContext, useApp } from '../../../store/context'
 import { MarketplaceView } from '../../marketplace/MarketplaceView'
 import { extensoesScreen } from './lugar-atual'
-import { ehPaginaLoja, extensoesSomenteCatalogo, PAGINAS_EXTENSOES, paginaDisponivel } from './tela'
+import { ehPaginaLoja, PAGINAS_EXTENSOES, paginaDisponivel } from './tela'
 import { CredentialsView } from '../../marketplace/CredentialsView'
 import { PaginaPlugins } from './PaginaPlugins'
 import { settingsScreen } from '../ajustes/tela'
@@ -46,7 +46,6 @@ export function ExtensoesTela() {
   const store = tela.computer ? app.store(tela.computer) : null
   if (!tela.page) ultimaLoja.current = null
   if (!tela.page || !store) return null
-  const somenteCatalogo = extensoesSomenteCatalogo()
   const atual = PAGINAS_EXTENSOES.find((p) => p.id === tela.page)!
   // Velocidade: Aplicativos, Conectores e Skills são UMA instância do MarketplaceView, que fica montada (escondida em
   // Plugins e Credenciais) enquanto a tela está aberta. Trocar de página não remonta nem busca o catálogo de novo.
@@ -82,10 +81,10 @@ export function ExtensoesTela() {
               {atual.id === 'connectors' ? (
                 <div className="ext-titulo-linha">
                   <h2 className="settings-title">{t(atual.chave)}</h2>
-                  {somenteCatalogo ? null : <Button kind="secondary" onClick={() => setPedidoAdicionar((n) => n + 1)}><Icon name="plus" size={12} />{t('mercado.adicionarPersonalizado')}</Button>}
+                  <Button kind="secondary" onClick={() => setPedidoAdicionar((n) => n + 1)}><Icon name="plus" size={12} />{t('mercado.adicionarPersonalizado')}</Button>
                 </div>
               ) : <h2 className="settings-title">{t(atual.chave)}</h2>}
-              <p className="ext-subtitulo">{t(somenteCatalogo && atual.id === 'connectors' ? 'extensoes.conectores.sobreOpen' : SOBRE[atual.id])}</p>
+              <p className="ext-subtitulo">{t(SOBRE[atual.id])}</p>
             </div>
           )}
           {loja ? (

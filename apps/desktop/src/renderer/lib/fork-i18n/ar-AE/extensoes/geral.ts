@@ -26,7 +26,6 @@ export const textos: Traducao<typeof fonte> = {
   "extensoes.plugins.voltar": "الرجوع إلى قائمة الملحقات",
   "extensoes.cred.sobre": "كلمات المرور والمفاتيح وبيانات تسجيل الدخول التي تستخدمها الروبوتات. تُحفظ القيم في الـ Hub ولا تظهر على الشاشة أبدًا.",
   "extensoes.conectores.sobre": "امنح روبوتاتك الوصول إلى الخدمات التي تستخدمها. يبقى كل حساب في هذا الـSpace ويبدأ متوقفًا لدى الروبوتات.",
-  "extensoes.conectores.sobreOpen": "يمكنك الاطّلاع على تفاصيل الموصلات في Mexerica Open. لا يربط هذا الإصدار الخدمات بالبوتات.",
   "extensoes.plugins.rodape": "تظهر الإضافات الجديدة هنا.",
   "extensoes.cred.adicionarLogin": "إضافة تسجيل دخول",
   "extensoes.meusMcp": "خوادم MCP الخاصة بي",

@@ -112,7 +112,34 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
                 && body.get("source").is_none()
                 && body.get("name").is_none()
         }
-        "donnaTaskProposals"
+        // Conectores: só o dono local; o segredo entra no cofre do Hub e nunca volta. MCP por comando (processo local) não existe na Open.
+        "marketPersonalizado" | "installConnector" => {
+            matches!(caller, Caller::Local) && body.get("command").is_none_or(Value::is_null)
+        }
+        "marketServico"
+        | "marketContas"
+        | "marketConectar"
+        | "marketContaRenomear"
+        | "marketContaDesconectar"
+        | "marketGoogleApp"
+        | "marketGoogleAppSalvar"
+        | "marketGoogleAppRemover"
+        | "marketAppProprioSalvar"
+        | "marketAppProprioRemover"
+        | "connectors"
+        | "credentialUpdateConnector"
+        | "removeConnector"
+        | "marketBotContas"
+        | "marketBotContasDefinir"
+        | "marketFerramentas"
+        | "marketFerramentaLigar"
+        | "marketFerramentaDesligar"
+        | "credentialStatus"
+        | "credentialLogins"
+        | "credentialSaveLogin"
+        | "credentialLabelLogin"
+        | "credentialRemoveLogin"
+        | "donnaTaskProposals"
         | "undoAccessGrant"
         | "donnaTimes"
         | crate::fork::pedidos_time::METHOD
@@ -283,7 +310,6 @@ mod tests {
             "donnaTimesPreview",
             "donnaTimesSave",
             "installSkill",
-            "credentialLogins",
             "readUpload",
             "unknownMethod",
         ] {
@@ -332,7 +358,7 @@ mod tests {
         assert!(open_allows(&Caller::Local, "donnaOnboardingStatus", &json!({})));
         assert!(open_allows(&Caller::Local, "donnaOnboardingDetect", &json!({})));
         assert!(open_allows(&Caller::Local, "marketCatalogo", &json!({})));
-        for method in ["marketServico", "marketContas", "marketConectar", "marketPersonalizado", "credentialStatus"] {
+        for method in ["connectorCall", "connectorTarget"] {
             assert!(!open_allows(&Caller::Local, method, &json!({})));
         }
         assert!(!open_allows(&Caller::Local, "donnaOnboardingSave", &json!({})));
@@ -447,7 +473,63 @@ mod tests {
         assert!(!open_allows(&device, "updateBot", &selecao), "ligar skill fora do dono local");
         assert!(!open_allows(&device, "createBot", &json!({"name": "n", "skills": ["grilling"]})));
         assert!(open_allows(&device, "updateBot", &json!({"id": "b", "name": "n"})));
-        for method in ["extensaoEmTodosAplicar", "extensaoNovosBotsDefinir", "credentialStatus", "marketConectar"] {
+        for method in ["extensaoEmTodosAplicar", "extensaoNovosBotsDefinir"] {
+            assert!(!open_allows(&Caller::Local, method, &json!({})), "{method} continua fechado");
+        }
+    }
+
+    const CONECTORES: [&str; 23] = [
+        "marketPersonalizado",
+        "marketServico",
+        "marketContas",
+        "marketConectar",
+        "marketContaRenomear",
+        "marketContaDesconectar",
+        "marketGoogleApp",
+        "marketGoogleAppSalvar",
+        "marketGoogleAppRemover",
+        "marketAppProprioSalvar",
+        "marketAppProprioRemover",
+        "connectors",
+        "credentialUpdateConnector",
+        "installConnector",
+        "marketBotContas",
+        "marketBotContasDefinir",
+        "marketFerramentas",
+        "marketFerramentaLigar",
+        "marketFerramentaDesligar",
+        "credentialStatus",
+        "credentialLogins",
+        "credentialSaveLogin",
+        "credentialLabelLogin",
+    ];
+
+    #[test]
+    fn open_so_deixa_o_dono_local_conectar_servicos() {
+        let device = Caller::Device { key: "aparelho".into(), scopes: vec![Scope::Control], autoridade: None };
+        for method in CONECTORES.into_iter().chain(["removeConnector", "credentialRemoveLogin"]) {
+            assert!(open_allows(&Caller::Local, method, &json!({})), "{method} é do dono local");
+            assert!(!open_allows(&device, method, &json!({})), "{method} não é de aparelho");
+        }
+        assert!(open_allows(
+            &Caller::Local,
+            "marketPersonalizado",
+            &json!({"name": "n", "url": "https://x.example.invalid", "command": null})
+        ));
+        for method in ["marketPersonalizado", "installConnector"] {
+            for body in [json!({"command": "npx servidor"}), json!({"command": ""})] {
+                assert!(!open_allows(&Caller::Local, method, &body), "{method} por comando é shell: {body}");
+            }
+        }
+        for method in [
+            "importConnectors",
+            "connectorTarget",
+            "connectorCall",
+            "connectorVerify",
+            "connectorSignIn",
+            "connectorSignInFinish",
+            "credentialSetOnePassword",
+        ] {
             assert!(!open_allows(&Caller::Local, method, &json!({})), "{method} continua fechado");
         }
     }

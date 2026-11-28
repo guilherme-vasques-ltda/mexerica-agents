@@ -755,26 +755,43 @@ async fn duas_contas_por_ficha_preservam_o_filtro_e_a_escolha_por_bot() {
 }
 
 #[tokio::test]
-async fn catalogo_da_open_e_local_e_nao_expoe_contas_do_cofre() {
+async fn open_so_conecta_para_o_dono_local_e_sem_acao_que_altera_dados() {
     if !crate::environment::Environment::is_open() {
         return;
     }
     let hub = hub();
-    contas::conectar(&hub.store, &pedido(PERSONAL, None, Some("Sentinela do cofre"))).unwrap();
+    contas::conectar(&hub.store, &pedido(PERSONAL, None, Some("Conta do dono"))).unwrap();
     let cat = crate::api::dispatch(&hub, &Caller::Local, "marketCatalogo", json!({})).await.unwrap();
     assert_eq!(cat["spaceId"], PERSONAL);
     let servicos = cat["servicos"].as_array().unwrap();
     assert!(servicos.iter().any(|s| s["id"] == "linear"));
-    assert!(servicos.iter().all(|s| s["contas"] == json!([])));
-    assert_eq!(cat["appsProprios"]["google"], Value::Null);
+    assert!(servicos.iter().any(|s| s["contas"].as_array().is_some_and(|c| !c.is_empty())));
+    let contas = crate::api::dispatch(&hub, &Caller::Local, "marketContas", json!({})).await.unwrap();
+    assert!(!contas.to_string().contains("Bearer"));
     let device =
         Caller::Device { key: "fixture-device".into(), scopes: vec![crate::store::Scope::Control], autoridade: None };
-    for (caller, method) in
-        [(&device, "marketCatalogo"), (&Caller::Local, "marketContas"), (&Caller::Local, "marketConectar")]
-    {
-        let err = crate::api::dispatch(&hub, caller, method, json!({})).await.unwrap_err();
-        assert!(err.is::<crate::api::devices::Forbidden>());
+    for method in [
+        "marketCatalogo",
+        "marketServico",
+        "marketContas",
+        "marketConectar",
+        "marketPersonalizado",
+        "marketContaRenomear",
+        "marketContaDesconectar",
+        "marketGoogleApp",
+        "marketGoogleAppSalvar",
+        "marketGoogleAppRemover",
+    ] {
+        let err = crate::api::dispatch(&hub, &device, method, json!({})).await.unwrap_err();
+        assert!(err.is::<crate::api::devices::Forbidden>(), "{method} fora do dono local");
     }
+    for method in ["marketBotContas", "marketBotContasDefinir", "marketFerramentas", "marketFerramentaLigar"] {
+        let err = crate::api::dispatch(&hub, &device, method, json!({})).await.unwrap_err();
+        assert!(err.is::<crate::api::devices::Forbidden>(), "{method} fora do dono local");
+    }
+    let por_comando = json!({"name": "Servidor", "command": "npx servidor"});
+    let err = crate::api::dispatch(&hub, &Caller::Local, "marketPersonalizado", por_comando).await.unwrap_err();
+    assert!(err.is::<crate::api::devices::Forbidden>());
 }
 
 #[tokio::test]
@@ -1103,4 +1120,60 @@ async fn recibo_nasce_ou_falha_junto_com_a_acao_na_mesma_transacao() {
     assert!(contas::desconectar(store, "linear", PERSONAL).is_err());
     assert_eq!(store.kv_read("connectors").unwrap(), antes);
     assert_eq!(nomes(&hub, PERSONAL), [("linear".into(), "Linear".into())]);
+}
+
+#[tokio::test]
+async fn open_guarda_a_chave_sem_verificar_e_recusa_1password_e_login_pelo_navegador() {
+    if !crate::environment::Environment::is_open() {
+        return;
+    }
+    let hub = hub();
+    let conta = Connector {
+        id: "chave-1".into(),
+        name: "Chave".into(),
+        description: String::new(),
+        registry_name: None,
+        command: None,
+        args: vec![],
+        env: std::collections::BTreeMap::default(),
+        url: Some("https://servico.example.invalid/mcp".into()),
+        headers: [("Authorization".to_owned(), String::new())].into(),
+        oauth: None,
+        oauth_binding: None,
+        servico: None,
+        tipo: None,
+        liberacoes: vec![],
+        space: PERSONAL.into(),
+        identidade: None,
+    };
+    update_connectors(&hub.store, |todas| {
+        todas.push(conta);
+        Ok(())
+    })
+    .unwrap();
+    let resposta = crate::api::dispatch(
+        &hub,
+        &Caller::Local,
+        "credentialUpdateConnector",
+        json!({"id": "chave-1", "fields": {"Authorization": "Bearer fixture-only"}}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(resposta, json!({"saved": true, "verified": false, "status": "saved", "aviso": null}));
+    assert_eq!(connectors(&hub.store).unwrap()[0].headers["Authorization"], "Bearer fixture-only");
+
+    let err = crate::api::dispatch(&hub, &Caller::Local, "credentialSetOnePassword", json!({"token": "fixture-only"}))
+        .await
+        .unwrap_err();
+    assert!(err.is::<crate::api::devices::Forbidden>());
+    assert!(crate::market::passwords::resolve(&hub.store, "op://cofre/item/campo").await.is_err());
+
+    contas::conectar(&hub.store, &pedido(PERSONAL, None, Some("Conta do dono"))).unwrap();
+    let antes = connectors(&hub.store).unwrap();
+    let id = antes.iter().find(|c| c.servico.is_some()).unwrap().id.clone();
+    for method in ["connectorSignIn", "connectorSignInFinish"] {
+        let err = crate::api::dispatch(&hub, &Caller::Local, method, json!({"id": id})).await.unwrap_err();
+        assert!(err.is::<crate::api::devices::Forbidden>(), "{method}: {err}");
+    }
+    assert_eq!(connectors(&hub.store).unwrap(), antes, "o vínculo não muda antes do retorno");
 }

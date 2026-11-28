@@ -66,7 +66,7 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
             .await?
         }
         "hello" => {
-            if matches!(caller, Caller::Device { scopes, .. } if scopes.contains(&crate::store::Scope::WebChat)) {
+            if caller.is_web_chat() {
                 return Ok(ControlFlow::Break(json!({
                     "hostId": hub.host_id,
                     "computerId": hub.identity.computer_id(),

@@ -12,6 +12,9 @@ pub fn status(store: &Store) -> Result<Value> {
 
 pub async fn set_token(store: &Store, token: &str) -> Result<Value> {
     if !token.is_empty() {
+        crate::open_hub::require_executor()?;
+    }
+    if !token.is_empty() {
         let result = tokio::time::timeout(
             Duration::from_secs(20),
             tokio::process::Command::new("op")
@@ -41,6 +44,7 @@ pub async fn resolve(store: &Store, value: &str) -> Result<String> {
     if value.len() > 2048 || value.contains(['\n', '\r']) {
         bail!("Invalid 1Password reference");
     }
+    crate::open_hub::require_executor()?;
     let token = super::vault::read(store, "credential.1password")?
         .filter(|s| !s.is_empty())
         .ok_or_else(|| anyhow!("Connect 1Password in Credentials first"))?;
