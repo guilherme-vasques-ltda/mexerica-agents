@@ -4,7 +4,7 @@ import { Dialog } from '../../../components/Overlay'
 import { Spinner } from '../../../components/Controls'
 import { superficieIdioma, useIdioma, useT } from '../../../lib/fork-i18n/estado'
 import { useStoreRef } from '../../../store/context'
-import { falhaLimpar, RPC_LIMPAR, type FalhaLimpar } from './limpar.ts'
+import { falhaLimpar, RPC_LIMPAR, type FalhaLimpar } from './limpar'
 import './contexto.css'
 
 const PRAZO_LIMPAR_MS = 240_000
