@@ -46,7 +46,7 @@ pub(crate) fn check_request(caller: &Caller, method: &str, body: &Value) -> Resu
 
 /// Métodos das páginas de Ajustes religadas na Open (memória, Nunca fazer, Instruções, Delegação, Bot de fundo,
 /// Atividade, Armazenamento, Uso, Computadores e dispositivos e Lugares de trabalho), todos só do dono local.
-const SETTINGS_LOCAL: [&str; 31] = [
+const SETTINGS_LOCAL: [&str; 26] = [
     "restoreFunctionModel",
     "restoreFunctionModels",
     "donnaUsageHistory",
@@ -61,11 +61,6 @@ const SETTINGS_LOCAL: [&str; 31] = [
     "saveMemoryProfile",
     "memoryLearning",
     "saveMemoryLearning",
-    "nuncaFazer",
-    "nuncaFazerAdicionar",
-    "nuncaFazerEditar",
-    "nuncaFazerRemover",
-    "nuncaFazerReordenar",
     "instrucaoGeral",
     "instrucaoGeralSalvar",
     "donnaDelegationRules",
@@ -144,7 +139,12 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
         | "pinMemory"
         | "archiveMemory"
         | "forgetMemory"
-        | "clearMemory" => matches!(caller, Caller::Local),
+        | "clearMemory"
+        | "nuncaFazer"
+        | "nuncaFazerAdicionar"
+        | "nuncaFazerEditar"
+        | "nuncaFazerRemover"
+        | "nuncaFazerReordenar" => matches!(caller, Caller::Local),
         // Ajustes completos e Plugins (WhatsApp): só o dono local, sem conta Mexerica, chave, SSH nem tela.
         m if SETTINGS_LOCAL.contains(&m)
             || WHATSAPP_LOCAL.contains(&m)
@@ -152,6 +152,7 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
         {
             matches!(caller, Caller::Local)
         }
+
 
         crate::fork::native_catalog::ADD_METHOD => {
             // Fora do Pessoal, só com a conta de IA escolhida; o Hub a confere como na criação manual.
@@ -312,6 +313,17 @@ mod tests {
         "setRoutinesPaused",
         "runRoutine",
     ];
+
+    #[test]
+    fn open_so_deixa_o_dono_local_ler_e_gravar_nunca_fazer() {
+        let device = Caller::Device { key: "aparelho".into(), scopes: vec![Scope::Control], autoridade: None };
+        for method in
+            ["nuncaFazer", "nuncaFazerAdicionar", "nuncaFazerEditar", "nuncaFazerRemover", "nuncaFazerReordenar"]
+        {
+            assert!(open_allows(&Caller::Local, method, &json!({})), "{method} é do dono local");
+            assert!(!open_allows(&device, method, &json!({})), "{method} não é de aparelho");
+        }
+    }
 
     #[test]
     fn open_so_deixa_o_dono_local_ler_e_escrever_manuais_do_bot() {
