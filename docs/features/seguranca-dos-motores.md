@@ -109,10 +109,8 @@ o **chão próprio**: editar a configuração do motor sempre pergunta.
 O cartão do Codex filtra as opções que gravam regras permanentes no diretório
 compartilhado: `accept_execpolicy_amendment`, `apply_network_policy_amendment:*`
 (todas, inclusive o antigo "Never") e o `allow_always` de MCP (persistência `always`). Outras opções
-`allow_always` desconhecidas também não são oferecidas. Mantém `allow_once` e
-as permissões de sessão (`allow_for_session`, `allow_session` e
-`allow_permissions_session`), rotuladas **Permitir nesta sessão** no desktop e no
-iOS. O filtro também vale em Liberar. O sempre permitir
+`allow_always` desconhecidas e permissões de sessão também não são oferecidas.
+O cartão só autoriza a chamada atual. O filtro também vale em Liberar. O sempre permitir
 de verdade pertence às regras salvas no Hub previstas. O Hub guarda os IDs
 filtrados de cada cartão pendente e recusa qualquer `optionId` fora deles antes de
 responder ao motor ou à ferramenta. A recusa mantém o cartão pendente e retorna
@@ -273,7 +271,7 @@ isolamento nem substitui o fechamento futuro.
 8. Num `CODEX_HOME` descartável com fixtures de regra `allow`, MCP e hook,
    conferir o aviso no app com arquivo/tipo e sem conteúdo; o motor deve continuar.
    Em cartão de comando, rede e MCP, conferir ausência de opções persistentes e
-   o rótulo **Permitir nesta sessão**. Não inserir bypass no diretório de login
+   de sessão. Não inserir bypass no diretório de login
    usado pelos bots.
 
 Nada deste checklist substitui a conferência no Hub real. A mudança vale quando

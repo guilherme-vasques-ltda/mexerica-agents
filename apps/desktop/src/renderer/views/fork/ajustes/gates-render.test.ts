@@ -336,7 +336,7 @@ test('Conta conectada na Open: sem Testar, uso, reserva nem modelos que o Hub re
   assert.ok(!detalhe.includes(pt['contas.botsVazioDetalhe']!), 'não manda escolher a conta numa aba que a Open não mostra')
 })
 
-test('Ajustes do bot na Open: uma aba indisponível abre Identidade, sem mostrar Motor', () => {
+test('Ajustes do bot na Open: mostra todas as abas e abre a pedida, Motor incluído', () => {
   aparelho('desktop', { appScheme: 'mexerica-open' })
   const store = {
     ...observavel, principal: { ...observavel, id: null }, bots: new Map(), connection: { kind: 'online' },
@@ -344,8 +344,8 @@ test('Ajustes do bot na Open: uma aba indisponível abre Identidade, sem mostrar
   const render = () => m.renderToStaticMarkup(m.createElement(m.StoreContext.Provider, { value: store as never },
     m.createElement(m.BotSettingsPage, { botId: 'open-fixture', initialSection: 'engine', onClose: nada, onConversation: nada })))
   const open = render()
-  assert.match(open, /id="bot-settings-tab-identity"[^>]*aria-selected="true"/)
-  assert.doesNotMatch(open, /id="bot-settings-tab-(engine|behaviour|tools|whatsapp)"/)
+  assert.match(open, /id="bot-settings-tab-engine"[^>]*aria-selected="true"/)
+  for (const aba of ['identity', 'behaviour', 'tools', 'whatsapp', 'voice', 'memory']) assert.match(open, new RegExp(`id="bot-settings-tab-${aba}"`), aba)
   aparelho('desktop')
   assert.match(render(), /id="bot-settings-tab-engine"[^>]*aria-selected="true"/)
 })

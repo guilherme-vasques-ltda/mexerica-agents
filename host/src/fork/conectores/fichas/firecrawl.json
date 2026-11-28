@@ -2,7 +2,7 @@
   "id": "firecrawl",
   "nome": "Firecrawl",
   "categoria": "Pesquisa e web",
-  "descricao": "Busca, raspagem e leitura de páginas web pelo Firecrawl. Gasta créditos da conta.",
+  "descricao": "Busca e leitura de páginas pelo Firecrawl; cada ferramenta, inclusive navegar e clicar, só age depois que você liga.",
   "exemplos": [
     "Leia esta página e resuma",
     "Pesquise notícias recentes sobre o setor de logística"
@@ -13,13 +13,15 @@
     "privacidade": "https://www.firecrawl.dev/privacy-policy",
     "termos": "https://www.firecrawl.dev/terms-of-service"
   },
-  "conferidaEm": "2026-11-18",
+  "conferidaEm": "2026-11-27",
   "fontes": [
     "https://docs.firecrawl.dev/mcp-server",
+    "https://docs.firecrawl.dev/mcp-server/oauth",
+    "https://docs.firecrawl.dev/mcp-server/tools",
     "https://mcp.firecrawl.dev/.well-known/oauth-protected-resource/v2/mcp-oauth",
     "https://www.firecrawl.dev/.well-known/oauth-authorization-server"
   ],
-  "aviso": "O uso gasta créditos da sua conta Firecrawl.",
+  "aviso": "Gasta créditos da conta; uma das ações navega e clica em sites.",
   "tipos": [
     {
       "id": "firecrawl.oficial_oauth",
@@ -33,19 +35,18 @@
       },
       "grupos": [
         {
-          "id": "ler",
-          "rotulo": "Ler",
+          "id": "usar",
+          "rotulo": "Usar com a conta, ligando cada ação",
           "escopos": [
             "firecrawl:global"
           ],
           "padrao": true,
-          "disponivel": false,
-          "imposicao": "escopo"
+          "disponivel": true,
+          "imposicao": "filtro"
         }
       ],
       "recomendado": true,
-      "disponivel": false,
-      "motivoIndisponivel": "O escopo único do Firecrawl não separa leitura de ação, e uma ferramenta dele navega e clica em sites."
+      "disponivel": true
     }
   ],
   "skillsOficiais": [
@@ -61,6 +62,5 @@
       "licenca": "sem licença",
       "aproveitavel": false
     }
-  ],
-  "emBreve": "Uma ferramenta do Firecrawl age em sites; entra depois do filtro de ações perigosas."
+  ]
 }

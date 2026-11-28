@@ -549,12 +549,21 @@ where
     relay_checked(input, output, server, client, observe, check_binding, |_, _, _, _| std::future::ready(Ok(()))).await
 }
 
-pub async fn serve(connector: String, port: u16, context: String) -> Result<()> {
-    let token = zeroize::Zeroizing::new(crate::fork::ponte_credencial::ler_token()?);
+pub async fn serve(connector: String, port: u16, context: String, catalog_local: bool) -> Result<()> {
+    let token = zeroize::Zeroizing::new(
+        if catalog_local && std::env::var_os(crate::fork::ponte_credencial::SETUP_ENV).is_some() {
+            tokio::fs::read_to_string(crate::service::data_dir().join("token")).await?
+        } else {
+            crate::fork::ponte_credencial::ler_token()?
+        },
+    );
     let token = token.trim();
     let url = format!("http://127.0.0.1:{port}/api/");
     let call = |method: &str, extra: Value| {
         let mut body = json!({"connector":connector,"context":context});
+        if catalog_local {
+            body["transport"] = json!("catalog-local");
+        }
         if let Some(obj) = extra.as_object()
             && let Some(body) = body.as_object_mut()
         {
@@ -577,14 +586,23 @@ pub async fn serve(connector: String, port: u16, context: String) -> Result<()> 
         if let Some(id) = runtime["bridgeId"].as_str() {
             id.clone_into(&mut bridge_id);
         }
-        let command = runtime["command"].as_str().ok_or_else(|| anyhow!("Conector não é stdio"))?;
-        let mut command = tokio::process::Command::new(crate::shell::program(command));
-        command.args(runtime["args"].as_array().into_iter().flatten().filter_map(Value::as_str));
-        for (k, v) in runtime["env"].as_object().into_iter().flatten() {
-            if let Some(value) = v.as_str() {
-                command.env(k, value);
+        let (_artifact_dir, mut command) = if catalog_local {
+            crate::open_hub::require_executor()?;
+            crate::fork::motor_exec::refuse("MCP local do catálogo")?;
+            let id = runtime["artefato"].as_str().ok_or_else(|| anyhow!("Artefato MCP ausente"))?;
+            let (dir, command) = crate::fork::conectores::catalogo_local::Artefato::preparar(id).await?;
+            (Some(dir), command)
+        } else {
+            let command = runtime["command"].as_str().ok_or_else(|| anyhow!("Conector não é stdio"))?;
+            let mut command = tokio::process::Command::new(crate::shell::program(command));
+            command.args(runtime["args"].as_array().into_iter().flatten().filter_map(Value::as_str));
+            for (k, v) in runtime["env"].as_object().into_iter().flatten() {
+                if let Some(value) = v.as_str() {
+                    command.env(k, value);
+                }
             }
-        }
+            (None, command)
+        };
         let mut child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -611,7 +629,7 @@ pub async fn serve(connector: String, port: u16, context: String) -> Result<()> 
                     if frame.get("id").is_some() { state.2.remove(&id); }
                     (id, seq)
                 };
-                let request = call(
+                    let request = call(
                         "donnaGuardObserve",
                         json!({"bridgeId":bridge_id,"frame":frame,"method":method,"requestId":request_id,"requestSeq":sequence}),
                     );
@@ -624,7 +642,7 @@ pub async fn serve(connector: String, port: u16, context: String) -> Result<()> 
                         response.json().await.map_err(|_| anyhow!("Recibo do gateway inválido"))
                     }
                 },
-                true,
+                !catalog_local,
                 |id, method, phase, params| {
                     use crate::LockExt;
                     let sequence = {
@@ -637,10 +655,11 @@ pub async fn serve(connector: String, port: u16, context: String) -> Result<()> 
                         }
                         state.2.get(&id).copied().unwrap_or_default()
                     };
+                    let begin = phase == Phase::Begin;
                     let request = call(
                         "donnaGuardRuntime",
                         json!({"bridgeId":bridge_id,"method":method,
-                    "requestId":id,"requestSeq":sequence,"beginRequest":phase == Phase::Begin,"validateOnly":true,"params":params}),
+                    "requestId":id,"requestSeq":sequence,"beginRequest":begin,"validateOnly":!catalog_local || !begin,"params":params}),
                     );
                     async move {
                         let response =
@@ -727,7 +746,7 @@ mod tests {
             let options = crate::agent::engine_permissions::codex_options(vec![
                 json!({"optionId":"allow_for_session", "kind":"allow_always"}),
             ]);
-            assert_eq!(options[0]["name"], "Permitir nesta sessão");
+            assert_eq!(options, [] as [Value; 0]);
         }
         let frame = json!({"jsonrpc":"2.0", "id":1, "method":"tools/call",
             "params":{"name":"ler", "arguments":{}}});

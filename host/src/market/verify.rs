@@ -18,6 +18,9 @@ async fn verify_timeout(store: &Store, id: &str, port: u16, timeout: Duration) -
     if !c.configured() {
         bail!("mcp_manual_required: configuração MCP incompleta; informe o alvo manualmente, sem MCP Registry.");
     }
+    if c.command.is_some() && c.servico.is_some() {
+        bail!("Conta do catálogo não roda como comando local");
+    }
     if c.oauth.as_ref().is_some_and(|o| !o.signed_in()) {
         bail!("Sign in before checking this connection.");
     }
@@ -39,7 +42,13 @@ async fn verify_timeout(store: &Store, id: &str, port: u16, timeout: Duration) -
         command.env(crate::fork::ponte_credencial::SETUP_ENV, "1");
         command.env_remove(crate::fork::ponte_credencial::ENV);
         let context = setup.as_ref().ok_or_else(|| anyhow!("Contexto de setup ausente"))?;
-        command.args(["mcp", "remote", "--connector", id, "--port", &port.to_string(), "--context", &context.id]);
+        command.arg("mcp");
+        if crate::fork::conectores::catalogo_local::da_conta(&c).is_some() {
+            command.args(["local", "--catalog-local"]);
+        } else {
+            command.arg("remote");
+        }
+        command.args(["--connector", id, "--port", &port.to_string(), "--context", &context.id]);
         command
     };
     let mut child = crate::fork::motor_exec::spawn(

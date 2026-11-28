@@ -111,7 +111,10 @@ impl Connector {
     pub fn configured(&self) -> bool {
         match self.command.as_deref() {
             Some(command) => !command.trim().is_empty(),
-            None => self.url.as_deref().is_some_and(|url| !url.trim().is_empty() && !url.contains(['{', '}'])),
+            None => {
+                self.url.as_deref().is_some_and(|url| !url.trim().is_empty() && !url.contains(['{', '}']))
+                    || crate::fork::conectores::catalogo_local::da_conta(self).is_some()
+            }
         }
     }
 
@@ -123,11 +126,13 @@ impl Connector {
             return None;
         }
         if self.command.is_some() {
+            if self.servico.is_some() {
+                return None;
+            }
             return Some(
                 json!({"name":self.id,"command":exe,"args":["mcp","local","--connector",self.id,"--port",port.to_string()],"env":[]}),
             );
         }
-        self.url.as_ref()?;
         // Conta de ficha por chave ainda sem o valor guardado: nada de chamar o fornecedor sem credencial.
         if self.missing_catalog_header() {
             return None;
@@ -137,6 +142,11 @@ impl Connector {
         {
             return None;
         }
+        if crate::fork::conectores::catalogo_local::da_conta(self).is_some() {
+            return Some(json!({"name":self.id,"command":exe,
+                "args":["mcp","local","--catalog-local","--connector",self.id,"--port",port.to_string()],"env":[]}));
+        }
+        self.url.as_ref()?;
         Some(json!({
             "name": self.id, "command": exe,
             "args": ["mcp", "remote", "--connector", self.id, "--port", port.to_string()],

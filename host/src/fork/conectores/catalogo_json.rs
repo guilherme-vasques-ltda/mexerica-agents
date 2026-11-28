@@ -209,7 +209,7 @@ impl ServicoJson {
         let links = [&self.site, &self.links.privacidade, &self.links.termos];
         let docs = self.docs.iter();
         let skills = self.skills_oficiais.iter().map(|s| &s.url);
-        let tipos = self.tipos.iter().map(|t| &t.url);
+        let tipos = self.tipos.iter().filter(|t| t.tipo != Tipo::Local).map(|t| &t.url);
         if !links.into_iter().chain(docs).chain(skills).chain(tipos).all(|url| https(url)) {
             return Err(format!("endereço sem https em `{}`", self.id));
         }
@@ -228,6 +228,14 @@ impl ServicoJson {
             return Err(format!("skill sugerida inválida em `{}`", self.id));
         }
         for tipo in &self.tipos {
+            if tipo.tipo == Tipo::Local
+                && (!tipo.url.is_empty()
+                    || matches!(tipo.auth, AuthJson::Chave { .. })
+                    || tipo.grupos.iter().any(|g| g.url.is_some() || g.ferramentas.is_empty())
+                    || super::catalogo_local::da_ficha(&self.id, &tipo.id).is_none())
+            {
+                return Err("ficha MCP local sem artefato fixado ou com destino inválido".into());
+            }
             if !tipo.id.starts_with(&self.id) {
                 return Err(format!("tipo `{}` não pertence à ficha `{}`", tipo.id, self.id));
             }

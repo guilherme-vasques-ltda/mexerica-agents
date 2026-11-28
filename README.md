@@ -58,6 +58,10 @@ Gerar e usar o app no Mac (Xcode, assinatura local, permissões) é um passo sep
 
 `apps/desktop/config/*.plist` vêm vazios: nuvem e login ficam desligados (falha fechada). Não coloque chaves, endereços reais ou dados pessoais neste repositório.
 
+## Contribuir
+
+Veja [CONTRIBUTING.md](CONTRIBUTING.md) e o [Código de Conduta](CODE_OF_CONDUCT.md).
+
 ## Segurança
 
 Veja [SECURITY.md](SECURITY.md).
