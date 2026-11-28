@@ -97,6 +97,9 @@ pub(crate) async fn chaves_call(
     }
     #[cfg(unix)]
     {
+        if cfg!(target_os = "macos") || !enabled() {
+            return crate::fork::planos_codigo::chaves_do_app(hub, caller, method, body).await;
+        }
         chaves::call(hub, caller, method, body).await
     }
 }

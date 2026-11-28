@@ -33,8 +33,8 @@ export const ehOpen = (ponte: { appScheme?: string } | null | undefined) => pont
 export const planosDaTela = (open: boolean, nome: (engine: Engine) => string): ItemDeConexao[] =>
   ENGINES.filter((engine) => !open || engine === 'codex').map((engine) => ({ id: `plano:${engine}`, grupo: 'planos', nome: nome(engine), engine }))
 
-/** O grupo de chaves só existe com o motor Mexerica ligado, no Hub deste computador e fora da Open. */
-export const chavesDisponiveis = (ctx: ContextoDaTela) => !ctx.open && ctx.isLoopback && ctx.backends.some((b) => b.id === 'mexerica')
+/** O grupo de chaves só existe no Hub deste computador e fora da Open, com o motor Mexerica ou, onde ele não roda (Mac), o OpenCode. */
+export const chavesDisponiveis = (ctx: ContextoDaTela) => !ctx.open && ctx.isLoopback && ctx.backends.some((b) => b.id === 'mexerica' || b.id === 'opencode')
 
 export const chavesDaTela = (ctx: ContextoDaTela, fornecedores: readonly { id: string; nome: string }[]): ItemDeConexao[] =>
   chavesDisponiveis(ctx) ? fornecedores.map((f) => ({ id: `chave:${f.id}`, grupo: 'chaves', nome: f.nome, fornecedor: f.id })) : []

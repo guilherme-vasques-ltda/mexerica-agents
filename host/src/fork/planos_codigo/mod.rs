@@ -7,6 +7,7 @@
 //! fornecedor. O processo roda num perfil próprio do plano (`perfil.rs`), só para bot do Space pessoal cujo modelo é do
 //! plano.
 mod acesso;
+pub(crate) use acesso::{Autenticacao, Formato};
 mod cerca;
 mod mascara;
 mod perfil;
@@ -54,6 +55,12 @@ pub(crate) struct Plano {
     /// O fornecedor só permite o plano nas ferramentas da lista dele, e o Mexerica ainda não consta nela: o plano nasce
     /// desligado e só aparece, salva e conversa depois da liberação (`liberado`).
     pub(crate) sob_consulta: bool,
+    /// Onde o fornecedor espera a chave, tanto na lista de modelos quanto no repasse.
+    pub(crate) autenticacao: Autenticacao,
+    pub(crate) formato: Formato,
+    /// Chave de API de um fornecedor que o OpenCode também atende com o login do próprio dono: sem chave guardada, o
+    /// modelo segue o caminho de sempre; com chave, só o perfil isolado do plano vale (fecha por padrão).
+    pub(crate) opcional: bool,
 }
 
 /// O plano está oferecido neste Hub? Um plano `sob_consulta` só depois de liberado: não existe método para liberar, é
@@ -84,6 +91,9 @@ pub(crate) const PLANOS: &[Plano] = &[
         avisos: &["saldo_extra"],
         so_conversa: false,
         sob_consulta: false,
+        autenticacao: Autenticacao::Bearer,
+        formato: Formato::Dados,
+        opcional: false,
     },
     Plano {
         id: "kimi-code",
@@ -103,6 +113,9 @@ pub(crate) const PLANOS: &[Plano] = &[
         avisos: &["so_conversa"],
         so_conversa: true,
         sob_consulta: false,
+        autenticacao: Autenticacao::Bearer,
+        formato: Formato::Dados,
+        opcional: false,
     },
     Plano {
         id: "glm-coding-plan",
@@ -115,6 +128,78 @@ pub(crate) const PLANOS: &[Plano] = &[
         avisos: &["so_ferramentas_da_lista"],
         so_conversa: false,
         sob_consulta: true,
+        autenticacao: Autenticacao::Bearer,
+        formato: Formato::Dados,
+        opcional: false,
+    },
+    Plano {
+        id: "openai-chave",
+        nome: "OpenAI",
+        provedor: "openai",
+        variavel: "OPENAI_API_KEY",
+        lista: Some("https://api.openai.com/v1/models"),
+        modelos: &[],
+        rotas: &[
+            ("responses", "https://api.openai.com/v1/responses"),
+            ("chat/completions", "https://api.openai.com/v1/chat/completions"),
+        ],
+        avisos: &["cobranca_por_uso"],
+        so_conversa: false,
+        sob_consulta: false,
+        autenticacao: Autenticacao::Bearer,
+        formato: Formato::DadosOpenai,
+        opcional: true,
+    },
+    Plano {
+        id: "anthropic-chave",
+        nome: "Anthropic",
+        provedor: "anthropic",
+        variavel: "ANTHROPIC_API_KEY",
+        lista: Some("https://api.anthropic.com/v1/models?limit=1000"),
+        modelos: &[],
+        rotas: &[("messages", "https://api.anthropic.com/v1/messages")],
+        avisos: &["cobranca_por_uso"],
+        so_conversa: false,
+        sob_consulta: false,
+        autenticacao: Autenticacao::XApiKey,
+        formato: Formato::DadosAnthropic,
+        opcional: true,
+    },
+    Plano {
+        id: "google-chave",
+        nome: "Google",
+        provedor: "google",
+        variavel: "GOOGLE_GENERATIVE_AI_API_KEY",
+        lista: Some("https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000"),
+        modelos: &[],
+        rotas: &[
+            ("models/*:generateContent", "https://generativelanguage.googleapis.com/v1beta/models/*:generateContent"),
+            (
+                "models/*:streamGenerateContent",
+                "https://generativelanguage.googleapis.com/v1beta/models/*:streamGenerateContent",
+            ),
+        ],
+        avisos: &["cobranca_por_uso"],
+        so_conversa: false,
+        sob_consulta: false,
+        autenticacao: Autenticacao::XGoogApiKey,
+        formato: Formato::Google,
+        opcional: true,
+    },
+    Plano {
+        id: "openrouter-chave",
+        nome: "OpenRouter",
+        provedor: "openrouter",
+        variavel: "OPENROUTER_API_KEY",
+        lista: Some("https://openrouter.ai/api/v1/models/user?limit=500"),
+        modelos: &[],
+        rotas: &[("chat/completions", "https://openrouter.ai/api/v1/chat/completions")],
+        avisos: &["cobranca_por_uso"],
+        so_conversa: false,
+        sob_consulta: false,
+        autenticacao: Autenticacao::Bearer,
+        formato: Formato::DadosAninhados,
+        opcional: true,
     },
 ];
 
@@ -232,7 +317,7 @@ fn resultado(lista: Result<Vec<acesso::Modelo>, acesso::Falha>) -> Value {
 /// documentação com o estado `acesso_nao_confirmado`, sem nenhuma chamada: a chave só se confirma na primeira conversa.
 async fn consultar(plano: &Plano, lista: Option<&str>, chave: &str) -> Value {
     if let Some(url) = lista {
-        return resultado(acesso::listar_modelos(plano.provedor, url, chave).await);
+        return resultado(acesso::listar_modelos(plano.provedor, url, chave, plano.autenticacao, plano.formato).await);
     }
     let modelos: Vec<_> = plano
         .modelos
@@ -307,6 +392,47 @@ async fn remover(hub: &Arc<Hub>, plano: &'static Plano) -> Result<()> {
     }
     perfil::apagar(&hub.store, plano);
     Ok(())
+}
+
+/// Os métodos de chave do app (`motorChaves*`) quando o Motor Mexerica não roda (macOS): as mesmas telas e o mesmo
+/// contrato, mas a chave vai para o plano do OpenCode do fornecedor, nunca para o Motor. Só os quatro fornecedores
+/// por chave de API; endereço próprio fica de fora.
+pub(crate) async fn chaves_do_app(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) -> Result<Value> {
+    crate::fork::engine_setup::require_local(caller)?;
+    let das_chaves = || PLANOS.iter().filter(|plano| plano.opcional);
+    if method == "motorChaves" {
+        let lista = listar(&hub.store)?;
+        let itens = lista["planos"].as_array().cloned().unwrap_or_default();
+        let fornecedores: Vec<Value> = das_chaves()
+            .filter_map(|plano| {
+                let item = itens.iter().find(|item| item["id"] == plano.id)?;
+                Some(json!({
+                    "id": plano.provedor,
+                    "nome": plano.nome,
+                    "configurada": item["configurada"],
+                    "modelos": item["modelos"],
+                    "conferidoEm": item["conferidoEm"],
+                }))
+            })
+            .collect();
+        return Ok(json!({"fornecedores": fornecedores, "enderecos": []}));
+    }
+    let metodo = match method {
+        "motorChaveTestar" => "planoCodigoTestar",
+        "motorChaveSalvar" => "planoCodigoSalvar",
+        "motorChaveRemover" => "planoCodigoRemover",
+        _ => bail!("motor_desligado: o Motor Mexerica não roda neste computador."),
+    };
+    let pedido = body.as_object().ok_or_else(|| anyhow!("pedido_invalido: pedido de chave inválido."))?;
+    let plano = das_chaves()
+        .find(|plano| pedido.get("fornecedor").and_then(Value::as_str) == Some(plano.provedor))
+        .ok_or_else(|| anyhow!("fornecedor_invalido: fornecedor desconhecido."))?;
+    let mut traduzido = serde_json::Map::new();
+    traduzido.insert("plano".into(), plano.id.into());
+    if let Some(chave) = pedido.get("chave") {
+        traduzido.insert("chave".into(), chave.clone());
+    }
+    call(hub, caller, metodo, Value::Object(traduzido)).await
 }
 
 /// O repasse local deste Hub, iniciado na primeira vez que alguém precisa dele.

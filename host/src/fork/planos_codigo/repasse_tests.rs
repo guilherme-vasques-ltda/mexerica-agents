@@ -414,6 +414,10 @@ fn a_tabela_de_rotas_so_aponta_para_o_fornecedor_do_plano() {
                 "opencode-go" => "opencode.ai",
                 "kimi-code" => "api.kimi.ai",
                 "glm-coding-plan" => "api.z.ai",
+                "openai-chave" => "api.openai.com",
+                "anthropic-chave" => "api.anthropic.com",
+                "google-chave" => "generativelanguage.googleapis.com",
+                "openrouter-chave" => "openrouter.ai",
                 outro => panic!("plano sem fornecedor conhecido no teste: {outro}"),
             };
             assert_eq!(endereco.host_str(), Some(fornecedor), "{url}");
