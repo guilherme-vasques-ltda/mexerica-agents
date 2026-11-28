@@ -362,7 +362,10 @@ impl Fixture {
         self.install().await;
     }
     async fn start(&self) -> String {
-        let (status, body) = self.rpc("connectorSignIn", json!({"id":"notes"})).await;
+        self.start_com(None).await
+    }
+    async fn start_com(&self, tentativa: Option<&str>) -> String {
+        let (status, body) = self.rpc("connectorSignIn", json!({"id":"notes","tentativa":tentativa})).await;
         assert_eq!(status, StatusCode::OK, "{body}");
         reqwest::Url::parse(body["url"].as_str().unwrap())
             .unwrap()
@@ -476,6 +479,47 @@ async fn upstream02_cancelar_invalida_a_tentativa_e_o_retorno_depois_nao_conclui
     let before = f.saved();
     assert!(!f.callback(&state).await.contains("notes conectado"));
     assert_eq!(f.saved(), before);
+}
+
+#[tokio::test]
+async fn upstream02_cancelar_antes_do_registro_nao_deixa_a_tentativa_nascer() {
+    let f = Fixture::new().await;
+    let tentativa = "cancelada-antes-do-registro-0001";
+    let (status, _) = f.rpc("connectorSignInFinish", json!({"tentativa": tentativa, "error": "cancelado"})).await;
+    assert_eq!(status, StatusCode::OK);
+    let before = f.saved();
+    let (status, _) = f.rpc("connectorSignIn", json!({"id":"notes","tentativa":tentativa})).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(f.saved(), before);
+}
+
+#[tokio::test]
+async fn upstream02_cancelar_depois_do_callback_vale_ate_a_gravacao_sem_depender_da_exclusao() {
+    let f = Fixture::new().await;
+    let tentativa = "cancelada-depois-do-callback-02";
+    let state = f.start_com(Some(tentativa)).await;
+    let before = f.saved();
+    f.token.arm();
+    let call = {
+        let f = f.clone();
+        tokio::spawn(async move { f.callback(&state).await })
+    };
+    f.token.wait().await;
+    crate::fork::conectores::oauth_tentativa::cancelar(tentativa);
+    f.token.open();
+    assert!(!call.await.unwrap().contains("notes conectado"));
+    assert_eq!(f.saved(), before);
+}
+
+#[tokio::test]
+async fn upstream02_nova_tentativa_invalida_a_anterior_e_so_a_atual_conclui() {
+    let f = Fixture::new().await;
+    let antiga = f.start_com(Some("tentativa-antiga-00000000001")).await;
+    let atual = f.start_com(Some("tentativa-atual-000000000002")).await;
+    let before = f.saved();
+    assert!(!f.callback(&antiga).await.contains("notes conectado"));
+    assert_eq!(f.saved(), before);
+    assert!(f.callback(&atual).await.contains("notes conectado"));
 }
 
 #[tokio::test]

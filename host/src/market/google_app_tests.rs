@@ -391,7 +391,7 @@ async fn login_do_google_recusa_o_retorno_pela_nuvem() {
     contas::conectar(&hub.store, &gmail(PERSONAL)).unwrap();
     let id = connectors(&hub.store).unwrap().remove(0).id;
     let intent = StartIntent::capture(&hub, &Caller::Local, &id).unwrap();
-    let e = oauth::start(&hub, intent, oauth::Callback::App).await.unwrap_err().to_string();
+    let e = oauth::start(&hub, intent, oauth::Callback::App, None).await.unwrap_err().to_string();
     assert_eq!(e, oauth::APP_PROPRIO_SO_LOOPBACK);
     // A recusa não deixa login pendente nem mexe na conta.
     assert_eq!(connectors(&hub.store).unwrap()[0].oauth, Some(oauth::OAuth::default()));

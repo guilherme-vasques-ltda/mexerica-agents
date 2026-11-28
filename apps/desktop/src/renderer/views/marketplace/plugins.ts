@@ -27,7 +27,7 @@ export class Plugins extends Observable {
   /** D175 F2: an add/import with no answer: where it went, and the read mark taken when it settled. */
   private unconfirmedWrite: { mark: number; origin: Origem<HostClient> | null } | null = null
   /** O login com ouvinte em andamento: cancelar o fecha e o retorno que chegar depois não conclui nada. */
-  private login: { id: string; tentativa: number; state: string | null } | null = null
+  private login: { id: string; nonce: string; tentativa: number | null } | null = null
 
   constructor(readonly store: BotStore) {
     super()
@@ -122,7 +122,7 @@ export class Plugins extends Observable {
   }
 
   async finishConnectorSignIn(retorno: RetornoLogin, cliente = () => this.store.ready()) {
-    return this.after(market.finishConnectorSignIn(await cliente(), retorno))
+    return this.after(market.finishConnectorSignIn(await cliente(), retorno, this.login?.nonce))
   }
 
   /** Waits while the user signs in in the computer's browser (the host catches the return). */
@@ -152,29 +152,31 @@ export class Plugins extends Observable {
    */
   async signIn(id: string, cliente?: () => Promise<HostClient>): Promise<boolean> {
     const retorno = window.codync.app.loginRetorno
-    const ouvinte = await retorno.abrir().catch(() => null)
-    const meu = ouvinte ? { id, tentativa: ouvinte.tentativa, state: null as string | null } : null
+    const meu = { id, nonce: crypto.randomUUID(), tentativa: null as number | null }
     this.login = meu
+    const ouvinte = await retorno.abrir().catch(() => null)
+    meu.tentativa = ouvinte?.tentativa ?? null
+    if (this.login !== meu) { if (ouvinte) retorno.fechar(ouvinte.tentativa); return false }
     let plan: Awaited<ReturnType<typeof market.connectorSignIn>>
     try {
       const c = await (cliente ? cliente() : this.store.ready())
       if (!ouvinte && c.transport instanceof LoopbackTransport && c.transport.baseURL === privateHubOrigin) {
         throw new Error(traduzir(idiomaAtual(), 'mercado.retorno.erro.texto'))
       }
-      plan = await market.connectorSignIn(c, id, ouvinte?.porta)
+      plan = await market.connectorSignIn(c, id, meu.nonce, ouvinte?.porta)
       if (cliente) await cliente()
     } catch (e) {
       if (ouvinte) retorno.fechar(ouvinte.tentativa)
-      if (this.login === meu) this.login = null
+      if (this.login !== meu) return false
+      this.login = null
       throw e
     }
-    if (meu && this.login !== meu) { retorno.fechar(meu.tentativa); return false }
-    if (meu && URL.canParse(plan.url)) meu.state = new URL(plan.url).searchParams.get('state')
+    if (this.login !== meu) { if (ouvinte) retorno.fechar(ouvinte.tentativa); return false }
     const usaOuvinte = ouvinte !== null && plan.callback === 'desktop'
     // Hub antigo (não conhece a porta e responde pelo caminho de antes) ou endereço inválido: o ouvinte não serve.
     if (ouvinte && (!usaOuvinte || !URL.canParse(plan.url))) retorno.fechar(ouvinte.tentativa)
     if (!URL.canParse(plan.url)) return false
-    if (usaOuvinte) return this.finishWithAppListener(meu!, plan.url, cliente)
+    if (usaOuvinte) return this.finishWithAppListener(meu, ouvinte.tentativa, plan.url, cliente)
     if (plan.callback !== 'app') {
       window.codync.app.openExternal(plan.url)
       return this.waitForSignIn(id, cliente)
@@ -198,17 +200,14 @@ export class Plugins extends Observable {
     const login = this.login
     if (!login || login.id !== id) return
     this.login = null
-    window.codync.app.loginRetorno.fechar(login.tentativa)
-    if (!login.state) return
-    try {
-      await market.finishConnectorSignIn(await (cliente ? cliente() : this.store.ready()), { state: login.state, code: null, error: 'cancelado', iss: null })
-    } catch { /* o Hub só descarta a tentativa; o ouvinte já está fechado */ }
+    const marca = (async () => market.cancelConnectorSignIn(await (cliente ? cliente() : this.store.ready()), login.nonce))().catch(() => {})
+    if (login.tentativa !== null) window.codync.app.loginRetorno.fechar(login.tentativa)
+    await marca
   }
 
   /** O navegador volta ao ouvinte do app; o Hub confere state, PKCE e emissor, e o navegador vê o desfecho. */
-  private async finishWithAppListener(login: NonNullable<Plugins['login']>, url: string, cliente?: () => Promise<HostClient>): Promise<boolean> {
+  private async finishWithAppListener(login: NonNullable<Plugins['login']>, tentativa: number, url: string, cliente?: () => Promise<HostClient>): Promise<boolean> {
     const retorno = window.codync.app.loginRetorno
-    const tentativa = login.tentativa
     let back: string
     try {
       back = await retorno.esperar(tentativa, url)
@@ -217,7 +216,6 @@ export class Plugins extends Observable {
       return false
     }
     if (this.login !== login) { retorno.fechar(tentativa); return false }
-    this.login = null
     try {
       const conector = await this.finishConnectorSignIn(lerRetornoLogin(back), cliente)
       retorno.responder(tentativa, { ok: true, nome: conector?.name ?? '' })
@@ -225,6 +223,8 @@ export class Plugins extends Observable {
     } catch (e) {
       retorno.responder(tentativa, { ok: false, detalhe: errorText(e) })
       throw e
+    } finally {
+      if (this.login === login) this.login = null
     }
   }
 }

@@ -145,6 +145,12 @@ pub(super) async fn call(
             let c = market::add_custom_connector(&hub.store, &b).await?;
             json!({"connector": c})
         }
+        "connectorSignInFinish" if b.get("state").is_none_or(Value::is_null) && b["error"] == "cancelado" => {
+            let tentativa = crate::fork::conectores::oauth_tentativa::do_pedido(&b)?
+                .ok_or_else(|| anyhow!("A tentativa de login a cancelar não foi informada."))?;
+            market::oauth::cancelar_tentativa(&tentativa);
+            json!({})
+        }
         "connectorSignInFinish" => {
             let c = market::oauth::finish(
                 hub,

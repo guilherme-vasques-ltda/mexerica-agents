@@ -387,7 +387,8 @@ async fn route(
             (_, None) => market::oauth::Callback::App,
             (_, Some(_)) => anyhow::bail!(crate::fork::conectores::oauth_desktop::RECUSA),
         };
-        return market::oauth::start(hub, intent, callback).await;
+        let tentativa = crate::fork::conectores::oauth_tentativa::do_pedido(&b)?;
+        return market::oauth::start(hub, intent, callback, tentativa).await;
     }
     if method == "readFile" {
         return files::read(hub, &b).await;

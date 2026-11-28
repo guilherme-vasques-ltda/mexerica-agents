@@ -165,11 +165,15 @@ export const market = {
   /** Adds every server in a pasted MCP config (`mcpServers` / `servers` JSON, or one server's entry). */
   importConnectors: async (c: HostClient, config: string) => (await c.call<{ items: InstalledConnector[] }>('importConnectors', { config }, s(60))).items,
   // `loopbackPort`: a porta do ouvinte do app (Hub em outro computador, via túnel); sem ela, o retorno cai no próprio Hub.
-  connectorSignIn: (c: HostClient, id: string, loopbackPort?: number | null) =>
-    c.call<ConnectorSignIn>('connectorSignIn', { id, ...(loopbackPort ? { loopbackPort } : {}) }, s(60)),
+  // `tentativa`: o identificador da tentativa, criado antes de qualquer página; o Hub confere a marca de cancelado nele.
+  connectorSignIn: (c: HostClient, id: string, tentativa: string, loopbackPort?: number | null) =>
+    c.call<ConnectorSignIn>('connectorSignIn', { id, tentativa, ...(loopbackPort ? { loopbackPort } : {}) }, s(60)),
+  /** Marca a tentativa como cancelada no Hub; vale mesmo antes de ela estar registrada. */
+  cancelConnectorSignIn: (c: HostClient, tentativa: string) =>
+    c.call('connectorSignInFinish', { tentativa, error: 'cancelado' }, s(15)),
   /** M3-B: `iss` segue como veio do retorno; o Hub decide. */
-  finishConnectorSignIn: async (c: HostClient, retorno: RetornoLogin) =>
-    (await c.call<{ connector: InstalledConnector }>('connectorSignInFinish', { state: retorno.state, code: retorno.code, error: retorno.error, iss: retorno.iss }, s(60))).connector,
+  finishConnectorSignIn: async (c: HostClient, retorno: RetornoLogin, tentativa?: string) =>
+    (await c.call<{ connector: InstalledConnector }>('connectorSignInFinish', { state: retorno.state, code: retorno.code, error: retorno.error, iss: retorno.iss, ...(tentativa ? { tentativa } : {}) }, s(60))).connector,
   removeConnector: (c: HostClient, id: string) => c.call('removeConnector', { id }),
   // D166 R8: skills only through `passiveSkillsV2` (shared/fork-skills.ts); no weak V1 RPCs here.
   /** Retired metadata lookup; passive registryName never triggers network access. */
