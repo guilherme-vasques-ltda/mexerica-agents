@@ -285,17 +285,13 @@ async fn returns_only_committed_reply_and_discards_late_output_after_stop_or_tim
         if case == "complete" {
             assert_eq!(reply.as_deref(), Some("ephemeral"));
             assert_eq!(status, "finished");
-            let content: String = f
-                .source
-                .hub
-                .store
-                .db
-                .locked()
-                .query_row("SELECT content FROM donna_session_results WHERE request_id=?1", [&receipt.run_id], |r| {
-                    r.get(0)
-                })
-                .unwrap();
-            assert_eq!(content, "unreferenced");
+            assert!(
+                retornos::privacidade::resultado_so_existe_em_memoria(
+                    &f.source.hub.store.db.locked(),
+                    &receipt.run_id,
+                )
+                .unwrap()
+            );
         } else {
             assert_eq!(reply, None);
             assert_eq!(status, "cancelled");
