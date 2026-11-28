@@ -114,6 +114,9 @@ pub(crate) fn autenticar_hello(hub: &Hub, chave: &str) -> std::result::Result<(D
                         RejectCode::Unauthorized.into()
                     }
                 })?;
+                if !dispositivo.concessao_web_valida(now_ms()) {
+                    return Err(RejectCode::LeaseExpired.into());
+                }
                 if dispositivo.source == DeviceSource::Account
                     && (!hub.cloud_synced.load(Ordering::Acquire)
                         || sincronizacao.epoca() == u64::MAX
@@ -337,6 +340,7 @@ impl Autoridade {
         } = &self.original
         {
             let atual = dispositivo(db, chave)?;
+            ensure!(atual.concessao_web_valida(now_ms()), AutorizacaoEncerrada);
             ensure!(
                 atual.source == *origem
                     && atual.grant_id == *concessao
@@ -564,6 +568,9 @@ fn reconferir_captura(hub: &Hub, caller: &Caller, terminal: bool) -> std::result
             let resultado = (|| -> std::result::Result<(Device, Caller), RejectCode> {
                 original.conferir_identidade(key, scopes).map_err(|_| RejectCode::Unauthorized)?;
                 let dispositivo = dispositivo(&tx, key).map_err(|_| RejectCode::Revoked)?;
+                if !dispositivo.concessao_web_valida(now_ms()) {
+                    return Err(RejectCode::LeaseExpired);
+                }
                 if dispositivo.source == DeviceSource::Account
                     && (!hub.cloud_synced.load(Ordering::Acquire)
                         || sincronizacao.epoca() == u64::MAX

@@ -101,6 +101,39 @@ async fn fatos_lidos_e_posse_geram_recusa_assinada() {
 }
 
 #[tokio::test]
+async fn navegador_invalido_so_recebe_recusa_de_despareamento_depois_da_posse() {
+    let hub = temp_hub();
+    let key = paired_phone(&hub).await;
+    let dk = key.verifying_key().to_bytes();
+    let chave = crypto::b64(&dk);
+    let mut aparelho = hub.store.device(&chave).unwrap();
+    aparelho.platform = "web".into();
+    for (scopes, prazo) in [
+        (vec![Scope::Control, Scope::Screen], None),
+        (vec![Scope::WebChat, Scope::Control], Some(aparelho.created_at + 10_000)),
+        (vec![Scope::WebChat], Some(aparelho.created_at)),
+    ] {
+        aparelho.scopes = scopes;
+        aparelho.lease_until = prazo;
+        hub.store.put_device(&aparelho).unwrap();
+        let (sem_prova, _, _, _) = recusa(&hub, &key, false, false).await;
+        assert!(sem_prova.get("prova").is_none());
+        let (recusa, close, ek_d, n) = recusa(&hub, &key, true, false).await;
+        assert_eq!(close, 4001);
+        assert_eq!(recusa["stableCode"], "device_unpaired");
+        let sig = crypto::unb64_n(recusa["prova"]["sig"].as_str().unwrap()).unwrap();
+        let pacote = fork_assinatura_terminal::Recusa {
+            cid: hub.identity.cid_raw(),
+            dk,
+            ek_d,
+            n,
+            estavel: fork_assinatura_terminal::RecusaEstavel::DeviceUnpaired,
+        };
+        crypto::verify(&hub.identity.sign_pub(), &pacote.bytes(), &sig).unwrap();
+    }
+}
+
+#[tokio::test]
 async fn recusa_sem_prova_para_chave_desconhecida_hs1_invalido_ou_leitura_incerta() {
     let hub = temp_hub();
     let revogada = paired_phone(&hub).await;

@@ -355,6 +355,7 @@ impl Hub {
             tracing::warn!("some bots didn't stop within 5 s; waiting for their final turns");
             bots.await;
         }
+        self.browser.shutdown().await;
         if let Err(error) = self.store.interrupt_open_work() {
             tracing::error!(%error, "resposta cortada não marcada no desligamento; o próximo início marca");
         }

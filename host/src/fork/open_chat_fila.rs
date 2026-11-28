@@ -17,6 +17,8 @@ struct Queued {
     turn: i64,
     entry: (String, Option<Autoridade>),
     text: String,
+    #[cfg(unix)]
+    browser: Option<crate::fork::browser::turn::Admission>,
 }
 
 #[cfg(test)]
@@ -43,7 +45,28 @@ pub(crate) fn submit(
     text: String,
 ) {
     let mut guard = RUNNING.locked();
-    start_or_queue(&mut guard, Queued { hub: hub.clone(), cfg: cfg.clone(), lane, turn, entry, text });
+    #[cfg(unix)]
+    let browser = if entry.1.is_none() && crate::api::AUTOMATICO.try_get().is_err() && lane == Lane::main(&cfg.id) {
+        crate::fork::browser::turn::NATIVE
+            .try_get()
+            .ok()
+            .and_then(|epoch| crate::fork::browser::turn::Admission::capture(hub, &cfg.id, epoch).ok())
+    } else {
+        None
+    };
+    start_or_queue(
+        &mut guard,
+        Queued {
+            hub: hub.clone(),
+            cfg: cfg.clone(),
+            lane,
+            turn,
+            entry,
+            text,
+            #[cfg(unix)]
+            browser,
+        },
+    );
 }
 
 fn start_or_queue(guard: &mut Option<HashMap<String, Running>>, queued: Queued) {
@@ -53,10 +76,14 @@ fn start_or_queue(guard: &mut Option<HashMap<String, Running>>, queued: Queued) 
         PENDING.locked().get_or_insert_with(HashMap::new).entry(queued.cfg.id.clone()).or_default().push_back(queued);
         return;
     }
-    let Queued { hub, cfg, lane, turn, entry, text } = queued;
+    let Queued { hub, cfg, lane, turn, entry, text, .. } = queued;
     mark_sending(&hub, &entry.0);
     match admit_locked(guard, &hub, &cfg) {
-        Ok(ticket) => run(&hub, ticket, &cfg, lane, turn, entry, text.clone()),
+        Ok(ticket) => {
+            #[cfg(unix)]
+            let ticket = ticket.with_browser(queued.browser);
+            run(&hub, ticket, &cfg, lane, turn, entry, text);
+        }
         Err(error) => {
             let message = error.to_string();
             let code = message.split(':').next().unwrap_or_default();

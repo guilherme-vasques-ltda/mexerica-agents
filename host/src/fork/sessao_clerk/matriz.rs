@@ -23,6 +23,9 @@ use Minimo::{Admin, Membro, Nenhum, SemCerca};
 pub(crate) const MATRIZ: &[(&str, Minimo)] = &[
     // member: leitura, conversa e preferências próprias.
     ("donnaBrowserStatus", Membro),
+    ("donnaBrowserLocalConsent", Nenhum),
+    ("donnaBrowserLocalFrame", Nenhum),
+    ("donnaBrowserLocalState", Nenhum),
     ("botConversation", Membro),
     ("history", Membro),
     ("keepConversation", Membro),

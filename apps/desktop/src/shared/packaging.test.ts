@@ -50,7 +50,7 @@ test('o app de produção tem identidade própria, sem colidir com o Codync inst
     assert.ok(!JSON.stringify(config).includes('com.pokai'), 'com.pokai')
     assert.ok(!JSON.stringify(config).includes('codync-host'), 'codync-host')
   }
-  assert.deepEqual(prod.mac.extraResources.map((f: { to: string }) => f.to), ['donnabot-host', 'codync-speech'])
+  assert.deepEqual(prod.mac.extraResources.map((f: { to: string }) => f.to), ['donnabot-host', 'mexerica-hub-supervisor', 'codync-speech'])
 })
 
 test('nenhuma configuração de build herda feed ou chave do upstream', () => {

@@ -104,6 +104,12 @@ pub(crate) fn call(hub: &Hub, method: &str, body: &Value) -> Result<Value> {
     Ok(json!({"session": session}))
 }
 
+pub(crate) fn web_list(hub: &Hub, body: &Value) -> Result<Value> {
+    let chat = body["botId"].as_str().ok_or_else(|| anyhow!("`botId` is required"))?;
+    ensure!(hub.store.bot(chat)?.is_some_and(|b| !b.deleted), "unknown bot");
+    Ok(json!({"sessions": store::list(&hub.store.db.locked(), chat)?}))
+}
+
 /// O pedido `sessionEngineSet`. `sessionId` é obrigatório no corpo (`null` = principal).
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

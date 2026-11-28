@@ -106,3 +106,8 @@
 .navegador-caixa.is-warn { background: var(--attention-soft); color: var(--attention); }
 .navegador-acoes { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
 .navegador-nota { margin: 2px 0 0; color: var(--ink-2); font-size: var(--text-caption, 12px); }
+.navegador-local-imagem {
+  display: block;
+  width: 100%;
+  height: auto;
+}
