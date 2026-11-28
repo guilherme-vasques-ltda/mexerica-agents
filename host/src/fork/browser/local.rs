@@ -37,7 +37,7 @@ pub(super) async fn availability_async(hub: &std::sync::Arc<Hub>) -> Result<(), 
 #[cfg(target_os = "macos")]
 async fn local_backend(hub: &Hub) -> Result<(), &'static str> {
     hub.browser.availability()?;
-    super::supervisor::mac_policy::verify().await
+    hub.browser.verify_mac_policy().await
 }
 
 #[cfg(not(target_os = "macos"))]

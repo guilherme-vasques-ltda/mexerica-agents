@@ -115,6 +115,11 @@ impl Watch {
         (!cut.is_fired()).then_some((owner, instance))
     }
 
+    #[cfg(target_os = "macos")]
+    pub fn has_live_sessions(&self) -> bool {
+        self.lock().values().any(|entry| !entry.2.is_fired())
+    }
+
     /// Corta toda instância cuja autoridade `invalid` reprova. Devolve quantas cortou agora.
     pub fn revoke(&self, invalid: impl Fn(&Scope, &str) -> bool) -> usize {
         let entries: Vec<_> =

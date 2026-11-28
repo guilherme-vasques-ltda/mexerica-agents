@@ -128,6 +128,15 @@ fn probe() -> Result<(), &'static str> {
 }
 
 impl State {
+    #[cfg(target_os = "macos")]
+    pub(super) async fn verify_mac_policy(&self) -> Result<(), &'static str> {
+        let result = super::supervisor::mac_policy::verify().await;
+        if result.is_err() {
+            self.revoke_all();
+        }
+        result
+    }
+
     #[cfg(unix)]
     pub(super) fn revoke_local_turn(&self, scope: &Scope, owner: &str) {
         if let Some(watch) = self.watch.lock().ok().and_then(|watch| watch.clone()) {
@@ -189,8 +198,7 @@ impl State {
         valid: impl Fn() -> bool + Sync,
     ) -> Outcome {
         #[cfg(target_os = "macos")]
-        if let Err(reason) = super::supervisor::mac_policy::verify().await {
-            self.revoke_local_turn(scope, owner);
+        if let Err(reason) = self.verify_mac_policy().await {
             return Outcome::failed(None, anyhow!(reason));
         }
         if let Err(error) = super::nav::validate_navigation_url(url).await {
@@ -200,6 +208,10 @@ impl State {
             Ok(handle) => handle,
             Err(error) => return Outcome::failed(None, error),
         };
+        #[cfg(target_os = "macos")]
+        if let Err(reason) = self.verify_mac_policy().await {
+            return Outcome::failed(Some(instance), anyhow!(reason));
+        }
         #[cfg(all(test, target_os = "linux"))]
         self.pause_point("open").await;
         if !valid() {
@@ -258,6 +270,10 @@ impl State {
             }
         };
         let (cdp, page, instance) = handle;
+        #[cfg(target_os = "macos")]
+        if let Err(reason) = self.verify_mac_policy().await {
+            return Outcome::failed(Some(instance), anyhow!(reason));
+        }
         if !valid() {
             let _ = self.close_instance(scope, instance).await;
             return Outcome::failed(
@@ -331,6 +347,8 @@ impl State {
                 *slot = Some(supervisor.watch());
             }
             tokio::spawn(cut_revoked(supervisor.watch(), Arc::downgrade(&self.sessions), Arc::clone(&self.authority)));
+            #[cfg(target_os = "macos")]
+            tokio::spawn(watch_mac_policy(supervisor.watch(), Arc::downgrade(&self.sessions)));
             tokio::spawn(sweep(self.sessions.clone()));
             *guard = Some(supervisor);
         }
@@ -460,6 +478,25 @@ async fn cut_revoked(
         let check = authority.lock().ok().and_then(|slot| slot.clone());
         if let Some(check) = check {
             watch.revoke(|scope, owner| !check(scope, owner));
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+async fn watch_mac_policy(
+    watch: super::supervisor::Watch,
+    sessions: std::sync::Weak<tokio::sync::Mutex<Option<Supervisor<RealLauncher>>>>,
+) {
+    use super::supervisor::mac_policy;
+    loop {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        if sessions.strong_count() == 0 {
+            return;
+        }
+        if watch.has_live_sessions()
+            && let Err(reason) = mac_policy::enforce(&watch, mac_policy::verify()).await
+        {
+            tracing::warn!(reason, "navegador encerrado após verificação de políticas do Mac");
         }
     }
 }

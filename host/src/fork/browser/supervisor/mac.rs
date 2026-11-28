@@ -76,17 +76,22 @@ mod launcher {
             self.cdp.sever();
             let Some(child) = self.child.as_mut() else { return Ok(()) };
             let pid = i32::try_from(child.id()).context("PID de navegador inválido")?;
-            // SAFETY: o grupo de processos é criado pelo launcher para esta instância.
-            if unsafe { libc::kill(-pid, libc::SIGKILL) } < 0 {
-                let error = std::io::Error::last_os_error();
-                if error.raw_os_error() != Some(libc::ESRCH) {
-                    return Err(error.into());
-                }
-            }
+            kill_group(pid)?;
             child.wait()?;
             self.child = None;
             Ok(())
         }
+    }
+
+    fn kill_group(pid: i32) -> std::io::Result<()> {
+        // SAFETY: o launcher cria o grupo para esta instância e o corte precede a coleta do filho.
+        if unsafe { libc::kill(-pid, libc::SIGKILL) } < 0 {
+            let error = std::io::Error::last_os_error();
+            if error.raw_os_error() != Some(libc::ESRCH) {
+                return Err(error);
+            }
+        }
+        Ok(())
     }
 
     impl Drop for Processes {
@@ -160,7 +165,15 @@ mod launcher {
 
         fn cutter(&self, process: &Processes) -> Arc<dyn Fn() + Send + Sync> {
             let cdp = process.cdp.clone();
-            Arc::new(move || cdp.sever())
+            let pid = process.child.as_ref().and_then(|child| i32::try_from(child.id()).ok());
+            Arc::new(move || {
+                cdp.sever();
+                if let Some(pid) = pid
+                    && let Err(error) = kill_group(pid)
+                {
+                    tracing::warn!(%error, "falha ao cortar o grupo do navegador");
+                }
+            })
         }
 
         fn watch_loss(&self, process: &Processes, lost: Arc<dyn Fn() + Send + Sync>) {

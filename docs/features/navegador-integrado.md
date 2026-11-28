@@ -11,8 +11,10 @@ Leia o aviso e clique em **Ativar navegador integrado** para conceder o consenti
 usa o Google Chrome ou o Chromium instalado na pasta Aplicativos. Antes da primeira ativação,
 o app avisa que o navegador se conecta à internet como o Chrome pessoal, mas com um perfil
 temporário separado e com o sandbox nativo do Chrome ligado. O Hub recusa abrir se detectar
-que o Mac é gerenciado, achar uma política de navegador relevante ou não conseguir concluir a
-verificação. A ativação vale para os bots com a preferência Integrado. **Assistir ao navegador**
+que o Mac é gerenciado, achar uma política de navegador relevante ou indício de gestão persistida
+do Chrome, ou não conseguir concluir a verificação. O Hub repete a verificação enquanto houver
+sessão ativa e encerra as sessões ao detectar gestão ou se a verificação falhar. Não é um bloqueio
+instantâneo de rede no sistema. A ativação vale para os bots com a preferência Integrado. **Assistir ao navegador**
 mostra a página enquanto o bot navega; não precisa de aparelho pareado nem aceita cliques.
 
 O Hub oferece abrir, ler e fechar ao Codex durante o turno iniciado pelo dono no app, tanto numa

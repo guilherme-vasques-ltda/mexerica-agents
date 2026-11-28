@@ -303,6 +303,10 @@ fn member_thread_key(lane: &Lane, account: &str, bot: &str) -> String {
     if bot == lane.chat { key } else { format!("{key}.{bot}") }
 }
 
+fn routine_thread_key(bot: &str, account: &str) -> String {
+    format!("open_chat.thread.{bot}.routine:{account}")
+}
+
 /// Marca a mensagem que o Codex nunca aceitou: a entrada não pode ficar `queued` nem `sending`, senão ela sai da
 /// conversa e só o aviso de falha aparece. Depois do aceite a entrada já está
 /// `sent` e segue assim, mesmo que o turno aceite falhe depois.
@@ -380,7 +384,7 @@ pub(crate) fn run(
         let outcome = turn_in_profile(
             &hub,
             &directory,
-            &account,
+            (&account, member_thread_key(&lane, &account, &bot)),
             (&lane, &cfg),
             (&instructions, model.as_deref()),
             (&text, TURN_LIMIT, &images),
@@ -451,7 +455,7 @@ pub(crate) async fn routine_turn(
             let mut turn_run = std::pin::pin!(turn_in_profile(
                 hub,
                 &directory,
-                &account,
+                (&account, routine_thread_key(&bot, &account)),
                 (&lane, cfg),
                 (&instructions, model.as_deref()),
                 (&prompt, timeout, &[]),
@@ -484,7 +488,7 @@ pub(crate) async fn routine_turn(
 async fn turn_in_profile(
     hub: &Arc<Hub>,
     directory: &std::path::Path,
-    account: &str,
+    (account, history_key): (&str, String),
     (lane, cfg): (&Lane, &BotConfig),
     (instructions, model): (&str, Option<&str>),
     (text, limit, images): (&str, Duration, &[PathBuf]),
@@ -505,8 +509,7 @@ async fn turn_in_profile(
         _ = cancel.wait_for(|stop| *stop) => bail!("open_chat_cancelled"),
     };
     let bot = reply.bot.clone();
-    let (key, saved, keep_legacy) =
-        conversation_slot(&hub.store, member_thread_key(lane, account, &bot), tools.is_some(), browser_admitted)?;
+    let (key, saved, keep_legacy) = conversation_slot(&hub.store, history_key, tools.is_some(), browser_admitted)?;
     // Com a reserva viva a exclusão é recusada pelo fence: o que chega aqui só sai por cancelamento (stop/shutdown)
     // ou por o bot já não existir. A conferência de `deleted` sob a trava do banco cobre a janela entre a reserva
     // e este processo nascer.
@@ -755,7 +758,7 @@ pub(super) async fn delegated_turn(
 async fn turn_in_profile(
     _: &Arc<Hub>,
     _: &std::path::Path,
-    _: &str,
+    _: (&str, String),
     _: (&Lane, &BotConfig),
     _: (&str, Option<&str>),
     _: (&str, Duration, &[PathBuf]),

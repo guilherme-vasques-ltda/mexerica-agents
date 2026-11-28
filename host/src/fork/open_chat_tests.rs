@@ -1,8 +1,8 @@
 #![allow(clippy::unwrap_used)]
 
 use super::{
-    CLOSING, MAX_REPLY, RUNNING, Running, Stream, admit_for_test, conversation_slot, drive, notice, shutdown,
-    thread_key, ticket_cancel, with_idle_account,
+    CLOSING, MAX_REPLY, RUNNING, Running, Stream, admit_for_test, conversation_slot, drive, notice, routine_thread_key,
+    shutdown, thread_key, ticket_cancel, with_idle_account,
 };
 use crate::LockExt;
 use crate::fork::engine_setup::process::Rpc;
@@ -876,6 +876,21 @@ fn navegador_retomado_preserva_o_historico_mesmo_sem_ponte_no_turno_seguinte() {
     assert_eq!(choose(true), (key.into(), Some("historico-existente".into()), None));
     hub.store.kv_set(local, "historico-com-ferramentas").unwrap();
     assert_eq!(choose(true), (local.into(), Some("historico-com-ferramentas".into()), None));
+    drop(hub);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn rotina_nao_retoma_o_historico_local_com_ou_sem_catalogo() {
+    let (hub, dir) = hub_de_teste("bot-navegador");
+    let key = thread_key(&crate::store::Lane::main("bot-navegador"), "conta");
+    let routine_key = routine_thread_key("bot-navegador", "conta");
+    hub.store.kv_set(&key, "historico-local").unwrap();
+    hub.store.kv_set(&format!("{key}.hub-v2"), "historico-com-catalogo").unwrap();
+    assert!(hub.store.kv_read(&routine_key).unwrap().is_none());
+    hub.store.kv_set(&routine_key, "historico-da-rotina").unwrap();
+    assert_eq!(hub.store.kv_read(&key).unwrap().as_deref(), Some("historico-local"));
+    assert_eq!(hub.store.kv_read(&routine_key).unwrap().as_deref(), Some("historico-da-rotina"));
     drop(hub);
     std::fs::remove_dir_all(dir).unwrap();
 }
