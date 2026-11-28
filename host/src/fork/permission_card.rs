@@ -159,7 +159,10 @@ pub(crate) async fn respond(hub: &Arc<Hub>, body: &Value) -> Result<Value> {
         _ => bail!("Opção inválida: informe o identificador de uma opção do cartão."),
     };
     #[cfg(target_os = "macos")]
-    if entry.data["toolKind"] == crate::screen::fork_mac_actions::CARD {
+    if [crate::screen::fork_mac_actions::CARD, crate::screen::fork_mac_actions::CLICK_CARD]
+        .iter()
+        .any(|kind| entry.data["toolKind"] == *kind)
+    {
         return crate::screen::fork_mac_actions::respond(
             hub,
             &entry,

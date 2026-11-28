@@ -366,7 +366,7 @@ export class BotStore extends BotSync {
       try {
         await this.withLink((c) => {
           voz?.validar()
-          const answerSource = source ?? (entry.data.toolKind === 'mac_local_screen_action' ? 'app' : undefined)
+          const answerSource = source ?? (['mac_local_screen_action', 'mac_local_screen_click'].includes(entry.data.toolKind ?? '') ? 'app' : undefined)
           return c.call('respondPermission', { botId: entry.botId, entryId: entry.id, entryRev: entry.rev, optionId: option, ...(answerSource ? { source: answerSource } : {}) })
         }, !voz)
         voz?.concluir(true)

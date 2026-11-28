@@ -120,6 +120,22 @@ test('o aviso de compartilhamento da captura fica visível antes de permitir, se
   assert.match(card, /Permitir uma vez/)
 })
 
+test('o cartão de clique só oferece aprovação com aplicativo, janela e botão visíveis', () => {
+  const entry = { id: 'click', kind: 'permission', data: {
+    status: 'pending', toolKind: 'mac_local_screen_click', author: 'b',
+    options: [{ optionId: 'allow', kind: 'allow_once' }, { optionId: 'deny', kind: 'reject_once' }],
+  } }
+  const store = { bots: new Map([['b', { name: 'Berga' }]]), connection: { kind: 'online' } }
+  const render = (title: string) => htmlPt(h(m.StoreContext.Provider, { value: store },
+    h(m.PermissionCard, { entry: { ...entry, data: { ...entry.data, title } }, hostName: 'Mac', answering: null, respond() {} })))
+  const card = render('app.example.invalid\nJanela de teste\nBotão de teste')
+  assert.match(card, /Aplicativo.*app.example.invalid.*Janela de teste.*Botão de teste.*volte à janela.*10 segundos/)
+  assert.match(card, /Permitir uma vez/)
+  const incomplete = render('app.example.invalid\nJanela de teste')
+  assert.doesNotMatch(incomplete, /Permitir uma vez/)
+  assert.match(incomplete, /Recusar/)
+})
+
 test('D511: três escolhas fixas, Agora em destaque e motivo do bot nunca aparece', () => {
   const entry = { id: 'screen', seq: 1, botId: 'b', rev: 1, kind: 'permission', turn: 1, createdAt: 0, updatedAt: 0, data: {
     status: 'pending', toolKind: 'screen_access', title: 'Pode ver a tela deste computador?', voiceApproval: 'app_only',

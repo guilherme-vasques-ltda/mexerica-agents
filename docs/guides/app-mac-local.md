@@ -59,6 +59,13 @@ Sem o helper e os pinos válidos, esse modo não oferece acesso à tela nem volt
 legado. A ferramenta só captura a tela principal; a imagem vai ao motor do bot e pode
 chegar ao provedor do modelo, como informa o cartão antes da autorização. O pino vincula Hub e helper ao mesmo pacote ad hoc; não comprova quem o publicou.
 
+O clique, quando disponível no pacote de teste, só aciona um botão nativo identificável
+na janela ativa da tela principal, pelo nome exato. Deixe a janela alvo em foco para
+o pedido identificar o botão. O cartão mostra o aplicativo, a janela e o botão. Ao
+permitir, volte à mesma janela em até 10 segundos. Se o botão deixou de ser único,
+mudou, perdeu a autorização ou o prazo venceu, a ferramenta não envia outro clique.
+Ela não ativa janelas, move o ponteiro, digita nem usa atalhos.
+
 ## Antes de gerar
 
 As instruções SSH abaixo atendem à conexão direta da variante principal. Elas não

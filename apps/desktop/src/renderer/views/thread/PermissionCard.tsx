@@ -13,7 +13,7 @@ import { useJanelaBaixa } from '../../lib/janela-baixa'
 import { useStoreRef } from '../../store/context'
 import { useSelector } from '../../lib/observable'
 import { emQueda } from '../../store/fork-queda-curta'
-import { actionLabel, capturePermissionNote, memoryPermissionNote, permissionDetail, permissionTitle } from './permission-copy'
+import { actionLabel, capturePermissionNote, clickPermissionNote, memoryPermissionNote, permissionDetail, permissionTitle } from './permission-copy'
 import { superficieIdioma, useIdioma, tradutor, type Tradutor } from '../../lib/fork-i18n/estado'
 export { permissionHeadline, permissionTitle } from './permission-copy'
 
@@ -71,9 +71,12 @@ export function PermissionCard({ entry, hostName, answering, respond }: { entry:
   const hasDetail = !screen && (!!d.command || !!d.detail || !!d.diffs?.length)
   const options = sortedOptions(d.options ?? [])
   // O corte tira só as opções de aprovar; recusar segue disponível.
+  const cliqueLocal = d.toolKind === 'mac_local_screen_click'
+  const alvo = cliqueLocal ? d.title?.split('\n') : undefined
+  const alvoVisivel = alvo?.length === 3 && alvo.every(Boolean)
   const comandoLocal = d.toolKind === 'open_local_command'
   const comandoLocalSemDetalhe = comandoLocal && (!d.detail || !expanded)
-  const opcoes = detalheCortado || comandoLocalSemDetalhe ? options.filter((o) => !o.kind.startsWith('allow')) : options
+  const opcoes = detalheCortado || comandoLocalSemDetalhe || (cliqueLocal && !alvoVisivel) ? options.filter((o) => !o.kind.startsWith('allow')) : options
   // The narrowest allow is the prominent one (`allow_once`, else the first allow the Hub offers).
   const prominent = (options.find((o) => o.kind === 'allow_once') ?? options.find((o) => o.kind.startsWith('allow')))?.optionId
   const store = useStoreRef()
@@ -103,9 +106,10 @@ export function PermissionCard({ entry, hostName, answering, respond }: { entry:
   const allowed = (!screen || d.screenAccess?.effect === true) && !pending && d.status === 'answered' && !!d.options?.find((o) => o.optionId === d.selected)?.kind.startsWith('allow')
   const refused = !pending && d.status === 'answered' && !allowed
   const title = screen ? t('conversa.aprovacao.tela.titulo') : permissionTitle(t, d.toolKind, d.author ? store.bots.get(d.author)?.name : null)
+  const clickNote = clickPermissionNote(t, d.toolKind)
   const captureNote = capturePermissionNote(t, d.toolKind)
   const memoryNote = memoryPermissionNote(t, d.toolKind)
-  const detail = screen ? null : permissionDetail(t, d.toolKind, d.title)
+  const detail = screen || cliqueLocal ? null : permissionDetail(t, d.toolKind, d.title)
   const facts = (
     <dl className="approval-facts">
       <dt>{t('conversa.aprovacao.fato.acao')}</dt><dd>{screen ? t('conversa.aprovacao.tela.acao') : actionLabel(t, d.toolKind)}</dd>
@@ -138,6 +142,14 @@ export function PermissionCard({ entry, hostName, answering, respond }: { entry:
           <p className="approval-note">{t('conversa.aprovacao.tela.celular')}</p>
           {!pending && d.screenAccess?.effect === false ? <p className="approval-note">{t('conversa.aprovacao.tela.semEfeito')}</p> : null}
         </> : null}
+        {alvoVisivel && alvo ? (
+          <dl className="approval-facts">
+            <dt>{t('conversa.aprovacao.clique.app')}</dt><dd><bdi>{alvo[0]}</bdi></dd>
+            <dt>{t('conversa.aprovacao.clique.janela')}</dt><dd><bdi>{alvo[1]}</bdi></dd>
+            <dt>{t('conversa.aprovacao.clique.botao')}</dt><dd><bdi>{alvo[2]}</bdi></dd>
+          </dl>
+        ) : null}
+        {clickNote && pending ? <p className="approval-note">{clickNote}</p> : null}
         {captureNote && pending ? <p className="approval-note">{captureNote}</p> : null}
         {memoryNote ? <p className="approval-note">{memoryNote}</p> : null}
         {hasDetail || baixa ? (
