@@ -142,7 +142,9 @@ export function ChipModeloOpen({ bot }: { bot: Bot }) {
                   <button type="button" className="press chip-modelo-open-opcao" aria-pressed={atualValor === null} disabled={gravando} onClick={() => { if (atualValor !== null) gravar(null) }}>{t('contas.openModelo.padraoDoMotor')}</button>
                 ) : null}
                 {opcao.values.map((valor) => (
-                  <button key={valor} type="button" className="press chip-modelo-open-opcao" aria-pressed={atualValor === valor} disabled={gravando} onClick={() => { if (atualValor !== valor) gravar(valor) }}>
+                  <button key={valor} type="button" className="press chip-modelo-open-opcao" aria-pressed={atualValor === valor} disabled={gravando} onClick={() => {
+                    if (valor === opcao.default) { if (bot.modelOptions?.[opcao.id] !== undefined) gravar(null) } else if (atualValor !== valor) gravar(valor)
+                  }}>
                     <span dir="ltr">{valor === opcao.default ? t('contas.openModelo.padrao', { modelo: rotulo(valor) }) : rotulo(valor)}</span>
                   </button>
                 ))}

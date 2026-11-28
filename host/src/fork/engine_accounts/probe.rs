@@ -400,9 +400,7 @@ pub(crate) fn codex_models(catalog: &Value) -> Vec<Model> {
         let Some(id) = model["id"].as_str().filter(|id| safe_model_id(id)) else {
             continue;
         };
-        // Modelo com `upgrade` foi substituído por outro do catálogo: não é oferecido como escolha nova.
-        if model["hidden"] == true || model["upgrade"].is_string() || models.iter().any(|known: &Model| known.id == id)
-        {
+        if model["hidden"] == true || models.iter().any(|known: &Model| known.id == id) {
             continue;
         }
         let values: Vec<String> = model["supportedReasoningEfforts"]

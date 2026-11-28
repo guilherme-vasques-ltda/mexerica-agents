@@ -53,7 +53,7 @@ pub(crate) struct Ticket {
     account: String,
     directory: PathBuf,
     model: Option<String>,
-    options: BTreeMap<String, String>,
+    options: Options,
     cancel: watch::Receiver<bool>,
     done: watch::Sender<()>,
 }
@@ -82,9 +82,14 @@ pub(crate) fn account_profile(hub: &Hub, cfg: &BotConfig) -> Result<(String, Pat
     Ok((account.id.clone(), directory.clone(), model))
 }
 
-/// As escolhas de raciocínio e velocidade do bot que o `model/list` da conta comprovou para o modelo dele. O que não
-/// consta no catálogo é descartado: o motor recebe só o que a conta aceita.
-fn proven_options(hub: &Hub, cfg: &BotConfig, account: &str, model: Option<&str>) -> BTreeMap<String, String> {
+/// Escolhas de raciocínio e velocidade enviadas ao motor: valor `Some` é o que se manda; `None` manda `null` no
+/// `turn/start`, que desfaz a velocidade que um turno anterior da mesma conversa deixou valendo.
+type Options = BTreeMap<String, Option<String>>;
+
+/// As escolhas do bot que o `model/list` da conta comprovou para o modelo dele; o que não consta no catálogo é
+/// descartado. Sem escolha, o turno volta ao padrão que o catálogo informa, porque o override de um turno vale para os
+/// seguintes da conversa retomada.
+fn proven_options(hub: &Hub, cfg: &BotConfig, account: &str, model: Option<&str>) -> Options {
     let Some(model) = model else { return BTreeMap::new() };
     let Ok(registry) = Registry::load(&hub.store) else { return BTreeMap::new() };
     let Some(known) =
@@ -92,10 +97,17 @@ fn proven_options(hub: &Hub, cfg: &BotConfig, account: &str, model: Option<&str>
     else {
         return BTreeMap::new();
     };
-    cfg.model_options
+    known
+        .options
         .iter()
-        .filter(|(key, value)| known.options.iter().any(|o| o.id == **key && o.values.contains(value)))
-        .map(|(key, value)| (key.clone(), value.clone()))
+        .filter_map(|option| {
+            let chosen = cfg.model_options.get(&option.id).filter(|value| option.values.contains(value));
+            match (option.id.as_str(), chosen) {
+                (_, Some(value)) => Some((option.id.clone(), Some(value.clone()))),
+                ("service_tier", None) => Some((option.id.clone(), option.default.clone())),
+                (_, None) => option.default.clone().map(|value| (option.id.clone(), Some(value))),
+            }
+        })
         .collect()
 }
 
@@ -146,7 +158,7 @@ fn admit(
     guard: &mut Option<HashMap<String, Running>>,
     hub: &Arc<Hub>,
     bot: &str,
-    (account, directory, model, options): (String, PathBuf, Option<String>, BTreeMap<String, String>),
+    (account, directory, model, options): (String, PathBuf, Option<String>, Options),
 ) -> Result<Ticket> {
     ensure!(!CLOSING.locked().iter().any(|h| h.ptr_eq(&Arc::downgrade(hub))), "open_chat_unavailable");
     ensure!(!crate::fork::engine_setup::in_setup(&hub.store, &account), "open_chat_reconnecting");
@@ -403,7 +415,7 @@ async fn turn_in_profile(
     account: &str,
     lane: &Lane,
     (instructions, model): (&str, Option<&str>),
-    options: &BTreeMap<String, String>,
+    options: &Options,
     (text, limit): (&str, Duration),
     (entry_id, authority): (&str, Option<&Autoridade>),
     cancel: &mut watch::Receiver<bool>,
@@ -510,12 +522,14 @@ fn spawn_guarded<T>(
 }
 
 #[cfg(not(unix))]
+#[allow(clippy::too_many_arguments)]
 async fn turn_in_profile(
     _: &Hub,
     _: &std::path::Path,
     _: &str,
     _: &Lane,
     _: (&str, Option<&str>),
+    _: &Options,
     _: (&str, Duration),
     _: (&str, Option<&Autoridade>),
     _: &mut watch::Receiver<bool>,
@@ -619,7 +633,7 @@ pub(crate) async fn drive(
     rpc: &mut Rpc,
     thread: Option<&str>,
     (instructions, model): (&str, Option<&str>),
-    options: &BTreeMap<String, String>,
+    options: &Options,
     text: &str,
     limit: Duration,
     cancel: &mut watch::Receiver<bool>,
@@ -636,7 +650,7 @@ pub(crate) async fn drive(
         if let Some(model) = model {
             session["model"] = model.into();
         }
-        if let Some(tier) = options.get("service_tier") {
+        if let Some(Some(tier)) = options.get("service_tier") {
             session["serviceTier"] = tier.as_str().into();
         }
         let resumed = match thread.filter(|id| valid_id(id)) {
@@ -667,11 +681,11 @@ pub(crate) async fn drive(
             .to_owned();
         before_text(&thread)?;
         let mut params = json!({"threadId": thread, "input": [{"type": "text", "text": text, "text_elements": []}]});
-        if let Some(effort) = options.get("reasoning_effort") {
+        if let Some(Some(effort)) = options.get("reasoning_effort") {
             params["effort"] = effort.as_str().into();
         }
         if let Some(tier) = options.get("service_tier") {
-            params["serviceTier"] = tier.as_str().into();
+            params["serviceTier"] = tier.as_deref().into();
         }
         let turn = match authority {
             Some((hub, proof)) => {

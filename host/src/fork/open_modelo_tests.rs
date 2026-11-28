@@ -169,7 +169,7 @@ fn catalogo_oferece_so_o_que_a_conta_aceita_com_raciocinio_e_velocidade() {
         {"id": "gpt-velho", "upgrade": "gpt-novo"},
         {"id": "gpt-oculto", "hidden": true}
     ]}));
-    assert_eq!(models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["gpt-novo"]);
+    assert_eq!(models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["gpt-novo", "gpt-velho"]);
     let options: Vec<_> =
         models[0].options.iter().map(|o| (o.id.as_str(), o.values.clone(), o.default.clone())).collect();
     assert_eq!(
