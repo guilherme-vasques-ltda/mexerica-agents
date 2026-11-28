@@ -2,7 +2,7 @@
   "id": "calendly",
   "nome": "Calendly",
   "categoria": "Produtividade",
-  "descricao": "Agendamento de reuniões: consulta tipos de evento, disponibilidade e reuniões e permite marcar ou cancelar compromissos.",
+  "descricao": "Agendamento no Calendly: lê eventos e horários livres; só depois de você ligar cada ação ele marca ou cancela reuniões.",
   "exemplos": [
     "Quais reuniões do Calendly estão marcadas para hoje?",
     "Quem agendou comigo esta semana?"
@@ -13,10 +13,12 @@
     "privacidade": "https://calendly.com/privacy",
     "termos": "https://calendly.com/legal"
   },
-  "conferidaEm": "2026-11-18",
+  "conferidaEm": "2026-11-27",
   "fontes": [
     "https://developer.calendly.com/docs/mcp/calendly-mcp-server",
-    "https://calendly.com/oauth/register",
+    "https://developer.calendly.com/docs/mcp/supported-tools",
+    "https://developer.calendly.com/docs/authentication/scopes",
+    "https://mcp.calendly.com/.well-known/oauth-protected-resource",
     "https://calendly.com/.well-known/oauth-authorization-server"
   ],
   "tipos": [
@@ -32,21 +34,21 @@
       },
       "grupos": [
         {
-          "id": "ler",
-          "rotulo": "Ler",
+          "id": "usar",
+          "rotulo": "Usar com a sua conta",
           "escopos": [
+            "mcp:notetaker:read",
             "mcp:scheduling:read",
-            "mcp:notetaker:read"
+            "mcp:scheduling:write"
           ],
           "padrao": true,
-          "disponivel": false
+          "disponivel": true,
+          "imposicao": "filtro"
         }
       ],
       "recomendado": true,
-      "disponivel": false,
-      "motivoIndisponivel": "O Calendly não oferece um modo só de leitura; entra depois do filtro de ações perigosas."
+      "disponivel": true
     }
   ],
-  "emBreve": "O fornecedor não impõe leitura: entra depois do filtro de ações perigosas.",
   "skillsOficiais": []
 }
