@@ -55,6 +55,16 @@ pub(crate) fn call(hub: &Hub, method: &str, body: &Value) -> Result<Value> {
             Ok(json!({"sessions": sessions, "sessionActions": actions}))
         });
     }
+    let reconnecting: Vec<String> = if method == "sessionCreate" && crate::environment::Environment::is_open() {
+        crate::fork::engine_accounts::Registry::load(&hub.store)?
+            .accounts
+            .into_iter()
+            .filter(|a| crate::fork::engine_setup::in_setup(&hub.store, &a.id))
+            .map(|a| a.id)
+            .collect()
+    } else {
+        Vec::new()
+    };
     let db = hub.store.db.locked();
     let tx = db.unchecked_transaction()?;
     if method == "sessionCreate" {
@@ -62,7 +72,7 @@ pub(crate) fn call(hub: &Hub, method: &str, body: &Value) -> Result<Value> {
             Some(title) => title.as_str().ok_or_else(|| anyhow!("invalid_title"))?,
             None => "",
         };
-        let created = store::create(
+        let created = store::create_in(
             &tx,
             &store::NewSession {
                 chat: chat.to_owned(),
@@ -72,6 +82,7 @@ pub(crate) fn call(hub: &Hub, method: &str, body: &Value) -> Result<Value> {
                 title: title.to_owned(),
                 runs_on: None,
             },
+            &reconnecting,
         )?;
         // Título dado na criação é do dono: a 1ª mensagem não o troca.
         if !title.trim().is_empty() {

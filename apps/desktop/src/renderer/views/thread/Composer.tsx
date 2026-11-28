@@ -282,7 +282,9 @@ function DestinationComposer({ botId, sessionId, reply, cancelReply, onCall, onI
       const shift = draft.trim().length - novaAba.length
       const segments = full.segments.flatMap((s) => (s.end > shift ? [{ ...s, start: Math.max(0, s.start - shift), end: s.end - shift }] : []))
       void onNewTab(novaAba, { pasted: pasted.current, contentOrigin: { ...full, textLength: novaAba.length, segments } }).then((ok) => {
-        if (!ok && !drafts.get(draftId)) setDraft(texto)
+        if (ok) return
+        const atual = drafts.get(draftId)
+        setDraft(atual ? `${texto}\n${atual}` : texto)
       })
       pasted.current = []
       setDraft('')

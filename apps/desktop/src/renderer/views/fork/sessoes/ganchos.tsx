@@ -68,9 +68,11 @@ export function useNewTab(store: BotStore, chat: Bot | null, open: (sessionId: s
     open(created.session.id)
     if (!text) return true
     const session = model.intent(chatId, created.session.id)
-    if (session === null) model.fail(chatId, created.session.id, 'unsupported')
-    else return store.send(text, chatId, { ...options, session }) === 'aceito'
-    return true
+    if (session === null) {
+      model.fail(chatId, created.session.id, 'unsupported')
+      return false
+    }
+    return store.send(text, chatId, { ...options, session }) === 'aceito'
   }
 }
 

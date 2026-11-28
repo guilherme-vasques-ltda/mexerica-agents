@@ -185,7 +185,7 @@ fn response(hub: &Hub, cfg: &BotConfig, application: &str) -> Result<Value> {
         "profile":{"browserPreference":cfg.browser_preference,"name":cfg.name,"description":if fixed {crate::fork::donna_fixa::BASE} else {cfg.description.as_str()},"avatarConfig":cfg.avatar_config,"mexeriquinha":cfg.mexeriquinha,"title":cfg.title,"backend":cfg.backend,"model":cfg.model,"modelOptions":cfg.model_options,"fastMode":cfg.fast_mode,"forkEditor":cfg.fork_editor},
         "capabilities":{
             "editableFields":editable,
-            "unavailableSections":["autonomy","folder","tools","memory","voice","routines","export"]
+            "unavailableSections":["autonomy","folder","tools","voice","routines"]
         },
         "permissions":{"canEdit":true,"canDelete":can_delete},
         "costInfo":null,"speedStatus":null,"engineAccounts":engine_accounts,"engineRuntime":engine_runtime,

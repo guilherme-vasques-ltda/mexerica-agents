@@ -193,7 +193,7 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
     assert!(services.iter().any(|s| s["id"] == "linear"));
     assert!(services.iter().all(|s| s["contas"] == json!([])));
     assert_eq!(catalog["appsProprios"]["google"], Value::Null);
-    for method in ["marketContas", "marketConectar", "donnaWhatsapp", "credentialStatus"] {
+    for method in ["marketContas", "marketConectar", "credentialStatus"] {
         let response = session_client
             .post(format!("http://localhost/api/{method}"))
             .bearer_auth(&credential)
@@ -393,7 +393,7 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
     assert_eq!(refused.status(), reqwest::StatusCode::BAD_REQUEST);
     assert!(refused.text().await.unwrap().contains("open_chat_account_required"));
     for (key, value, expected) in [
-        ("attachments", json!(["upload-fixture"]), reqwest::StatusCode::FORBIDDEN),
+        ("attachments", json!(["upload-fixture"]), reqwest::StatusCode::BAD_REQUEST),
         ("sessionId", json!(["session-fixture"]), reqwest::StatusCode::FORBIDDEN),
         ("sessionId", json!("session-fixture"), reqwest::StatusCode::BAD_REQUEST),
     ] {
@@ -418,9 +418,6 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
         "setCloud",
         "installHostUpdate",
         "credentialStatus",
-        "donnaWhatsappSave",
-        "donnaWhatsappPair",
-        "donnaWhatsappWacliRetry",
         "listDirs",
         "installConnector",
         "importConnectors",
@@ -429,7 +426,6 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
         "routineCall",
         "duplicateRoutine",
         "credentialSaveLogin",
-        "donnaEngineAccountUsage",
         "donnaEngineFallback",
         "donnaEngineFallbackSave",
         "donnaEngineFallbackAction",
@@ -447,6 +443,22 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
             "{method} must be rejected by the Open API"
         );
     }
+    for (method, body) in [
+        ("donnaWhatsappDisconnect", json!({"botId": berga, "erase": true})),
+        ("donnaWhatsappPair", json!({"botId": berga, "method": "qr"})),
+    ] {
+        let response = session_client
+            .post(format!("http://localhost/api/{method}"))
+            .bearer_auth(&credential)
+            .json(&body)
+            .send()
+            .await
+            .unwrap();
+        assert!(!response.status().is_success(), "{method} sem executor não pode dar certo");
+        assert!(response.text().await.unwrap().contains("open_executor_unavailable"), "{method}");
+    }
+    let leitura = rpc(&session_client, &credential, "donnaWhatsapp", json!({})).await;
+    assert_eq!(leitura["plugin"]["wacli"]["state"], "unsupported", "{leitura}");
     let manual = json!({"botId": berga, "name": "Fixture", "instruction": "Fixture", "schedule": {"kind": "manual"}});
     let saved = session_client
         .post("http://localhost/api/saveRoutine")

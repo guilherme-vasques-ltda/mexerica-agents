@@ -270,7 +270,7 @@ async fn aba_sem_conta_explicita_fica_na_conta_resolvida_na_criacao() {
     let cfg = berga(&env.hub);
     assert!(cfg.fork_editor.engine_account_id.is_none());
     let mut engine = SessionEngine::snapshot(&cfg);
-    bind_account(&env.hub.store.db.locked(), &cfg, &mut engine).unwrap();
+    bind_account(&env.hub.store.db.locked(), &cfg, &mut engine, &[]).unwrap();
     assert_eq!(engine.account_id.as_deref(), Some(CONTA));
 
     let mut registry = Registry::load(&env.hub.store).unwrap();
@@ -293,7 +293,22 @@ async fn aba_sem_conta_resolvivel_e_recusada_na_criacao() {
     let env = env(vec![conta(CONTA, State::Disconnected)]);
     let cfg = berga(&env.hub);
     let mut engine = SessionEngine::snapshot(&cfg);
-    let error = bind_account(&env.hub.store.db.locked(), &cfg, &mut engine).unwrap_err();
+    let error = bind_account(&env.hub.store.db.locked(), &cfg, &mut engine, &[]).unwrap_err();
     assert_eq!(error.to_string(), "open_chat_account_required");
     assert!(engine.account_id.is_none());
+}
+
+#[tokio::test]
+async fn aba_nao_fixa_conta_em_reconexao_quando_ha_outra_conectada() {
+    use crate::fork::sessoes::engine_choice::{SessionEngine, bind_account};
+    let mut recente = conta(OUTRA, State::Connected);
+    recente.verified_at = Some(crate::store::now_ms() + 10_000);
+    let env = env(vec![conta(CONTA, State::Connected), recente]);
+    let cfg = berga(&env.hub);
+    let mut livre = SessionEngine::snapshot(&cfg);
+    bind_account(&env.hub.store.db.locked(), &cfg, &mut livre, &[]).unwrap();
+    assert_eq!(livre.account_id.as_deref(), Some(OUTRA));
+    let mut engine = SessionEngine::snapshot(&cfg);
+    bind_account(&env.hub.store.db.locked(), &cfg, &mut engine, &[OUTRA.to_owned()]).unwrap();
+    assert_eq!(engine.account_id.as_deref(), Some(CONTA));
 }

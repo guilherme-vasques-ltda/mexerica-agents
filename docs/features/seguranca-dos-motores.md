@@ -305,6 +305,25 @@ encerramento. Cancelar não concede acesso, inclusive se o contexto do turno
 tiver mudado. O cancelamento interno usado ao parar um turno também continua
 funcionando.
 
+## Política de comandos locais mediados
+
+Os comandos locais continuam indisponíveis ao motor. Antes de expor essa
+capacidade, o app deve mantê-la desligada por padrão e avisar o dono na primeira
+ativação: um comando aprovado roda com as permissões do dono, sem ambiente
+isolado. O consentimento habilita apenas pedidos de aprovação; não autoriza
+nenhum comando. A mediação ocorre no Hub, e o shell nativo não é habilitado
+como alternativa.
+
+Cada aprovação vale para um pedido, bot, turno, executável, argumentos e pasta.
+É de uso único e perde a validade quando expira ou quando o Hub revoga o turno.
+No Linux, o executor usa os descritores abertos antes da aprovação para não
+seguir uma troca posterior de caminho. No macOS, a entrada na pasta usa o
+descritor aberto, e o Hub recusa se o dispositivo ou inode da pasta ou do
+executável mudar. O macOS executa o binário por caminho: ainda existe uma
+janela entre a última conferência e a execução. Nenhum método torna imutável
+o conteúdo de um arquivo nem confina o comando: ele ainda pode acessar os
+arquivos e a rede do dono. O executor não está disponível em outras plataformas.
+
 ## OpenCode: aviso no app
 
 A OpenCode continua na lista de motores. Ao escolhê-la, o app mostra um aviso em
