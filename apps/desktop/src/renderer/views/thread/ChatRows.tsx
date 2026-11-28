@@ -34,6 +34,7 @@ import { genuiChoiceRow } from '../fork/genui/GenuiChoiceRow'
 import { HandoffNotice } from './HandoffNotice'
 import { LinhaTroca } from '../fork/troca-modelo/LinhaTroca'
 import { TeamChangeNotice } from './TeamChangeNotice'
+import { WebTurnWarning } from './fork-web-turn-warning'
 import { MemoryNotice } from './MemoryNotice'
 import { RascunhoDaConversa } from '../fork/skill-drafts/RascunhoDaConversa'
 import { ToolSteps } from './cards/ToolSteps'
@@ -186,7 +187,9 @@ export function UserBubble({ entry, botWorking, reply }: { entry: Entry; botWork
             {entry.data.text}
           </Bubble>
         ) : null}
-        {status && status !== 'sent' ? <span className="chat-status"><UserStatus entry={entry} botWorking={botWorking} hovering={hovering} /></span> : null}
+        {status === 'sent' && entry.data.webTurnFailed === true
+          ? <WebTurnWarning onRetry={() => store.retryWebTurn(entry)} />
+          : status && status !== 'sent' ? <span className="chat-status"><UserStatus entry={entry} botWorking={botWorking} hovering={hovering} /></span> : null}
         {/* Under the bubble, inside its hover region: its row is reserved, so showing them never changes the height. */}
         <MessageActions className="leading" visible={hovering} reactions={reactionPick(store, entry)} reply={reply} copy={copy} />
       </div>

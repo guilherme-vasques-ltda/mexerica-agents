@@ -23,11 +23,10 @@ pub(crate) const SESSION_ACTIONS: [&str; 2] = ["create", "send"];
 pub(crate) const ENGINE_ACTION: &str = "engine";
 
 fn actions(c: &rusqlite::Connection, chat: &str) -> Result<Vec<&'static str>> {
-    let mut actions = SESSION_ACTIONS.to_vec();
-    // Open: só criar a aba e escrever nela; encerrar, motor e demais ações seguem fechados em open_allows.
     if crate::environment::Environment::is_open() {
-        return Ok(actions);
+        return Ok(if store::personal_on(c, chat)? { SESSION_ACTIONS.to_vec() } else { Vec::new() });
     }
+    let mut actions = SESSION_ACTIONS.to_vec();
     // Sessões PR5: encerrar e continuar, implementados por este Hub (Hub antigo não os anuncia; sem fallback).
     actions.extend(super::encerrar::ACTIONS);
     if engine_choice::personal_bot(c, chat)?.is_some() {
@@ -107,7 +106,12 @@ pub(crate) fn call(hub: &Hub, method: &str, body: &Value) -> Result<Value> {
 pub(crate) fn web_list(hub: &Hub, body: &Value) -> Result<Value> {
     let chat = body["botId"].as_str().ok_or_else(|| anyhow!("`botId` is required"))?;
     ensure!(hub.store.bot(chat)?.is_some_and(|b| !b.deleted), "unknown bot");
-    Ok(json!({"sessions": store::list(&hub.store.db.locked(), chat)?}))
+    let db = hub.store.db.locked();
+    if crate::environment::Environment::is_open() {
+        let principal = store::get(&db, chat)?.filter(|row| row.principal && row.chat_id == chat);
+        return Ok(json!({"sessions": principal.into_iter().collect::<Vec<_>>()}));
+    }
+    Ok(json!({"sessions": store::list(&db, chat)?}))
 }
 
 /// O pedido `sessionEngineSet`. `sessionId` é obrigatório no corpo (`null` = principal).
@@ -205,8 +209,12 @@ pub(crate) fn send_lane(c: &rusqlite::Connection, chat: &str, body: &Value) -> R
     }
     // A extra roda em série no próprio slot; a admissão (recibo + CAS da escolha) acontece no `queued` → `sent`.
     let lane = crate::store::Lane { chat: chat.to_owned(), session: Some(session.id) };
-    // Open: a conta do Codex isolado é conferida no precheck do envio; a classe de roteamento é do app completo.
-    if !crate::environment::Environment::is_open() {
+    if crate::environment::Environment::is_open() {
+        ensure!(
+            store::personal_on(c, chat)? && session.runs_on.is_none() && session.origin == SessionOrigin::Owner,
+            "session_chat_unsupported"
+        );
+    } else {
         extra_admissible(c, &lane)?;
     }
     Ok(lane)

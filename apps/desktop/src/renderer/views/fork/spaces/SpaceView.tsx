@@ -14,6 +14,7 @@ import { localeDe } from '../../../lib/fork-i18n/index'
 import type { AppLanguage } from '@shared/fork-idioma'
 import type { SpaceContext } from '../../../store/fork-space-context'
 import { MarkdownText } from '../../thread/Markdown'
+import { WebTurnWarning } from '../../thread/fork-web-turn-warning'
 import { SpaceTile } from './SpaceTile'
 import { SpaceComposer } from './SpaceComposer'
 import { avisoOpen } from './erro-envio'
@@ -167,7 +168,7 @@ export function SpaceView({ context, space, onEdit, onMove, canMove, onLibrary, 
                     ) : null}
                     {context.history.error ? <p className="space-view-note" role="status">{tx(context.history.error.text)}</p> : null}
                     {!context.history.entries.length ? <p className="space-view-empty">{tx(frase('spaces.view.nenhumaMensagem'))}</p> : null}
-                    {context.history.entries.map((e) => <HistoryRow key={e.id} entry={e} bot={names(selected.botId)} idioma={idioma} />)}
+                    {context.history.entries.map((e) => <HistoryRow key={e.id} entry={e} bot={names(selected.botId)} idioma={idioma} onRetry={() => context.retryWebTurn(e)} />)}
                   </>
                 )}
         </div>
@@ -201,8 +202,7 @@ function ListProblem({ text, onRetry, action }: { text: string; onRetry: () => v
   )
 }
 
-/** One line of the history as the Hub recorded it; nothing here acts on it. */
-export function HistoryRow({ entry, bot, idioma }: { entry: Entry; bot: Frase; idioma: AppLanguage }) {
+export function HistoryRow({ entry, bot, idioma, onRetry }: { entry: Entry; bot: Frase; idioma: AppLanguage; onRetry?: () => Promise<void> }) {
   if (isHostMessage(entry)) return null
   const text = typeof entry.data.text === 'string' ? entry.data.text : ''
   const files = [...(entry.data.attachments ?? []), ...(entry.data.files ?? [])].map((f) => f.name).filter(Boolean)
@@ -218,6 +218,9 @@ export function HistoryRow({ entry, bot, idioma }: { entry: Entry; bot: Frase; i
       <div className="space-view-bubble">
         {entry.kind === 'user' ? <span className="space-view-text" dir="auto">{text}</span> : <div dir="auto"><MarkdownText text={text} /></div>}
         {files.length ? <bdi className="space-view-files" dir="auto">{files.join(' · ')}</bdi> : null}
+        {onRetry && entry.kind === 'user' && entry.data.status === 'sent' && entry.data.webTurnFailed === true
+          ? <WebTurnWarning onRetry={onRetry} />
+          : null}
       </div>
     </div>
   )

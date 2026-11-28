@@ -110,6 +110,13 @@ const WHATSAPP_LOCAL: [&str; 22] = [
 pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
     match method {
         "respondPermission" => matches!(caller, Caller::Local) && crate::fork::open_tool_actions::app_response(body),
+        "history" => {
+            matches!(caller, Caller::Local)
+                || body["sessionId"].is_null()
+                || body["sessionId"].as_str().is_some_and(|id| body["botId"] == id)
+        }
+        "sessions" => matches!(caller, Caller::Local) || caller.is_web_chat(),
+        "botGroups" => caller.is_web_chat(),
         // Skills: só o dono local, e instalar só do catálogo embutido (sem source, sem texto escrito à mão).
         "installSkill" => {
             matches!(caller, Caller::Local)
@@ -144,6 +151,7 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
         | "credentialSaveLogin"
         | "credentialLabelLogin"
         | "credentialRemoveLogin"
+        | "sessionCreate"
         | "donnaTaskProposals"
         | "donnaTimes"
         | crate::fork::pedidos_time::METHOD
@@ -205,7 +213,6 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
         | "refreshBackends"
         | "teamSettings"
         | "usage"
-        | "history"
         | "markRead"
         | "donnaSpaces"
         | "donnaSpaceCreate"
@@ -223,8 +230,6 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
         | "donnaConversations"
         | "donnaConversationHistory"
         | "donnaConversationRead"
-        | "sessions"
-        | "sessionCreate"
         | "stop"
         | "deleteBot"
         | "reorderBots" => true,
@@ -235,14 +240,13 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
                         .iter().all(|key| body.get(key).is_none()))
         }
         "upload" => matches!(caller, Caller::Local),
-        // Anexos só do dono local (o Hub entrega o conteúdo no turno); a aba (sessão extra) é indicada por 'sessionId'
-        // em texto, sem anexos, e o Hub confere bot e estado.
+        // Sessão extra só do dono local e sem anexos; o Hub confere bot e estado.
         "send" => {
             let no_attachments = body.get("attachments").is_none_or(|a| a.is_null() || a.as_array().is_some_and(Vec::is_empty));
-            let owner_attachments = matches!(caller, Caller::Local) || no_attachments;
+            let local = matches!(caller, Caller::Local);
             match body.get("sessionId") {
-                None | Some(Value::Null) => owner_attachments,
-                Some(Value::String(_)) => no_attachments,
+                None | Some(Value::Null) => local || no_attachments,
+                Some(Value::String(id)) => (local || body["botId"] == id.as_str()) && no_attachments,
                 Some(_) => false,
             }
         }
@@ -376,12 +380,19 @@ mod tests {
         assert!(!open_allows(&Caller::Local, "send", &json!({"sessionId": ["extra"]})));
         assert!(!open_allows(&Caller::Local, "send", &json!({"sessionId": "extra", "attachments": ["arquivo"]})));
         let device = Caller::Device { key: "aparelho".into(), scopes: vec![Scope::Control], autoridade: None };
+        let web = Caller::Device { key: "web-ficticia".into(), scopes: vec![Scope::WebChat], autoridade: None };
+        assert!(open_allows(&web, "botGroups", &json!({})));
+        assert!(!open_allows(&web, "botGroupsEdit", &json!({})));
+        assert!(!open_allows(&device, "botGroups", &json!({})));
         assert!(open_allows(&device, "send", &json!({"text": "oi"})));
+        assert!(!open_allows(&device, "send", &json!({"sessionId": "extra"})));
+        assert!(!open_allows(&device, "history", &json!({"sessionId": "extra"})));
         assert!(!open_allows(&device, "send", &json!({"attachments": ["arquivo"]})));
         assert!(open_allows(&device, "send", &json!({"attachments": []})));
         assert!(!open_allows(&device, "upload", &json!({})));
         for method in ["sessions", "sessionCreate"] {
             assert!(open_allows(&Caller::Local, method, &json!({"botId": "b"})), "{method}");
+            assert!(!open_allows(&device, method, &json!({"botId": "b"})), "{method}");
         }
         for method in [
             "sessionClose",

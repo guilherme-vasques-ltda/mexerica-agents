@@ -72,16 +72,20 @@ fn p01_broadcast_rotina_e_par_nao_leem_nem_metadados() {
 fn p02_solicitante_autenticado_recebe_apenas_estado() {
     let f = Fixture::new();
     let id = f.aceitar().unwrap();
+    entrega::add_on(&f.hub.store.db.locked(), &id, PERSONAL, 1).unwrap();
     qualify(&f, &id, explicit(), ReadProvenance::PrivateRead);
     let fence = despachar(&f.hub.store, &id).unwrap().unwrap();
     let entry = f.entrada(&Lane::main("b"), EntryKind::Agent);
     let t = f.termino(&id, fence, MotivoFim::FimDoTurno, Conteudo::Entrada(entry.clone()));
     assert_eq!(
-        registrar_fim(&f.hub.store, &id, "b", Andamento::EmExecucao(fence), Fim::Turno(t.fim)),
+        registrar_fim(&f.hub.store, &id, "b", Andamento::EmExecucao(fence), Fim::Turno(t.fim), Some("SENTINELA")),
         Registro::CorpoRetido
     );
 
     let db = f.hub.store.db.locked();
+    let body: Option<String> =
+        db.query_row("SELECT body FROM donna_request_deliveries WHERE request_id=?1", [&id], |r| r.get(0)).unwrap();
+    assert_eq!(body, None);
     let mut auth = caller(Some(MEMBER));
     auth.bot_id = Some("a");
     let ler =
@@ -259,7 +263,7 @@ fn p05_revogacao_atomica_fecha_fila_callback_e_efeito() {
     assert_eq!(despachar(&f.hub.store, &queued).unwrap(), None);
     let late = f.termino(&running, fence, MotivoFim::FimDoTurno, Conteudo::Entrada("tardia".into()));
     assert_eq!(
-        registrar_fim(&f.hub.store, &running, "b", Andamento::EmExecucao(fence), Fim::Turno(late.fim)),
+        registrar_fim(&f.hub.store, &running, "b", Andamento::EmExecucao(fence), Fim::Turno(late.fim), None),
         Registro::Decidido
     );
     assert_eq!(f.resultados(), 0);
@@ -512,7 +516,7 @@ fn p08_tripwire_sql_e_saida_de_eventos() {
     let fence = despachar(&f.hub.store, &id).unwrap().unwrap();
     let end = f.termino(&id, fence, MotivoFim::FimDoTurno, Conteudo::Nenhum);
     assert_eq!(
-        registrar_fim(&f.hub.store, &id, "b", Andamento::EmExecucao(fence), Fim::Turno(end.fim)),
+        registrar_fim(&f.hub.store, &id, "b", Andamento::EmExecucao(fence), Fim::Turno(end.fim), None),
         Registro::CorpoRetido
     );
     let mut db = f.hub.store.db.locked();

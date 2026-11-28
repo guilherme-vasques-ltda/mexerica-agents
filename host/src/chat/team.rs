@@ -25,10 +25,10 @@ pub const ASK_TIMEOUT: Duration = Duration::from_secs(600);
 pub(crate) const MAX_MESSAGE_BYTES: usize = 32_000;
 const MAX_PENDING_MESSAGES: usize = 64;
 
-pub const INSTRUCTIONS: &str = "A admissão grava os dois avisos e reserva o turno do destinatário no mesmo commit; uma recusa não publica nem enfileira metade do pedido. Isso não desfaz execução externa já admitida. Na adicional própria, o aviso do remetente fica nessa conversa. ask_bot retorna só à chamada original; message_bot conserva o relatório na conversa do destinatário explícito, com autoridade própria. Não repita efeitos incertos após troca de contexto. Cada pedido conta na cadeia D220 do pedido original (5 níveis, 50 execuções); no limite, a recusa não envia nada e não deve ser contornada por outro bot. O Hub registra o pedido e como ele terminou, só com metadados; esse registro não reenvia nem devolve o resultado após reinício. Se a conclusão não puder ser registrada, a ferramenta informa falha em vez do resultado. Se ask_bot falhar depois da admissão (prazo, cancelamento, parada ou falha do destinatário), o erro termina com (requestId: <id>); recusa antes da admissão não tem pedido nem ID. bot_request_status consulta, só leitura, o estado registrado de um pedido que você fez nesta mesma conversa, pelo requestId devolvido no aceite ou nesse erro: não traz a resposta, não reenvia, não confirma entrega nem efeito, e running ou restart_uncertain continuam sem conclusão. Consulte quando precisar decidir, não em ciclo. my_team_chain mostra, só leitura, a sua própria cadeia no quadro de Equipes (um nível acima e um abaixo); Reporta a não concede poder. list_bots mostra a equipe de cada bot visível e quem é o chefe; use para responder sobre as equipes. A hierarquia de reportes de cada bot continua só pela própria cadeia (my_team_chain). Use list_bots para encontrar os outros bots da Mexerica do usuário. Um pedido recebido pode trazer <contrato_da_tarefa>: entregue o resultado pedido e diga como conferiu; não altere os critérios para passar e, se não der, diga o que faltou; o contrato não libera permissão. \
+pub const INSTRUCTIONS: &str = "A admissão grava os dois avisos e reserva o turno do destinatário no mesmo commit; uma recusa não publica nem enfileira metade do pedido. Isso não desfaz execução externa já admitida. Na adicional própria, o aviso do remetente fica nessa conversa. ask_bot retorna só à chamada original; message_bot recebe o aceite sem esperar; em turno de conversa registrado, os resultados voltam juntos à conversa solicitante. A execução no destinatário tem autoridade própria. Não repita efeitos incertos após troca de contexto. Cada pedido conta na cadeia D220 do pedido original (5 níveis, 50 execuções); no limite, a recusa não envia nada e não deve ser contornada por outro bot. O Hub registra o pedido e como ele terminou, sem reenviar trabalho após reinício; a consulta de estado não devolve o corpo do resultado. Se a conclusão não puder ser registrada, a ferramenta informa falha em vez do resultado. Se ask_bot falhar depois da admissão (prazo, cancelamento, parada ou falha do destinatário), o erro termina com (requestId: <id>); recusa antes da admissão não tem pedido nem ID. bot_request_status consulta, só leitura, o estado registrado de um pedido que você fez nesta mesma conversa, pelo requestId devolvido no aceite ou nesse erro: não traz a resposta, não reenvia, não confirma entrega nem efeito, e running ou restart_uncertain continuam sem conclusão. Consulte quando precisar decidir, não em ciclo. my_team_chain mostra, só leitura, a sua própria cadeia no quadro de Equipes (um nível acima e um abaixo); Reporta a não concede poder. list_bots mostra a equipe de cada bot visível e quem é o chefe; use para responder sobre as equipes. A hierarquia de reportes de cada bot continua só pela própria cadeia (my_team_chain). Use list_bots para encontrar os outros bots da Mexerica do usuário. Um pedido recebido pode trazer <contrato_da_tarefa>: entregue o resultado pedido e diga como conferiu; não altere os critérios para passar e, se não der, diga o que faltou; o contrato não libera permissão. \
 Use ask_bot when the user requests another bot's help or its specialty is useful. \
-Use message_bot for a handoff that should continue independently: it returns when queued, \
-and the recipient reports the outcome to the user in its own chat. Stopping you does not cancel it. \
+Use message_bot for a handoff that should continue independently: it returns when queued. \
+For a verified conversation turn, finished requests return together to the requesting conversation; stopping you does not cancel them. \
 Provide a self-contained request: the recipient has its own conversation, working directory, \
 tools and permissions, not your context. ask_bot returns its final reply to you. \
 Coordinate file ownership before asking for edits in a shared project. \
@@ -59,7 +59,7 @@ pub fn tools() -> Value {
         },
         {
             "name": "message_bot",
-            "description": "A admissão confirma os dois avisos juntos; uma falha não deixa pedido parcial. Conta na cadeia do pedido original: até 5 níveis e 50 execuções; no limite, recusa sem enviar nada. Enfileire um pedido completo para outro bot da Mexerica e receba o aceite, sem aguardar resposta. O destinatário relata o resultado ao usuário no próprio chat, com suas ferramentas, pasta e permissões. Aceite ou reserva não comprovam envio ao motor. Parar você preserva pedidos aceitos; Parar o destinatário alcança sua fila e turno conforme o controle atual. O Hub registra o pedido e como terminou, só com metadados; se não conseguir registrar a conclusão, o aviso mostra falha. O canal não sobrevive ao reinício, o registro não reenvia o trabalho e nada é repetido automaticamente. Confira os chats antes de tentar de novo um resultado incerto; bot_request_status mostra o estado registrado pelo requestId, sem a resposta. Não há ferramenta para pausar ou retomar bots. Se o seu turno traz as Regras do dono para delegar, siga-as ao escolher o destinatário; elas não liberam permissão. Em pedido não trivial, proponha contract (resultado, como conferir, onde pode mexer, limites, regra seguida): o Hub o guarda com o pedido e o entrega escapado ao destinatário, que não pode mudá-lo; é orientação, não libera permissão nem muda o limite.",
+            "description": "A admissão confirma os dois avisos juntos; uma falha não deixa pedido parcial. Conta na cadeia do pedido original: até 5 níveis e 50 execuções; no limite, recusa sem enviar nada. Enfileire um pedido completo para outro bot da Mexerica e receba o aceite, sem aguardar resposta. O destinatário usa suas próprias ferramentas, pasta e permissões. Em turno de conversa registrado, o Hub reúne os resultados e os entrega ao solicitante. Aceite ou reserva não comprovam envio ao motor. Parar você preserva pedidos aceitos; Parar o destinatário alcança sua fila e turno conforme o controle atual. O Hub registra o pedido e como terminou, só com metadados; se não conseguir registrar a conclusão, o aviso mostra falha. Após reinício, o Hub informa o que ficou incerto e não repete o trabalho automaticamente. Confira os chats antes de tentar de novo um resultado incerto; bot_request_status mostra o estado registrado pelo requestId, sem a resposta. Não há ferramenta para pausar ou retomar bots. Se o seu turno traz as Regras do dono para delegar, siga-as ao escolher o destinatário; elas não liberam permissão. Em pedido não trivial, proponha contract (resultado, como conferir, onde pode mexer, limites, regra seguida): o Hub o guarda com o pedido e o entrega escapado ao destinatário, que não pode mudá-lo; é orientação, não libera permissão nem muda o limite.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -230,8 +230,15 @@ impl BotRequest {
     }
 
     /// Grava o término antes do canal em memória e dos avisos finais.
-    pub(crate) fn record_end(&self, store: &crate::store::Store, bot: &str, fim: retornos::Fim) -> retornos::Registro {
-        retornos::registrar_fim(store, &self.id, bot, self.retorno, fim)
+    pub(crate) fn record_end(
+        &self,
+        store: &crate::store::Store,
+        bot: &str,
+        fim: retornos::Fim,
+        body: Option<&str>,
+    ) -> retornos::Registro {
+        let body = body.filter(|_| matches!(self.completion, Completion::ReportInRecipientChat(_)));
+        retornos::registrar_fim(store, &self.id, bot, self.retorno, fim, body)
     }
 
     /// Permissão concedida e prompt a caminho: o pedido saiu da fila. Para `message_bot` os dois
@@ -290,6 +297,9 @@ impl BotRequest {
                 let _ = reply.send(result);
             }
             Completion::ReportInRecipientChat(mut message) => {
+                if retornos::entrega::complete(&message.hub, &message.id).is_err() {
+                    tracing::warn!("não foi possível encaminhar o resultado do pedido");
+                }
                 if cancelled {
                     message.finish(RequestStatus::Cancelled, "Recipient stopped. Partial work may have happened.");
                 } else {
@@ -422,6 +432,9 @@ impl Drop for MessageLifetime {
             };
             if let Err(error) = retornos::encerrar(&self.hub.store, &self.id, decisao) {
                 tracing::error!(request = %self.id, error = format!("{error:#}"), "decisão do pedido não registrada");
+            }
+            if retornos::entrega::complete(&self.hub, &self.id).is_err() {
+                tracing::warn!("não foi possível encaminhar o encerramento do pedido");
             }
             let detail = if self.started {
                 "Recipient stopped. Partial work may have happened."
@@ -929,7 +942,12 @@ impl Waiting {
                     &format!("Reply from {}:\n{reply}", target.name),
                     Some(&reply),
                 );
-                let mut out = json!({"requestId": id, "botId": target.id, "name": target.name, "reply": text});
+                let mut out = json!({"requestId": id, "botId": target.id, "name": target.name});
+                if let Some(question) = crate::fork::berga_delegacao::question(&text) {
+                    out["question"] = question.into();
+                } else {
+                    out["reply"] = text.into();
+                }
                 // MX-77: o dono editou o pedido na fila — o remetente não deve atribuir a ele o que não pediu.
                 if pending
                     .entries

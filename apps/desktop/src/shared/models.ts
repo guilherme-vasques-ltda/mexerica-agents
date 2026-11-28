@@ -407,6 +407,7 @@ export interface ConectorOperation {
 }
 
 export interface EntryData {
+  webTurnFailed?: true
   /** MB-1b: `ownerQuestion` marca o cartão de pergunta do bot (ver `fork-owner-question.ts`). */
   card?: string
   ownerQuestion?: unknown

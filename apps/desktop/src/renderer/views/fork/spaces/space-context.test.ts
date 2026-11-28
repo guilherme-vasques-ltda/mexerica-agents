@@ -500,6 +500,25 @@ test('D543: envio adicional leva revisão e nonce; resposta atrasada não pinta 
   assert.equal(ctx.history.entries.some((e) => e.id === 'tardia'), false)
 })
 
+test('tentar iniciar o turno no Space atualiza a mesma entrada sem reenviar texto ou nonce', async () => {
+  const ctx = new SpaceContext()
+  const link = new FakeLink('hub-a', async (method, body) => {
+    if (method !== 'donnaConversationSend') return standard('hub-a', method, body)
+    return { hubId: 'hub-a', entry: { ...entry('salva', 8, 'A', 'A-fixa', 'user', { status: 'sent' }), rev: 9 } }
+  })
+  ctx.open(new FakeSource(link), 'A'); await settle()
+  const saved = entry('salva', 8, 'A', 'A-fixa', 'user', { status: 'sent', webTurnFailed: true })
+  link.emit({ type: 'entry', entry: saved })
+  await ctx.retryWebTurn(saved)
+  assert.deepEqual(link.calls.find((call) => call.method === 'donnaConversationSend')?.body, {
+    hubId: 'hub-a', spaceId: 'A', conversationId: 'A-fixa', expectedRevision: 1,
+    retryEntryId: 'salva', retryEntryRevision: 8,
+  })
+  assert.deepEqual(ctx.history.entries.filter((e) => e.id === saved.id).map((e) => [e.rev, e.data.webTurnFailed]), [[9, undefined]])
+  await assert.rejects(() => ctx.retryWebTurn(saved), /stale_message_context/)
+  assert.equal(link.calls.filter((call) => call.method === 'donnaConversationSend').length, 1)
+})
+
 test('D543: retry explícito conserva nonce; atualização do próprio envio não produz falso erro', async () => {
   const link = new FakeLink('hub-a')
   const ctx = new SpaceContext()

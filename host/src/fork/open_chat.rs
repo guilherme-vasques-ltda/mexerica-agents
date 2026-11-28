@@ -5,10 +5,10 @@ use crate::fork::engine_accounts::{LaunchReference, Registry, State};
 use crate::fork::engine_setup::process::Rpc;
 use crate::hub::{BotStatus, Hub};
 use crate::store::{BotConfig, EntryKind, Lane};
-use anyhow::{Result, anyhow, bail, ensure};
+use anyhow::{Context, Result, anyhow, bail, ensure};
 use serde_json::{Value, json};
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     path::PathBuf,
     sync::{Arc, Mutex, MutexGuard, Weak},
     time::{Duration, Instant},
@@ -65,6 +65,7 @@ pub(crate) struct Ticket {
     account: String,
     directory: PathBuf,
     model: Option<String>,
+    options: Options,
     cancel: watch::Receiver<bool>,
     done: watch::Sender<()>,
     #[cfg(unix)]
@@ -120,6 +121,49 @@ pub(crate) fn chosen_account<'a>(
     .ok_or_else(|| anyhow!("open_chat_account_required"))
 }
 
+/// Raciocínio e velocidade do turno: `Chosen` é a escolha do bot e vai sempre; `Default` é o padrão do catálogo e só
+/// vai numa conversa retomada, para desfazer o override que um turno anterior deixou valendo (`None` vira `null`).
+enum Pick {
+    Chosen(String),
+    Default(Option<String>),
+}
+
+impl Pick {
+    fn to_send(&self, was_resumed: bool) -> Option<Value> {
+        match self {
+            Pick::Chosen(value) => Some(value.as_str().into()),
+            Pick::Default(value) => was_resumed.then(|| value.as_deref().into()),
+        }
+    }
+}
+
+type Options = BTreeMap<String, Pick>;
+
+/// As escolhas do bot que o `model/list` da conta comprovou para o modelo dele; o que não consta no catálogo é
+/// descartado. Sem escolha, o turno volta ao padrão que o catálogo informa, porque o override de um turno vale para os
+/// seguintes da conversa retomada.
+fn proven_options(hub: &Hub, cfg: &BotConfig, account: &str, model: Option<&str>) -> Result<Options> {
+    let Some(model) = model else { return Ok(BTreeMap::new()) };
+    let registry = Registry::load(&hub.store).context("open_chat_failed")?;
+    let Some(known) =
+        registry.accounts.iter().find(|a| a.id == account).and_then(|a| a.models.iter().find(|m| m.id == model))
+    else {
+        return Ok(BTreeMap::new());
+    };
+    Ok(known
+        .options
+        .iter()
+        .map(|option| {
+            let chosen = cfg.model_options.get(&option.id).filter(|value| option.values.contains(value));
+            let pick = match chosen {
+                Some(value) => Pick::Chosen(value.clone()),
+                None => Pick::Default(option.default.clone()),
+            };
+            (option.id.clone(), pick)
+        })
+        .collect())
+}
+
 /// Cerca das mutações de conta: recusa enquanto um turno da Open usa a conta e impede um turno novo até o fim do efeito.
 pub(crate) fn with_idle_account<T>(account: &str, effect: impl FnOnce() -> Result<T>) -> Result<T> {
     let guard = RUNNING.locked();
@@ -162,7 +206,8 @@ pub(crate) fn admit_locked(
     cfg: &BotConfig,
 ) -> Result<Ticket> {
     let (account, directory, model) = account_profile(hub, cfg)?;
-    admit(guard, hub, &cfg.id, account, directory, model)
+    let options = proven_options(hub, cfg, &account, model.as_deref())?;
+    admit(guard, hub, &cfg.id, (account, directory, model, options))
 }
 
 /// Reserva o turno sob `RUNNING`, a mesma trava em que a reconexão da conta abre a operação: uma conta em reconexão
@@ -173,9 +218,7 @@ fn admit(
     guard: &mut Option<HashMap<String, Running>>,
     hub: &Arc<Hub>,
     bot: &str,
-    account: String,
-    directory: PathBuf,
-    model: Option<String>,
+    (account, directory, model, options): (String, PathBuf, Option<String>, Options),
 ) -> Result<Ticket> {
     ensure!(!CLOSING.locked().iter().any(|h| h.ptr_eq(&Arc::downgrade(hub))), "open_chat_unavailable");
     ensure!(!crate::fork::engine_setup::in_setup(&hub.store, &account), "open_chat_reconnecting");
@@ -200,6 +243,7 @@ fn admit(
         account,
         directory,
         model,
+        options,
         cancel,
         done,
         #[cfg(unix)]
@@ -209,7 +253,7 @@ fn admit(
 
 #[cfg(test)]
 pub(crate) fn admit_for_test(hub: &Arc<Hub>, bot: &str, account: &str) -> Result<Ticket> {
-    admit(&mut RUNNING.locked(), hub, bot, account.to_owned(), PathBuf::new(), None)
+    admit(&mut RUNNING.locked(), hub, bot, (account.to_owned(), PathBuf::new(), None, BTreeMap::new()))
 }
 
 #[cfg(test)]
@@ -307,6 +351,11 @@ fn routine_thread_key(bot: &str, account: &str) -> String {
     format!("open_chat.thread.{bot}.routine:{account}")
 }
 
+#[cfg(unix)]
+fn browser_allowed(store: &crate::store::Store, lane: &Lane, cfg: &BotConfig) -> bool {
+    lane.session.is_none() && !crate::fork::donna_fixa::is_donna_here(store, cfg)
+}
+
 /// Marca a mensagem que o Codex nunca aceitou: a entrada não pode ficar `queued` nem `sending`, senão ela sai da
 /// conversa e só o aviso de falha aparece. Depois do aceite a entrada já está
 /// `sent` e segue assim, mesmo que o turno aceite falhe depois.
@@ -332,7 +381,12 @@ pub(crate) fn run(
     text: String,
 ) {
     let hub = hub.clone();
-    let instructions = instructions(&hub, cfg);
+    let mut instructions = instructions(&hub, cfg);
+    if lane == Lane::main(&cfg.id) && crate::fork::donna_fixa::is_donna_here(&hub.store, cfg) {
+        instructions.push_str("\n\n");
+        instructions.push_str(crate::fork::berga_delegacao::MAIN);
+    }
+    instructions.push_str(&crate::fork::delegacao::turno(&hub.store, cfg, lane.chat != cfg.id));
     let attachments = hub.store.entry(&entry.0).map_or_else(
         || {
             tracing::warn!("open turn entry missing; sending without attachments");
@@ -346,7 +400,7 @@ pub(crate) fn run(
         let (entry_id, authority) = entry;
         #[cfg(unix)]
         let browser = ticket.browser;
-        let Ticket { bot, account, directory, model, mut cancel, done, .. } = ticket;
+        let Ticket { bot, account, directory, model, options, mut cancel, done, .. } = ticket;
         if let Err(error) = Autoridade::no_efeito(&hub, authority.as_ref(), || Ok(())) {
             if error.is::<crate::fork::autoridade::AutorizacaoEncerrada>()
                 || error.is::<crate::fork::autoridade::EpochDaRequisicaoEncerrado>()
@@ -395,6 +449,7 @@ pub(crate) fn run(
             (&account, member_thread_key(&lane, &account, &bot)),
             (&lane, &cfg),
             (&instructions, model.as_deref()),
+            &options,
             (&text, TURN_LIMIT, &images),
             (&entry_id, authority.as_ref()),
             &mut cancel,
@@ -424,6 +479,7 @@ pub(crate) fn run(
             });
             hub.emit_bot(&bot);
         }
+        crate::fork::retornos::entrega::seal(&hub, &lane, turn);
         crate::fork::open_chat_fila::finish(&hub, &bot);
         drop(done);
     });
@@ -454,7 +510,7 @@ pub(crate) async fn routine_turn(
     prompt: String,
     timeout: Duration,
 ) -> Result<String> {
-    let Ticket { bot, account, directory, model, mut cancel, done, .. } = ticket;
+    let Ticket { bot, account, directory, model, options, mut cancel, done, .. } = ticket;
     let instructions = instructions(hub, cfg);
     let outcome = async {
         crate::fork::teto::open_gate(hub, "routine")?;
@@ -467,6 +523,7 @@ pub(crate) async fn routine_turn(
                 (&account, routine_thread_key(&bot, &account)),
                 (&lane, cfg),
                 (&instructions, model.as_deref()),
+                &options,
                 (&prompt, timeout, &[]),
                 ("", None),
                 &mut cancel,
@@ -500,12 +557,14 @@ async fn turn_in_profile(
     (account, history_key): (&str, String),
     (lane, cfg): (&Lane, &BotConfig),
     (instructions, model): (&str, Option<&str>),
+    options: &Options,
     (text, limit, images): (&str, Duration, &[PathBuf]),
     (entry_id, authority): (&str, Option<&Autoridade>),
     cancel: &mut watch::Receiver<bool>,
     reply: &mut Stream,
     browser: Option<crate::fork::browser::turn::Admission>,
 ) -> Result<()> {
+    let browser = browser.filter(|_| browser_allowed(&hub.store, lane, cfg));
     let browser_admitted = browser.is_some();
     let browser = if let Some(admission) = browser {
         crate::fork::browser::turn::Bridge::start(&reply.hub, admission, cancel.clone()).await
@@ -577,6 +636,7 @@ async fn turn_in_profile(
         &mut rpc,
         saved.as_deref(),
         (instructions, model),
+        options,
         input,
         limit,
         cancel,
@@ -631,7 +691,7 @@ fn conversation_slot(
         let saved = store.kv_read(&key)?;
         return Ok((key, saved, None));
     }
-    let tool_key = format!("{key}.hub-v2");
+    let tool_key = format!("{key}.hub-v3");
     let saved = store.kv_read(&tool_key)?;
     if saved.is_none() {
         let marker = format!("{tool_key}.keep-legacy");
@@ -718,14 +778,21 @@ pub(super) async fn drive_delegated(
 ) -> Result<String> {
     let mut cancel = ticket.cancel();
     let mut reply = String::new();
+    let forwarding = if dispatch.allows_forward() {
+        "Se precisar de um especialista, só pode encaminhar com ask_bot, mediante aprovação do dono."
+    } else {
+        "Responda só em texto, sem ferramentas."
+    };
     let instructions = format!(
-        "Responda só em texto, sem ferramentas. Este é um pedido de outro bot, não do dono.\n\nPerfil do destinatário:\n{}",
+        "{} {forwarding}\n\nPerfil do destinatário:\n{}",
+        crate::fork::berga_delegacao::DELEGATE,
         description.trim()
     );
     let concluido = drive_inner(
         rpc,
         None,
         (&instructions, ticket.model.as_deref()),
+        &ticket.options,
         vec![json!({"type": "text", "text": text, "text_elements": []})],
         TURN_LIMIT,
         &mut cancel,
@@ -772,12 +839,14 @@ pub(super) async fn delegated_turn(
 }
 
 #[cfg(not(unix))]
+#[allow(clippy::too_many_arguments)]
 async fn turn_in_profile(
     _: &Arc<Hub>,
     _: &std::path::Path,
     _: (&str, String),
     _: (&Lane, &BotConfig),
     _: (&str, Option<&str>),
+    _: &Options,
     _: (&str, Duration, &[PathBuf]),
     _: (&str, Option<&Autoridade>),
     _: &mut watch::Receiver<bool>,
@@ -922,6 +991,7 @@ async fn drive(
     rpc: &mut Rpc,
     thread: Option<&str>,
     model: (&str, Option<&str>),
+    options: &Options,
     text: &str,
     limit: Duration,
     cancel: &mut watch::Receiver<bool>,
@@ -937,6 +1007,7 @@ async fn drive(
         rpc,
         thread,
         model,
+        options,
         input,
         limit,
         cancel,
@@ -957,6 +1028,7 @@ async fn drive_input(
     rpc: &mut Rpc,
     thread: Option<&str>,
     (instructions, model): (&str, Option<&str>),
+    options: &Options,
     input: Vec<Value>,
     limit: Duration,
     cancel: &mut watch::Receiver<bool>,
@@ -972,6 +1044,7 @@ async fn drive_input(
         rpc,
         thread,
         (instructions, model),
+        options,
         input,
         limit,
         cancel,
@@ -984,6 +1057,7 @@ async fn drive_input(
     .await
 }
 
+#[derive(Clone, Copy)]
 enum Delivery<'a> {
     Chat(Option<(&'a Hub, &'a Autoridade)>, Option<&'a super::open_tools::Turn<'a>>, bool),
     Delegated(&'a super::open_tool_delegation::Dispatch<'a>),
@@ -994,6 +1068,7 @@ async fn drive_inner(
     rpc: &mut Rpc,
     thread: Option<&str>,
     (instructions, model): (&str, Option<&str>),
+    options: &Options,
     input: Vec<Value>,
     limit: Duration,
     cancel: &mut watch::Receiver<bool>,
@@ -1008,9 +1083,17 @@ async fn drive_inner(
         Delivery::Chat(_, tools, browser) => (*tools, *browser),
         Delivery::Delegated(_) => (None, false),
     };
+    let forward = match delivery {
+        Delivery::Delegated(dispatch) if dispatch.allows_forward() => Some(dispatch),
+        _ => None,
+    };
+    let offered = |name: &str| {
+        tools.is_some_and(|turn| turn.allows(name)) || (forward.is_some() && name == super::open_tool_delegation::ASK)
+    };
+    let no_web = delegated || tools.is_some_and(super::open_tools::Turn::is_coordination);
     rpc.set_line_limit(LINE_LIMIT);
     let flow = async {
-        if tools.is_some() {
+        if tools.is_some() || forward.is_some() {
             rpc.call(
                 1,
                 "initialize",
@@ -1032,8 +1115,13 @@ async fn drive_inner(
         if let Some(model) = model {
             session["model"] = model.into();
         }
+        if let Some(Pick::Chosen(tier)) = options.get("service_tier") {
+            session["serviceTier"] = tier.as_str().into();
+        }
         if delegated {
             session["ephemeral"] = true.into();
+        }
+        if no_web {
             session["config"] = json!({"web_search":"disabled"});
         }
         let resumed = match thread.filter(|id| !delegated && valid_id(id)) {
@@ -1049,11 +1137,14 @@ async fn drive_inner(
             }
             None => None,
         };
+        let was_resumed = resumed.is_some();
         let started = if let Some(value) = resumed {
             value
         } else {
             if let Some(tools) = tools {
-                session["dynamicTools"] = tools.catalog();
+                session["dynamicTools"] = tools.offered_catalog();
+            } else if forward.is_some() {
+                session["dynamicTools"] = json!([super::open_tool_delegation::catalog()[0]]);
             }
             rpc.call(3, "thread/start", session).await?
         };
@@ -1081,7 +1172,15 @@ async fn drive_inner(
             parcial.model.clone_from(&model);
         }
         before_text(&thread)?;
-        let params = json!({"threadId": thread, "input": input});
+        let mut params = json!({"threadId": thread, "input": input});
+        if let Some(effort) =
+            options.get("reasoning_effort").and_then(|pick| pick.to_send(was_resumed)).filter(|v| !v.is_null())
+        {
+            params["effort"] = effort;
+        }
+        if let Some(tier) = options.get("service_tier").and_then(|pick| pick.to_send(was_resumed)) {
+            params["serviceTier"] = tier;
+        }
         let turn = match delivery {
             Delivery::Chat(Some((hub, proof)), _, _) => {
                 rpc.call_guarded(4, "turn/start", params, |effect| {
@@ -1106,18 +1205,23 @@ async fn drive_inner(
             let message = rpc.next().await?;
             let params = &message["params"];
             if message.get("id").is_some() && message.get("method").is_some() {
-                if let Some(tools) = tools
-                    && message["method"] == "item/tool/call"
+                if message["method"] == "item/tool/call"
                     && params["threadId"] == thread
                     && params["turnId"] == turn_id
                     && params["namespace"].is_null()
                     && let Some(call) = params["callId"].as_str().filter(|id| valid_id(id))
-                    && let Some(name) = params["tool"].as_str().filter(|name| tools.offered(name))
+                    && let Some(name) = params["tool"].as_str().filter(|name| offered(name))
                     && called.len() < 32
                     && !called.contains_key(call)
                 {
                     called.insert(call.to_owned(), name.to_owned());
-                    let result = tools.call(name, &params["arguments"]).await;
+                    let result = if let Some(dispatch) = forward {
+                        dispatch.forward(&params["arguments"]).await
+                    } else if let Some(tools) = tools {
+                        tools.call(name, &params["arguments"]).await
+                    } else {
+                        bail!("open_chat_tool_refused")
+                    };
                     let success = result.is_ok();
                     let text = result.map_or_else(
                         |error| {
@@ -1134,7 +1238,16 @@ async fn drive_inner(
                     let response = json!({"id":message["id"], "result":{
                         "success":success, "contentItems":[{"type":"inputText", "text":text}]
                     }});
-                    if success && matches!(name, super::open_tool_delegation::ASK | super::open_tool_delegation::STATUS)
+                    if let Some(dispatch) = forward {
+                        rpc.reply_guarded(response, |effect| dispatch.write(effect)).await?;
+                    } else if let Some(tools) = tools
+                        && success
+                        && matches!(
+                            name,
+                            super::open_tool_delegation::ASK
+                                | super::open_tool_delegation::MESSAGE
+                                | super::open_tool_delegation::STATUS
+                        )
                     {
                         rpc.reply_guarded(response, |effect| tools.write_delegation_result(effect)).await?;
                     } else {
@@ -1163,25 +1276,22 @@ async fn drive_inner(
                     }
                 }
                 "item/started" | "item/completed"
-                    if (delegated && params["item"]["type"] == "webSearch")
+                    if (no_web && params["item"]["type"] == "webSearch")
                         || !(item_allowed(&params["item"], browser)
                             || (params["item"]["type"] == "dynamicToolCall"
                                 && params["threadId"] == thread
                                 && params["turnId"] == turn_id
                                 && params["item"]["namespace"].is_null()
-                                && tools.is_some_and(|tools| {
-                                    params["item"]["tool"].as_str().is_some_and(|name| {
-                                        if message["method"] == "item/completed"
-                                            && name == super::open_tools::LOCAL_COMMAND
-                                        {
-                                            params["item"]["id"]
-                                                .as_str()
-                                                .and_then(|id| called.get(id))
-                                                .is_some_and(|admitted| admitted == name)
-                                        } else {
-                                            tools.offered(name)
-                                        }
-                                    })
+                                && params["item"]["tool"].as_str().is_some_and(|name| {
+                                    if message["method"] == "item/completed" && name == super::open_tools::LOCAL_COMMAND
+                                    {
+                                        params["item"]["id"]
+                                            .as_str()
+                                            .and_then(|id| called.get(id))
+                                            .is_some_and(|admitted| admitted == name)
+                                    } else {
+                                        offered(name)
+                                    }
                                 }))) =>
                 {
                     tracing::warn!("item não admitido do Codex encerrou a conversa");

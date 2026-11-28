@@ -7,6 +7,7 @@ use super::{
 use crate::LockExt;
 use crate::fork::engine_setup::process::Rpc;
 use serde_json::Value;
+use std::collections::BTreeMap;
 use std::process::Stdio;
 use std::time::Duration;
 use tokio::sync::watch;
@@ -166,7 +167,16 @@ async fn turn_with_model(
     thread: Option<&str>,
     model: Option<&str>,
 ) -> (anyhow::Result<String>, String, Vec<Value>, Option<String>) {
-    let (result, text, sent, kept) = fixture_turn(mode, thread, model, None).await;
+    turn_with_options(mode, thread, model, &BTreeMap::new()).await
+}
+
+async fn turn_with_options(
+    mode: &str,
+    thread: Option<&str>,
+    model: Option<&str>,
+    options: &BTreeMap<String, super::Pick>,
+) -> (anyhow::Result<String>, String, Vec<Value>, Option<String>) {
+    let (result, text, sent, kept) = fixture_turn(mode, thread, model, options, None).await;
     (result.map(|concluido| concluido.thread), text, sent, kept)
 }
 
@@ -176,7 +186,7 @@ pub(crate) async fn turn_with_bridge(
     bridge: &crate::fork::browser::turn::Bridge,
     page: &str,
 ) -> (anyhow::Result<String>, String, Vec<Value>, Option<String>) {
-    let (result, text, sent, kept) = fixture_turn(mode, thread, None, Some((bridge, page))).await;
+    let (result, text, sent, kept) = fixture_turn(mode, thread, None, &BTreeMap::new(), Some((bridge, page))).await;
     (result.map(|concluido| concluido.thread), text, sent, kept)
 }
 
@@ -184,6 +194,7 @@ async fn fixture_turn(
     mode: &str,
     thread: Option<&str>,
     model: Option<&str>,
+    options: &BTreeMap<String, super::Pick>,
     bridge: Option<(&crate::fork::browser::turn::Bridge, &str)>,
 ) -> (anyhow::Result<super::TurnoConcluido>, String, Vec<Value>, Option<String>) {
     let dir = std::env::temp_dir().join(format!("open-chat-{}", uuid::Uuid::new_v4()));
@@ -213,6 +224,7 @@ async fn fixture_turn(
         &mut rpc,
         thread,
         ("Fixture instructions", model),
+        options,
         "Oi",
         Duration::from_secs(600),
         &mut cancel,
@@ -246,11 +258,11 @@ async fn fixture_turn(
 
 #[tokio::test]
 async fn uso_respeita_conversa_turno_e_cotas_esparsas() {
-    let (result, _, _, _) = fixture_turn("metrics", None, None, None).await;
+    let (result, _, _, _) = fixture_turn("metrics", None, None, &BTreeMap::new(), None).await;
     let turno = result.unwrap();
     let total = turno.uso.unwrap();
     assert_eq!((total.entrada, total.cache_lido, total.cache_gravado, total.saida, total.raciocinio), (15, 6, 2, 4, 1));
-    let cotas: std::collections::BTreeMap<_, _> = turno.cotas.into_iter().map(|w| (w.id, w.percent)).collect();
+    let cotas: BTreeMap<_, _> = turno.cotas.into_iter().map(|w| (w.id, w.percent)).collect();
     assert_eq!(cotas, [("primary".into(), 33.0), ("secondary".into(), 45.0)].into());
 }
 
@@ -351,6 +363,42 @@ async fn text_turn_streams_reply_without_tools_or_approvals() {
     let input = &find(&sent, "turn/start").unwrap()["params"];
     assert_eq!(input["threadId"], "thread-1");
     assert_eq!(input["input"][0]["text"], "Oi");
+}
+
+#[tokio::test]
+async fn reasoning_and_speed_choices_go_to_the_engine_and_absence_changes_nothing() {
+    let options = BTreeMap::from([
+        ("reasoning_effort".to_owned(), super::Pick::Chosen("high".to_owned())),
+        ("service_tier".to_owned(), super::Pick::Chosen("fast".to_owned())),
+    ]);
+    let (result, _, sent, _) = turn_with_options("ok", None, Some("gpt-test-model"), &options).await;
+    assert_eq!(result.unwrap(), "thread-1");
+    assert_eq!(find(&sent, "thread/start").unwrap()["params"]["serviceTier"], "fast");
+    let turn = &find(&sent, "turn/start").unwrap()["params"];
+    assert_eq!((&turn["effort"], &turn["serviceTier"]), (&Value::from("high"), &Value::from("fast")));
+    let (_, _, sent, _) = turn_with_model("ok", None, Some("gpt-test-model")).await;
+    let turn = &find(&sent, "turn/start").unwrap()["params"];
+    assert!(turn.get("effort").is_none() && turn.get("serviceTier").is_none());
+    assert!(find(&sent, "thread/start").unwrap()["params"].get("serviceTier").is_none());
+    let reset = BTreeMap::from([
+        ("reasoning_effort".to_owned(), super::Pick::Default(Some("low".to_owned()))),
+        ("service_tier".to_owned(), super::Pick::Default(None)),
+    ]);
+    let (_, _, sent, _) = turn_with_options("resume", Some("thread-9"), Some("gpt-test-model"), &reset).await;
+    let turn = &find(&sent, "turn/start").unwrap()["params"];
+    assert_eq!(turn["effort"], "low");
+    assert_eq!(turn.get("serviceTier"), Some(&Value::Null));
+    assert!(find(&sent, "thread/resume").unwrap()["params"].get("serviceTier").is_none());
+    let (_, _, sent, _) = turn_with_options("ok", None, Some("gpt-test-model"), &reset).await;
+    let turn = &find(&sent, "turn/start").unwrap()["params"];
+    assert!(turn.get("effort").is_none() && turn.get("serviceTier").is_none(), "a new thread gets no catalog defaults");
+    let (_, _, sent, _) = turn_with_options("ok", Some("thread-9"), Some("gpt-test-model"), &reset).await;
+    assert!(find(&sent, "thread/resume").is_some() && find(&sent, "thread/start").is_some());
+    let turn = &find(&sent, "turn/start").unwrap()["params"];
+    assert!(
+        turn.get("effort").is_none() && turn.get("serviceTier").is_none(),
+        "a fallback thread gets no catalog defaults"
+    );
 }
 
 #[tokio::test]
@@ -490,6 +538,7 @@ async fn a_completed_only_reply_past_the_limit_stops_the_turn() {
         &mut rpc,
         None,
         ("Fixture instructions", None),
+        &BTreeMap::new(),
         "Oi",
         Duration::from_secs(600),
         &mut cancel,
@@ -534,6 +583,7 @@ async fn the_message_is_marked_sent_only_after_the_codex_accepts_the_turn() {
             &mut rpc,
             None,
             ("Fixture instructions", None),
+            &BTreeMap::new(),
             "Oi",
             Duration::from_secs(600),
             &mut cancel,
@@ -608,6 +658,7 @@ async fn a_reply_past_the_limit_stops_the_turn_instead_of_dropping_pieces() {
         &mut rpc,
         None,
         ("Fixture instructions", None),
+        &BTreeMap::new(),
         "Oi",
         Duration::from_secs(600),
         &mut cancel,
@@ -674,6 +725,7 @@ async fn text_is_not_delivered_when_authority_ends_after_thread_start() {
         &mut rpc,
         None,
         ("Fixture instructions", None),
+        &BTreeMap::new(),
         "texto que não pode chegar",
         Duration::from_secs(600),
         &mut cancel,
@@ -884,10 +936,25 @@ async fn o_encerramento_mata_o_descendente_que_ficou_no_grupo_sem_o_lider() {
 }
 
 #[test]
+fn navegador_nao_entra_em_aba_extra_nem_na_conversa_de_coordenacao() {
+    let bot = "bot-navegador";
+    let (hub, dir) = hub_de_teste(bot);
+    let cfg = hub.store.bot(bot).unwrap().unwrap().config;
+    let main = crate::store::Lane::main(bot);
+    let extra = crate::store::Lane { chat: bot.into(), session: Some("aba-ficticia".into()) };
+    assert!(super::browser_allowed(&hub.store, &main, &cfg));
+    assert!(!super::browser_allowed(&hub.store, &extra, &cfg));
+    hub.store.set_team_settings(&serde_json::json!({"primaryBotId":bot})).unwrap();
+    assert!(!super::browser_allowed(&hub.store, &main, &cfg));
+    drop(hub);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn navegador_retomado_preserva_o_historico_mesmo_sem_ponte_no_turno_seguinte() {
     let (hub, dir) = hub_de_teste("bot-navegador");
     let key = "conversa";
-    let local = "conversa.hub-v2";
+    let local = "conversa.hub-v3";
     let choose = |browser| conversation_slot(&hub.store, key.into(), true, browser).unwrap();
     assert_eq!(choose(true), (local.into(), None, None));
     hub.store.kv_set(key, "historico-existente").unwrap();
@@ -983,6 +1050,7 @@ async fn ferramentas_da_open_so_rodam_no_turno_local_e_na_thread_certa() {
             &mut rpc,
             None,
             ("Fixture", None),
+            &BTreeMap::new(),
             "Consultar",
             Duration::from_secs(15),
             &mut cancel,
@@ -1022,6 +1090,166 @@ async fn ferramentas_da_open_so_rodam_no_turno_local_e_na_thread_certa() {
         }
         std::fs::remove_dir_all(dir).unwrap();
     }
+}
+
+#[tokio::test]
+async fn duas_sessoes_locais_separam_titulo_historico_e_thread_do_motor() {
+    use crate::{
+        api::{self, devices::Caller},
+        fork::{
+            engine_accounts::{Account, AuthorizedScope, Backend, Billing, LaunchReference, Registry, State, managed},
+            sessoes::api as sessions,
+        },
+        store::{EntryKind, Lane, Scope, SpaceEntryAudience},
+    };
+    use serde_json::json;
+    if !crate::environment::Environment::is_open() {
+        return;
+    }
+    let bot = "open-sessoes-fixture";
+    let (hub, dir) = hub_de_teste(bot);
+    let account = format!("ac_{}", "a".repeat(64));
+    let mut registry = Registry::load(&hub.store).unwrap();
+    registry.accounts.push(Account {
+        id: account.clone(),
+        backend: Backend::Codex,
+        billing: Billing::Subscription,
+        state: State::Connected,
+        launch: LaunchReference::CliProfile { executable: "/fixture/codex".into(), directory: dir.clone() },
+        scope: AuthorizedScope::Owner,
+        quota_identity: None,
+        verified_at: None,
+        subscription_proof: None,
+        models: Vec::new(),
+        hidden_model_ids: Vec::new(),
+        managed: Some(managed::Metadata {
+            label: "Codex".into(),
+            revision: 1,
+            generation: 0,
+            enabled: true,
+            paused: false,
+            request_id: "teste".into(),
+            principal: None,
+            profile: None,
+            setup_request: None,
+            catalog: None,
+        }),
+    });
+    registry.persist(&hub.store).unwrap();
+    let main_entry = hub.add_entry(&Lane::main(bot), EntryKind::User, 1, &json!({"text":"Principal"})).unwrap();
+    let mut ids = Vec::new();
+    for (message, engine_thread) in [("Planejar viagem", "thread-viagem"), ("Revisar texto", "thread-revisao")] {
+        let created = api::dispatch(&hub, &Caller::Local, "sessionCreate", json!({"botId":bot})).await.unwrap();
+        assert_eq!(created["session"]["engine"]["accountId"], account);
+        let id = created["session"]["id"].as_str().unwrap().to_owned();
+        let lane = sessions::send_lane(&hub.store.db.locked(), bot, &json!({"sessionId":id})).unwrap();
+        let turn_no = hub.store.alloc_turn(bot).unwrap();
+        let entry = hub
+            .add_entry(
+                &lane,
+                EntryKind::User,
+                turn_no,
+                &json!({
+                    "text":message, "status":"sent", "contentOrigin":{"ingress":{"caller":"local"}}
+                }),
+            )
+            .unwrap();
+        sessions::title_first_message(&hub, &lane, message);
+        let ticket = admit_for_test(&hub, bot, &account).unwrap();
+        hub.set_runtime(bot, |rt| {
+            rt.status = crate::hub::BotStatus::Working;
+            rt.message = Some(entry.id.clone());
+            rt.lane = Some(lane.clone());
+        });
+        assert!(super::super::open_tools::Turn::capture(&hub, &lane, &entry.id, turn_no, ticket.cancel()).is_none());
+        ticket.release(&hub);
+        hub.store.kv_set_if_bot(bot, &thread_key(&lane, &account), engine_thread).unwrap();
+        ids.push((id, message, engine_thread));
+    }
+    assert!(hub.store.kv_read(&thread_key(&Lane::main(bot), &account)).unwrap().is_none());
+    let list = api::dispatch(&hub, &Caller::Local, "sessions", json!({"botId":bot})).await.unwrap();
+    let device = Caller::Device { key: "aparelho-ficticio".into(), scopes: vec![Scope::Control], autoridade: None };
+    for (id, message, engine_thread) in ids {
+        assert!(list["sessions"].as_array().unwrap().iter().any(|s| s["id"] == id && s["title"] == message));
+        let body = json!({"botId":bot,"sessionId":id});
+        let history = api::dispatch(&hub, &Caller::Local, "history", body.clone()).await.unwrap();
+        let texts: Vec<_> = history["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|e| e["kind"] == "user")
+            .filter_map(|e| e["data"]["text"].as_str())
+            .collect();
+        assert_eq!(texts, [message]);
+        assert!(api::dispatch(&hub, &device, "history", body).await.is_err());
+        let lane = Lane { chat: bot.into(), session: Some(id) };
+        let saved = hub.store.kv_read(&thread_key(&lane, &account)).unwrap();
+        let (resumed, _, wire) = turn("resume", saved.as_deref()).await;
+        assert_eq!(resumed.unwrap(), engine_thread);
+        assert!(
+            wire.iter()
+                .any(|request| request["method"] == "thread/resume" && request["params"]["threadId"] == engine_thread)
+        );
+    }
+    let main = api::dispatch(&hub, &Caller::Local, "history", json!({"botId":bot})).await.unwrap();
+    let main_ids = main["entries"].as_array().unwrap().iter().map(|e| &e["id"]).collect::<Vec<_>>();
+    assert_eq!(main_ids, [&json!(main_entry.id)]);
+    let space = crate::fork::spaces::PERSONAL;
+    let for_owner = hub.store.entries_since_in_space(space, 0, 1, SpaceEntryAudience::Local).unwrap();
+    assert_eq!(for_owner.len(), 1);
+    assert_ne!(for_owner[0].session_id, bot);
+    let private_entry = hub.add_entry(&Lane::main(bot), EntryKind::Notice, 1, &json!({"text":"Aviso do Hub"})).unwrap();
+    for (audience, expected) in
+        [(SpaceEntryAudience::Device, &private_entry.id), (SpaceEntryAudience::Web, &main_entry.id)]
+    {
+        let entries = hub.store.entries_since_in_space(space, 0, 1, audience).unwrap();
+        assert_eq!(entries.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(), [expected.as_str()]);
+    }
+    drop(hub);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test]
+async fn escolha_de_destino_nao_aprova_trabalho() {
+    use crate::{
+        api::{self, devices::Caller},
+        store::{Lane, Scope},
+    };
+    use serde_json::json;
+    if !crate::environment::Environment::is_open() {
+        return;
+    }
+    let bot = "open-destino-fixture";
+    let (hub, dir) = hub_de_teste(bot);
+    let lane = Lane::main(bot);
+    let device = Caller::Device { key: "aparelho-ficticio".into(), scopes: vec![Scope::Control], autoridade: None };
+    for personal in [true, false] {
+        let mut events = hub.events.subscribe();
+        let (outcome, ()) = tokio::join!(
+            super::super::open_tool_actions::offer_separate_conversation(&hub, &lane, 1, personal),
+            async {
+                let event = tokio::time::timeout(Duration::from_secs(3), events.recv()).await.unwrap().unwrap();
+                let card = hub.store.entry(event["entry"]["id"].as_str().unwrap()).unwrap();
+                let mut body =
+                    json!({"botId":bot,"entryId":card.id,"entryRev":card.rev,"optionId":"allow","source":"app"});
+                assert!(api::dispatch(&hub, &Caller::Local, "respondPermission", body.clone()).await.is_err());
+                body["optionId"] = "conversation".into();
+                assert!(api::dispatch(&hub, &device, "respondPermission", body.clone()).await.is_err());
+                if !personal {
+                    assert!(api::dispatch(&hub, &Caller::Local, "respondPermission", body.clone()).await.is_err());
+                    body["optionId"] = "bot".into();
+                }
+                api::dispatch(&hub, &Caller::Local, "respondPermission", body).await.unwrap();
+                let answered = hub.store.entry(&card.id).unwrap();
+                assert_eq!(answered.data["toolKind"], "open_work_route");
+                assert!(answered.data["options"].as_array().unwrap().iter().all(|o| o["kind"] == "choice"));
+            }
+        );
+        assert_eq!(outcome.unwrap(), personal);
+        assert_eq!(hub.runtime(bot).status, crate::hub::BotStatus::Idle);
+    }
+    drop(hub);
+    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[tokio::test]
@@ -1074,11 +1302,13 @@ async fn desligar_comandos_aceita_apenas_a_conclusao_da_chamada_admitida() {
             .spawn()
             .unwrap();
         let mut rpc = Rpc::from_child(crate::fork::motor_exec::fixture(child)).unwrap();
+        let no_options = BTreeMap::new();
         let (result, ()) = tokio::join!(
             drive(
                 &mut rpc,
                 None,
                 ("Fixture", None),
+                &no_options,
                 "Teste",
                 Duration::from_secs(15),
                 &mut cancel,
@@ -1120,9 +1350,18 @@ async fn comando_local_so_inicia_com_cartao_exato_e_turno_vivo() {
     if !crate::environment::Environment::is_open() {
         return;
     }
-    'scenarios: for scenario in
-        ["disabled", "allow", "shell", "deny", "cancel", "policy", "revoke_card", "revoke_spawn", "revoke_after_spawn"]
-    {
+    'scenarios: for scenario in [
+        "disabled",
+        "coordination",
+        "allow",
+        "shell",
+        "deny",
+        "cancel",
+        "policy",
+        "revoke_card",
+        "revoke_spawn",
+        "revoke_after_spawn",
+    ] {
         let bot = format!("bot-comando-{scenario}");
         let (hub, dir) = hub_de_teste(&bot);
         let mut config = hub.store.bot(&bot).unwrap().unwrap().config;
@@ -1156,9 +1395,14 @@ async fn comando_local_so_inicia_com_cartao_exato_e_turno_vivo() {
                 .unwrap()
         };
         let enabled = scenario != "disabled";
-        assert!(!turn.offered("run_local_command"));
+        assert!(!turn.allows("run_local_command"));
         if enabled {
             assert_eq!(set_enabled(true).await["bot"]["localCommandsEnabled"], true);
+        }
+        let coordination = scenario == "coordination";
+        if coordination {
+            hub.store.set_team_settings(&json!({"primaryBotId":bot})).unwrap();
+            assert!(turn.is_coordination());
         }
         let mut events = hub.events.subscribe();
         let shell = std::fs::canonicalize("/bin/sh").unwrap();
@@ -1171,11 +1415,16 @@ async fn comando_local_so_inicia_com_cartao_exato_e_turno_vivo() {
         };
         let payload = json!({"argv":argv,"cwd":cwd});
         let mut call = Box::pin(turn.call("run_local_command", &payload));
-        let catalog = turn.catalog();
-        assert_eq!(catalog.as_array().unwrap().iter().any(|tool| tool["name"] == "run_local_command"), enabled);
-        assert_eq!(turn.offered("run_local_command"), enabled);
-        if !enabled {
-            assert_eq!(call.await.unwrap_err().to_string(), "open_tools_command_disabled");
+        let catalog = turn.offered_catalog();
+        assert_eq!(
+            catalog.as_array().unwrap().iter().any(|tool| tool["name"] == "run_local_command"),
+            enabled && !coordination
+        );
+        assert_eq!(turn.allows("run_local_command"), enabled && !coordination);
+        if !enabled || coordination {
+            let expected =
+                if coordination { "open_tools_use_separate_conversation" } else { "open_tools_command_disabled" };
+            assert_eq!(call.await.unwrap_err().to_string(), expected);
             assert!(!effect.exists());
             assert!(matches!(events.try_recv(), Err(tokio::sync::broadcast::error::TryRecvError::Empty)));
             drop(ticket);
@@ -1449,6 +1698,7 @@ async fn o_uso_de_um_turno_interrompido_entra_no_teto_do_proximo() {
         &mut rpc,
         None,
         ("Fixture instructions", None),
+        &BTreeMap::new(),
         vec![json!({"type": "text", "text": "Oi", "text_elements": []})],
         Duration::from_secs(600),
         &mut cancel,

@@ -104,6 +104,28 @@ export class SpaceContext extends Observable {
     } }
   }
 
+  async retryWebTurn(entry: Entry) {
+    const origin = this.origin
+    const client = this.conversation
+    const conversation = this.list.conversations.find((c) => c.id === this.conversationId)
+    if (!origin || !client || !conversation || !this.canSend || !this.history.entries.some((e) =>
+      e.id === entry.id && e.rev === entry.rev && e.data.webTurnFailed === true)) throw new Error('stale_message_context')
+    const retry = { retryEntryId: entry.id, retryEntryRevision: entry.rev }
+    const { entry: result } = conversation.id === conversation.botId
+      ? await client.space.call<{ entry: Entry }>('send', { ...retry, conversationId: conversation.id, botId: conversation.botId })
+      : await client.call<{ entry: Entry }>('donnaConversationSend', { ...retry, expectedRevision: conversation.revision })
+    if (!this.current(origin) || this.conversation !== client || this.conversationId !== conversation.id) return
+    if (result.id !== entry.id || result.rev <= entry.rev || result.botId !== conversation.id
+      || (result.spaceId !== undefined && result.spaceId !== origin.spaceId)
+      || (result.conversationId !== undefined && result.conversationId !== conversation.id)) {
+      throw new Error('stale_message_context')
+    }
+    const incoming = { ...result, spaceId: origin.spaceId, conversationId: conversation.id }
+    this.history = { ...this.history, entries: mergeHistory(this.history.entries, [incoming]) }
+    this.changed()
+    if (result.data.webTurnFailed) throw new Error('web_turn_not_started')
+  }
+
   private origin: Origin | null = null
   private gen = 0
   private space: SpaceClient | null = null
