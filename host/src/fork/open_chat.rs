@@ -99,6 +99,18 @@ impl Ticket {
 /// conta o comprovou; senão o Codex usa o padrão dele.
 pub(crate) fn account_profile(hub: &Hub, cfg: &BotConfig) -> Result<(String, PathBuf, Option<String>)> {
     let registry = Registry::load(&hub.store)?;
+    let account = chosen_account(&registry, cfg, |id| crate::fork::engine_setup::in_setup(&hub.store, id))?;
+    let LaunchReference::CliProfile { directory, .. } = &account.launch else { bail!("open_chat_account_required") };
+    let model = cfg.model.clone().filter(|model| account.models.iter().any(|known| known.id == *model));
+    Ok((account.id.clone(), directory.clone(), model))
+}
+
+/// A escolha de conta de `account_profile` sobre um registro já lido; `in_setup` diz se a conta está em reconexão.
+pub(crate) fn chosen_account<'a>(
+    registry: &'a Registry,
+    cfg: &BotConfig,
+    in_setup: impl Fn(&str) -> bool,
+) -> Result<&'a crate::fork::engine_accounts::Account> {
     let mut connected = registry
         .accounts
         .iter()
@@ -106,16 +118,11 @@ pub(crate) fn account_profile(hub: &Hub, cfg: &BotConfig) -> Result<(String, Pat
     let knows = |a: &&crate::fork::engine_accounts::Account| {
         cfg.model.as_deref().is_some_and(|model| a.models.iter().any(|known| known.id == model))
     };
-    let account = match cfg.fork_editor.engine_account_id.as_deref() {
+    match cfg.fork_editor.engine_account_id.as_deref() {
         Some(id) => connected.find(|a| a.id == id),
-        None => {
-            connected.max_by_key(|a| (!crate::fork::engine_setup::in_setup(&hub.store, &a.id), knows(a), a.verified_at))
-        }
+        None => connected.max_by_key(|a| (!in_setup(&a.id), knows(a), a.verified_at)),
     }
-    .ok_or_else(|| anyhow!("open_chat_account_required"))?;
-    let LaunchReference::CliProfile { directory, .. } = &account.launch else { bail!("open_chat_account_required") };
-    let model = cfg.model.clone().filter(|model| account.models.iter().any(|known| known.id == *model));
-    Ok((account.id.clone(), directory.clone(), model))
+    .ok_or_else(|| anyhow!("open_chat_account_required"))
 }
 
 /// Cerca das mutações de conta: recusa enquanto um turno da Open usa a conta e impede um turno novo até o fim do efeito.
@@ -411,12 +418,13 @@ pub(crate) fn run(
     });
 }
 
-/// Instruções do turno só texto: descrição do bot, regras da conversa e o texto das skills selecionadas e dos manuais do dono.
+/// Instruções do turno só texto, iguais na conversa e na rotina: descrição do bot, regras da conversa, skills selecionadas, manuais e regras de "Nunca fazer" do dono.
 fn instructions(hub: &Hub, cfg: &BotConfig) -> String {
     let mut instructions = format!("{}\n\n{INSTRUCTIONS}", cfg.description.trim());
     for extra in [
         crate::fork::skill_catalog::open_texto_para_bot(&hub.store, &cfg.skills),
         crate::fork::open_manuais::texto_para_bot(&hub.store, cfg),
+        crate::fork::nunca_fazer::prompt_line(&hub.store, cfg),
     ]
     .into_iter()
     .flatten()
@@ -1254,3 +1262,39 @@ fn valid_id(id: &str) -> bool {
 #[cfg(all(test, unix))]
 #[path = "open_chat_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod instrucoes_tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+    use crate::{api::devices::Caller, api::dispatch, remote::identity::Identity, store::Store};
+    use std::path::Path;
+
+    #[tokio::test]
+    async fn regra_salva_de_nunca_fazer_chega_as_instrucoes_do_turno_e_da_rotina() {
+        let dir = std::env::temp_dir().join(format!("open-nunca-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = Store::open(Path::new(":memory:")).unwrap();
+        let cfg: BotConfig =
+            serde_json::from_value(json!({"id": "bot", "name": "Bot", "backend": "codex", "cwd": dir})).unwrap();
+        store.save_bot(&cfg).unwrap();
+        let hub = Hub::new(store, "test".into(), Identity::load_or_create(&dir).unwrap(), "test".into(), 0);
+
+        let sem_regra = instructions(&hub, &cfg);
+        assert!(!sem_regra.contains("Nunca fazer"));
+
+        let salvo = dispatch(
+            &hub,
+            &Caller::Local,
+            "nuncaFazerAdicionar",
+            json!({"spaceId": cfg.space_id, "botId": "bot", "texto": "Não apagar arquivos", "expectedRevision": 0}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(salvo["bot"][0]["texto"], "Não apagar arquivos");
+
+        let com_regra = instructions(&hub, &cfg);
+        assert!(com_regra.contains("Nunca fazer") && com_regra.contains("Não apagar arquivos"));
+        assert!(com_regra.starts_with(sem_regra.trim_end()));
+    }
+}

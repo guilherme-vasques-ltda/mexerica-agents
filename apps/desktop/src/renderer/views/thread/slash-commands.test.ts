@@ -6,7 +6,7 @@ import { normalizeBot } from '../../../shared/models.ts'
 import { tradutor } from '../../lib/fork-i18n/index.ts'
 
 const en = tradutor('en')
-import { builtInCommand, returnRuns, slashCommands, slashQuery } from './slash-commands.ts'
+import { builtInCommand, newTabText, returnRuns, slashCommands, slashQuery } from './slash-commands.ts'
 
 const installed = [
   { id: 'pdf', name: 'PDF', description: 'PDFs' },
@@ -76,4 +76,16 @@ test('"Skills no menu /" off: only the built-in commands; a typed skill still se
   const a = normalizeBot({ id: 'a', skills: ['pdf'], fastModeSupport: 'offered' })
   assert.deepEqual(slashCommands(group, '', installed, [a], false).map((c) => c.name), ['fast'])
   assert.equal(builtInCommand(bot, '/pdf'), null, '/pdf is not a built-in: it goes to the host')
+})
+
+test('/nova-aba só aparece quando o Hub oferece abas, e o texto depois dele vai para a aba nova', () => {
+  const bot = normalizeBot({ id: 'b' })
+  assert.deepEqual(slashCommands(bot, 'nova', installed).map((c) => c.name), [])
+  assert.deepEqual(slashCommands(bot, 'nova', installed, [], true, true).map((c) => c.name), ['nova-aba'])
+  assert.equal(builtInCommand(bot, '/nova-aba', [], true)?.action.kind, 'newTab')
+  assert.equal(builtInCommand(bot, '/nova-aba', [], false), null)
+  assert.equal(newTabText('/nova-aba'), '')
+  assert.equal(newTabText('/nova-aba  oi, tudo bem?\nsegunda linha '), 'oi, tudo bem?\nsegunda linha')
+  assert.equal(newTabText('/nova-abacate oi'), null)
+  assert.equal(newTabText('oi /nova-aba'), null)
 })

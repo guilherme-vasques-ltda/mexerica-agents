@@ -32,6 +32,8 @@ export const textos = {
   'sessions.new.title': "Nova sessão com {nome}",
   'sessions.new.label': "Nova sessão",
   'sessions.new.busy': "Criando sessão…",
+  'sessions.newTab.title': "Nova aba",
+  'sessions.newTab.detail': "Abre uma conversa paralela com o mesmo bot. Use /nova-aba seguido do texto para começar nela.",
   'sessions.untitled': "Sem título",
   'sessions.state.running': "Rodando",
   'sessions.state.needsYou': "Pede você",

@@ -9,7 +9,7 @@ import { fastModeDetail, fastModeShown, fastModeState, groupFastMode, type FastM
 import type { Bot } from '../../../shared/models.ts'
 import { comandoLimpar } from '../fork/contexto/limpar.ts'
 
-export type SlashAction = { kind: 'fast' } | { kind: 'clear' } | { kind: 'skill'; id: string }
+export type SlashAction = { kind: 'fast' } | { kind: 'clear' } | { kind: 'skill'; id: string } | { kind: 'newTab' }
 
 export interface SlashCommand {
   /** What follows the `/`. */
@@ -27,14 +27,23 @@ export function slashQuery(draft: string): string | null {
 }
 
 /** The bot's built-in commands; a group's Fast mode is its members' (`groupFastMode`). */
-function builtIn(bot: Bot, members: Bot[]): SlashCommand[] {
+function builtIn(bot: Bot, members: Bot[], canNewTab = false): SlashCommand[] {
   // O estado de idiomas sincroniza lang no documento; sem DOM, vale o fallback da base.
   const lang = typeof document === 'undefined' ? null : document.documentElement.lang
   const idioma = isAppLanguage(lang) ? lang : 'pt-BR'
   const t = tradutor(idioma)
   const fast = bot.kind === 'group' ? groupFastMode(t, members) : ownFastMode(t, bot)
-  const fastCommand: SlashCommand[] = fast ? [{ name: 'fast', icon: 'bolt', title: traduzir(idioma, 'conversa.fastMode'), detail: fast.detail, warning: fast.state === 'refused', action: { kind: 'fast' } }] : []
-  return [...fastCommand, ...comandoLimpar(bot, idioma)]
+  const commands: SlashCommand[] = fast ? [{ name: 'fast', icon: 'bolt', title: traduzir(idioma, 'conversa.fastMode'), detail: fast.detail, warning: fast.state === 'refused', action: { kind: 'fast' } }] : []
+  if (canNewTab && bot.kind !== 'group') commands.push({ name: NEW_TAB, icon: 'plus', title: traduzir(idioma, 'sessions.newTab.title'), detail: traduzir(idioma, 'sessions.newTab.detail'), warning: false, action: { kind: 'newTab' } })
+  return [...commands, ...comandoLimpar(bot, idioma)]
+}
+
+const NEW_TAB = 'nova-aba'
+
+/** `/nova-aba <texto>`: o texto a enviar na aba nova ('' sem texto); null se o rascunho não é esse comando. */
+export function newTabText(draft: string): string | null {
+  const m = /^\/nova-aba(?:\s+([\s\S]*))?$/.exec(draft.trim())
+  return m ? (m[1] ?? '').trim() : null
 }
 
 /** A bot's own Fast mode, while it shows it. */
@@ -47,20 +56,20 @@ function ownFastMode(t: Tradutor, bot: Bot): { state: FastModeState; detail: str
  * whose name or title holds `query`. `showSkills` off (DON-907, Ajustes → Conversa → "Skills no menu /"):
  * only the built-in commands; a typed `/<id> ` still reaches the host, which expands it.
  */
-export function slashCommands(bot: Bot | null, query: string, installedSkills: { id: string; name: string; description: string }[], members: Bot[] = [], showSkills = true): SlashCommand[] {
+export function slashCommands(bot: Bot | null, query: string, installedSkills: { id: string; name: string; description: string }[], members: Bot[] = [], showSkills = true, canNewTab = false): SlashCommand[] {
   if (!bot) return []
   const enabled = !showSkills ? [] : bot.kind === 'group' ? members.flatMap((m) => m.skills) : bot.skills
   const skills = installedSkills
     .filter((s) => enabled.includes(s.id))
     .map((s): SlashCommand => ({ name: s.id, icon: 'book.pages', title: s.name, detail: s.description, warning: false, action: { kind: 'skill', id: s.id } }))
   const q = query.toLowerCase()
-  return [...builtIn(bot, members), ...skills].filter((c) => c.name.includes(q) || c.title.toLowerCase().includes(q))
+  return [...builtIn(bot, members, canNewTab), ...skills].filter((c) => c.name.includes(q) || c.title.toLowerCase().includes(q))
 }
 
 /** A draft that is just a built-in command (`/fast`): sending it runs the command. */
-export function builtInCommand(bot: Bot | null, draft: string, members: Bot[] = []): SlashCommand | null {
+export function builtInCommand(bot: Bot | null, draft: string, members: Bot[] = [], canNewTab = false): SlashCommand | null {
   const name = slashQuery(draft.trim())
-  return bot && name !== null ? (builtIn(bot, members).find((c) => c.name === name) ?? null) : null
+  return bot && name !== null ? (builtIn(bot, members, canNewTab).find((c) => c.name === name) ?? null) : null
 }
 
 /**

@@ -270,12 +270,38 @@ pub(crate) fn personal_bot(c: &Connection, chat: &str) -> Result<Option<BotConfi
         .filter(|cfg| !cfg.is_group() && cfg.space_id == crate::fork::spaces::PERSONAL))
 }
 
+/// Sem conta no padrão do bot, fixa na seleção a conta que o bot usaria agora (`open_chat::chosen_account`); sem conta
+/// resolvível, recusa. `reconnecting` são as contas em reconexão, rebaixadas como no envio. A aba não troca de conta quando a escolha automática muda depois.
+pub(crate) fn bind_account(
+    c: &Connection,
+    cfg: &BotConfig,
+    engine: &mut SessionEngine,
+    reconnecting: &[String],
+) -> Result<()> {
+    if engine.account_id.is_some() {
+        return Ok(());
+    }
+    let registry = crate::fork::engine_accounts::Registry::load_db(c)?;
+    let account = crate::fork::open_chat::chosen_account(&registry, cfg, |id| reconnecting.iter().any(|r| r == id))?;
+    engine.account_id = Some(account.id.clone());
+    Ok(())
+}
+
 /// Grava o retrato do padrão numa sessão recém-criada do Pessoal (principal ou extra), na transação do chamador.
 /// Fora do Pessoal não grava. Padrão fora do formato recusa a criação da extra; na principal, fica NULL e ela segue
 /// a fonte canônica.
-pub(crate) fn snapshot_on_create(c: &Connection, session: &str, chat: &str, principal: bool) -> Result<()> {
+pub(crate) fn snapshot_on_create(
+    c: &Connection,
+    session: &str,
+    chat: &str,
+    principal: bool,
+    reconnecting: &[String],
+) -> Result<()> {
     let Some(cfg) = personal_bot(c, chat)? else { return Ok(()) };
-    let engine = SessionEngine::snapshot(&cfg);
+    let mut engine = SessionEngine::snapshot(&cfg);
+    if !principal && crate::environment::Environment::is_open() {
+        bind_account(c, &cfg, &mut engine, reconnecting)?;
+    }
     if let Err(error) = engine.check() {
         if principal {
             tracing::warn!(%chat, "principal sem retrato: padrão do bot fora do formato");
