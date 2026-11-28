@@ -174,7 +174,7 @@ async fn uso_respeita_conversa_turno_e_cotas_esparsas() {
     let turno = result.unwrap();
     let total = turno.uso.unwrap();
     assert_eq!((total.entrada, total.cache_lido, total.cache_gravado, total.saida, total.raciocinio), (15, 6, 2, 4, 1));
-    let cotas: std::collections::BTreeMap<_, _> = turno.cotas.into_iter().map(|w| (w.id, w.percent)).collect();
+    let cotas: BTreeMap<_, _> = turno.cotas.into_iter().map(|w| (w.id, w.percent)).collect();
     assert_eq!(cotas, [("primary".into(), 33.0), ("secondary".into(), 45.0)].into());
 }
 
