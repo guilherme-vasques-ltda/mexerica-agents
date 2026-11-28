@@ -941,7 +941,8 @@ async fn google_manda_a_chave_em_x_goog_api_key_e_lista_so_quem_conversa() {
     let corpo = r#"{"models":[
         {"name":"models/gemini-x","displayName":"Gemini X","supportedGenerationMethods":["generateContent"]},
         {"name":"models/embed-x","supportedGenerationMethods":["embedContent"]},
-        {"name":"models/sem-metodos"}]}"#;
+        {"name":"models/sem-metodos"},
+        {"name":"models/gemini-x-tts","supportedGenerationMethods":["generateContent"]}]}"#;
     let (url, pedidos) = servidor(http("200 OK", "", corpo)).await;
     let modelos =
         acesso::listar_modelos_de_prova_com("google", &url, CHAVE, Autenticacao::XGoogApiKey, Formato::Google)
@@ -954,13 +955,16 @@ async fn google_manda_a_chave_em_x_goog_api_key_e_lista_so_quem_conversa() {
 
 #[tokio::test]
 async fn openai_tira_voz_imagem_e_vetores_e_openrouter_guarda_o_id_com_barra() {
-    let corpo = r#"{"data":[{"id":"gpt-x"},{"id":"text-embedding-3"},{"id":"whisper-1"},{"id":"gpt-image-2"}]}"#;
+    let corpo = r#"{"data":[{"id":"gpt-x"},{"id":"text-embedding-3"},{"id":"whisper-1"},{"id":"gpt-image-2"},{"id":"ft:gpt-x:org:audio-assistant:abc"},{"id":"ft:whisper-1:org:x:abc"}]}"#;
     let (url, _) = servidor(http("200 OK", "", corpo)).await;
     let modelos =
         acesso::listar_modelos_de_prova_com("openai", &url, CHAVE, Autenticacao::Bearer, Formato::DadosOpenai)
             .await
             .unwrap();
-    assert_eq!(modelos.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["openai/gpt-x"]);
+    assert_eq!(
+        modelos.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+        ["openai/gpt-x", "openai/ft:gpt-x:org:audio-assistant:abc"]
+    );
     let corpo = r#"{"data":[{"id":"anthropic/claude-x","name":"Claude X"},{"id":"semfornecedor"}]}"#;
     let (url, _) = servidor(http("200 OK", "", corpo)).await;
     let modelos =
@@ -987,8 +991,9 @@ async fn chave_de_api_sem_chave_guardada_deixa_o_caminho_de_sempre_e_com_chave_i
         let db = hub.store.db.locked();
         crate::market::vault::write_sealed(&db, &slot_chave(plano), &selada).unwrap();
     }
-    let erro = ambiente_do_bot(&hub, &bot, Uso::Conversa).await.err().map(|e| e.to_string()).unwrap_or_default();
-    assert!(!erro.contains(CHAVE), "{erro}");
+    hub.store.save_bot(&bot).unwrap();
+    let ambiente = ambiente_do_bot(&hub, &bot, Uso::Conversa).await.unwrap();
+    assert!(ambiente.is_some(), "com chave guardada, o plano isolado precisa valer");
 }
 
 #[tokio::test]
@@ -1041,8 +1046,10 @@ async fn catalogo_do_opencode_so_leva_os_modelos_dos_planos_ao_dono_local() {
     assert!(!dono.to_string().contains(CHAVE));
 
     let aparelho = Caller::Device { key: "k".into(), scopes: vec![Scope::Control], autoridade: None };
-    let visto =
-        crate::api::dispatch(&hub, &aparelho, "agentModels", corpo).await.map(|v| v.to_string()).unwrap_or_default();
+    let visto = match crate::api::dispatch(&hub, &aparelho, "agentModels", corpo).await {
+        Ok(valor) => valor.to_string(),
+        Err(erro) => erro.to_string(),
+    };
     assert!(!visto.contains("opencode-go/"), "{visto}");
     assert!(!visto.contains(CHAVE));
 }

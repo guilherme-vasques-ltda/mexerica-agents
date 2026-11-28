@@ -174,15 +174,19 @@ async fn listar_modelos_com_prazo(
             continue;
         }
         if formato == Formato::Google
-            && !dado["supportedGenerationMethods"]
+            && (!dado["supportedGenerationMethods"]
                 .as_array()
                 .is_some_and(|metodos| metodos.iter().any(|metodo| metodo == "generateContent"))
+                || bruto.to_ascii_lowercase().contains("tts"))
         {
             continue;
         }
         if formato == Formato::DadosOpenai {
             let minusculo = bruto.to_ascii_lowercase();
-            if NAO_E_CONVERSA_OPENAI.iter().any(|marca| minusculo.contains(marca)) {
+            let familia = minusculo
+                .strip_prefix("ft:")
+                .map_or(minusculo.as_str(), |ajustado| ajustado.split(':').next().unwrap_or_default());
+            if NAO_E_CONVERSA_OPENAI.iter().any(|marca| familia.contains(marca)) {
                 continue;
             }
         }
