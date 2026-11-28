@@ -9,6 +9,7 @@ pub(crate) mod open_chat;
 pub(crate) mod open_chat_fila;
 #[cfg(unix)]
 pub(crate) mod open_codex;
+pub(crate) mod open_manuais;
 mod open_mcp;
 pub(crate) mod open_modelo;
 pub(crate) mod open_rotinas;
@@ -107,6 +108,7 @@ pub(crate) mod onde_roda;
 pub(crate) mod owner_question;
 pub(crate) mod pairing_addresses;
 pub(crate) mod pasta;
+pub(crate) mod pedidos_time;
 pub(crate) mod permission_card;
 pub(crate) mod personal_bootstrap;
 pub(crate) mod personal_link;
