@@ -278,7 +278,10 @@ function DestinationComposer({ botId, sessionId, reply, cancelReply, onCall, onI
     const novaAba = onNewTab && !files.length ? newTabText(draft) : null
     if (onNewTab && novaAba) {
       const texto = draft
-      void onNewTab(novaAba, { pasted: pasted.current, contentOrigin: originReport(draft, drafts.origin(draftId), originDevice()) }).then((ok) => {
+      const full = originReport(draft, drafts.origin(draftId), originDevice())
+      const shift = draft.trim().length - novaAba.length
+      const segments = full.segments.flatMap((s) => (s.end > shift ? [{ ...s, start: Math.max(0, s.start - shift), end: s.end - shift }] : []))
+      void onNewTab(novaAba, { pasted: pasted.current, contentOrigin: { ...full, textLength: novaAba.length, segments } }).then((ok) => {
         if (!ok && !drafts.get(draftId)) setDraft(texto)
       })
       pasted.current = []

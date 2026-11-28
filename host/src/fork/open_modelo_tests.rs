@@ -194,3 +194,41 @@ async fn sem_escolha_a_conta_que_comprovou_o_modelo_legado_vence_a_mais_recente(
     let (account, _, model) = crate::fork::open_chat::account_profile(&env.hub, &cfg).unwrap();
     assert_eq!((account.as_str(), model.as_deref()), (CONTA, Some("gpt-legado")));
 }
+
+#[tokio::test]
+async fn aba_usa_a_conta_gravada_na_criacao_e_nao_a_atual_do_bot() {
+    use crate::fork::sessoes::{admissao, origin::SessionOrigin, store as sessoes};
+    let env = env(vec![conta(CONTA, State::Connected), conta(OUTRA, State::Connected)]);
+    let principal = berga(&env.hub).id;
+    run(&env.hub, &set(CONTA, "gpt-padrao", Some(&principal))).unwrap();
+    let aba = sessoes::create(
+        &env.hub.store.db.locked(),
+        &sessoes::NewSession {
+            chat: principal.clone(),
+            origin: SessionOrigin::Owner,
+            source_session: None,
+            parent_session: None,
+            title: "Aba".into(),
+            runs_on: None,
+        },
+    )
+    .unwrap()
+    .id;
+    run(&env.hub, &set(OUTRA, "gpt-outro", Some(&principal))).unwrap();
+    let lane = crate::store::Lane { chat: principal.clone(), session: Some(aba) };
+
+    let mut efetiva = berga(&env.hub);
+    admissao::apply_configured(&env.hub.store.db.locked(), &lane, &mut efetiva).unwrap();
+    assert_eq!(crate::fork::open_chat::account_profile(&env.hub, &berga(&env.hub)).unwrap().0, OUTRA);
+    assert_eq!(crate::fork::open_chat::account_profile(&env.hub, &efetiva).unwrap().0, CONTA);
+
+    let mut registry = Registry::load(&env.hub.store).unwrap();
+    registry.accounts.retain(|a| a.id != CONTA);
+    env.hub.store.kv_set(ACCOUNTS_SLOT, &serde_json::to_string(&registry).unwrap()).unwrap();
+    let error = crate::fork::open_chat::account_profile(&env.hub, &efetiva).unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "open_chat_account_required",
+        "conta da aba indisponível recusa em vez de cair na do bot"
+    );
+}

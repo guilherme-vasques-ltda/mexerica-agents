@@ -55,8 +55,8 @@ export function useNewSession(store: BotStore, chat: Bot | null, open: (sessionI
 
 /**
  * `/nova-aba <texto>`: cria a sessão, abre a aba e envia o texto nela (a intenção é capturada só depois de a lista
- * conhecer a sessão nova). Mesma exigência de `create` e `send` do "+"; devolve false se nada foi criado, para o
- * compositor devolver o texto à caixa.
+ * conhecer a sessão nova). Mesma exigência de `create` e `send` do "+"; devolve false se nada foi criado ou se o texto não
+ * foi aceito para envio (a aba criada fica aberta), para o compositor devolver o texto à caixa.
  */
 export function useNewTab(store: BotStore, chat: Bot | null, open: (sessionId: string) => void): ((text: string, options: SendOptions) => Promise<boolean>) | null {
   const model = useModel(store.sessions)
@@ -69,7 +69,7 @@ export function useNewTab(store: BotStore, chat: Bot | null, open: (sessionId: s
     if (!text) return true
     const session = model.intent(chatId, created.session.id)
     if (session === null) model.fail(chatId, created.session.id, 'unsupported')
-    else store.send(text, chatId, { ...options, session })
+    else return store.send(text, chatId, { ...options, session }) === 'aceito'
     return true
   }
 }
