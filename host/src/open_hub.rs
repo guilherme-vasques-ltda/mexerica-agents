@@ -105,6 +105,8 @@ const WHATSAPP_LOCAL: [&str; 22] = [
 pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
     match method {
         "respondPermission" => matches!(caller, Caller::Local) && crate::fork::open_tool_actions::app_response(body),
+        "sessions" | "sessionCreate" | "sessionRename" => matches!(caller, Caller::Local),
+        "history" => matches!(caller, Caller::Local) || body["sessionId"].is_null(),
         // Skills: só o dono local, e instalar só do catálogo embutido (sem source, sem texto escrito à mão).
         "installSkill" => {
             matches!(caller, Caller::Local)
@@ -169,7 +171,6 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
         | "refreshBackends"
         | "teamSettings"
         | "usage"
-        | "history"
         | "markRead"
         | "donnaSpaces"
         | "donnaSpaceCreate"
@@ -195,11 +196,12 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
                 && (matches!(caller, Caller::Local)
                     || ["skills", "skillSelection"].iter().all(|key| body.get(key).is_none()))
         }
-        // Anexos só do dono local (o Hub entrega o conteúdo no turno); sempre na conversa principal, sem sessão extra.
+        // Anexos e sessões extras só do dono local.
         "upload" => matches!(caller, Caller::Local),
         "send" => {
-            body.get("sessionId").is_none_or(Value::is_null)
-                && (matches!(caller, Caller::Local) || body.get("attachments").is_none_or(|a| a.is_null() || a.as_array().is_some_and(Vec::is_empty)))
+            matches!(caller, Caller::Local)
+                || (body["sessionId"].is_null()
+                    && body.get("attachments").is_none_or(|a| a.is_null() || a.as_array().is_some_and(Vec::is_empty)))
         }
         _ if crate::fork::engine_setup::open_login_method(method) => true,
         _ => false,
@@ -305,9 +307,15 @@ mod tests {
         assert!(open_allows(&Caller::Local, "send", &json!({"attachments": null, "sessionId": null})));
         assert!(open_allows(&Caller::Local, "send", &json!({"attachments": ["arquivo"]})));
         assert!(open_allows(&Caller::Local, "upload", &json!({})));
-        assert!(!open_allows(&Caller::Local, "send", &json!({"sessionId": "extra"})));
+        assert!(open_allows(&Caller::Local, "send", &json!({"sessionId": "extra"})));
         let device = Caller::Device { key: "aparelho".into(), scopes: vec![Scope::Control], autoridade: None };
         assert!(open_allows(&device, "send", &json!({"text": "oi"})));
+        assert!(!open_allows(&device, "send", &json!({"sessionId": "extra"})));
+        assert!(!open_allows(&device, "history", &json!({"sessionId": "extra"})));
+        for method in ["sessions", "sessionCreate", "sessionRename"] {
+            assert!(open_allows(&Caller::Local, method, &json!({})));
+            assert!(!open_allows(&device, method, &json!({})));
+        }
         assert!(!open_allows(&device, "send", &json!({"attachments": ["arquivo"]})));
         assert!(open_allows(&device, "send", &json!({"attachments": []})));
         assert!(!open_allows(&device, "upload", &json!({})));

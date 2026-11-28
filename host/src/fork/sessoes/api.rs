@@ -23,6 +23,9 @@ pub(crate) const SESSION_ACTIONS: [&str; 2] = ["create", "send"];
 pub(crate) const ENGINE_ACTION: &str = "engine";
 
 fn actions(c: &rusqlite::Connection, chat: &str) -> Result<Vec<&'static str>> {
+    if crate::environment::Environment::is_open() {
+        return Ok(if store::personal_on(c, chat)? { SESSION_ACTIONS.to_vec() } else { Vec::new() });
+    }
     let mut actions = SESSION_ACTIONS.to_vec();
     // Sessões PR5: encerrar e continuar, implementados por este Hub (Hub antigo não os anuncia; sem fallback).
     actions.extend(super::encerrar::ACTIONS);
@@ -184,7 +187,14 @@ pub(crate) fn send_lane(c: &rusqlite::Connection, chat: &str, body: &Value) -> R
     }
     // A extra roda em série no próprio slot; a admissão (recibo + CAS da escolha) acontece no `queued` → `sent`.
     let lane = crate::store::Lane { chat: chat.to_owned(), session: Some(session.id) };
-    extra_admissible(c, &lane)?;
+    if crate::environment::Environment::is_open() {
+        ensure!(
+            store::personal_on(c, chat)? && session.runs_on.is_none() && session.origin == SessionOrigin::Owner,
+            "session_chat_unsupported"
+        );
+    } else {
+        extra_admissible(c, &lane)?;
+    }
     Ok(lane)
 }
 

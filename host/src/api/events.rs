@@ -109,6 +109,7 @@ pub fn scoped_events_stream_at(
     let space = space.unwrap_or(crate::fork::spaces::PERSONAL).to_owned();
     hub.store.require_space(&space)?;
     let live = BroadcastStream::new(hub.events.subscribe());
+    let local = matches!(caller, Caller::Local);
     let mut catch_up: Vec<Value> = vec![];
     for bot in hub.bots_json_in_space(since, &space)? {
         catch_up.push(json!({"type": "bot", "rev": bot["rev"], "bot": bot}));
@@ -142,11 +143,12 @@ pub fn scoped_events_stream_at(
     let snapshot_hub = hub.clone();
     let snapshot_space = space.clone();
     let head = stream::iter(catch_up).filter_map(move |v| {
-        let event = crate::fork::runtime_audiencia::revalidate_snapshot(&snapshot_hub, &snapshot_space, v);
+        let event = open_session_event_visible(local, &v)
+            .then(|| crate::fork::runtime_audiencia::revalidate_snapshot(&snapshot_hub, &snapshot_space, v))
+            .flatten();
         async move { event }
     });
 
-    let local = matches!(caller, Caller::Local);
     let times_owner = crate::fork::bot_editor::authorization::require_owner(caller).is_ok();
     let guard = Arc::new(matches!(client, Some("ios" | "android")).then(|| PhoneClientGuard::new(hub.clone())));
     let event_hub = hub.clone();
@@ -157,6 +159,7 @@ pub fn scoped_events_stream_at(
             v["type"] == crate::fork::projetos::EVENT && v.as_object().is_some_and(|obj| obj.len() == 3)
         });
         let projected = match msg {
+            Ok(v) if !open_session_event_visible(local, &v) => None,
             Ok(v) if v["type"] == crate::fork::projetos::EVENT => {
                 crate::fork::projetos::event(&event_hub, &tower_caller, &space, &v)
             }
@@ -193,4 +196,18 @@ pub fn scoped_events_stream_at(
         )
     });
     Ok(crate::fork::workspace::cortar(hub, &retrato, head.chain(tail)))
+}
+
+fn open_session_event_visible(local: bool, event: &Value) -> bool {
+    if local || !crate::environment::Environment::is_open() {
+        return true;
+    }
+    match event["type"].as_str() {
+        Some("session" | "sessionDeleted") => false,
+        Some("entry") => {
+            let entry = &event["entry"];
+            entry["sessionId"].as_str().is_some_and(|id| entry["botId"] == id)
+        }
+        _ => true,
+    }
 }

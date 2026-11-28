@@ -77,9 +77,10 @@ impl Store {
         };
         let receipt = match origin {
             TeamOrigin::Actor(execution) => equipe::admitir_na(&tx, chain, Some(space.as_str()), execution)?,
-            TeamOrigin::Open(_) => {
+            TeamOrigin::Open(approval) => {
+                ensure!(chain.espera() == approval.expects_reply(), "open_tools_approval_stale");
                 let (session, reference) = open.as_ref().ok_or_else(|| anyhow!("team_origin_required"))?;
-                Some(equipe::admitir_open_na(&tx, chain, &space, session, reference)?)
+                Some(equipe::admitir_open_na(&tx, chain, &space, session, reference, approval.parent())?)
             }
         };
         let target = Lane::main(notices[0]["targetBotId"].as_str().ok_or_else(|| anyhow!("team_target_changed"))?);
@@ -130,6 +131,9 @@ impl Store {
                 let base = pedido(receipt.as_ref().ok_or_else(|| anyhow!("retorno_cadeia_invalida"))?);
                 retornos::aceitar_open_na(&tx, &base.com_execucao((session, reference)))?;
             }
+        }
+        if receipt.is_some() && !chain.espera() && notices[0]["botMessage"]["taskDispatch"].is_null() {
+            retornos::entrega::add_on(&tx, chain.pedido(), &space, source_turn)?;
         }
         check(&tx, source, notices, origin)?;
         tx.commit()?;

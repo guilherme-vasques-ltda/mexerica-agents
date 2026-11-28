@@ -916,6 +916,121 @@ async fn ferramentas_da_open_so_rodam_no_turno_local_e_na_thread_certa() {
 }
 
 #[tokio::test]
+async fn duas_sessoes_locais_separam_titulo_historico_e_thread_do_motor() {
+    use crate::{
+        api::{self, devices::Caller},
+        fork::sessoes::api as sessions,
+        store::{EntryKind, Lane, Scope},
+    };
+    use serde_json::json;
+    if !crate::environment::Environment::is_open() {
+        return;
+    }
+    let bot = "open-sessoes-fixture";
+    let (hub, dir) = hub_de_teste(bot);
+    let mut ids = Vec::new();
+    for (message, engine_thread) in [("Planejar viagem", "thread-viagem"), ("Revisar texto", "thread-revisao")] {
+        let created = api::dispatch(&hub, &Caller::Local, "sessionCreate", json!({"botId":bot})).await.unwrap();
+        let id = created["session"]["id"].as_str().unwrap().to_owned();
+        let lane = sessions::send_lane(&hub.store.db.locked(), bot, &json!({"sessionId":id})).unwrap();
+        let turn_no = hub.store.alloc_turn(bot).unwrap();
+        let entry = hub
+            .add_entry(
+                &lane,
+                EntryKind::User,
+                turn_no,
+                &json!({
+                    "text":message, "status":"sent", "contentOrigin":{"ingress":{"caller":"local"}}
+                }),
+            )
+            .unwrap();
+        sessions::title_first_message(&hub, &lane, message);
+        let ticket = admit_for_test(&hub, bot, "fixture").unwrap();
+        hub.set_runtime(bot, |rt| {
+            rt.status = crate::hub::BotStatus::Working;
+            rt.message = Some(entry.id.clone());
+            rt.lane = Some(lane.clone());
+        });
+        assert!(super::super::open_tools::Turn::capture(&hub, &lane, &entry.id, turn_no, ticket.cancel()).is_none());
+        ticket.release(&hub);
+        hub.store.kv_set_if_bot(bot, &thread_key(&lane, "fixture"), engine_thread).unwrap();
+        ids.push((id, message, engine_thread));
+    }
+    assert!(hub.store.kv_read(&thread_key(&Lane::main(bot), "fixture")).unwrap().is_none());
+    let list = api::dispatch(&hub, &Caller::Local, "sessions", json!({"botId":bot})).await.unwrap();
+    let device = Caller::Device { key: "aparelho-ficticio".into(), scopes: vec![Scope::Control], autoridade: None };
+    for (id, message, engine_thread) in ids {
+        assert!(list["sessions"].as_array().unwrap().iter().any(|s| s["id"] == id && s["title"] == message));
+        let body = json!({"botId":bot,"sessionId":id});
+        let history = api::dispatch(&hub, &Caller::Local, "history", body.clone()).await.unwrap();
+        let texts: Vec<_> = history["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|e| e["kind"] == "user")
+            .filter_map(|e| e["data"]["text"].as_str())
+            .collect();
+        assert_eq!(texts, [message]);
+        assert!(api::dispatch(&hub, &device, "history", body).await.is_err());
+        let lane = Lane { chat: bot.into(), session: Some(id) };
+        let saved = hub.store.kv_read(&thread_key(&lane, "fixture")).unwrap();
+        let (resumed, _, wire) = turn("resume", saved.as_deref()).await;
+        assert_eq!(resumed.unwrap(), engine_thread);
+        assert!(
+            wire.iter()
+                .any(|request| request["method"] == "thread/resume" && request["params"]["threadId"] == engine_thread)
+        );
+    }
+    let main = api::dispatch(&hub, &Caller::Local, "history", json!({"botId":bot})).await.unwrap();
+    assert!(main["entries"].as_array().unwrap().is_empty());
+    drop(hub);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test]
+async fn escolha_de_destino_nao_aprova_trabalho() {
+    use crate::{
+        api::{self, devices::Caller},
+        store::{Lane, Scope},
+    };
+    use serde_json::json;
+    if !crate::environment::Environment::is_open() {
+        return;
+    }
+    let bot = "open-destino-fixture";
+    let (hub, dir) = hub_de_teste(bot);
+    let lane = Lane::main(bot);
+    let device = Caller::Device { key: "aparelho-ficticio".into(), scopes: vec![Scope::Control], autoridade: None };
+    for personal in [true, false] {
+        let mut events = hub.events.subscribe();
+        let (outcome, ()) = tokio::join!(
+            super::super::open_tool_actions::offer_separate_conversation(&hub, &lane, 1, personal),
+            async {
+                let event = tokio::time::timeout(Duration::from_secs(3), events.recv()).await.unwrap().unwrap();
+                let card = hub.store.entry(event["entry"]["id"].as_str().unwrap()).unwrap();
+                let mut body =
+                    json!({"botId":bot,"entryId":card.id,"entryRev":card.rev,"optionId":"allow","source":"app"});
+                assert!(api::dispatch(&hub, &Caller::Local, "respondPermission", body.clone()).await.is_err());
+                body["optionId"] = "conversation".into();
+                assert!(api::dispatch(&hub, &device, "respondPermission", body.clone()).await.is_err());
+                if !personal {
+                    assert!(api::dispatch(&hub, &Caller::Local, "respondPermission", body.clone()).await.is_err());
+                    body["optionId"] = "bot".into();
+                }
+                api::dispatch(&hub, &Caller::Local, "respondPermission", body).await.unwrap();
+                let answered = hub.store.entry(&card.id).unwrap();
+                assert_eq!(answered.data["toolKind"], "open_work_route");
+                assert!(answered.data["options"].as_array().unwrap().iter().all(|o| o["kind"] == "choice"));
+            }
+        );
+        assert_eq!(outcome.unwrap(), personal);
+        assert_eq!(hub.runtime(bot).status, crate::hub::BotStatus::Idle);
+    }
+    drop(hub);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test]
 async fn o_encerramento_do_hub_espera_a_reserva_viva_em_vez_de_retornar_antes() {
     let (hub, dados) = hub_de_teste("bot-do-encerramento");
     let (cancel, _cancel_rx) = watch::channel(false);

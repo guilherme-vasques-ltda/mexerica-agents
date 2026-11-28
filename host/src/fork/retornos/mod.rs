@@ -15,6 +15,7 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
 /// R2a: consulta só leitura do estado do próprio pedido pelo solicitante.
 pub(crate) mod consulta;
+pub(crate) mod entrega;
 /// Leitura canônica dos pedidos R1 (Mission Board, VG-03b).
 pub(crate) mod pendentes;
 pub(crate) mod privacidade;
@@ -55,6 +56,7 @@ pub(crate) fn migrate(c: &Connection) -> Result<()> {
            CHECK(content<>'final_entry' OR (outcome='completed' AND producer_execution_ref IS NOT NULL)));",
     )?;
     privacidade::migrate_na(&tx)?;
+    entrega::migrate(&tx)?;
     tx.commit()?;
     Ok(())
 }
@@ -483,6 +485,7 @@ pub(crate) fn recuperar_na(c: &Connection) -> Result<usize> {
     )?;
     super::cadeias::equipe::recuperar_open_na(c)?;
     super::open_tool_delegation::recover_notices_on(c)?;
+    entrega::recover_on(c)?;
     Ok(antes + incertos)
 }
 

@@ -75,10 +75,14 @@ fn fixture() -> Fixture {
 }
 
 async fn approved(f: &Fixture, intent: &Intent<'_>) -> Entry {
-    let hub = &f.source.hub;
+    approved_for(&f.source, intent).await
+}
+
+async fn approved_for(source: &LocalTurn, intent: &Intent<'_>) -> Entry {
+    let hub = &source.hub;
     let mut events = hub.events.subscribe();
     let (entry, ()) = tokio::join!(
-        approve(hub, &f.source.lane, f.source.turn, "Pedir resposta a outro bot", &intent.detail),
+        approve(hub, &source.lane, source.turn, approval_title(source.background), &intent.detail),
         async {
             let event = tokio::time::timeout(Duration::from_secs(5), events.recv()).await.unwrap().unwrap();
             let card = hub.store.entry(event["entry"]["id"].as_str().unwrap()).unwrap();
@@ -117,8 +121,16 @@ fn admit(approval: &ApprovedAsk<'_>, swapped_text: bool) -> Result<([String; 2],
     if swapped_text {
         notices[1]["botMessage"]["text"] = "Pedido trocado".into();
     }
-    let chain =
-        equipe::Entrada::nova(&s.lane.chat, intent.target, id, ASK, intent.message, intent.contract.as_ref(), None)?;
+    let tool = if s.background { MESSAGE } else { ASK };
+    let chain = equipe::Entrada::nova(
+        &s.lane.chat,
+        intent.target,
+        id,
+        tool,
+        intent.message,
+        intent.contract.as_ref(),
+        s.parent.as_ref().map(|(receipt, _)| receipt.clone()),
+    )?;
     let reservations = RUNNING.locked();
     s.check_live(&reservations)?;
     let (entries, receipt) =
@@ -191,7 +203,7 @@ async fn authorizes_exact_live_local_request_and_allocates_siblings_atomically()
 }
 
 const APP_SERVER: &str = r#"
-import json, sys
+import json, os, sys
 def send(value):
     print(json.dumps(value), flush=True)
 for line in sys.stdin:
@@ -205,7 +217,11 @@ for line in sys.stdin:
     elif method == "thread/start":
         assert params["ephemeral"] is True
         assert params["config"]["web_search"] == "disabled"
-        assert "dynamicTools" not in params and "threadId" not in params
+        assert "threadId" not in params
+        if os.environ.get("FIXTURE_FORWARD"):
+            assert [tool["name"] for tool in params["dynamicTools"]] == ["ask_bot"]
+        else:
+            assert "dynamicTools" not in params
         assert params["sandbox"] == "read-only" and params["approvalPolicy"] == "never"
         result = {"thread":{"id":"target-thread","ephemeral":True},"sandbox":{"type":"readOnly"},"approvalPolicy":"never"}
     elif method == "turn/start":
@@ -217,13 +233,172 @@ for line in sys.stdin:
     send({"id":request["id"],"result":result})
     if method == "turn/start":
         send({"method":"item/agentMessage/delta","params":{
-            "threadId":"target-thread","turnId":"clean-turn","itemId":"a1","delta":"Resposta isolada"}})
+            "threadId":"target-thread","turnId":"clean-turn","itemId":"a1","delta":os.environ.get("FIXTURE_REPLY", "Resposta isolada")}})
         send({"method":"thread/tokenUsage/updated","params":{
             "threadId":"target-thread","turnId":"clean-turn","tokenUsage":{"total":{
             "totalTokens":15,"inputTokens":12,"cachedInputTokens":2,"outputTokens":3,"reasoningOutputTokens":1}}}})
         send({"method":"turn/completed","params":{
             "threadId":"target-thread","turn":{"id":"clean-turn","status":"completed"}}})
 "#;
+
+#[tokio::test]
+async fn async_turn_groups_two_requests_after_seal_and_never_replays() {
+    if !crate::environment::Environment::is_open() {
+        return;
+    }
+    for restart_between in [false, true] {
+        let mut f = fixture();
+        f.source.background = true;
+        let hub = &f.source.hub;
+        let intent = intent(&f);
+        let first = ApprovedAsk { source: &f.source, intent: &intent, card: approved(&f, &intent).await };
+        let (entries, receipt) = admit(&first, false).unwrap();
+        let ticket = open_chat::admit_for_test(hub, &f.target, ACCOUNT).unwrap();
+        let dispatch = Dispatch {
+            source: &f.source,
+            target: ticket.cancel(),
+            receipt: &receipt,
+            deadline: Instant::now() + Duration::from_secs(10),
+            fence: AtomicI64::new(0),
+            usage: std::sync::OnceLock::new(),
+        };
+        let text_expected =
+            if restart_between { "PERGUNTA_AO_SOLICITANTE: Qual é o período?" } else { "Resposta isolada" };
+        let child = tokio::process::Command::new("python3")
+            .args(["-I", "-c", APP_SERVER])
+            .env("FIXTURE_FORWARD", "1")
+            .env("FIXTURE_REPLY", text_expected)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        let mut rpc = Rpc::from_child(crate::fork::motor_exec::fixture(child)).unwrap();
+        let text = open_chat::drive_delegated(&mut rpc, &ticket, "Área", "Pedido fixo", &dispatch).await.unwrap();
+        rpc.finish().await.unwrap();
+        assert_eq!(settle(&dispatch, &entries, Some(text), || false).unwrap().as_deref(), Some(text_expected));
+        assert!(hub.store.history(&f.source.lane.chat, i64::MAX, 100).unwrap().iter().all(|e| e.kind != "agent"));
+        let second = ApprovedAsk { source: &f.source, intent: &intent, card: approved(&f, &intent).await };
+        let (entries, receipt) = admit(&second, false).unwrap();
+        retornos::entrega::seal(hub, &f.source.lane, f.source.turn);
+        assert!(hub.store.history(&f.source.lane.chat, i64::MAX, 100).unwrap().iter().all(|e| e.kind != "agent"));
+        if !restart_between {
+            let dispatch = Dispatch {
+                source: &f.source,
+                target: ticket.cancel(),
+                receipt: &receipt,
+                deadline: Instant::now() + Duration::from_secs(10),
+                fence: AtomicI64::new(0),
+                usage: std::sync::OnceLock::new(),
+            };
+            assert!(matches!(dispatch.write(&mut || Poll::Ready(Ok(()))), Poll::Ready(Ok(()))));
+            assert!(settle(&dispatch, &entries, None, || false).unwrap().is_none());
+        }
+        ticket.release(hub);
+        f.source_ticket.release(hub);
+        let reopened = Store::open(&f._dir.path().join("hub.db")).unwrap();
+        for _ in 0..2 {
+            retornos::recuperar(&reopened).unwrap();
+            let result: Vec<_> = reopened
+                .history(&f.source.lane.chat, i64::MAX, 100)
+                .unwrap()
+                .into_iter()
+                .filter(|e| e.kind == "agent")
+                .collect();
+            assert_eq!(result.len(), 1);
+            let text = result[0].data["text"].as_str().unwrap();
+            assert!(text.contains(if restart_between {
+                "Pergunta de Destino:\nQual é o período?"
+            } else {
+                text_expected
+            }));
+            assert!(text.contains(if restart_between { "Interrompido antes do envio" } else { "Não concluiu" }));
+            assert_eq!(result[0].turn, f.source.turn);
+        }
+    }
+}
+
+#[tokio::test]
+async fn forwarded_local_request_cannot_revisit_ancestor_and_requires_its_own_card() {
+    if !crate::environment::Environment::is_open() {
+        return;
+    }
+    let mut f = fixture();
+    f.source.background = true;
+    let hub = &f.source.hub;
+    let intent = intent(&f);
+    let approval = ApprovedAsk { source: &f.source, intent: &intent, card: approved(&f, &intent).await };
+    let (_, receipt) = admit(&approval, false).unwrap();
+    let target = open_chat::admit_for_test(hub, &f.target, ACCOUNT).unwrap();
+    let dispatch = Dispatch {
+        source: &f.source,
+        target: target.cancel(),
+        receipt: &receipt,
+        deadline: Instant::now() + Duration::from_secs(10),
+        fence: AtomicI64::new(0),
+        usage: std::sync::OnceLock::new(),
+    };
+    assert!(matches!(dispatch.write(&mut || Poll::Ready(Ok(()))), Poll::Ready(Ok(()))));
+    {
+        let db = hub.store.db.locked();
+        let back =
+            equipe::Entrada::nova(&f.target, &f.source.lane.chat, "back", ASK, "Volte", None, Some(receipt.clone()))
+                .unwrap();
+        let session = main_session(&db, &f.target).unwrap();
+        assert_eq!(
+            equipe::admitir_open_na(
+                &db,
+                &back,
+                &f.source.space,
+                &session,
+                "hub-open:delegated:fixture",
+                Some(&receipt)
+            )
+            .unwrap_err()
+            .to_string(),
+            "team_delegation_cycle"
+        );
+    }
+    assert!(dispatch.forward(&json!({"botId": f.target, "message":"Sem autorização"})).await.is_err());
+    let forwarded = dispatch.forwarded_turn().unwrap();
+    let specialist = uuid::Uuid::new_v4().to_string();
+    hub.store
+        .save_bot(&serde_json::from_value(json!({"id":specialist,"name":"Especialista","backend":"codex"})).unwrap())
+        .unwrap();
+    let next = Intent {
+        target: &specialist,
+        target_name: "Especialista",
+        message: "Confira apenas o total.",
+        contract: None,
+        detail: serde_json::to_string_pretty(
+            &json!({"bot":"Especialista","botId":specialist,"message":"Confira apenas o total.","contract":null}),
+        )
+        .unwrap(),
+    };
+    let wrong = ApprovedAsk { source: &forwarded, intent: &next, card: approval.card };
+    assert!(admit(&wrong, false).is_err());
+    let fresh = ApprovedAsk { source: &forwarded, intent: &next, card: approved_for(&forwarded, &next).await };
+    let (notices, child) = admit(&fresh, false).unwrap();
+    assert_eq!(child.chain_id, receipt.chain_id);
+    assert_eq!(child.level, receipt.level + 1);
+    let worker = open_chat::admit_for_test(hub, &specialist, ACCOUNT).unwrap();
+    let onward = Dispatch {
+        source: &forwarded,
+        target: worker.cancel(),
+        receipt: &child,
+        deadline: Instant::now() + Duration::from_secs(10),
+        fence: AtomicI64::new(0),
+        usage: std::sync::OnceLock::new(),
+    };
+    assert!(matches!(onward.write(&mut || Poll::Ready(Ok(()))), Poll::Ready(Ok(()))));
+    assert_eq!(
+        settle(&onward, &notices, Some("Total conferido.".into()), || false).unwrap().as_deref(),
+        Some("Total conferido.")
+    );
+    worker.release(hub);
+    target.release(hub);
+    f.source_ticket.release(hub);
+}
 
 #[tokio::test]
 async fn isolated_reply_is_held_on_commit_failure_and_not_replayed_after_restart() {

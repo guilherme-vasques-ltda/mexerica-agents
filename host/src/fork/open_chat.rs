@@ -302,7 +302,12 @@ pub(crate) fn run(
     text: String,
 ) {
     let hub = hub.clone();
-    let instructions = instructions(&hub, cfg);
+    let mut instructions = instructions(&hub, cfg);
+    if lane == Lane::main(&cfg.id) && crate::fork::donna_fixa::is_donna_here(&hub.store, cfg) {
+        instructions.push_str("\n\n");
+        instructions.push_str(crate::fork::berga_delegacao::MAIN);
+    }
+    instructions.push_str(&crate::fork::delegacao::turno(&hub.store, cfg, lane.chat != cfg.id));
     let attachments = hub.store.entry(&entry.0).map_or_else(
         || {
             tracing::warn!("open turn entry missing; sending without attachments");
@@ -382,6 +387,7 @@ pub(crate) fn run(
             });
             hub.emit_bot(&bot);
         }
+        crate::fork::retornos::entrega::seal(&hub, &lane, turn);
         crate::fork::open_chat_fila::finish(&hub, &bot);
         drop(done);
     });
@@ -466,7 +472,7 @@ async fn turn_in_profile(
     };
     let bot = reply.bot.clone();
     let key = member_thread_key(lane, account, &bot);
-    let key = if tools.is_some() { format!("{key}.hub-v2") } else { key };
+    let key = if tools.is_some() { format!("{key}.hub-v3") } else { key };
     let saved = hub.store.kv_read(&key)?;
     // Com a reserva viva a exclusão é recusada pelo fence: o que chega aqui só sai por cancelamento (stop/shutdown)
     // ou por o bot já não existir. A conferência de `deleted` sob a trava do banco cobre a janela entre a reserva
@@ -618,8 +624,14 @@ pub(super) async fn drive_delegated(
 ) -> Result<String> {
     let mut cancel = ticket.cancel();
     let mut reply = String::new();
+    let forwarding = if dispatch.allows_forward() {
+        "Se precisar de um especialista, só pode encaminhar com ask_bot, mediante aprovação do dono."
+    } else {
+        "Responda só em texto, sem ferramentas."
+    };
     let instructions = format!(
-        "Responda só em texto, sem ferramentas. Este é um pedido de outro bot, não do dono.\n\nPerfil do destinatário:\n{}",
+        "{} {forwarding}\n\nPerfil do destinatário:\n{}",
+        crate::fork::berga_delegacao::DELEGATE,
         description.trim()
     );
     let concluido = drive_inner(
@@ -830,6 +842,7 @@ async fn drive_input(
     .await
 }
 
+#[derive(Clone, Copy)]
 enum Delivery<'a> {
     Chat(Option<(&'a Hub, &'a Autoridade)>, Option<&'a super::open_tools::Turn<'a>>),
     Delegated(&'a super::open_tool_delegation::Dispatch<'a>),
@@ -853,9 +866,17 @@ async fn drive_inner(
         Delivery::Chat(_, tools) => *tools,
         Delivery::Delegated(_) => None,
     };
+    let forward = match delivery {
+        Delivery::Delegated(dispatch) if dispatch.allows_forward() => Some(dispatch),
+        _ => None,
+    };
+    let offered = |name: &str| {
+        tools.is_some_and(|turn| turn.allows(name)) || (forward.is_some() && name == super::open_tool_delegation::ASK)
+    };
+    let no_web = delegated || tools.is_some_and(|turn| turn.is_coordination());
     rpc.set_line_limit(LINE_LIMIT);
     let flow = async {
-        if tools.is_some() {
+        if tools.is_some() || forward.is_some() {
             rpc.call(
                 1,
                 "initialize",
@@ -879,6 +900,8 @@ async fn drive_inner(
         }
         if delegated {
             session["ephemeral"] = true.into();
+        }
+        if no_web {
             session["config"] = json!({"web_search":"disabled"});
         }
         let resumed = match thread.filter(|id| !delegated && valid_id(id)) {
@@ -897,8 +920,10 @@ async fn drive_inner(
         let started = if let Some(value) = resumed {
             value
         } else {
-            if tools.is_some() {
-                session["dynamicTools"] = super::open_tools::Turn::catalog();
+            if let Some(tools) = tools {
+                session["dynamicTools"] = tools.offered_catalog();
+            } else if forward.is_some() {
+                session["dynamicTools"] = json!([super::open_tool_delegation::catalog()[0]]);
             }
             rpc.call(3, "thread/start", session).await?
         };
@@ -946,17 +971,22 @@ async fn drive_inner(
             let message = rpc.next().await?;
             let params = &message["params"];
             if message.get("id").is_some() && message.get("method").is_some() {
-                if let Some(tools) = tools
-                    && message["method"] == "item/tool/call"
+                if message["method"] == "item/tool/call"
                     && params["threadId"] == thread
                     && params["turnId"] == turn_id
                     && params["namespace"].is_null()
                     && let Some(call) = params["callId"].as_str().filter(|id| valid_id(id))
-                    && let Some(name) = params["tool"].as_str().filter(|name| super::open_tools::Turn::offered(name))
+                    && let Some(name) = params["tool"].as_str().filter(|name| offered(name))
                     && called.len() < 32
                     && called.insert(call.to_owned())
                 {
-                    let result = tools.call(name, &params["arguments"]).await;
+                    let result = if let Some(dispatch) = forward {
+                        dispatch.forward(&params["arguments"]).await
+                    } else if let Some(tools) = tools {
+                        tools.call(name, &params["arguments"]).await
+                    } else {
+                        bail!("open_chat_tool_refused")
+                    };
                     let success = result.is_ok();
                     let text = result.map_or_else(
                         |error| {
@@ -973,7 +1003,16 @@ async fn drive_inner(
                     let response = json!({"id":message["id"], "result":{
                         "success":success, "contentItems":[{"type":"inputText", "text":text}]
                     }});
-                    if success && matches!(name, super::open_tool_delegation::ASK | super::open_tool_delegation::STATUS)
+                    if let Some(dispatch) = forward {
+                        rpc.reply_guarded(response, |effect| dispatch.write(effect)).await?;
+                    } else if let Some(tools) = tools
+                        && success
+                        && matches!(
+                            name,
+                            super::open_tool_delegation::ASK
+                                | super::open_tool_delegation::MESSAGE
+                                | super::open_tool_delegation::STATUS
+                        )
                     {
                         rpc.reply_guarded(response, |effect| tools.write_delegation_result(effect)).await?;
                     } else {
@@ -1001,14 +1040,13 @@ async fn drive_inner(
                     }
                 }
                 "item/started" | "item/completed"
-                    if (delegated && params["item"]["type"] == "webSearch")
+                    if (no_web && params["item"]["type"] == "webSearch")
                         || !(ALLOWED_ITEMS.contains(&params["item"]["type"].as_str().unwrap_or_default())
                             || (params["item"]["type"] == "dynamicToolCall"
                                 && params["threadId"] == thread
                                 && params["turnId"] == turn_id
                                 && params["item"]["namespace"].is_null()
-                                && tools.is_some()
-                                && params["item"]["tool"].as_str().is_some_and(super::open_tools::Turn::offered))) =>
+                                && params["item"]["tool"].as_str().is_some_and(offered))) =>
                 {
                     tracing::warn!("item não admitido do Codex encerrou a conversa");
                     interrupt(rpc, &thread, turn_id).await;

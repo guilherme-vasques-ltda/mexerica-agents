@@ -363,6 +363,9 @@ impl Store {
             "SELECT {ENTRY_COLS} FROM entries WHERE bot_id = ?1 AND seq <= ?3 AND
                (kind = 'user' OR (kind = 'agent' AND json_extract(data, '$.final') = 1))"
         );
+        if crate::environment::Environment::is_open() {
+            sql.push_str(" AND session IS NULL");
+        }
         for i in 0..terms.len() {
             let _ = write!(sql, " AND instr(lower(json_extract(data, '$.text')), ?{}) > 0", i + 4);
         }

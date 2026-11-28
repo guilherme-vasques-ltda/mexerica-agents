@@ -153,7 +153,10 @@ pub(super) async fn call(
             let bot = str_arg(&b, "botId")?;
             let before = b["beforeSeq"].as_i64().unwrap_or(i64::MAX);
             let limit = b["limit"].as_i64().unwrap_or(100).clamp(1, 500);
-            let session = crate::fork::sessoes::api::history_session(hub, bot, &b)?;
+            let mut session = crate::fork::sessoes::api::history_session(hub, bot, &b)?;
+            if crate::environment::Environment::is_open() {
+                session = session.or(Some(bot));
+            }
             json!({"entries": hub.store.history_in_session(bot, session, before, limit)?})
         }
         // Notices between a bot and one peer (the newest 200), for the read-only bot conversation sheet.
@@ -344,14 +347,7 @@ pub(super) async fn call(
             // Open: recusas que não dependem de resposta em curso saem antes de gravar; com resposta em curso a
             // mensagem entra na fila do Hub (`fork::open_chat_fila`).
             let open_turn = crate::environment::Environment::is_open();
-            if open_turn {
-                crate::fork::open_chat::precheck(hub, &row.config, text)?;
-            }
             // `replyTo`: the message of this chat it answers (`chat::replies`).
-            let reply = match quoted {
-                Some(id) => Some(crate::chat::replies::quote(&hub.store, bot, id)?),
-                None => None,
-            };
             if hub.groups.blocked(bot) {
                 return Err(super::GroupError {
                     code: "group_blocked",
@@ -391,9 +387,6 @@ pub(super) async fn call(
             if !pasted.is_empty() {
                 data["pasted"] = json!(pasted);
             }
-            if let Some(reply) = reply {
-                data["replyTo"] = reply;
-            }
             data["contentOrigin"] = crate::guard_hub::origem::capture(caller, &b, &data);
             // Turno automático do próprio Hub (acordar de tarefa, aviso de comentário): marca Hub-side na origem,
             // depois da captura — nenhum corpo de pedido define nem apaga isso.
@@ -409,6 +402,19 @@ pub(super) async fn call(
                 }
                 (lane, effective)
             };
+            if let Some(id) = quoted {
+                if open_turn {
+                    anyhow::ensure!(
+                        hub.store.entry(id).is_some_and(|entry| entry.session_id == lane.session_id()),
+                        "unknown message"
+                    );
+                }
+                data["replyTo"] = crate::chat::replies::quote(&hub.store, bot, id)?;
+            }
+            let open_cfg = if lane.session.is_some() { &effective } else { &row.config };
+            if open_turn {
+                crate::fork::open_chat::precheck(hub, open_cfg, text)?;
+            }
             let antigravity_owner = if crate::agent::backends::is_antigravity(&effective.backend) {
                 crate::fork::antigravity::config(&effective)?;
                 data[crate::fork::antigravity::ENTRY_MARKER] = json!(true);
@@ -454,7 +460,7 @@ pub(super) async fn call(
                 tracing::warn!(%error, bot, "couldn't mark bot read after send");
             }
             if open_turn {
-                crate::fork::open_canal::deliver(hub, &row.config, lane, &e, effect_authority, text);
+                crate::fork::open_canal::deliver(hub, open_cfg, lane, &e, effect_authority, text);
             } else if row.config.is_group() {
                 // Each member reads it in its room prompt (`chat::group`).
                 crate::chat::group::start_authorized(

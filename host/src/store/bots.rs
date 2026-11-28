@@ -184,9 +184,9 @@ impl Store {
         let row = c.query_row(
             "SELECT kind, data, updated_at FROM entries WHERE bot_id = ?1 AND
                (kind = 'user' OR (kind = 'agent' AND json_extract(data, '$.final') = 1)) AND
-               (?2 = 0 OR json_extract(data, '$.from') IS NOT 'host')
+               (?2 = 0 OR json_extract(data, '$.from') IS NOT 'host') AND (?3 = 0 OR session IS NULL)
              ORDER BY seq DESC LIMIT 1",
-            params![id, visible_only],
+            params![id, visible_only, crate::environment::Environment::is_open()],
             |r| {
                 let kind: String = r.get(0)?;
                 let data: String = r.get(1)?;

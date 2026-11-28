@@ -346,7 +346,11 @@ fn history(hub: &Hub, c: &Conversation, b: &Value) -> Result<Value> {
         values.reverse();
         values
     } else {
-        hub.store.history(&c.id, before, limit + 1)?
+        if crate::environment::Environment::is_open() {
+            hub.store.history_in_session(&c.id, Some(&c.id), before, limit + 1)?
+        } else {
+            hub.store.history(&c.id, before, limit + 1)?
+        }
     };
     let more = entries.len() > usize::try_from(limit)?;
     if more {

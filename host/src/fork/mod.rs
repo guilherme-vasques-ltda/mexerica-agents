@@ -2,6 +2,7 @@
 pub(crate) mod anthropic_automation;
 pub(crate) mod antigravity;
 pub mod autoridade;
+pub(crate) mod berga_delegacao;
 pub mod bootstrap;
 pub(crate) mod cadeias;
 pub(crate) mod open_canal;
