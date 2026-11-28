@@ -82,6 +82,25 @@ export function PermissionCard({ entry, hostName, answering, respond }: { entry:
   const store = useStoreRef()
   // MX-217: sem conexão, aprovar e recusar ficam à vista, desligados, com o motivo na dica.
   const semConexao = useSelector(store, emQueda)
+  if (d.toolKind === 'open_work_route') {
+    const title = t('conversa.aprovacao.destino.titulo')
+    const label = (id: string) => t(id === 'conversation' ? 'conversa.aprovacao.destino.conversa' : 'conversa.aprovacao.destino.bot')
+    return (
+      <div className="agent-inset idioma-superficie" {...superficieIdioma(idioma)}>
+        <section className="approval-card" aria-label={title}>
+          <h3 className="approval-title">{title}</h3>
+          <p className="approval-note">{t('conversa.aprovacao.destino.nota')}</p>
+          {pending ? (
+            <div className="approval-actions">
+              {options.map(o => <button key={o.optionId} className="approval-deny" disabled={answering !== null || semConexao} onClick={() => respond(o.optionId)}>
+                {label(o.optionId)}
+              </button>)}
+            </div>
+          ) : <p className="approval-note">{d.selected ? label(d.selected) : outcome(t, entry)}</p>}
+        </section>
+      </div>
+    )
+  }
   const folder = d.cwd ? d.cwd.split('/').filter(Boolean).pop() ?? d.cwd : null
   const result = pending ? null : outcome(t, entry)
   const allowed = (!screen || d.screenAccess?.effect === true) && !pending && d.status === 'answered' && !!d.options?.find((o) => o.optionId === d.selected)?.kind.startsWith('allow')

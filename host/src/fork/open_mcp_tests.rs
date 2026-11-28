@@ -176,6 +176,56 @@ fn link_fixture_tool(hub: &Hub, proof: &LocalTurn) {
 }
 
 #[tokio::test]
+async fn mcp_open_planetscale_nao_tenta_sse_legado() {
+    if !Environment::is_open() {
+        return;
+    }
+    let calls = Arc::new(AtomicUsize::new(0));
+    let count = calls.clone();
+    let gets = Arc::new(AtomicUsize::new(0));
+    let legacy = gets.clone();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = Url::parse(&format!("http://{}/mcp", listener.local_addr().unwrap())).unwrap();
+    let router = Router::new().route(
+        "/mcp",
+        post(move |headers: HeaderMap| async move {
+            assert_eq!(headers["authorization"], "Bearer fixture-service");
+            count.fetch_add(1, Ordering::SeqCst);
+            StatusCode::METHOD_NOT_ALLOWED
+        })
+        .get(move || async move {
+            legacy.fetch_add(1, Ordering::SeqCst);
+            StatusCode::NO_CONTENT
+        }),
+    );
+    let task = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+    let catalog = catalogo_servicos::servico("planetscale").unwrap().tipo("planetscale.oficial_chave").unwrap();
+    let account = serde_json::from_value(json!({
+        "id":ACCOUNT,"name":"Fixture account","url":catalog.url,"servico":"planetscale","tipo":catalog.id,
+        "liberacoes":["insights"],"space":crate::fork::spaces::PERSONAL,
+        "headers":{"Authorization":"Bearer fixture-service"}
+    }))
+    .unwrap();
+    let (hub, _ticket, proof) = turn_for_account(account, "local");
+    let proof = proof.unwrap();
+    RuntimeIntent::capture_open(&hub, &proof, ACCOUNT).unwrap().snapshot(&hub).unwrap();
+    let result = run(
+        &hub,
+        &proof,
+        LIST,
+        &json!({"account":ACCOUNT}),
+        Some(endpoint),
+        #[cfg(target_os = "linux")]
+        None,
+    )
+    .await;
+    task.abort();
+    assert!(result.is_err());
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(gets.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
 async fn mcp_open_stale_discovery_cannot_replace_or_invalidate_newer_inventory() {
     if !Environment::is_open() {
         return;

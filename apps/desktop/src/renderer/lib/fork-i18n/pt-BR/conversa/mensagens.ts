@@ -1,5 +1,7 @@
 // Fatia 2 (D454): conversa/mensagens (registro.ts), balões, estados, reações, conversa entre bots, conexão e Conversa completa (views/thread). Chaves completas; docs/guides/idiomas.md.
 export const textos = {
+  "conversa.mensagens.turnoNaoIniciado": "Enviada, mas o bot não respondeu.",
+  "conversa.mensagens.falhaAoTentarTurno": "Não deu para tentar de novo.",
   "conversa.mensagens.copiar": "Copiar",
   "conversa.mensagens.responder": "Responder",
   "conversa.mensagens.verTrabalho": "Ver o que ele fez",

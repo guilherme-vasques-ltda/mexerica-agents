@@ -527,7 +527,7 @@ impl Mediation for HubMediation {
             }
             mcp::runtime::remember(&namespace, &self.source.instance, &self.bridge, &self.bridge, &secrets);
             self.validate(|_, _, _| Ok(()))?;
-            Ok(Target { url, headers })
+            Ok(Target { url, headers, streamable_only: false })
         })
     }
     fn before_send(&mut self, frame: &Value, method: &str) -> Result<()> {

@@ -14,8 +14,8 @@ pub(crate) mod conectores;
 mod devices;
 mod entries;
 pub(crate) use entries::{
-    ENTRY_COLS, QUEUE_ORDER, check_execution_on, entry_on, history_in_session_on, insert_visible_on, queue_key,
-    row_entry, send_intent,
+    ENTRY_COLS, QUEUE_ORDER, SpaceEntryAudience, check_execution_on, entry_on, history_in_session_on,
+    insert_visible_on, queue_key, row_entry, send_intent,
 };
 mod fork_donna;
 mod fork_pergunta_restaurada;

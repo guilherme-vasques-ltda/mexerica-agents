@@ -112,6 +112,14 @@ impl Actor {
             "{}{prompt}",
             crate::fork::delegacao::turno(&self.hub.store, &self.cfg, self.active_group.is_some())
         );
+        if self.active_request.is_some() {
+            prompt = format!("{}\n\n{prompt}", crate::fork::berga_delegacao::DELEGATE);
+        } else if self.lane == Lane::main(&self.cfg.id)
+            && self.active_routine.is_none()
+            && crate::fork::donna_fixa::is_donna_here(&self.hub.store, &self.cfg)
+        {
+            prompt = format!("{}\n\n{prompt}", crate::fork::berga_delegacao::MAIN);
+        }
         // Instruções do dono para todos os bots e para o Space, por turno; nunca em turno de Canal.
         prompt = format!(
             "{}{prompt}",
@@ -872,7 +880,9 @@ impl Actor {
         } else {
             Ok(final_text.clone())
         });
-        self.turn = None;
+        if let Some(turn) = self.turn.take() {
+            crate::fork::retornos::entrega::seal(&self.hub, &self.lane, turn);
+        }
         if self.routine_completion.is_none() {
             self.finish_dispatch();
         }

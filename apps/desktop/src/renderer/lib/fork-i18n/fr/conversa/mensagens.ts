@@ -3,6 +3,8 @@ import type { textos as fonte } from '../../pt-BR/conversa/mensagens.ts'
 
 // Fatia 2 (D454): conversa/mensagens (registro.ts). Chaves completas; docs/guides/idiomas.md.
 export const textos: Traducao<typeof fonte> = {
+  "conversa.mensagens.turnoNaoIniciado": "Envoyé, mais le bot n’a pas répondu.",
+  "conversa.mensagens.falhaAoTentarTurno": "Impossible de réessayer.",
   "conversa.mensagens.copiar": "Copier",
   "conversa.mensagens.responder": "Répondre",
   "conversa.mensagens.verTrabalho": "Voir ce qu'il a fait",

@@ -5,8 +5,10 @@ use crate::store::{BotConfig, EntryKind, Lane, bot_groups::Edit};
 #[tokio::test]
 async fn navegador_confirma_envio_gravado_quando_ator_nao_esta_disponivel() {
     let hub = temp_hub();
-    let bot: BotConfig = serde_json::from_value(json!({"id":"chat","name":"Chat"})).unwrap();
-    hub.store.save_bot(&bot).unwrap();
+    for id in ["chat", "outro-chat"] {
+        let bot: BotConfig = serde_json::from_value(json!({"id":id,"name":id})).unwrap();
+        hub.store.save_bot(&bot).unwrap();
+    }
     let actor = hub.test_bot_commands("chat");
     drop(actor);
 
@@ -19,6 +21,8 @@ async fn navegador_confirma_envio_gravado_quando_ator_nao_esta_disponivel() {
     let first = com_posse(&mut p, &hub, 2, "send", send.clone()).await;
     let id = first["ok"]["entry"]["id"].as_str().expect("mensagem gravada tem recibo");
     assert_eq!(first["ok"]["entry"]["data"]["status"], "sent");
+    assert_eq!(first["ok"]["entry"]["data"]["webTurnFailed"], true);
+    assert!(first["ok"]["entry"]["data"].get("error").is_none());
     assert_eq!(hub.store.entry(id).unwrap().data["status"], "failed");
     let replay = com_posse(&mut p, &hub, 3, "send", send).await;
     assert_eq!(replay["ok"]["entry"]["id"], id);
@@ -39,6 +43,7 @@ async fn navegador_confirma_envio_gravado_quando_ator_nao_esta_disponivel() {
         assert_eq!(entries.len(), expected);
         if let Some(entry) = entries.first() {
             assert_eq!(entry["id"], id);
+            assert_eq!(entry["data"]["webTurnFailed"], true);
         }
     }
 
@@ -48,11 +53,126 @@ async fn navegador_confirma_envio_gravado_quando_ator_nao_esta_disponivel() {
     let pop = pop(&p.key, &hub.host_id, &p.th, "sub:events");
     let stream = pedir(&mut p, 7, json!({"sub":"events","b":b,"pop":pop})).await;
     assert_eq!(stream["err"], json!({"status":500,"message":"request_failed","code":"request_failed"}));
+
+    let mut actor = hub.test_bot_commands("chat");
+    let mut other = hub.test_bot_commands("outro-chat");
+    let revision = first["ok"]["entry"]["rev"].as_i64().unwrap();
+    for (request, chat, session, rev) in [
+        (8, "chat", "chat", revision - 1),
+        (9, "outro-chat", "outro-chat", revision),
+        (10, "chat", "outra-sessao", revision),
+    ] {
+        let refused = com_posse(
+            &mut p,
+            &hub,
+            request,
+            "send",
+            json!({"botId":chat,"sessionId":session,"retryEntryId":id,"retryEntryRevision":rev}),
+        )
+        .await;
+        assert!(refused.get("err").is_some());
+    }
+    assert!(actor.try_recv().is_err());
+    assert!(other.try_recv().is_err());
+    let retry = json!({"botId":"chat","sessionId":"chat","retryEntryId":id,"retryEntryRevision":revision});
+    let recovered = com_posse(&mut p, &hub, 11, "send", retry.clone()).await;
+    assert_eq!(recovered["ok"]["entry"]["id"], id);
+    assert!(recovered["ok"]["entry"]["data"].get("webTurnFailed").is_none());
+    let crate::agent::bot::Cmd::Send { lane, entry_id, text } = actor.try_recv().unwrap() else {
+        panic!("a tentativa deve enviar a mensagem gravada");
+    };
+    assert_eq!(lane, Lane::main("chat"));
+    assert_eq!(entry_id, id);
+    assert_eq!(text, "mensagem fictícia");
+    let repeated = com_posse(&mut p, &hub, 12, "send", retry).await;
+    assert!(repeated.get("err").is_some());
+    assert!(actor.try_recv().is_err());
+    let rows = hub.store.history("chat", i64::MAX, 10).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].id, id);
+    assert_eq!(rows[0].data["status"], "queued");
+}
+
+#[tokio::test]
+async fn navegador_tenta_turno_adicional_so_na_conversa_e_revisao_originais() {
+    use crate::api::{devices::Caller, dispatch};
+    let hub = temp_hub();
+    let bot: BotConfig = serde_json::from_value(json!({"id":"chat","name":"Chat","backend":"codex"})).unwrap();
+    hub.store.save_bot(&bot).unwrap();
+    let account = format!("ac_{}", "1".repeat(64));
+    hub.store
+        .kv_set(
+            "fork.engine-accounts.v1",
+            &json!({"salt":uuid::Uuid::new_v4().to_string(),"accounts":[{
+                "id":account,"backend":"codex","billing":"paid_api","state":"connected","scope":"owner",
+                "launch":{"kind":"cli_profile","executable":"/fixture/cli","directory":"/fixture/config"},
+                "quotaIdentity":null,"verifiedAt":null,"subscriptionProof":null,
+                "models":[{"id":"fixture-model","options":[]}]
+            }]})
+            .to_string(),
+        )
+        .unwrap();
+    let created = dispatch(
+        &hub,
+        &Caller::Local,
+        "donnaConversationCreate",
+        json!({"hubId":hub.host_id,"spaceId":PERSONAL,"botId":"chat"}),
+    )
+    .await
+    .unwrap();
+    let chat = created["conversation"]["id"].as_str().unwrap();
+    let configured = dispatch(
+        &hub,
+        &Caller::Local,
+        "donnaConversationUpdate",
+        json!({
+            "hubId":hub.host_id,"spaceId":PERSONAL,"conversationId":chat,
+            "expectedRevision":created["conversation"]["revision"],"expectedAccountRevision":1,
+            "engineAccountId":account,"engineSelection":{"backend":"codex","model":"fixture-model","modelOptions":{}}
+        }),
+    )
+    .await
+    .unwrap();
+    let revision = configured["conversation"]["revision"].as_i64().unwrap();
+    drop(hub.test_bot_commands("chat"));
+
+    vincular(&hub, &vinculo_pessoal());
+    let key = parear_em(&hub, &afirmacoes(DONO), "web").await.unwrap();
+    let mut p = conectado_via(&hub, key, Via::Direto).await;
+    assert_eq!(autenticar(&mut p, &hub, 1, &token(&afirmacoes(DONO))).await["ok"]["userId"], DONO);
+    let saved = com_posse(
+        &mut p,
+        &hub,
+        2,
+        "donnaConversationSend",
+        json!({"hubId":hub.host_id,"spaceId":PERSONAL,"conversationId":chat,
+            "expectedRevision":revision,"text":"Mensagem adicional fictícia","clientNonce":"nonce-adicional"}),
+    )
+    .await;
+    let entry = &saved["ok"]["entry"];
+    let id = entry["id"].as_str().expect("mensagem adicional tem recibo");
+    assert_eq!(entry["data"]["webTurnFailed"], true);
+    let mut actor = hub.test_bot_commands("chat");
+    let retry = |expected| {
+        json!({"hubId":hub.host_id,"spaceId":PERSONAL,"conversationId":chat,
+        "expectedRevision":expected,"retryEntryId":id,"retryEntryRevision":entry["rev"]})
+    };
+    let refused = com_posse(&mut p, &hub, 3, "donnaConversationSend", retry(revision - 1)).await;
+    assert!(refused.get("err").is_some());
+    assert!(actor.try_recv().is_err());
+    let recovered = com_posse(&mut p, &hub, 4, "donnaConversationSend", retry(revision)).await;
+    assert_eq!(recovered["ok"]["entry"]["id"], id);
+    assert_eq!(recovered["ok"]["entry"]["conversationId"], chat);
+    assert!(recovered["ok"]["entry"]["data"].get("webTurnFailed").is_none());
+    assert!(matches!(actor.try_recv().unwrap(),
+        crate::agent::bot::Cmd::Send { lane, entry_id, .. } if lane == Lane::main(chat) && entry_id == id));
+    assert_eq!(hub.store.history(chat, i64::MAX, 10).unwrap().len(), 1);
 }
 
 #[tokio::test]
 async fn navegador_recebe_so_dados_de_chat_por_rpc_e_eventos() {
     let hub = temp_hub();
+    let local_hub = crate::environment::Environment::is_open();
     let mut spaces = hub.store.spaces().unwrap();
     spaces.spaces[0].owner = Some(crate::fork::spaces::OwnerPresentation {
         name: "omitir-perfil".into(),
@@ -112,6 +232,33 @@ async fn navegador_recebe_so_dados_de_chat_por_rpc_e_eventos() {
     hub.store
         .insert_entry(&Lane::main("outro-chat"), EntryKind::User, 1, &json!({"text":"somente outro Space"}))
         .unwrap();
+    let private = if local_hub {
+        hub.store
+            .db
+            .locked()
+            .execute(
+                "INSERT INTO donna_bot_sessions(id,chat_id,principal,origin,title,title_source,created_at,last_used_at,revision)
+                 SELECT 'omitir-aba',chat_id,0,origin,'omitir-titulo','owner',created_at,last_used_at,revision
+                 FROM donna_bot_sessions WHERE id='chat'",
+                [],
+            )
+            .unwrap();
+        Some(
+            hub.store
+                .insert_entry(
+                    &Lane { chat: "chat".into(), session: Some("omitir-aba".into()) },
+                    EntryKind::User,
+                    2,
+                    &json!({
+                        "text":"omitir-mensagem","clientNonce":"nonce-local",
+                        "intent":{"text":"omitir-mensagem","attachments":[],"session":"omitir-aba"}
+                    }),
+                )
+                .unwrap(),
+        )
+    } else {
+        None
+    };
 
     vincular(&hub, &vinculo_pessoal());
     let key = parear_em(&hub, &afirmacoes(DONO), "web").await.unwrap();
@@ -123,7 +270,13 @@ async fn navegador_recebe_so_dados_de_chat_por_rpc_e_eventos() {
         (2, "hello", json!({}), "/spaces/spaces/1/name", json!("Outro Space")),
         (3, "donnaSpaces", fixture.clone(), "/spaces/1/name", json!("Outro Space")),
         (4, "donnaConversations", fixture.clone(), "/conversations/0/id", json!("chat")),
-        (5, "sessions", json!({"botId":"chat"}), "/sessionActions", json!(["send"])),
+        (
+            5,
+            "sessions",
+            json!({"botId":"chat"}),
+            "/sessionActions",
+            if local_hub { json!([]) } else { json!(["send"]) },
+        ),
         (6, "botGroups", json!({}), "/groups/0/bots", json!(["chat"])),
         (7, "history", json!({"botId":"chat","limit":1}), "/entries/0/id", json!(answer.id)),
         (8, "history", json!({"botId":"chat","beforeSeq":answer.seq,"limit":1}), "/entries/0/id", json!(ask.id)),
@@ -144,6 +297,11 @@ async fn navegador_recebe_so_dados_de_chat_por_rpc_e_eventos() {
     ] {
         let reply = com_posse(&mut peer, &hub, id, method, body).await;
         assert_eq!(reply["ok"].pointer(field), Some(&expected), "{method}");
+        if method == "sessions" && local_hub {
+            let sessions = reply["ok"]["sessions"].as_array().unwrap();
+            assert_eq!(sessions.len(), 1);
+            assert_eq!(sessions[0]["id"], "chat");
+        }
         for field in
             ["omitir-", "\"engine\"", "\"origin\"", "\"titleSource\"", "\"engineAccountId\"", "\"attachments\""]
         {
@@ -153,9 +311,14 @@ async fn navegador_recebe_so_dados_de_chat_por_rpc_e_eventos() {
     let forbidden =
         com_posse(&mut peer, &hub, 11, "send", json!({"botId":"chat","text":"texto","attachments":["arquivo"]})).await;
     assert_eq!(forbidden["err"]["status"], 403);
-    let forbidden =
-        com_posse(&mut peer, &hub, 12, "send", json!({"botId":"chat","text":"texto","replyTo":host_entry.unwrap()}))
-            .await;
+    let forbidden = com_posse(
+        &mut peer,
+        &hub,
+        12,
+        "send",
+        json!({"botId":"chat","text":"texto","replyTo":host_entry.unwrap(),"clientNonce":"nonce-citacao"}),
+    )
+    .await;
     assert_eq!(forbidden["err"]["status"], 403);
     for (id, method, body) in [
         (13, "history", json!({"botId":"outro-chat","spaceId":PERSONAL})),
@@ -168,6 +331,30 @@ async fn navegador_recebe_so_dados_de_chat_por_rpc_e_eventos() {
     let other_history =
         com_posse(&mut peer, &hub, 16, "history", json!({"botId":"outro-chat","spaceId":"outro-espaco"})).await;
     assert_eq!(other_history["ok"]["entries"][0]["data"]["text"], "somente outro Space");
+    if let Some(private) = &private {
+        for (id, method, body) in [
+            (18, "history", json!({"botId":"chat","sessionId":"omitir-aba"})),
+            (19, "send", json!({"botId":"chat","sessionId":"omitir-aba","text":"texto","clientNonce":"nonce-envio"})),
+            (20, "send", json!({"botId":"chat","replyTo":private.id,"text":"texto","clientNonce":"nonce-citacao"})),
+        ] {
+            let reply = com_posse(&mut peer, &hub, id, method, body).await;
+            assert_eq!(reply["err"]["status"], 403, "{method}");
+        }
+        let receipt = json!({"nonce":"nonce-local","text":"omitir-mensagem"});
+        let result =
+            com_posse(&mut peer, &hub, 21, "history", json!({"botId":"chat","sessionId":"chat","sendReceipt":receipt}))
+                .await;
+        assert_eq!(result["ok"]["entries"], json!([]));
+        let result = com_posse(
+            &mut peer,
+            &hub,
+            22,
+            "history",
+            json!({"botId":"chat","sessionId":"omitir-aba","sendReceipt":receipt}),
+        )
+        .await;
+        assert_eq!(result["err"]["status"], 403);
+    }
 
     let b = com_epoch(&hub, "sub:events", json!({"since":0}));
     peer.send(json!({"id":17,"sub":"events","b":b,"pop":pop(&peer.key,&hub.host_id,&peer.th,"sub:events")})).await;
@@ -177,6 +364,15 @@ async fn navegador_recebe_so_dados_de_chat_por_rpc_e_eventos() {
     assert_eq!(hello["ev"]["spaces"]["spaces"][0]["owner"], Value::Null);
     assert!(hello["ev"]["conversations"][0].get("engineAccountId").is_none());
 
+    if let Some(private) = &private {
+        for event in [
+            json!({"type":"session","session":{"id":"omitir-aba","chatId":"chat","title":"omitir-titulo"}}),
+            json!({"type":"entry","entry":private}),
+            json!({"type":"sessionDeleted","chatId":"chat","sessionId":"omitir-aba"}),
+        ] {
+            hub.events.send(event).unwrap();
+        }
+    }
     hub.events.send(json!({"type":"session","session":{"id":"chat","chatId":"chat","state":"open","engine":{"account":"omitir-conta"}}})).unwrap();
     let mut ids = Vec::new();
     loop {

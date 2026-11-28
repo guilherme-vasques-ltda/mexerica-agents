@@ -1,5 +1,9 @@
 // Fatia 2 (D454): conversa/aprovacao (registro.ts), cartão de aprovação, menu do escudo e o botão de segurar (views/thread). Chaves completas; docs/guides/idiomas.md.
 export const textos = {
+  "conversa.aprovacao.destino.titulo": "Onde rodar este trabalho?",
+  "conversa.aprovacao.destino.nota": "Nenhuma opção autoriza a execução aqui.",
+  "conversa.aprovacao.destino.conversa": "Usar outra conversa",
+  "conversa.aprovacao.destino.bot": "Indicar um bot",
   "conversa.aprovacao.pedido.clique": "Quer acionar um botão",
   "conversa.aprovacao.pedidoDe.clique": "{autor} quer acionar um botão",
   "conversa.aprovacao.acao.clique": "Acionar botão",

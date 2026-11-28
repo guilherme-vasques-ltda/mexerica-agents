@@ -1,5 +1,5 @@
 use super::{
-    conectores::{mcp_version, oauth_refresh, oauth_runtime::RuntimeIntent},
+    conectores::{catalogo_servicos::TipoConexao, mcp_version, oauth_refresh, oauth_runtime::RuntimeIntent},
     open_tool_actions,
     open_turn::LocalTurn,
 };
@@ -478,6 +478,11 @@ impl Mediation for OpenMediation<'_> {
             self.check_call()?;
         }
         let current = self.intent.current(self.hub, &self.saved)?;
+        let streamable_only =
+            market::contas::tipo_da_conta(&current)?.is_some_and(TipoConexao::somente_endpoint_streamable);
+        if streamable_only && !mcp::http::tools_only(method) {
+            return Err(PolicyDenied.into());
+        }
         self.account_secrets(&current);
         let target = market::oauth::target(self.hub, &current, &self.intent, stale).await?;
         let updated = self.intent.current(self.hub, &self.saved)?;
@@ -497,7 +502,7 @@ impl Mediation for OpenMediation<'_> {
         self.intent.with_open_current(self.hub, &self.saved, |_, _| Ok(()))?;
         target.validate_delivery()?;
         self.target = Some(target);
-        Ok(Target { url, headers })
+        Ok(Target { url, headers, streamable_only })
     }
 
     fn before_send(&mut self, frame: &Value, method: &str) -> Result<()> {
