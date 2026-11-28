@@ -87,9 +87,20 @@ impl RuntimeIntent {
         expected: &Connector,
         action: impl FnOnce(&mut Connection, &Connector) -> Result<T>,
     ) -> Result<T> {
+        self.with_open_preflight(hub, expected, || Ok(()), action)
+    }
+
+    pub(crate) fn with_open_preflight<T, G>(
+        &self,
+        hub: &Hub,
+        expected: &Connector,
+        preflight: impl FnOnce() -> Result<G>,
+        action: impl FnOnce(&mut Connection, &Connector) -> Result<T>,
+    ) -> Result<T> {
         let Original::Open { turn, .. } = &self.original else { return Err(denied()) };
         self.validate_connector(expected)?;
-        self.validate_live(hub)?;
+        let _reservation = turn.reserve(hub)?;
+        let _policy = preflight()?;
         let _guard = hub.store.connector_lock.locked();
         let (all, _) = market::load_connectors(&hub.store)?;
         let current = all.iter().find(|c| self.matches_target(c, expected)).ok_or_else(denied)?;

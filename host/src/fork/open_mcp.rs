@@ -252,11 +252,21 @@ impl OpenMediation<'_> {
     fn check_call(&self) -> Result<()> {
         let invocation = self.invocation.as_ref().context("Autorização MCP ausente")?;
         ensure!(invocation.sent, "Chamada MCP não admitida");
-        let _boundary = self.hub.store.memory_boundary.locked();
-        self.policy(&invocation.params)?;
-        self.intent
-            .with_open_current(self.hub, &self.saved, |db, current| self.check_invocation(db, current, invocation))?;
+        self.intent.with_open_preflight(
+            self.hub,
+            &self.saved,
+            || self.policy_boundary(Some(&invocation.params)),
+            |db, current| self.check_invocation(db, current, invocation),
+        )?;
         self.intent.validate_live(self.hub)
+    }
+
+    fn policy_boundary(&self, params: Option<&Value>) -> Result<std::sync::MutexGuard<'_, ()>> {
+        let boundary = self.hub.store.memory_boundary.locked();
+        if let Some(params) = params {
+            self.policy(params)?;
+        }
+        Ok(boundary)
     }
 }
 
@@ -302,28 +312,31 @@ impl Mediation for OpenMediation<'_> {
     }
 
     fn before_send(&mut self, frame: &Value, method: &str) -> Result<()> {
-        let _boundary = self.hub.store.memory_boundary.locked();
-        if method == "tools/call" {
-            self.policy(&frame["params"])?;
-        }
-        let generation = self.intent.with_open_current(self.hub, &self.saved, |db, current| {
-            if method == "tools/call" {
-                let invocation = self.invocation.as_ref().context("Autorização MCP ausente")?;
-                ensure!(
-                    !invocation.sent && Instant::now() < invocation.deadline && frame["params"] == invocation.params,
-                    "Autorização MCP vencida, usada ou divergente"
-                );
-                self.check_invocation(db, current, invocation)?;
-                ensure!(
-                    mcp::redigir_json(&frame["params"]["arguments"], &self.secrets) == frame["params"]["arguments"],
-                    "Pedido contém material privado"
-                );
-            }
-            if method == "tools/list" {
-                return Ok(Some(ferramentas::geracao_em(db, &current.id)?));
-            }
-            Ok(None)
-        })?;
+        let generation = self.intent.with_open_preflight(
+            self.hub,
+            &self.saved,
+            || self.policy_boundary((method == "tools/call").then_some(&frame["params"])),
+            |db, current| {
+                if method == "tools/call" {
+                    let invocation = self.invocation.as_ref().context("Autorização MCP ausente")?;
+                    ensure!(
+                        !invocation.sent
+                            && Instant::now() < invocation.deadline
+                            && frame["params"] == invocation.params,
+                        "Autorização MCP vencida, usada ou divergente"
+                    );
+                    self.check_invocation(db, current, invocation)?;
+                    ensure!(
+                        mcp::redigir_json(&frame["params"]["arguments"], &self.secrets) == frame["params"]["arguments"],
+                        "Pedido contém material privado"
+                    );
+                }
+                if method == "tools/list" {
+                    return Ok(Some(ferramentas::iniciar_descoberta_open(db, &current.id)?));
+                }
+                Ok(None)
+            },
+        )?;
         self.intent.validate_live(self.hub)?;
         self.target.as_ref().context("Alvo MCP indisponível")?.validate_delivery()?;
         if let Some(generation) = generation {
@@ -354,29 +367,35 @@ impl Mediation for OpenMediation<'_> {
                 }
             },
             |event| {
-                let _boundary = self.hub.store.memory_boundary.locked();
-                if method == "tools/call" {
-                    self.policy(&self.invocation.as_ref().context("Autorização MCP ausente")?.params)?;
-                }
-                self.intent.with_open_current(self.hub, &self.saved, |db, current| {
-                    let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-                    Store::guard_record_on(&tx, None, event, false, |db| {
-                        self.intent.validate_db(db)?;
-                        if method == "tools/call" {
-                            let invocation = self.invocation.as_ref().context("Autorização MCP ausente")?;
-                            ensure!(invocation.sent, "Chamada MCP não admitida");
-                            self.check_invocation(db, current, invocation)?;
+                let params = if method == "tools/call" {
+                    Some(&self.invocation.as_ref().context("Autorização MCP ausente")?.params)
+                } else {
+                    None
+                };
+                self.intent.with_open_preflight(
+                    self.hub,
+                    &self.saved,
+                    || self.policy_boundary(params),
+                    |db, current| {
+                        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+                        Store::guard_record_on(&tx, None, event, false, |db| {
+                            self.intent.validate_db(db)?;
+                            if method == "tools/call" {
+                                let invocation = self.invocation.as_ref().context("Autorização MCP ausente")?;
+                                ensure!(invocation.sent, "Chamada MCP não admitida");
+                                self.check_invocation(db, current, invocation)?;
+                            }
+                            Ok(())
+                        })?;
+                        if (method == "tools/call" || (method == "tools/list" && self.delivers_list))
+                            && event["decision"] == "sanitized"
+                        {
+                            Store::guard_mark_external_on(&tx, &self.turn.lane().chat)?;
                         }
+                        tx.commit()?;
                         Ok(())
-                    })?;
-                    if (method == "tools/call" || (method == "tools/list" && self.delivers_list))
-                        && event["decision"] == "sanitized"
-                    {
-                        Store::guard_mark_external_on(&tx, &self.turn.lane().chat)?;
-                    }
-                    tx.commit()?;
-                    Ok(())
-                })
+                    },
+                )
             },
         )?;
         if method == "tools/list" {
@@ -390,21 +409,7 @@ impl Mediation for OpenMediation<'_> {
                     &mut observed,
                     generation,
                     |db| self.intent.validate_db(db).map(|_| ()),
-                )?;
-                if let Some(tools) = observed["message"]["result"]["tools"].as_array_mut() {
-                    tools.retain_mut(|tool| {
-                        let digest = tool["name"].as_str().and_then(|name| {
-                            ferramentas::digest_autorizado(db, &self.turn.lane().chat, current, name).ok()
-                        });
-                        if let Some(digest) = digest {
-                            tool["digest"] = digest.into();
-                            true
-                        } else {
-                            false
-                        }
-                    });
-                }
-                Ok(())
+                )
             })?;
         }
         Ok(observed.get_mut("message").filter(|value| !value.is_null()).map(Value::take))

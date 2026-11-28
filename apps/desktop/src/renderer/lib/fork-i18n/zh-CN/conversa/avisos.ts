@@ -78,7 +78,7 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.avisos.open.inicio": "Berga 已设为你的主要机器人。要聊天，请在“设置 → AI 账号”中连接 Codex 账号。在所有者的电脑上，机器人还可以使用 Hub 提供的工具。",
   "conversa.avisos.open.interrompida": "回复已中断。",
   "conversa.avisos.open.ferramenta": "引擎尝试使用本轮不可用的工具。回复已结束。",
-  "conversa.avisos.open.demorou": "Codex 回复超时。请重试。",
+  "conversa.avisos.open.demorou": "Codex 回复超时。如果你请求了某项操作，请先确认操作是否已完成，再重新发送。",
   "conversa.avisos.open.longa": "回复超出最大长度，已停止。",
   "conversa.avisos.open.politica": "引擎未确认所需的隔离设置。回复已取消。",
   "conversa.avisos.open.indisponivel": "无法在 Open 配置中打开 Codex。请在 AI 账号中检查账号。",

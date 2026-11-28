@@ -6,7 +6,10 @@ use crate::{
 };
 use anyhow::{Context, Result, ensure};
 use rusqlite::Connection;
-use std::sync::{Arc, Weak};
+use std::{
+    collections::HashMap,
+    sync::{Arc, MutexGuard, Weak},
+};
 use tokio::sync::watch;
 
 #[derive(Clone)]
@@ -52,8 +55,13 @@ impl LocalTurn {
     }
 
     pub(crate) fn check_live(&self, hub: &Hub) -> Result<()> {
+        self.reserve(hub).map(drop)
+    }
+
+    pub(crate) fn reserve(&self, hub: &Hub) -> Result<MutexGuard<'static, Option<HashMap<String, Running>>>> {
         let running = RUNNING.locked();
-        self.check_reserved(hub, running.as_ref().and_then(|m| m.get(&self.lane.chat)))
+        self.check_reserved(hub, running.as_ref().and_then(|m| m.get(&self.lane.chat)))?;
+        Ok(running)
     }
 
     pub(super) fn check_reserved(&self, hub: &Hub, reservation: Option<&Running>) -> Result<()> {

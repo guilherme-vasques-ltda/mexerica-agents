@@ -78,7 +78,7 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.avisos.open.inicio": "Berga ya está creado como tu bot principal. Para conversar, conecta una cuenta de Codex en Ajustes → Cuentas de IA. En el equipo del propietario, los bots también pueden usar las herramientas disponibles del Hub.",
   "conversa.avisos.open.interrompida": "Respuesta interrumpida.",
   "conversa.avisos.open.ferramenta": "El motor intentó usar una herramienta que no está disponible en este turno. Respuesta terminada.",
-  "conversa.avisos.open.demorou": "Codex tardó demasiado en responder. Inténtalo de nuevo.",
+  "conversa.avisos.open.demorou": "Codex tardó demasiado en responder. Si pediste una acción, comprueba si se realizó antes de volver a enviar la solicitud.",
   "conversa.avisos.open.longa": "La respuesta superó la longitud máxima y se detuvo.",
   "conversa.avisos.open.politica": "El motor no confirmó el aislamiento requerido. Respuesta cancelada.",
   "conversa.avisos.open.indisponivel": "No se pudo abrir Codex en el perfil de Open. Revisa la cuenta en Cuentas de IA.",

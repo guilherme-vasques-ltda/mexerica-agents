@@ -545,8 +545,8 @@ identidade indisponível é apresentada de modo neutro. **Examinar rascunho** ab
 o editor existente e editável. Abrir, cancelar ou **Agora não** não salva nem
 liga; a dispensa é local à UI, sem promessa de persistência. Salvar é gesto
 separado do dono no app pelo `installSkill` manual forte, protocolo 2; ligar é
-outro gesto. Não há ferramenta nova ou efeito do modelo para propor, instalar,
-ligar ou abrir formulário. O cartão b2 mostra motivo, **Referência sugerida**,
+outro gesto. Esses cartões de proposta não instalam, ligam ou abrem formulários
+por ação do modelo. O cartão b2 mostra motivo, **Referência sugerida**,
 **Examinar indicação** e **Agora não**. Examinar abre a mesma página Skills em
 folha somente de leitura, com busca sugerida e abas Instaladas/Catálogo. A pessoa
 escolhe o resultado canônico, mesmo único; nomes iguais podem gerar vários. Os
@@ -557,8 +557,11 @@ Ligar ou desligar uma skill num bot é gesto do dono no app (Ajustes do bot ou
 Extensões → Skills → Base central, a tabela Skill × Bot do Pessoal) ou terminal, uma skill
 por vez, preso à seleção e à instalação vistas naquele gesto (c1). Se a seleção
 mudou em outro lugar, a skill foi removida/reinstalada ou a conexão caiu, o Hub
-recusa ou o app avisa que não confirmou; nada é reenviado sozinho. Você não liga
-nem desliga skills e não promete que uma escolha valeu sem ver a lista atual.
+recusa ou o app avisa que não confirmou; nada é reenviado sozinho. No turno
+iniciado pelo dono local, use `install_skill` e `enable_skill` se o Hub as
+anunciar. Cada mudança exige aprovação separada no cartão do app. Fora desse
+fluxo, o bot não instala nem liga skills. O bot não desliga skills e nunca
+afirma sucesso sem confirmação do Hub.
 Abrir, navegar, atualizar, fechar ou dispensar apenas consulta; dispensa é local
 à UI, sem promessa de persistência. A fonte Pessoal/Hub e sessão são capturadas;
 outro Space não consulta Pessoal. Origem ou sessão inválida descarta leitura

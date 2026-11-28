@@ -49,13 +49,14 @@ pub(super) fn offered(name: &str) -> bool {
     matches!(name, "list_catalog_skills" | "install_skill" | "enable_skill" | "save_routine" | "pause_routine")
 }
 
-pub(super) async fn call(
+pub(super) async fn call<T>(
     hub: &Arc<Hub>,
     lane: &Lane,
     turn: i64,
     name: &str,
     args: &Value,
     revalidate: impl Fn() -> Result<BotConfig>,
+    reserve: impl FnOnce() -> Result<T>,
 ) -> Result<Value> {
     ensure!(crate::environment::Environment::is_open() && lane.session.is_none(), "open_tools_local_turn_required");
     let cfg = revalidate()?;
@@ -140,11 +141,11 @@ pub(super) async fn call(
             Ok(json!({"id":result["skill"]["id"],"installed":true}))
         }
         Operation::Enable { id, installation, version } => {
-            skill_selection::enable_open(hub, &cfg.id, id, version, installation, current, check_db)?;
+            skill_selection::enable_open(hub, &cfg.id, id, version, installation, reserve, check_db)?;
             Ok(json!({"id":id,"enabled":true}))
         }
         Operation::Routine { body, expected } => {
-            hub.routines.save_open_action(hub, &cfg, &body, expected, current, check_db)
+            hub.routines.save_open_action(hub, &cfg, &body, expected, reserve, check_db)
         }
     }
 }
@@ -473,17 +474,22 @@ mod tests {
             ensure!(alive.get(), "turn_cancelled");
             Ok(hub.store.bot("bot")?.unwrap().config)
         };
+        let reserve = || {
+            assert!(hub.emit_lock.try_lock().is_ok());
+            revalidate().map(drop)
+        };
         for (turn, stop) in [(1, true), (2, false), (3, false)] {
             alive.set(true);
             let mut events = hub.events.subscribe();
             let args = json!({"name":format!("Rotina {turn}"),"instruction":"Avisar","manual":true});
-            let (result, ()) = tokio::join!(call(&hub, &lane, turn, "save_routine", &args, revalidate), async {
-                let card = next_card(&hub, &mut events).await;
-                if stop {
-                    alive.set(false);
-                }
-                respond(&hub, &card, card.rev, &json!({}), Some(ALLOW), Some(&Origem::Local)).unwrap();
-            });
+            let (result, ()) =
+                tokio::join!(call(&hub, &lane, turn, "save_routine", &args, revalidate, reserve), async {
+                    let card = next_card(&hub, &mut events).await;
+                    if stop {
+                        alive.set(false);
+                    }
+                    respond(&hub, &card, card.rev, &json!({}), Some(ALLOW), Some(&Origem::Local)).unwrap();
+                });
             match turn {
                 1 => assert_eq!(result.unwrap_err().to_string(), "turn_cancelled"),
                 2 => assert_eq!(result.unwrap()["routine"]["name"], "Rotina 2"),
@@ -501,17 +507,26 @@ mod tests {
         let (hub, _directory) = fixture();
         let lane = Lane::main("bot");
         let revalidate = || Ok(hub.store.bot("bot")?.unwrap().config);
-        let catalog = call(&hub, &lane, 1, "list_catalog_skills", &json!({}), revalidate).await.unwrap();
+        let catalog = call(&hub, &lane, 1, "list_catalog_skills", &json!({}), revalidate, || Ok(())).await.unwrap();
         let skill = catalog["items"].as_array().unwrap().iter().find(|item| item["id"] == "grilling").unwrap();
         let mut events = hub.events.subscribe();
         let install = json!({"id":skill["id"],"digest":skill["digest"]});
-        let (installed, ()) =
-            tokio::join!(call(&hub, &lane, 1, "install_skill", &install, revalidate), accept_next(&hub, &mut events));
+        let (installed, ()) = tokio::join!(
+            call(&hub, &lane, 1, "install_skill", &install, revalidate, || Ok(())),
+            accept_next(&hub, &mut events)
+        );
         assert_eq!(installed.unwrap(), json!({"id":"grilling","installed":true}));
         assert_eq!(revalidate().unwrap().skills, [] as [String; 0]);
         let enable = json!({"id":"grilling"});
-        let (enabled, ()) =
-            tokio::join!(call(&hub, &lane, 1, "enable_skill", &enable, revalidate), accept_next(&hub, &mut events));
+        let reserve = || {
+            assert!(hub.emit_lock.try_lock().is_ok());
+            assert!(hub.store.memory_boundary.try_lock().is_ok());
+            Ok(())
+        };
+        let (enabled, ()) = tokio::join!(
+            call(&hub, &lane, 1, "enable_skill", &enable, revalidate, reserve),
+            accept_next(&hub, &mut events)
+        );
         assert_eq!(enabled.unwrap(), json!({"id":"grilling","enabled":true}));
         assert_eq!(revalidate().unwrap().skills, ["grilling"]);
     }

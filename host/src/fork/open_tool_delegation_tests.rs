@@ -199,6 +199,9 @@ for line in sys.stdin:
     if method == "turn/start":
         send({"method":"item/agentMessage/delta","params":{
             "threadId":"target-thread","turnId":"clean-turn","itemId":"a1","delta":"Resposta isolada"}})
+        send({"method":"thread/tokenUsage/updated","params":{
+            "threadId":"target-thread","turnId":"clean-turn","tokenUsage":{"total":{
+            "totalTokens":15,"inputTokens":12,"cachedInputTokens":2,"outputTokens":3,"reasoningOutputTokens":1}}}})
         send({"method":"turn/completed","params":{
             "threadId":"target-thread","turn":{"id":"clean-turn","status":"completed"}}})
 "#;
@@ -219,6 +222,7 @@ async fn isolated_reply_is_held_on_commit_failure_and_not_replayed_after_restart
         receipt: &receipt,
         deadline: Instant::now() + Duration::from_secs(10),
         fence: AtomicI64::new(0),
+        usage: std::sync::OnceLock::new(),
     };
     let mut cmd = tokio::process::Command::new("python3");
     let child = cmd
@@ -235,6 +239,17 @@ async fn isolated_reply_is_held_on_commit_failure_and_not_replayed_after_restart
     assert_eq!(response, "Resposta isolada");
     assert_eq!(request_state(&f, &receipt.run_id).0, "running");
     let db = &f.source.hub.store.db;
+    assert_eq!(
+        db.locked()
+            .query_row(
+                "SELECT account_id, input_tokens, cached_read_tokens, output_tokens FROM donna_turn_usage
+             WHERE id=?1 AND session_id='background:delegacao' AND turn IS NULL",
+                [dispatch.usage.get().unwrap()],
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?, r.get::<_, i64>(3)?)),
+            )
+            .unwrap(),
+        ("fixture".into(), 10, 2, 3),
+    );
     db.locked()
         .execute_batch(
             "CREATE TRIGGER deny_open_test BEFORE INSERT ON donna_session_results
@@ -272,6 +287,7 @@ async fn returns_only_committed_reply_and_discards_late_output_after_stop_or_tim
             receipt: &receipt,
             deadline: Instant::now() + Duration::from_secs(10),
             fence: AtomicI64::new(0),
+            usage: std::sync::OnceLock::new(),
         };
         assert!(matches!(dispatch.write(&mut || Poll::Ready(Ok(()))), Poll::Ready(Ok(()))));
         match case {

@@ -1040,11 +1040,16 @@ fn invalidar_em(c: &Connection, conta: &str) -> Result<()> {
         "INSERT INTO mexerica_conta_inventario(conta,completo) VALUES(?1,0) ON CONFLICT(conta) DO UPDATE SET completo=0",
         [conta],
     )?;
-    c.execute(
-        "INSERT INTO mexerica_conta_geracao(conta,n) VALUES(?1,1) ON CONFLICT(conta) DO UPDATE SET n=n+1",
-        [conta],
-    )?;
+    iniciar_descoberta_open(c, conta)?;
     Ok(())
+}
+
+pub(crate) fn iniciar_descoberta_open(c: &Connection, conta: &str) -> Result<i64> {
+    Ok(c.query_row(
+        "INSERT INTO mexerica_conta_geracao(conta,n) VALUES(?1,1) ON CONFLICT(conta) DO UPDATE SET n=n+1 RETURNING n",
+        [conta],
+        |row| row.get(0),
+    )?)
 }
 
 pub(crate) fn geracao_em(c: &Connection, conta: &str) -> Result<i64> {
@@ -1258,7 +1263,7 @@ fn filtrar_lista_com(
     let passam =
         instalar_para_bot(&tx, bot, conta, pol, tools, mediados, &textos, lista_completa(pedido, bruto), geracao)?;
     tx.commit()?;
-    projetar_lista(mediado, &passam);
+    projetar_lista(mediado, &passam, false);
     Ok(())
 }
 
@@ -1292,7 +1297,7 @@ pub(crate) fn filtrar_lista_open(
     validate(&tx)?;
     tx.commit()?;
     ensure!(completa, "Descoberta inválida ou parcial");
-    projetar_lista(mediado, &passam);
+    projetar_lista(mediado, &passam, true);
     Ok(())
 }
 
@@ -1307,30 +1312,36 @@ fn instalar_para_bot(
     textos: &BTreeMap<String, TextoMediado>,
     completa: bool,
     geracao: Option<i64>,
-) -> Result<BTreeSet<String>> {
+) -> Result<BTreeMap<String, String>> {
     let completa = completa && mediados.is_some();
     let mediados_ref = mediados.unwrap_or_default();
     let instalada = instalar_em(tx, conta, tools, &mediados_ref, textos, completa, geracao)?;
-    let passam: BTreeSet<String> = if instalada {
+    let passam = if instalada {
         let linhas = linhas(tx, conta)?;
         let liberadas = liberacoes(tx, bot, conta)?;
         mediados_ref
-            .iter()
-            .filter(|n| linhas.get(*n).is_some_and(|l| estado(pol, n, l, liberadas.get(*n)).passa()))
-            .cloned()
+            .into_iter()
+            .filter_map(|n| {
+                let linha = linhas.get(&n)?;
+                estado(pol, &n, linha, liberadas.get(&n)).passa().then(|| (n, linha.digest.clone()))
+            })
             .collect()
     } else {
-        BTreeSet::new()
+        BTreeMap::new()
     };
     Ok(passam)
 }
 
-fn projetar_lista(mediado: &mut Value, passam: &BTreeSet<String>) {
+fn projetar_lista(mediado: &mut Value, passam: &BTreeMap<String, String>, com_digest: bool) {
     if let Some(lista) = mediado["message"]["result"]["tools"].as_array_mut() {
-        lista.retain(|t| t["name"].as_str().is_some_and(|n| passam.contains(n)));
-        for tool in lista.iter_mut() {
+        lista.retain_mut(|tool| {
+            let Some(digest) = tool["name"].as_str().and_then(|n| passam.get(n)) else { return false };
             tool["inputSchema"] = projetar_schema(&tool["inputSchema"]);
-        }
+            if com_digest {
+                tool["digest"] = json!(digest);
+            }
+            true
+        });
     }
 }
 

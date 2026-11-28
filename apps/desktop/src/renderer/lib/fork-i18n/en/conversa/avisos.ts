@@ -78,7 +78,7 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.avisos.open.inicio": "Berga is already set up as your main bot. To chat, connect a Codex account in Settings → AI accounts. On the owner’s computer, bots can also use available Hub tools.",
   "conversa.avisos.open.interrompida": "Reply stopped.",
   "conversa.avisos.open.ferramenta": "The engine tried to use a tool that isn’t available in this turn. Reply ended.",
-  "conversa.avisos.open.demorou": "Codex took too long to reply. Try again.",
+  "conversa.avisos.open.demorou": "Codex took too long to reply. If you asked it to take an action, check whether it happened before sending again.",
   "conversa.avisos.open.longa": "The reply went past the maximum length and was stopped.",
   "conversa.avisos.open.politica": "The engine didn’t confirm the required isolation. Reply canceled.",
   "conversa.avisos.open.indisponivel": "Couldn’t open Codex in the Open profile. Check the account in AI accounts.",

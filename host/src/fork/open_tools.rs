@@ -91,9 +91,15 @@ impl<'a> Turn<'a> {
             return self.delegation_turn()?.status(args);
         }
         if super::open_tool_actions::offered(name) {
-            return super::open_tool_actions::call(self.hub, self.proof.lane(), self.proof.turn(), name, args, || {
-                self.check()
-            })
+            return super::open_tool_actions::call(
+                self.hub,
+                self.proof.lane(),
+                self.proof.turn(),
+                name,
+                args,
+                || self.check(),
+                || self.proof.reserve(self.hub),
+            )
             .await;
         }
         if open_mcp::offered(name) {

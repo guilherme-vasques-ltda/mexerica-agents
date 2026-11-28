@@ -73,17 +73,18 @@ pub(super) fn retain_history(next: &mut State) {
 }
 
 impl Routines {
-    pub(crate) fn save_open_action(
+    pub(crate) fn save_open_action<T>(
         &self,
         hub: &Hub,
         cfg: &crate::store::BotConfig,
         body: &Value,
         expected_updated_at: Option<i64>,
-        before_effect: impl FnOnce() -> Result<()>,
+        reserve: impl FnOnce() -> Result<T>,
         in_transaction: impl FnOnce(&rusqlite::Connection) -> Result<()>,
     ) -> Result<Value> {
         use crate::fork::routine_creation::{self as creation, Creation};
         crate::fork::open_rotinas::check_save(body)?;
+        let reservation = reserve()?;
         let _emit = hub.emit_lock.locked();
         let mut guard = self.state.locked();
         let mut next = guard.clone();
@@ -102,7 +103,6 @@ impl Routines {
         ensure_no_model_release(&guard, &next)?;
         ensure_no_model_heartbeat(&guard, &next)?;
         retain_history(&mut next);
-        before_effect()?;
         let created = body.get("id").is_none();
         let entries = hub.store.guard_routines_change_in_origin(Some(&cfg.id), None, |c| {
             in_transaction(c)?;
@@ -122,6 +122,7 @@ impl Routines {
             let live = guard_live_runs(&next).map(|(bot, run)| (bot.to_owned(), run.to_owned())).collect();
             Ok((entries, serde_json::to_string(&next)?, live))
         })?;
+        drop(reservation);
         let hooks_changed = hook_set(&guard) != hook_set(&next);
         self.state.epoca.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         *guard = next;

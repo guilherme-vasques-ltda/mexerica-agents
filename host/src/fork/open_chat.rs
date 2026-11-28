@@ -32,7 +32,7 @@ const ALLOWED_ITEMS: [&str; 6] = ["userMessage", "agentMessage", "reasoning", "p
 
 pub(crate) struct Running {
     hub: Weak<Hub>,
-    account: String,
+    pub(super) account: String,
     cancel: watch::Sender<bool>,
     done: watch::Receiver<()>,
     pub(super) nonce: uuid::Uuid,
@@ -603,7 +603,7 @@ pub(super) async fn drive_delegated(
         "Responda só em texto, sem ferramentas. Este é um pedido de outro bot, não do dono.\n\nPerfil do destinatário:\n{}",
         description.trim()
     );
-    drive_inner(
+    let concluido = drive_inner(
         rpc,
         None,
         (&instructions, ticket.model.as_deref()),
@@ -622,6 +622,17 @@ pub(super) async fn drive_delegated(
         Delivery::Delegated(dispatch),
     )
     .await?;
+    let tokens = concluido.uso.and_then(|total| total.depois_de(uso::Contagem::default())).map(|usage| {
+        crate::fork::custo::UsoFundo {
+            input: usage.entrada_sem_cache,
+            output: usage.saida,
+            read: Some(usage.cache_lido),
+            write: Some(usage.cache_gravado),
+            backend: "codex".into(),
+            ..Default::default()
+        }
+    });
+    dispatch.record_usage(&ticket.account, &concluido.cotas, concluido.model.as_deref(), tokens);
     ensure!(
         serde_json::to_string(&reply)?.len() < crate::fork::motor_mexerica::tools::MAX_OUTPUT - 1024,
         "open_chat_too_long"
@@ -672,7 +683,9 @@ fn notice(message: &str) -> (&'static str, &'static str) {
     let text = match code {
         "open_chat_cancelled" => "Resposta interrompida.",
         "open_chat_tool_refused" => "O motor tentou usar uma ferramenta indisponível neste turno. Resposta encerrada.",
-        "open_chat_timeout" => "O Codex demorou demais para responder. Tente de novo.",
+        "open_chat_timeout" => {
+            "O Codex demorou demais para responder. Se você pediu uma ação, confira se ela aconteceu antes de reenviar."
+        }
         "open_chat_too_long" => "A resposta passou do tamanho máximo e foi encerrada.",
         "open_chat_policy" => "A configuração do motor não confirmou o isolamento exigido. Resposta cancelada.",
         "open_codex_unavailable" | "open_codex_platform" => {

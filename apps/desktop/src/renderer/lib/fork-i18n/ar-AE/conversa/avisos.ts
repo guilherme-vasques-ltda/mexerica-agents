@@ -78,7 +78,7 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.avisos.open.inicio": "تم إنشاء Berga كبوتك الرئيسي. للمحادثة، اربط حساب Codex من الإعدادات ← حسابات الذكاء الاصطناعي. على جهاز المالك، يمكن للبوتات أيضًا استخدام أدوات Hub المتاحة.",
   "conversa.avisos.open.interrompida": "تم إيقاف الرد.",
   "conversa.avisos.open.ferramenta": "حاول المحرك استخدام أداة غير متاحة في هذه الجولة. انتهى الرد.",
-  "conversa.avisos.open.demorou": "استغرق Codex وقتًا طويلاً للرد. حاول مرة أخرى.",
+  "conversa.avisos.open.demorou": "استغرق Codex وقتًا طويلاً للرد. إذا طلبت تنفيذ إجراء، فتحقق مما إذا كان قد تم قبل إعادة الإرسال.",
   "conversa.avisos.open.longa": "تجاوز الرد الحد الأقصى للطول وتم إيقافه.",
   "conversa.avisos.open.politica": "لم يؤكد المحرك العزل المطلوب. تم إلغاء الرد.",
   "conversa.avisos.open.indisponivel": "تعذّر فتح Codex في ملف Open. تحقّق من الحساب في حسابات الذكاء الاصطناعي.",

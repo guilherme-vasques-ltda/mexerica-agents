@@ -74,7 +74,7 @@ export const textos = {
   "conversa.avisos.open.inicio": "O Berga já está criado como seu bot principal. Para conversar, conecte uma conta do Codex em Ajustes → Contas de IA. No computador do dono, os bots também podem usar as ferramentas disponíveis do Hub.",
   "conversa.avisos.open.interrompida": "Resposta interrompida.",
   "conversa.avisos.open.ferramenta": "O motor tentou usar uma ferramenta indisponível neste turno. Resposta encerrada.",
-  "conversa.avisos.open.demorou": "O Codex demorou demais para responder. Tente de novo.",
+  "conversa.avisos.open.demorou": "O Codex demorou demais para responder. Se você pediu uma ação, confira se ela aconteceu antes de reenviar.",
   "conversa.avisos.open.longa": "A resposta passou do tamanho máximo e foi encerrada.",
   "conversa.avisos.open.politica": "O motor não confirmou o isolamento exigido. Resposta cancelada.",
   "conversa.avisos.open.indisponivel": "Não deu para abrir o Codex no perfil da Open. Confira a conta em Contas de IA.",

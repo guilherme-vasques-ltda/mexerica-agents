@@ -155,6 +155,39 @@ fn link_fixture_tool(hub: &Hub, proof: &LocalTurn) {
 }
 
 #[tokio::test]
+async fn mcp_open_stale_discovery_cannot_replace_or_invalidate_newer_inventory() {
+    if !Environment::is_open() {
+        return;
+    }
+    let endpoint = Url::parse("https://mcp.example.invalid/mcp").unwrap();
+    let (hub, _ticket, proof) = fixture(&endpoint, "local", true);
+    let proof = proof.unwrap();
+    let account = market::connectors(&hub.store).unwrap().remove(0);
+    let mut db = hub.store.db.locked();
+    let earlier = ferramentas::iniciar_descoberta_open(&db, ACCOUNT).unwrap();
+    let latest = ferramentas::iniciar_descoberta_open(&db, ACCOUNT).unwrap();
+    let install = |db: &mut rusqlite::Connection, generation, description, cursor: Option<&str>| {
+        let mut frame = json!({"result":{"tools":[
+            {"name":"list_issues","description":description,"inputSchema":{"type":"object"}}
+        ]}});
+        if let Some(cursor) = cursor {
+            frame["result"]["nextCursor"] = json!(cursor);
+        }
+        let expected = ferramentas::ler_ferramenta(&frame["result"]["tools"][0]).unwrap().digest;
+        let mut mediated = json!({"message":frame});
+        ferramentas::filtrar_lista_open(db, &proof.lane().chat, &account, &frame, &mut mediated, generation, |_| Ok(()))
+            .map(|()| expected)
+    };
+    let expected = install(&mut db, latest, "Latest", None).unwrap();
+    assert!(install(&mut db, earlier, "Stale", None).is_err());
+    assert!(install(&mut db, earlier, "Stale partial", Some("page")).is_err());
+    drop(db);
+    let list = ferramentas::listar(&hub.store, &proof.lane().chat, ACCOUNT).unwrap();
+    assert_eq!(list["inventarioPronto"], true);
+    assert_eq!(list["ferramentas"][0]["digest"], expected);
+}
+
+#[tokio::test]
 async fn mcp_open_refreshes_and_sends_approved_call_once_with_mediated_return() {
     if !Environment::is_open() {
         return;

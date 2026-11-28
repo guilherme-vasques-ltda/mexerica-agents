@@ -82,13 +82,13 @@ impl Selection {
     }
 }
 
-pub(crate) fn enable_open(
+pub(crate) fn enable_open<T>(
     hub: &Hub,
     bot: &str,
     skill: &str,
     version: String,
     installation: String,
-    before_effect: impl FnOnce() -> Result<()>,
+    reserve: impl FnOnce() -> Result<T>,
     in_transaction: impl FnOnce(&Connection) -> Result<()>,
 ) -> Result<()> {
     let cell = Cell {
@@ -100,9 +100,9 @@ pub(crate) fn enable_open(
     };
     let expected = [(cell.skill_id.clone(), cell.expected_installation_id.clone())];
     let changed = crate::fork::skill_catalog::with_installations(&hub.store, &expected, true, |vista| {
+        let _reservation = reserve()?;
         let _boundary = hub.store.memory_boundary.locked();
         let _emit = hub.emit_lock.locked();
-        before_effect()?;
         crate::fork::donna_fixa::pedido::gravar_com(&hub.store, None, |c| {
             in_transaction(c)?;
             vista.conferir(c)?;

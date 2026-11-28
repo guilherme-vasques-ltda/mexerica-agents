@@ -324,6 +324,7 @@ pub(super) struct Dispatch<'a> {
     receipt: &'a Recibo,
     deadline: Instant,
     fence: AtomicI64,
+    usage: std::sync::OnceLock<String>,
 }
 
 impl Dispatch<'_> {
@@ -365,7 +366,17 @@ impl Dispatch<'_> {
                 equipe::despachar_open_na(&tx, self.receipt)?;
                 let fence = retornos::despachar_na(&tx, &self.receipt.run_id)?.context("retorno_vencido")?;
                 self.check_running(&tx, fence)?;
+                let account =
+                    &running.as_ref().and_then(|m| m.get(&self.receipt.bot_id)).context("open_chat_cancelled")?.account;
+                let usage = crate::fork::custo::begin_background_on(
+                    &tx,
+                    &self.receipt.bot_id,
+                    "delegacao",
+                    None,
+                    Some(account),
+                )?;
                 tx.commit()?;
+                let _ = self.usage.set(usage);
                 self.fence.store(fence, Ordering::Relaxed);
             } else {
                 self.check_running(&db, fence)?;
@@ -375,6 +386,23 @@ impl Dispatch<'_> {
         match open {
             Ok(()) => effect(),
             Err(error) => Poll::Ready(Err(error)),
+        }
+    }
+
+    #[cfg(unix)]
+    pub(super) fn record_usage(
+        &self,
+        account: &str,
+        quotas: &[crate::usage::Window],
+        model: Option<&str>,
+        tokens: Option<crate::fork::custo::UsoFundo>,
+    ) {
+        let hub = &self.source.hub;
+        crate::fork::uso_historico::record_open_codex(hub, account, quotas);
+        if let Some(id) = self.usage.get()
+            && crate::fork::custo::complete_background(&hub.store, id, model, tokens).is_err()
+        {
+            tracing::warn!("não foi possível gravar o uso do turno delegado");
         }
     }
 
@@ -449,6 +477,7 @@ async fn work(
         receipt: &receipt,
         deadline,
         fence: AtomicI64::new(0),
+        usage: std::sync::OnceLock::new(),
     };
     let stopped = async {
         tokio::select! {

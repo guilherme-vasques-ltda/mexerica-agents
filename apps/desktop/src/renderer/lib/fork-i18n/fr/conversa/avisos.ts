@@ -78,7 +78,7 @@ export const textos: Traducao<typeof fonte> = {
   "conversa.avisos.open.inicio": "Berga est déjà créé comme votre bot principal. Pour discuter, connectez un compte Codex dans Réglages → Comptes d’IA. Sur l’ordinateur du propriétaire, les bots peuvent aussi utiliser les outils du Hub disponibles.",
   "conversa.avisos.open.interrompida": "Réponse interrompue.",
   "conversa.avisos.open.ferramenta": "Le moteur a essayé d’utiliser un outil indisponible pour ce tour. Réponse terminée.",
-  "conversa.avisos.open.demorou": "Codex a mis trop de temps à répondre. Réessayez.",
+  "conversa.avisos.open.demorou": "Codex a mis trop de temps à répondre. Si vous avez demandé une action, vérifiez qu’elle a bien eu lieu avant de renvoyer votre demande.",
   "conversa.avisos.open.longa": "La réponse a dépassé la longueur maximale et a été arrêtée.",
   "conversa.avisos.open.politica": "Le moteur n’a pas confirmé l’isolation requise. Réponse annulée.",
   "conversa.avisos.open.indisponivel": "Impossible d’ouvrir Codex dans le profil Open. Vérifiez le compte dans Comptes d’IA.",
