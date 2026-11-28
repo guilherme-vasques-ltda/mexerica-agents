@@ -11,6 +11,7 @@ import { useIdioma, useT } from '../../../lib/fork-i18n/estado'
 import type { ChatSessions } from '../sessoes/useChatSessions'
 import { panelPrefs } from '../painel-direito/prefs'
 import { doubleClicks } from './memoria'
+import { tabsStartExpanded } from './inicio'
 import { fitTabs, type TabFit } from './encaixe'
 import { clickIntent, redirectMs, staggerDelays, type ItemKind } from './movimento'
 import './chat-tabs.css'
@@ -63,7 +64,14 @@ export function ChatTabs({ chat, channel, sessions, openId, closed, onOpen, onCl
   menuSessionId?: string | null
   hidden?: boolean
 }) {
-  const [expanded, setExpanded] = usePref(panelPrefs.tabsOpen)
+  const [saved, setExpanded] = usePref(panelPrefs.tabsOpen)
+  // As sessões com aba: as em andamento sem "×", e a aberta agora mesmo se a aba dela foi fechada.
+  const tabs = useMemo(() => {
+    const list = sessions.open.filter((s) => !closed.has(s.id) || s.id === openId)
+    const opened = openId ? sessions.archived.find((s) => s.id === openId) : undefined
+    return opened ? [...list, opened] : list
+  }, [sessions.open, sessions.archived, closed, openId])
+  const expanded = tabsStartExpanded(tabs.length, saved)
   const bar = useRef<HTMLDivElement>(null)
   const measure = useRef<HTMLDivElement>(null)
   const twice = useMemo(() => doubleClicks(), [])
@@ -75,12 +83,6 @@ export function ChatTabs({ chat, channel, sessions, openId, closed, onOpen, onCl
   if (phase.current === null) intent.current = expanded
   const name = channel ? chat.name.toLocaleLowerCase('pt-BR') : chat.name
 
-  // As sessões com aba: as em andamento sem "×", e a aberta agora mesmo se a aba dela foi fechada.
-  const tabs = useMemo(() => {
-    const list = sessions.open.filter((s) => !closed.has(s.id) || s.id === openId)
-    const opened = openId ? sessions.archived.find((s) => s.id === openId) : undefined
-    return opened ? [...list, opened] : list
-  }, [sessions.open, sessions.archived, closed, openId])
   const active = tabs.findIndex((s) => s.id === openId)
   const visible = expanded ? tabs : tabs.filter((s) => s.id === openId)
   const [fit, setFit] = useState<TabFit>(ALL)
@@ -320,12 +322,10 @@ export function ChatTabs({ chat, channel, sessions, openId, closed, onOpen, onCl
           <Icon name="ellipsis" size={13} weight="semibold" scaled={false} />
         </button>
       ) : null}
-      {tabs.length ? (
-        <button className="ctab-toggle" aria-expanded={expanded} onClick={toggle}
-          title={t(expanded ? 'sessions.tabs.hideTitle' : 'sessions.tabs.showTitle', { nome: name })} aria-label={t(expanded ? 'sessions.tabs.hide' : 'sessions.tabs.show')}>
-          <Icon name={expanded ? 'chevron.left.2' : 'chevron.right.2'} size={13} weight="semibold" scaled={false} />
-        </button>
-      ) : null}
+      <button className="ctab-toggle" aria-expanded={expanded} onClick={toggle}
+        title={t(expanded ? 'sessions.tabs.hideTitle' : 'sessions.tabs.showTitle', { nome: name })} aria-label={t(expanded ? 'sessions.tabs.hide' : 'sessions.tabs.show')}>
+        <Icon name={expanded ? 'chevron.left.2' : 'chevron.right.2'} size={13} weight="semibold" scaled={false} />
+      </button>
       {/* Rascunho escondido com as larguras naturais das abas (a ativa reserva o lugar do "×"). */}
       <div className="ctabs-measure" ref={measure} aria-hidden inert>
         {expanded ? visible.map((s) => (

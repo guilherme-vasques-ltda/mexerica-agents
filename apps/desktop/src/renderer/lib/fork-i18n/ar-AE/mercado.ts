@@ -3,6 +3,15 @@ import type { textos as fonte } from '../pt-BR/mercado.ts'
 
 // Marketplace de conectores (fatia 1b): Extensões → Conectores e Contas no bot. Chaves completas; docs/guides/idiomas.md.
 export const textos: Traducao<typeof fonte> = {
+  "mercado.appProprio.titulo": "تطبيق OAuth الخاص بك",
+  "mercado.appProprio.salvar": "حفظ التطبيق في الخزنة",
+  "mercado.appProprio.editar": "إعداد التطبيق",
+  "mercado.appProprio.portal": "فتح إعدادات المزوّد",
+  "mercado.appProprio.redirect": "سجّل عناوين إعادة التوجيه هذه لدى المزوّد قبل الحفظ.",
+  "mercado.appProprio.aviso": "يؤدي استبدال التطبيق أو إزالته إلى تسجيل خروج الحسابات التي تستخدم هذا النوع من الاتصال في هذه المساحة.",
+  "mercado.appProprio.remover": "إزالة التطبيق",
+  "mercado.appProprio.erro": "تعذّر تأكيد تغيير تطبيق OAuth.",
+  "mercado.appProprio.indisponivel": "افتح الخزنة وأعد تحميل صفحة الخدمة لإعداد تطبيق OAuth.",
   "mercado.tab.rotulo": "أقسام الموصلات",
   "mercado.tab.catalogo": "الكتالوج",
   "mercado.tab.contas": "حساباتي",
@@ -286,4 +295,6 @@ export const textos: Traducao<typeof fonte> = {
   "mercado.acoes.confirmar.campos": "وما سيقرؤه في كل حقل من حقول الإجراء:",
   "mercado.acoes.confirmar.campo": "{campo}: {texto}",
   "mercado.acoes.ocultos": "تنبيه: يحتوي هذا النص على محارف لا تظهر على الشاشة أو تغيّر اتجاه الكتابة.",
+  "mercado.lib.filtro": "يمكن لهذا الحساب تعديل البيانات في الخدمة. في Mexerica، تكون جميع الإجراءات معطّلة في البداية. لاستخدام أي إجراء، عليك تفعيله على حدة لكل روبوت.",
+  "mercado.erro.credencial_com_escrita": "حدّث التطبيق للاطلاع على تنبيه صلاحية الكتابة قبل ربط هذا الحساب.",
 } as const

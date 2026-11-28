@@ -17,7 +17,7 @@ import { useComposerInput } from '../../lib/use-composer-input'
 import { chatEntriesOf, useStoreRef } from '../../store/context'
 import { bloqueioSenha, destinoSenha } from '../../store/fork-senha-bloqueio'
 import { emQueda } from '../../store/fork-queda-curta'
-import { MAX_FILE_SIZE, type OutgoingFile } from '../../store/bot-store'
+import { MAX_FILE_SIZE, type OutgoingFile, type SendOptions } from '../../store/bot-store'
 import { pluginsFor } from '../marketplace/plugins'
 import { composerEnter } from './composer-keyboard'
 import { useConversaComposer } from '../fork/conversa/preferencias'
@@ -41,7 +41,7 @@ import { MotivoCompactando, useCompactacao } from '../fork/contexto/Compactando'
 import { bloqueiaEnvioCompactando } from '../fork/contexto/estado'
 import { applyStarterDraft } from '../fork/onboarding/starter-draft'
 import type { StarterDraft } from '../fork/onboarding/useStarterTour'
-import { builtInCommand, slashCommands, slashQuery, type SlashCommand } from './slash-commands'
+import { builtInCommand, newTabText, slashCommands, slashQuery, type SlashCommand } from './slash-commands'
 // DON-907 (D431): a fila como bandeja no mesmo bloco do campo (módulo próprio, D71).
 import { BandejaFila, BarraEdicao, StatusDaFila, useFila } from '../fork/conversa/BandejaFila'
 import { superficieIdioma, useIdioma, useT } from '../../lib/fork-i18n/estado'
@@ -59,7 +59,7 @@ interface StarterDraftProps {
   onStarterDraftHandled?: (origin?: OriginDraft) => void
 }
 
-export function Composer({ botId, sessionId = null, reply = null, cancelReply, onCall, onInterrupt, starterDraft, onStarterDraftHandled }: StarterDraftProps & {
+export function Composer({ botId, sessionId = null, reply = null, cancelReply, onCall, onInterrupt, onNewTab = null, starterDraft, onStarterDraftHandled }: StarterDraftProps & {
   botId: string
   /** Fork (UI-01): a extra aberta; null = a principal, que envia como antes. */
   sessionId?: string | null
@@ -69,15 +69,17 @@ export function Composer({ botId, sessionId = null, reply = null, cancelReply, o
   onCall?: (() => void) | null
   /** Interrupts the bot while it is speaking in a voice call. */
   onInterrupt?: (() => void) | null
+  /** `/nova-aba`: cria uma aba do mesmo bot e começa a conversa nela com o texto; null = o Hub não oferece abas aqui. */
+  onNewTab?: ((text: string, options: SendOptions) => Promise<boolean>) | null
 }) {
   const store = useStoreRef()
   // Remount transient editor state (selection, IME) when its destination changes (Fork UI-01: also the session).
   return <DestinationComposer key={JSON.stringify([store.contextId, store.computer.id, store.spaceId, botId, sessionId])}
-    botId={botId} sessionId={sessionId} reply={reply} cancelReply={cancelReply} onCall={onCall} onInterrupt={onInterrupt} starterDraft={starterDraft} onStarterDraftHandled={onStarterDraftHandled} />
+    botId={botId} sessionId={sessionId} reply={reply} cancelReply={cancelReply} onCall={onCall} onInterrupt={onInterrupt} onNewTab={onNewTab} starterDraft={starterDraft} onStarterDraftHandled={onStarterDraftHandled} />
 }
 
-function DestinationComposer({ botId, sessionId, reply, cancelReply, onCall, onInterrupt, starterDraft, onStarterDraftHandled }: StarterDraftProps & {
-  botId: string; sessionId: string | null; reply: Entry | null; cancelReply?: () => void; onCall?: (() => void) | null; onInterrupt?: (() => void) | null
+function DestinationComposer({ botId, sessionId, reply, cancelReply, onCall, onInterrupt, onNewTab, starterDraft, onStarterDraftHandled }: StarterDraftProps & {
+  botId: string; sessionId: string | null; reply: Entry | null; cancelReply?: () => void; onCall?: (() => void) | null; onInterrupt?: (() => void) | null; onNewTab: ((text: string, options: SendOptions) => Promise<boolean>) | null
 }) {
   const store = useStoreRef()
   // MX-4 (C9): a fatia do compositor — o bot, a conexão/queda, a fila (entradas), os rascunhos e os membros do grupo.
@@ -227,7 +229,7 @@ function DestinationComposer({ botId, sessionId, reply, cancelReply, onCall, onI
 
   const slash = slashQuery(draft)
   const conversa = useConversaComposer()
-  const commands = slash === null ? [] : slashCommands(bot, slash, plugins.installedSkills, members, conversa.slashSkills)
+  const commands = slash === null ? [] : slashCommands(bot, slash, plugins.installedSkills, members, conversa.slashSkills, !!onNewTab)
 
   const run = (command: SlashCommand) => {
     if (!bot || bloqueado || compactando) return
@@ -244,6 +246,10 @@ function DestinationComposer({ botId, sessionId, reply, cancelReply, onCall, onI
         break
       case 'skill':
         setDraft(`/${command.action.id} `)
+        break
+      case 'newTab':
+        void onNewTab?.('', {})
+        setDraft('')
         break
     }
     field.current?.focus({ preventScroll: true })
@@ -269,7 +275,22 @@ function DestinationComposer({ botId, sessionId, reply, cancelReply, onCall, onI
   const submit = () => {
     if (bloqueado) return
     if (compactando) return setTentou((n) => n + 1)
-    const command = files.length ? null : builtInCommand(bot, draft, members)
+    const novaAba = onNewTab && !files.length ? newTabText(draft) : null
+    if (onNewTab && novaAba) {
+      const texto = draft
+      const full = originReport(draft, drafts.origin(draftId), originDevice())
+      const shift = draft.trim().length - novaAba.length
+      const segments = full.segments.flatMap((s) => (s.end > shift ? [{ ...s, start: Math.max(0, s.start - shift), end: s.end - shift }] : []))
+      void onNewTab(novaAba, { pasted: pasted.current, contentOrigin: { ...full, textLength: novaAba.length, segments } }).then((ok) => {
+        if (ok) return
+        const atual = drafts.get(draftId)
+        setDraft(atual ? `${texto}\n${atual}` : texto)
+      })
+      pasted.current = []
+      setDraft('')
+      return
+    }
+    const command = files.length ? null : builtInCommand(bot, draft, members, !!onNewTab)
     if (command) return run(command)
     if (!canSend) return
     // A extra é a desta caixa, capturada agora; sem o Hub anunciar `send`, nada sai e o texto fica.
@@ -340,7 +361,7 @@ function DestinationComposer({ botId, sessionId, reply, cancelReply, onCall, onI
   const [symbol, label] = ({
     interrupt: ['stop.fill', t('conversa.compositor.interromper')],
     stop: ['stop.fill', t('conversa.compositor.parar')],
-    send: ['arrow.up', t('conversa.compositor.enviar')],
+    send: ['mx-enviar', t('conversa.compositor.enviar')],
   } as const)[trailing]
   // Compactando, nem Parar vale: parar cancelaria a compactação e deixaria a conversa cheia sem a pessoa saber por quê.
   const enabled = trailing === 'interrupt' || (!compactando && (trailing !== 'send' || canSend))
@@ -515,12 +536,12 @@ function DestinationComposer({ botId, sessionId, reply, cancelReply, onCall, onI
                 disabled={bloqueado || compactando}
                 onClick={dictation.toggle}
               >
-                <Icon name={dictation.listening ? 'mic.fill' : 'mic'} size={16} weight="medium" />
+                <Icon name="mx-gravar-audio" size={16} weight="medium" />
               </button>
             ) : null}
             {onCall && !editando ? (
               <button className="press composer-mic composer-call" aria-label={t('conversa.compositor.aoVivo')} title={t('conversa.compositor.aoVivo')} onClick={onCall}>
-                <Icon name="waveform" size={16} weight="medium" />
+                <Icon name="mx-voz-ao-vivo" size={16} weight="medium" />
               </button>
             ) : null}
             {editando ? (
@@ -542,9 +563,9 @@ function DestinationComposer({ botId, sessionId, reply, cancelReply, onCall, onI
                 else submit()
               }}
             >
-              {(['stop.fill', 'waveform', 'arrow.up'] as const).map((name) => (
+              {(['stop.fill', 'mx-enviar'] as const).map((name) => (
                 <span key={name} aria-hidden="true" className={`composer-symbol ${name === symbol ? 'active' : ''}`}>
-                  <Icon name={name} size={name === 'stop.fill' ? 13 : name === 'waveform' ? 20 : 18} weight="bold" />
+                  <Icon name={name} size={name === 'stop.fill' ? 13 : 16} weight="bold" />
                 </span>
               ))}
             </button>

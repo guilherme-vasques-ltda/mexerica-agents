@@ -33,6 +33,15 @@ export function definirIdiomaDoApp(valor: unknown): boolean {
   return true
 }
 
+/**
+ * O primeiro idioma do processo principal, antes de o renderer avisar: o do macOS (`suggestedLanguage`), ou o padrão
+ * inglês quando nenhum serve. Uma escolha já salva chega pelo renderer logo depois e continua valendo.
+ */
+export function iniciarIdiomaDoApp(): AppLanguage {
+  definirIdiomaDoApp(suggestedLanguage() ?? FALLBACK_LANGUAGE)
+  return idiomaApp
+}
+
 /** Quem redesenha com o idioma (menu, barra) se registra aqui. Devolve como sair. */
 export function aoMudarIdiomaDoApp(ouvinte: () => void): () => void {
   ouvintes.add(ouvinte)

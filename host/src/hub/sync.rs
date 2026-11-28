@@ -14,6 +14,9 @@ impl Hub {
         v["conversationId"] = cfg.id.clone().into();
         v["managedWorkspace"] = crate::agent::workspace::is_managed(cfg).into();
         v["workspaceIssue"] = crate::fork::pasta::aviso(cfg).into();
+        if let Some(enabled) = crate::fork::open_command_settings::project(self, cfg).filter(|_| !row.deleted) {
+            v[crate::fork::open_command_settings::FIELD] = enabled.into();
+        }
         // Null where there is no switch to show.
         v["harnessMemory"] =
             (!cfg.is_group() && crate::agent::own_memory::switchable(cfg)).then_some(cfg.harness_memory).into();

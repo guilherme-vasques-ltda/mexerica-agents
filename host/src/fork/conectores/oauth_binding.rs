@@ -245,9 +245,24 @@ fn same_config(a: &Connector, b: &Connector) -> bool {
             == b.oauth_binding.as_ref().and_then(|b| b.grant.as_ref())
 }
 
+#[derive(PartialEq)]
+struct OAuthConfig<'a> {
+    client_id: &'a str,
+    client_secret: Option<&'a str>,
+    redirect_uris: &'a [String],
+    token_endpoint: &'a str,
+    client_secret_basic: bool,
+}
+
 /// Exclui somente `access/refresh/expires_at`; cadastro/endpoint/redirect continuam configuração.
-fn oauth_config(o: Option<&market::oauth::OAuth>) -> Option<(&str, Option<&str>, &[String], &str)> {
-    o.map(|o| (o.client_id.as_str(), o.client_secret.as_deref(), o.redirect_uris.as_slice(), o.token_endpoint.as_str()))
+fn oauth_config(o: Option<&market::oauth::OAuth>) -> Option<OAuthConfig<'_>> {
+    o.map(|o| OAuthConfig {
+        client_id: &o.client_id,
+        client_secret: o.client_secret.as_deref(),
+        redirect_uris: &o.redirect_uris,
+        token_endpoint: &o.token_endpoint,
+        client_secret_basic: o.client_secret_basic,
+    })
 }
 /// Chamado somente sob `connector_lock`, sem reentrar o loader público.
 pub(crate) fn initialize(all: &mut [Connector]) -> bool {
@@ -483,7 +498,10 @@ fn change_guarded<T>(
     let (mut all, _) = market::load_connectors(store)?;
     let c = all
         .iter_mut()
-        .find(|c| same_target(c, expected) && c.oauth == expected.oauth)
+        .find(|c| {
+            runtime.map_or_else(|| same_target(c, expected), |intent| intent.matches_target(c, expected))
+                && c.oauth == expected.oauth
+        })
         .ok_or_else(|| anyhow!("Login antigo: o vínculo do conector mudou"))?;
     valid()?;
     let value = f(c)?;
@@ -556,7 +574,9 @@ fn check_guarded<T>(
     }
     let (all, _) = market::load_connectors(store)?;
     ensure!(
-        all.iter().any(|c| same_target(c, expected) && c.oauth == expected.oauth),
+        all.iter()
+            .any(|c| runtime.map_or_else(|| same_target(c, expected), |intent| intent.matches_target(c, expected))
+                && c.oauth == expected.oauth),
         "Login antigo: o vínculo do conector mudou"
     );
     if let Some((hub, origin)) = authority {

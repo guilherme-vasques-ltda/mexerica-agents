@@ -3,6 +3,8 @@ import type { textos as fonte } from '../pt-BR/botSettings.ts'
 
 // DON-903: botSettings (registro.ts). Chaves completas; docs/guides/idiomas.md.
 export const textos: Traducao<typeof fonte> = {
+  'botSettings.comandosLocais.titulo': 'Comandos locales',
+  'botSettings.comandosLocais.aviso': 'Activa esta opción antes del primer mensaje en un bot nuevo. Cada comando sigue requiriendo aprobación. Los comandos aprobados se ejecutan sin aislamiento con tus permisos y pueden acceder a archivos y a la red.',
   // DON-865, fatia 4: Motor do criar bot e do editor (D372/D373/D375).
   'botSettings.motor.aviso': 'Se aplica a las conversaciones nuevas. Cada conversación abierta mantiene su modelo.',
   'botSettings.motor.usar': 'Usar también en la conversación principal',
@@ -115,4 +117,18 @@ export const textos: Traducao<typeof fonte> = {
   "botSettings.indisponivel.guiasLinha": "Tus instrucciones para orientar la elección automática, sin cambiar a qué puede acceder el bot.",
   "botSettings.indisponivel.nota": "Por ahora, las conversaciones nuevas usan la cuenta y el modelo elegidos arriba.",
   "botSettings.fechar": "Cerrar",
+  "botSettings.open.motor.intro": "Esta edición ejecuta solo Codex, en texto, sin comandos ni control del ordenador. Elige abajo la cuenta y el modelo de este bot; vale desde el próximo mensaje.",
+  "botSettings.open.motor.semConta": "Ninguna cuenta conectada. Conecta una cuenta de Codex en Ajustes → Cuentas de IA.",
+  "botSettings.open.motor.padrao": "{modelo} (predeterminado)",
+  "botSettings.open.motor.usar": "Usar",
+  "botSettings.open.motor.erro": "No se pudo cambiar el modelo. Inténtalo de nuevo.",
+  "botSettings.open.motor.erroLeitura": "No se pudieron leer las cuentas conectadas.",
+  "botSettings.open.motor.tentar": "Intentar de nuevo",
+  "botSettings.open.memoria.aviso": "Los manuales y notas de esta pestaña se añaden como contexto a las conversaciones de este bot, como texto: no dan herramientas ni acceso.",
+  "botSettings.open.fluxo.pasta": "Carpeta de trabajo: en Mexerica Open el bot no accede a carpetas del equipo. Depende del control de comandos, que corresponde al trabajo de shell.",
+  "botSettings.open.fluxo.computador": "Usar el equipo: Open conversa solo en texto y no controla el equipo. Ese flujo corresponde al trabajo de control del equipo.",
+  "botSettings.open.fluxo.navegador": "Navegador del bot: necesita comandos en el equipo y no funciona en Open.",
+  "botSettings.open.fluxo.conectores": "Conectores e inicios de sesión guardados: dependen de la Bóveda y del inicio de sesión como flujo, que corresponden al trabajo de seguridad. Las skills del catálogo funcionan con normalidad.",
+  "botSettings.open.fluxo.whatsapp": "WhatsApp necesita iniciar sesión y vincular la cuenta y no funciona en Open. Aparecerá aquí cuando ese flujo esté disponible.",
+  "botSettings.open.fluxo.voz": "La voz necesita el micrófono y los flujos de voz, que corresponden al trabajo de voz.",
 }

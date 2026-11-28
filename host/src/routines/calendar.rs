@@ -609,6 +609,44 @@ mod tests {
     }
 
     #[test]
+    fn rotina_com_varios_horarios_ganha_um_cartao_em_cada_horario_da_semana() {
+        let now = ms("2026-10-18T12:00:00Z");
+        let (from, to) = (ms("2026-10-19T00:00:00-03:00"), ms("2026-10-26T00:00:00-03:00"));
+        let mut lista = routine();
+        lista.id = "a-lista".into();
+        lista.triggers =
+            vec![Trigger::Cron { expression: "0 8,12,18 * * *".into(), time_zone: "America/Sao_Paulo".into() }];
+        lista.next_runs = vec![lista.triggers[0].next(now).unwrap()];
+        let mut gatilhos = routine();
+        gatilhos.id = "b-gatilhos".into();
+        gatilhos.triggers = ["0 9 * * 1-5", "30 13 * * 1-5", "15 17 * * 1-5"]
+            .map(|expression| Trigger::Cron { expression: expression.into(), time_zone: "America/Sao_Paulo".into() })
+            .to_vec();
+        gatilhos.next_runs = gatilhos.triggers.iter().map(|t| t.next(now).unwrap()).collect();
+        let projection = occurrences(&[lista, gatilhos], from, to, now);
+        assert!(projection.dense.is_empty(), "poucos horários por hora não viram faixa");
+        let horas = |id: &str| -> Vec<String> {
+            projection
+                .occurrences
+                .iter()
+                .filter(|o| o["routineId"] == id)
+                .map(|o| {
+                    let at = DateTime::<Utc>::from_timestamp_millis(o["at"].as_i64().unwrap()).unwrap();
+                    at.with_timezone(&Tz::America__Sao_Paulo).format("%a %H:%M").to_string()
+                })
+                .collect()
+        };
+        let lista = horas("a-lista");
+        assert_eq!(lista.len(), 21, "7 dias x 3 horários");
+        assert_eq!(lista[..3], ["Mon 08:00", "Mon 12:00", "Mon 18:00"]);
+        let gatilhos = horas("b-gatilhos");
+        assert_eq!(gatilhos.len(), 15, "5 dias úteis x 3 gatilhos");
+        assert_eq!(gatilhos[..3], ["Mon 09:00", "Mon 13:30", "Mon 17:15"]);
+        assert!(!gatilhos.iter().any(|h| h.starts_with("Sat") || h.starts_with("Sun")));
+        assert!(projection.occurrences.iter().all(|o| o["botId"].is_string()), "cada cartão diz quem roda");
+    }
+
+    #[test]
     fn list_expressions_describe_every_time_in_portuguese() {
         let zone: Tz = "America/Sao_Paulo".parse().unwrap();
         for (expression, expected) in [

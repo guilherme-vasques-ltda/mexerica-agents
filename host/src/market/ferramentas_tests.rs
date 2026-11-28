@@ -608,6 +608,7 @@ fn conectar_linear(hub: &crate::hub::Hub) -> Connector {
         nome: None,
         nome_primeira: None,
         liberacoes: None,
+        aceita_credencial_com_escrita: false,
     };
     contas::conectar(&hub.store, &pedido).unwrap();
     crate::market::connectors(&hub.store).unwrap().remove(0)
@@ -625,6 +626,174 @@ fn tools_do_linear() -> Vec<Value> {
 
 fn registrar_na_conta(hub: &crate::hub::Hub, conta: &Connector, tools: &[Value]) {
     registrar(&hub.store, conta, tools, Some(&nomes_de(tools)), true, Some(ger_de(&hub.store, &conta.id))).unwrap();
+}
+
+#[tokio::test]
+async fn catalog_local_guard_filtra_descoberta_e_revalida_admissao() {
+    use crate::fork::conectores::oauth_binding;
+    use crate::guard_hub::mcp::call;
+    let hub = hub();
+    let conta: Connector = serde_json::from_value(json!({
+        "id":"conta-local","name":"Local","servico":"fixture-local","tipo":"fixture-local.local",
+        "liberacoes":["acoes"],"space":PERSONAL
+    }))
+    .unwrap();
+    let mut personalizado = conta.clone();
+    personalizado.id = "conta-personalizada".into();
+    personalizado.servico = None;
+    personalizado.command = Some("fixture-local".into());
+    crate::market::save_connectors(&hub.store, &[conta, personalizado]).unwrap();
+    let all = crate::market::connectors(&hub.store).unwrap();
+    let conta = all.iter().find(|c| c.id == "conta-local").unwrap();
+    let _rx = bot(&hub, "b1", &[&conta.id]);
+    let execution = crate::fork::sessoes::bindings::fixture_execution(&hub, "b1");
+    let context =
+        oauth_binding::issue_context(&hub.store, conta, "b1", "b1", None, execution.acp_binding().unwrap()).unwrap();
+    let setup = oauth_binding::issue_setup(&hub.store, conta).unwrap();
+    let payload = |id: &str| {
+        json!({
+            "connector":conta.id,"context":id,"bridgeId":uuid::Uuid::new_v4().to_string(),"transport":"catalog-local"
+        })
+    };
+    let request = |mut body: Value, fields: Value| {
+        body.as_object_mut().unwrap().extend(fields.as_object().unwrap().clone());
+        body
+    };
+    let setup_bridge = payload(&setup.id);
+    let bot_bridge = payload(&context.id);
+    let other = all.iter().find(|c| c.id == "conta-personalizada").unwrap();
+    let other_setup = crate::guard_hub::mcp::setup::Setup::issue(&hub.store, &other.id).unwrap();
+    assert!(
+        call(
+            &hub,
+            &Caller::Local,
+            "donnaGuardRuntime",
+            request(payload(&other_setup.id), json!({"connector":other.id}),)
+        )
+        .await
+        .is_err()
+    );
+    let mut forged = conta.clone();
+    forged.command = Some("fixture-local".into());
+    assert!(forged.acp(std::path::Path::new("host"), 1).is_none());
+    for base in [&setup_bridge, &bot_bridge] {
+        let acquire = call(&hub, &Caller::Local, "donnaGuardRuntime", base.clone()).await.unwrap();
+        assert_eq!(acquire["artefato"], "fixture-local.local");
+        assert!(acquire.get("command").is_none());
+    }
+    assert!(
+        call(
+            &hub,
+            &Caller::Local,
+            "donnaGuardRuntime",
+            request(setup_bridge.clone(), json!({"transport":"http","method":"initialize"}),)
+        )
+        .await
+        .is_err()
+    );
+    let tools = lista(&["list_items", "create_item", "outside_catalog"]);
+    let request_id = uuid::Uuid::new_v4().to_string();
+    let frame = json!({"jsonrpc":"2.0","id":request_id,"result":{"tools":tools}});
+    let discovery = json!({"method":"tools/list","params":{},"requestId":request_id});
+    for (base, expected) in
+        [(&setup_bridge, BTreeSet::from(["list_items".into(), "create_item".into()])), (&bot_bridge, BTreeSet::new())]
+    {
+        let fields = request(base.clone(), discovery.clone());
+        assert_eq!(call(&hub, &Caller::Local, "donnaGuardRuntime", fields.clone()).await.unwrap()["valid"], true);
+        let another = uuid::Uuid::new_v4().to_string();
+        let concurrent = request(fields.clone(), json!({"requestId":another}));
+        assert_eq!(call(&hub, &Caller::Local, "donnaGuardRuntime", concurrent).await.unwrap()["ruleDenied"], true);
+        for cancelled in [&another, &request_id] {
+            let cancellation = request(
+                base.clone(),
+                json!({
+                    "method":"notifications/cancelled","params":{"requestId":cancelled},
+                }),
+            );
+            assert_eq!(call(&hub, &Caller::Local, "donnaGuardRuntime", cancellation).await.unwrap()["valid"], true);
+            if cancelled == &another {
+                assert_eq!(
+                    call(&hub, &Caller::Local, "donnaGuardRuntime", fields.clone()).await.unwrap()["ruleDenied"],
+                    true
+                );
+            }
+        }
+        assert!(
+            call(&hub, &Caller::Local, "donnaGuardObserve", request(fields.clone(), json!({"frame":frame})))
+                .await
+                .is_err()
+        );
+        assert_eq!(call(&hub, &Caller::Local, "donnaGuardRuntime", fields.clone()).await.unwrap()["valid"], true);
+        let observed =
+            call(&hub, &Caller::Local, "donnaGuardObserve", request(fields, json!({"frame":frame}))).await.unwrap();
+        assert_eq!(nomes_mediados(&observed).unwrap(), expected);
+    }
+    let invoke = json!({"method":"tools/call","params":{"name":"create_item"}});
+    assert!(
+        call(&hub, &Caller::Local, "donnaGuardRuntime", request(setup_bridge.clone(), invoke.clone())).await.is_err()
+    );
+    let invoke = request(bot_bridge.clone(), invoke);
+    assert_eq!(call(&hub, &Caller::Local, "donnaGuardRuntime", invoke.clone()).await.unwrap()["ruleDenied"], true);
+    let digest = digest_de(&tools[1]);
+    let liberar = PedidoLigar { bot: "b1", conta: &conta.id, ferramenta: "create_item", digest: &digest };
+    gravar_liberacao(&hub.store.db.locked(), &liberar).unwrap();
+    assert_eq!(call(&hub, &Caller::Local, "donnaGuardRuntime", invoke.clone()).await.unwrap()["valid"], true);
+    gravar_desligamento(&hub.store.db.locked(), "b1", &conta.id, "create_item").unwrap();
+    let ultimo = request(invoke, json!({"validateOnly":true}));
+    assert_eq!(call(&hub, &Caller::Local, "donnaGuardRuntime", ultimo).await.unwrap()["ruleDenied"], true);
+    for base in [setup_bridge, bot_bridge] {
+        call(&hub, &Caller::Local, "donnaGuardRelease", base).await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn novas_fichas_de_leitura_isolam_contas_e_nao_ligam_ferramentas_sozinhas() {
+    let hub = hub();
+    for (servico, consulta, escrita, escopos) in [
+        ("better-stack", "monitors", "create_monitor", &["read"][..]),
+        ("clerk", "list_applications", "create_application", &["applications:read"][..]),
+        (
+            "coderabbit",
+            "list_repositories",
+            "request_review",
+            &["connection", "account:read", "repositories:read", "pull_requests:read"][..],
+        ),
+        ("posthog", "dashboards-get-all", "dashboard-create", &["dashboard:read"][..]),
+        ("revenuecat", "list-projects", "create-app", &["*:*:read"][..]),
+    ] {
+        let ficha = catalogo_servicos::servico(servico).unwrap();
+        let conferida = chrono::NaiveDate::parse_from_str(ficha.conferida_em, "%Y-%m-%d").unwrap();
+        let tipo = format!("{servico}.oficial_oauth");
+        let mut pedido = contas::Pedido {
+            servico,
+            tipo: &tipo,
+            space: PERSONAL,
+            nome: None,
+            nome_primeira: None,
+            liberacoes: None,
+            aceita_credencial_com_escrita: false,
+        };
+        contas::conectar_em(&hub.store, ficha, &pedido, conferida).unwrap();
+        pedido.nome = Some("Conta secundária");
+        pedido.nome_primeira = Some("Conta primária");
+        contas::conectar_em(&hub.store, ficha, &pedido, conferida).unwrap();
+        let contas: Vec<_> = crate::market::connectors(&hub.store)
+            .unwrap()
+            .into_iter()
+            .filter(|c| c.servico.as_deref() == Some(servico))
+            .collect();
+        let [primeira, segunda] = contas.as_slice() else { panic!("{servico}: esperava duas contas") };
+        assert_ne!(primeira.oauth_binding, segunda.oauth_binding);
+        for conta in &contas {
+            assert_eq!(contas::escopos_da_conta(conta).unwrap().unwrap(), escopos);
+            assert!(conta.oauth.as_ref().is_some_and(|oauth| !oauth.signed_in()));
+        }
+        let _rx = bot(&hub, servico, &[&primeira.id, &segunda.id]);
+        registrar_na_conta(&hub, primeira, &lista(&[consulta, escrita]));
+        assert_eq!(estado_de_conta(&hub, servico, primeira, escrita), Estado::Desligada(Motivo::ForaDaFicha));
+        assert_eq!(estado_de_conta(&hub, servico, primeira, consulta), Estado::Desligada(Motivo::Perigosa));
+        assert_eq!(estado_de_conta(&hub, servico, segunda, consulta), Estado::Desligada(Motivo::SemInventario));
+    }
 }
 
 #[tokio::test]
@@ -814,6 +983,32 @@ fn recibo_nao_guarda_nome_estranho_do_fornecedor() {
 
 fn mediada(nomes: &[&str]) -> Value {
     mediar(&json!({"result": {"tools": lista(nomes)}}))
+}
+
+#[test]
+fn perfil_com_filtro_so_expoe_e_executa_o_que_a_pessoa_ligou_neste_bot() {
+    let store = store();
+    let ficha = catalogo_servicos::fixture_filtro();
+    let pol = Politica::para_perfil(&ficha.tipos[0], &["ler".into(), "acoes".into()]);
+    let nomes = ["list_items", "create_item"];
+    let ferramentas = lista(&nomes);
+    let bruto = json!({"result": {"tools": ferramentas}});
+    let filtrar = |bot| {
+        let mut mediado = mediada(&nomes);
+        filtrar_lista_com(&store, bot, "conta", &pol, &json!({}), &bruto, &mut mediado, Some(ger(&store))).unwrap();
+        nomes_mediados(&mediado).unwrap()
+    };
+
+    assert!(filtrar("b").is_empty());
+    for nome in nomes {
+        assert!(chamar(&store, "b", "conta", Some(&pol), nome));
+    }
+    liberar(&store, "b", "create_item", &digest_de(&ferramentas[1]));
+    assert_eq!(filtrar("b"), BTreeSet::from(["create_item".to_owned()]));
+    assert!(!chamar(&store, "b", "conta", Some(&pol), "create_item"));
+    assert!(chamar(&store, "b", "conta", Some(&pol), "list_items"));
+    assert!(filtrar("outro").is_empty());
+    assert!(chamar(&store, "outro", "conta", Some(&pol), "create_item"));
 }
 
 #[test]
@@ -1038,4 +1233,105 @@ fn registrar_descoberta_recusa_conta_sem_servico() {
     let erro = registrar_descoberta(&hub.store, &conta, &json!({}), &completa, &mediada, anotada).unwrap_err();
     assert!(erro.to_string().contains("conta sem serviço"), "{erro}");
     assert!(!inventario_completo(&hub.store.db.locked(), &conta.id).unwrap(), "nada foi instalado");
+}
+
+const PROVAS: [(&str, &str); 3] = [
+    ("context7", include_str!("../fork/conectores/curadoria/context7-tools-list-2026-11-18.json")),
+    ("gmail", include_str!("../fork/conectores/curadoria/gmail-tools-list-2026-11-18.json")),
+    ("google-agenda", include_str!("../fork/conectores/curadoria/google-agenda-tools-list-2026-11-18.json")),
+];
+
+fn tools_da_prova(prova: &str) -> Vec<Value> {
+    let prova: Value = serde_json::from_str(prova).unwrap();
+    prova["tools"].as_array().unwrap().clone()
+}
+
+/// Toda ferramenta curada de toda ficha tem de bater, no digest, com o que uma prova arquivada em
+/// `fork/conectores/curadoria/` registrou para o mesmo serviço: nenhum digest vem de exemplo, mock ou memória. Hoje
+/// nenhuma ficha cura leitura (ver o teste abaixo); o teste vale para a primeira que curar.
+#[test]
+fn toda_curadoria_da_ficha_tem_prova_arquivada_com_o_mesmo_digest() {
+    let pasta = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/fork/conectores/curadoria");
+    for servico in catalogo_servicos::publico().servicos {
+        for grupo in servico.tipos.iter().flat_map(|t| t.grupos.iter()).filter(|g| !g.curadas.is_empty()) {
+            let prefixo = format!("{}-tools-list-", servico.id);
+            let arquivos: Vec<_> = std::fs::read_dir(&pasta)
+                .unwrap()
+                .filter_map(Result::ok)
+                .filter(|f| f.file_name().to_string_lossy().starts_with(&prefixo))
+                .collect();
+            assert!(!arquivos.is_empty(), "{}: curadoria sem prova arquivada", servico.id);
+            let provadas: Vec<Value> =
+                arquivos.iter().flat_map(|f| tools_da_prova(&std::fs::read_to_string(f.path()).unwrap())).collect();
+            for curada in grupo.curadas {
+                assert!(
+                    provadas.iter().any(|t| t["name"] == curada.ferramenta
+                        && t["digest"] == curada.digest
+                        && t["readOnlyHint"] == true),
+                    "{}: {} sem prova só de leitura com o mesmo digest",
+                    servico.id,
+                    curada.ferramenta
+                );
+            }
+        }
+    }
+}
+
+/// A prova guarda só nome, digest e `readOnlyHint` de cada ferramenta, nunca o texto do fornecedor.
+#[test]
+fn prova_arquivada_guarda_so_nome_digest_e_dica_de_leitura() {
+    for (servico, prova) in PROVAS {
+        let tools = tools_da_prova(prova);
+        assert!(!tools.is_empty(), "{servico}");
+        let nomes: BTreeSet<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
+        assert_eq!(nomes.len(), tools.len(), "{servico}: nome repetido");
+        for tool in &tools {
+            let campos: BTreeSet<&str> = tool.as_object().unwrap().keys().map(String::as_str).collect();
+            assert_eq!(campos, BTreeSet::from(["digest", "name", "readOnlyHint"]), "{servico}");
+            let digest = tool["digest"].as_str().unwrap();
+            assert!(digest.len() == 64 && digest.bytes().all(|b| b.is_ascii_hexdigit()), "{servico}: {digest}");
+        }
+    }
+}
+
+/// A política que `politica()` monta a partir da ficha real, sem conta nem cofre: mesma expressão da produção.
+fn politica_da_ficha(tipo: &'static TipoConexao, grupo: &str) -> Politica {
+    let ligados = vec![grupo.to_owned()];
+    let curadas = tipo.ferramentas_curadas(&ligados).into_iter().map(|(n, d)| (n.to_owned(), d.to_owned())).collect();
+    Politica { permitidas: tipo.ferramentas_permitidas(&ligados), curadas, tipo }
+}
+
+/// Gmail, Agenda e Context7 (fichas reais, nomes das provas arquivadas, ferramentas que se dizem só de leitura), em
+/// todos os jeitos de conectar: tudo fica desligado até a pessoa ligar. A prova pública mostra a definição, mas não dá
+/// garantia de custo (a franquia do Google é por projeto, e o Hub não limita chamadas) nem de exposição (Context7
+/// manda o texto do bot a um terceiro e cobra chamada adicional na conta paga).
+#[test]
+fn nenhuma_ficha_libera_leitura_sozinha_mesmo_com_a_definicao_publica_arquivada() {
+    for (servico, prova) in PROVAS {
+        let tools: Vec<Value> = tools_da_prova(prova)
+            .iter()
+            .map(|t| {
+                let mut tool = ferramenta(t["name"].as_str().unwrap(), "a");
+                tool["annotations"] = json!({"readOnlyHint": true, "destructiveHint": false});
+                tool
+            })
+            .collect();
+        for tipo in catalogo_servicos::servico(servico).unwrap().tipos {
+            let id = tipo.id;
+            let store = store();
+            let pol = politica_da_ficha(tipo, "ler");
+            assert!(pol.curadas.is_empty(), "{id}");
+            registrar_lista(&store, &tools);
+            for tool in &tools {
+                let nome = tool["name"].as_str().unwrap();
+                assert_eq!(estado_de(&store, "b", &pol, nome), Estado::Desligada(Motivo::Perigosa), "{id}/{nome}");
+                assert_eq!(estado_de(&store, "outro", &pol, nome), Estado::Desligada(Motivo::Perigosa), "{id}/{nome}");
+            }
+            // Conta já vinculada, inventário já gravado: a escolha manual de um bot vale só para ele.
+            let nome = tools[0]["name"].as_str().unwrap();
+            liberar(&store, "b", nome, &digest_de(&tools[0]));
+            assert_eq!(estado_de(&store, "b", &pol, nome), Estado::Ligada, "{id}/{nome}");
+            assert_eq!(estado_de(&store, "outro", &pol, nome), Estado::Desligada(Motivo::Perigosa), "{id}/{nome}");
+        }
+    }
 }

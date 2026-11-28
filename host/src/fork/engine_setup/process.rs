@@ -176,10 +176,18 @@ impl Rpc {
         params: Value,
         scope: impl Fn(&mut dyn FnMut() -> std::task::Poll<Result<()>>) -> std::task::Poll<Result<()>>,
     ) -> Result<Value> {
-        let input = self.input.as_mut().ok_or_else(|| anyhow!("auth_shutdown_failed"))?;
-        let line = format!("{}\n", json!({"id":id,"method":method,"params":params}));
-        crate::fork::spaces::tool_effects::write_scoped(input, line.as_bytes(), scope).await?;
+        self.reply_guarded(json!({"id":id,"method":method,"params":params}), scope).await?;
         self.answer(id).await?.map_err(|_| anyhow!("auth_capability_unavailable"))
+    }
+
+    pub(crate) async fn reply_guarded(
+        &mut self,
+        message: Value,
+        scope: impl Fn(&mut dyn FnMut() -> std::task::Poll<Result<()>>) -> std::task::Poll<Result<()>>,
+    ) -> Result<()> {
+        let input = self.input.as_mut().ok_or_else(|| anyhow!("auth_shutdown_failed"))?;
+        let line = format!("{message}\n");
+        crate::fork::spaces::tool_effects::write_scoped(input, line.as_bytes(), scope).await
     }
 
     async fn answer(&mut self, id: u64) -> Result<Result<Value, Value>> {
@@ -295,7 +303,7 @@ pub(crate) async fn login_open_codex(
     directory: &Path,
     events: mpsc::Sender<Event>,
 ) -> Result<(std::path::PathBuf, probe::Observation)> {
-    let launch = crate::fork::open_codex::app_server(directory, false).await?;
+    let launch = crate::fork::open_codex::app_server(directory, false, None).await?;
     let executable = launch.executable.clone();
     let child = crate::fork::motor_exec::start_open_codex(launch).map_err(|_| anyhow!("open_codex_unavailable"))?;
     let proof = codex_device_flow(Rpc::from_child(child)?, &executable, directory, events).await?;

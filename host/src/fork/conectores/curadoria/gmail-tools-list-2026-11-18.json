@@ -1,0 +1,38 @@
+{
+  "fonte": "POST https://gmailmcp.googleapis.com/mcp/v1 tools/list, sem credencial",
+  "observadoEm": "2026-11-18",
+  "conteudo": "de cada ferramenta, só o nome, o digest (ler_ferramenta, a mesma função da ponte) e o readOnlyHint; o texto do fornecedor não é arquivado",
+  "trecho": "só as ferramentas de leitura candidatas à curadoria (não curadas); o tools/list completo tinha 23 ferramentas: create_draft, list_drafts, get_draft, get_thread, get_message, search_threads, label_thread, unlabel_thread, apply_sensitive_thread_label, trash_thread, untrash_thread, mark_thread_spam, unmark_thread_spam, list_labels, label_message, update_message_labels, unlabel_message, apply_sensitive_message_label, trash_message, untrash_message, mark_message_spam, unmark_message_spam, create_label",
+  "tools": [
+    {
+      "name": "list_drafts",
+      "digest": "0a59d24a0eddf7a67c8993d45c364fffb9bc47d136d8f663d5781e31f56f9ac2",
+      "readOnlyHint": true
+    },
+    {
+      "name": "get_draft",
+      "digest": "a7e4d6e68b8994ab6325bdd78000832c7a58a7a687331b516a2680612fbecff4",
+      "readOnlyHint": true
+    },
+    {
+      "name": "get_thread",
+      "digest": "9acd7d38e80af3fb7a9139444e79ef7a38a1dabb97484c542bbd9505cb013b11",
+      "readOnlyHint": true
+    },
+    {
+      "name": "get_message",
+      "digest": "b49aa951e2af788807f7f23b1131adac9092c2122bacc6efe786b2d063453cdc",
+      "readOnlyHint": true
+    },
+    {
+      "name": "search_threads",
+      "digest": "fcfe2ef980dcb3377d73fe0655571b92910ed0262ed6930dbddd3e661695c7e3",
+      "readOnlyHint": true
+    },
+    {
+      "name": "list_labels",
+      "digest": "03fccbdbc56f5dba3e339094f6c474c28450a2b9bcb9a2f6aa4dff1e7635505d",
+      "readOnlyHint": true
+    }
+  ]
+}

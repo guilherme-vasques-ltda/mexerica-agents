@@ -78,7 +78,7 @@ export function WhatsappDraftCard({ entry }: { entry: Entry }) {
             <>
               <div className="approval-actions">
                 <button className="hold-button primary" disabled={fase === 'enviando'} onClick={enviar}>
-                  <span className="hold-button-label"><Icon name="arrow.up" size={13} weight="bold" />{fase === 'enviando' ? <Spinner size={12} /> : t('whatsapp.conversa.rascunho.enviar')}</span>
+                  <span className="hold-button-label"><Icon name="mx-enviar" size={13} weight="bold" />{fase === 'enviando' ? <Spinner size={12} /> : t('whatsapp.conversa.rascunho.enviar')}</span>
                 </button>
                 <span className="conector-card-espaco" />
                 <button className="approval-deny" disabled={fase === 'enviando'} onClick={() => setAgoraNao(true)}>{t('whatsapp.conversa.rascunho.agoraNao')}</button>

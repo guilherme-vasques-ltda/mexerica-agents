@@ -1,5 +1,6 @@
 // Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { spaceAllows } from '../lib/fork-space-capabilities'
+import { isOpenDesktop } from '@shared/fork-capacidades'
 import { draftKey } from '../../shared/composer-drafts'
 import { AvatarBotMap } from '@shared/fork-avatar-mood'
 import { mirrorCacheStamp } from '@shared/fork-mirror-cache'
@@ -16,6 +17,8 @@ import { EmptyRosterWatch } from './fork-empty-roster'
 import { TimesRoster } from './fork-times-roster'
 import { ChatSessionsModel } from './fork-sessions'
 import { acompanharIdioma, enviarIdioma } from './fork-idioma-hub'
+
+declare const __REMOTE_WEB_RENDERER__: boolean | undefined
 
 const DROP_GRACE = 5000
 const INITIAL_GRACE = 1000
@@ -57,7 +60,16 @@ export class BotSync extends BotMirror {
   /** Capacidade transitória SAAS-04; nunca gravada no mirror/cache. */
   canManageEngineAccounts = false
   readonly principal = new PrincipalModel(this, {
-    read: async () => (await this.ready()).call<{ primaryBotId: string | null }>('teamSettings', {}),
+    read: async () => {
+      const client = await this.ready()
+      if (typeof __REMOTE_WEB_RENDERER__ === 'undefined' || !__REMOTE_WEB_RENDERER__) {
+        return client.call<{ primaryBotId: string | null }>('teamSettings', {})
+      }
+      const hubId = this.hostId
+      const spaceId = this.spaceId ?? this.spaces?.personalSpaceId
+      if (!hubId || !spaceId) throw new Error('space_context_unavailable')
+      return client.readSpacePrincipal({ hubId, spaceId })
+    },
     hostId: () => this.hostId,
     storage: localStorage,
   })
@@ -70,7 +82,7 @@ export class BotSync extends BotMirror {
   readonly timesRoster = new TimesRoster(() => {
     const client = this.connectedClient
     const spaceId = this.spaceId ?? this.spaces?.personalSpaceId
-    return spaceAllows(this.spaceId, 'teams') && client && this.hostId && spaceId ? { contextId: this.contextId, computerId: this.computer.id,
+    return !isOpenDesktop(globalThis.window?.codync) && spaceAllows(this.spaceId, 'teams') && client && this.hostId && spaceId ? { contextId: this.contextId, computerId: this.computer.id,
       hostId: this.hostId, spaceId, client, epoch: this.principalEpoch } : null
   })
   private heldDrop: Connection | null = null

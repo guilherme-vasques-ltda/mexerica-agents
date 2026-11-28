@@ -78,6 +78,8 @@ test('erros do Hub viram texto em português; desconhecido usa a mensagem do Hub
   assert.match(errorMessage(new Error('account_conflict: releia a conta antes de continuar.'), 'pt-BR'), /mudou em outra janela/)
   assert.equal(errorMessage(new Error('label_taken: já existe uma conta com este nome.'), 'pt-BR'), 'já existe uma conta com este nome.')
   assert.match(errorMessage({ status: 0, message: "Can't reach your computer." }, 'pt-BR'), /fora de alcance/)
+  assert.match(errorMessage({ status: 422, code: 'open_codex_selection', message: 'open_codex_selection' }, 'pt-BR'), /configuração existente do Codex/)
+  assert.match(errorMessage({ status: 409, code: 'conflict', message: 'account_conflict: releia a conta.' }, 'pt-BR'), /mudou em outra janela/)
   assert.match(errorMessage(new Error('x'.repeat(300)), 'pt-BR'), /Nada foi alterado/)
 })
 

@@ -7,13 +7,14 @@ export type AuthDoTipo =
   | { modo: 'oauth'; registro: string }
   | { modo: 'chave'; destino: 'header' | 'env'; nome: string; /** O que vem antes da chave no cabeçalho (ex.: `Bearer `). */ prefixo?: string | null; comoCriarLeitura: string }
   /** O app OAuth da própria pessoa (Google): `provedor` agrupa os serviços; `guia` são os passos para criar o app. */
-  | { modo: 'app_proprio'; provedor: string; emissor: string; guia: PassoDoGuia[] }
+  | { modo: 'app_proprio'; provedor: string; emissor: string; guia: PassoDoGuia[]; configuracao?: { cadastro: string } }
 
 /** Um passo do guia "crie o seu app": o `id` escolhe o texto; `url` é o link oficial, quando há. */
 export interface PassoDoGuia { id: string; url: string | null }
 
 /** O app Google do Space como o Hub o mostra: só o ID. A chave secreta nunca volta. */
-export interface AppGoogle { configurado: boolean; clientId: string | null }
+export interface AppProprio { configurado: boolean }
+export interface AppGoogle extends AppProprio { clientId: string | null }
 
 /** Um bloco de permissão da ficha ("Ler", "Criar e editar"). */
 export interface Grupo {
@@ -25,8 +26,8 @@ export interface Grupo {
   /** Pré-marcado ao conectar: o padrão seguro. */
   padrao: boolean
   disponivel: boolean
-  /** Quem garante que o grupo só lê: o endereço, os escopos pedidos ou a natureza do serviço. */
-  imposicao?: 'url' | 'escopo' | 'natureza' | null
+  /** Limite de leitura do fornecedor ou liberação de ações pelo filtro do Hub. */
+  imposicao?: 'url' | 'escopo' | 'natureza' | 'filtro' | null
 }
 
 /** Ação que só a pessoa liga, com confirmação (fatia 2). Hoje a ficha só a lista. */
@@ -90,7 +91,8 @@ export interface Catalogo {
   spaceId: string
   servicos: Servico[]
   /** O app OAuth da pessoa por Space; `google` é `null` com o cofre trancado (e ausente em Hub antigo). */
-  appsProprios?: { google: AppGoogle | null }
+  appsProprios?: Record<string, AppProprio | null> & { google: AppGoogle | null }
+  oauthRedirectUris?: string[]
 }
 
 export interface BotDaConta { id: string; name: string; ligada: boolean; padraoDoServico: boolean }

@@ -123,6 +123,7 @@ pub(crate) const ROTAS_HTTP: &[(&str, &str, Guarda)] = &[
     ("fork/web_local.rs", "fallback", Guarda::Publica),
     ("fork/web_local.rs", "method_not_allowed_fallback", Guarda::Publica),
     ("fork/whatsapp/inbox.rs", "/whatsapp/{bot}", Guarda::Propria("shared.accept(")),
+    ("fork/browser/turn.rs", "/mcp", Guarda::Propria("state.token.as_bytes()")),
     ("fork/claude_ponte/permissao.rs", "/mcp", Guarda::Propria("estado.segredo")),
     ("fork/planos_codigo/repasse.rs", "fallback", Guarda::Propria("repasse.encaminhar(")),
 ];
@@ -144,6 +145,11 @@ pub(crate) fn permite(caller: &Caller, method: &str) -> bool {
         Caller::Local => acesso != Acesso::Executor,
         Caller::Ponte { .. } => acesso == Acesso::Ponte,
         Caller::Pairing { .. } | Caller::Bootstrap { .. } => false,
+        Caller::Device { scopes, .. } if scopes.contains(&Scope::WebChat) => {
+            scopes == &[Scope::WebChat]
+                && matches!(acesso, Acesso::Control | Acesso::Proprio)
+                && WEB_CHAT.contains(&method)
+        }
         Caller::Device { scopes, .. } if acesso == Acesso::Executor => scopes == &[Scope::Executor],
         Caller::Device { scopes, .. } if scopes.contains(&Scope::Executor) => false,
         Caller::Device { scopes, .. } => match acesso {
@@ -155,6 +161,28 @@ pub(crate) fn permite(caller: &Caller, method: &str) -> bool {
         },
     }
 }
+
+pub(crate) fn permite_assinatura(caller: &Caller, tipo: &str) -> bool {
+    match caller {
+        Caller::Device { scopes, .. } if scopes.contains(&Scope::WebChat) => {
+            scopes == &[Scope::WebChat] && tipo == "events"
+        }
+        _ => permite(caller, "subscribe"),
+    }
+}
+
+pub(crate) const WEB_CHAT: &[&str] = &[
+    "botGroups",
+    "donnaConversationHistory",
+    "donnaConversations",
+    "donnaConversationSend",
+    "donnaSpaces",
+    "hello",
+    "history",
+    "send",
+    "sessions",
+    "workspaceContext",
+];
 
 pub(crate) const SO_LOCAL: &[&str] = &[
     "bootstrapInstallGrant",
@@ -173,6 +201,9 @@ pub(crate) const SO_LOCAL: &[&str] = &[
     "computersList",
     "connectorTarget",
     "donnaApprovalSet",
+    "donnaBrowserLocalConsent",
+    "donnaBrowserLocalFrame",
+    "donnaBrowserLocalState",
     "donnaConectorCapability",
     "donnaConectorDecidir",
     "donnaConectorEditar",
@@ -186,6 +217,7 @@ pub(crate) const SO_LOCAL: &[&str] = &[
     "donnaOnboardingDetect",
     "donnaOnboardingSave",
     "donnaOnboardingStatus",
+    "donnaOpenModelSet",
     "donnaPersonalBootstrapStatus",
     "donnaRuleDelete",
     "donnaRules",
@@ -393,6 +425,7 @@ pub(crate) const CONTROLE: &[&str] = &[
     "donnaTaskSchedule",
     "donnaTaskSessions",
     "donnaTaskStart",
+    "donnaTeamRequests",
     "donnaTimes",
     "donnaTimesPreview",
     "donnaTimesSave",
@@ -446,6 +479,8 @@ pub(crate) const CONTROLE: &[&str] = &[
     "marketGoogleApp",
     "marketGoogleAppRemover",
     "marketGoogleAppSalvar",
+    "marketAppProprioRemover",
+    "marketAppProprioSalvar",
     "marketPersonalizado",
     "marketServico",
     "marketSkills",

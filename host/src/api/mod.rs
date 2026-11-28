@@ -7,6 +7,7 @@ mod bots;
 pub mod devices;
 mod events;
 pub(crate) mod files;
+mod fork_web_chat;
 mod host;
 mod http;
 mod marketplace;
@@ -18,7 +19,7 @@ pub use events::events_stream;
 pub use events::scoped_events_stream;
 pub use events::{scoped_events_stream_at, term_events};
 #[cfg(unix)]
-pub(crate) use http::open_socket_router;
+pub(crate) use http::desktop_socket_router;
 pub use http::router;
 
 use crate::LockExt;
@@ -124,10 +125,17 @@ pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -
     if let Some(recusa) = recusa_sem_classe(origem(caller), method) {
         return Err(recusa);
     }
-    crate::open_hub::check_request(method, &b)?;
+    let project = if caller.is_web_chat() { Some(fork_web_chat::rpc(method).ok_or(Forbidden)?) } else { None };
+    crate::open_hub::check_request(caller, method, &b)?;
     let b = crate::fork::workspace::conferir_pedido(hub, origem(caller), b)?;
     // D368: a autoridade original do app do dono acompanha o pedido inteiro (`donna_fixa::pedido`).
-    crate::fork::donna_fixa::pedido::com_pedido(hub, caller, Box::pin(dispatch_pedido(hub, caller, method, b))).await
+    let answer =
+        crate::fork::donna_fixa::pedido::com_pedido(hub, caller, Box::pin(dispatch_pedido(hub, caller, method, b)))
+            .await?;
+    if let Some(project) = project {
+        return project(&answer).ok_or_else(|| Forbidden.into());
+    }
+    Ok(answer)
 }
 
 async fn dispatch_pedido(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -> Result<Value> {
@@ -189,6 +197,9 @@ async fn dispatch_pedido(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
     }
     crate::fork::secret_refs::reject_api(method, &b)?;
     crate::fork::spaces::guard(hub, method, &b)?;
+    if caller.is_web_chat() {
+        fork_web_chat::check_send(hub, method, &b)?;
+    }
     let mut b = b;
     // D545: a exclusão conserva o seletor obrigatório até a validação própria do pedido.
     if method != "sessionDelete"
@@ -359,6 +370,9 @@ async fn route(
         let desktop = crate::fork::conectores::oauth_desktop::do_pedido(&b)?;
         let callback = match (caller, desktop) {
             (Caller::Local, Some(port)) => market::oauth::Callback::Desktop(port),
+            (Caller::Local, None) if hub.desktop_socket.get().is_some() => {
+                anyhow::bail!("O Hub local precisa da porta de retorno do app para iniciar o login.");
+            }
             (Caller::Local, None) => market::oauth::Callback::Host,
             (_, None) => market::oauth::Callback::App,
             (_, Some(_)) => anyhow::bail!(crate::fork::conectores::oauth_desktop::RECUSA),

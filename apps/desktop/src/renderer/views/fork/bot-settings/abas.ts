@@ -24,7 +24,7 @@ export function abaHorizontalPeloTeclado<T>(abas: readonly T[], atual: T, tecla:
 
 export function abaDaIntencao(control: SettingsControl): BotSettingsSection {
   if (control === 'ownerPreferences') return 'identity'
-  if (control === 'permission' || control === 'cwd' || control === 'computer') return 'behaviour'
+  if (control === 'permission' || control === 'cwd' || control === 'computer' || control === 'localCommandsEnabled') return 'behaviour'
   if (control === 'connectors' || control === 'logins' || control === 'skills') return 'tools'
   if (control === 'notify') return 'notifications'
   return 'engine'

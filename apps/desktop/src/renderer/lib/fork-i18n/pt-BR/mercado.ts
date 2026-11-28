@@ -1,5 +1,14 @@
 // Marketplace de conectores (fatia 1b): Extensões → Conectores e Contas no bot. Chaves completas; docs/guides/idiomas.md.
 export const textos = {
+  "mercado.appProprio.titulo": "Seu app OAuth",
+  "mercado.appProprio.salvar": "Salvar app no cofre",
+  "mercado.appProprio.editar": "Configurar app",
+  "mercado.appProprio.portal": "Abrir configuração do fornecedor",
+  "mercado.appProprio.redirect": "Cadastre estes endereços de retorno no fornecedor antes de salvar.",
+  "mercado.appProprio.aviso": "Trocar ou remover o app encerra o login das contas deste tipo neste Space.",
+  "mercado.appProprio.remover": "Remover app",
+  "mercado.appProprio.erro": "Não foi possível confirmar a alteração do app OAuth.",
+  "mercado.appProprio.indisponivel": "Abra o cofre e recarregue a ficha para configurar o app OAuth.",
   "mercado.tab.rotulo": "Seções de Conectores",
   "mercado.tab.catalogo": "Catálogo",
   "mercado.tab.contas": "Minhas contas",
@@ -274,4 +283,6 @@ export const textos = {
   "mercado.acoes.confirmar.campos": "E o que ele vai ler em cada campo da ação:",
   "mercado.acoes.confirmar.campo": "{campo}: {texto}",
   "mercado.acoes.ocultos": "Atenção: este texto tem caracteres que não aparecem na tela ou que mudam a direção da escrita.",
+  "mercado.lib.filtro": "A conta pode alterar dados no serviço. Na Mexerica, todas as ações começam desligadas. Para usar uma ação, você precisa liberá-la individualmente para cada bot.",
+  "mercado.erro.credencial_com_escrita": "Atualize o app para ver o aviso de acesso de escrita antes de conectar esta conta.",
 } as const

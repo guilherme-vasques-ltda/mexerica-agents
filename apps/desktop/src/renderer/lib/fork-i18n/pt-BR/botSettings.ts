@@ -1,5 +1,7 @@
 // DON-903: botSettings (registro.ts). Chaves completas; docs/guides/idiomas.md.
 export const textos = {
+  'botSettings.comandosLocais.titulo': 'Comandos locais',
+  'botSettings.comandosLocais.aviso': 'Ligue antes da primeira mensagem em um bot novo. Cada comando ainda pede aprovação. Se aprovado, roda sem isolamento com suas permissões: pode acessar arquivos e usar a rede.',
   // DON-865, fatia 4: Motor do criar bot e do editor (D372/D373/D375).
   'botSettings.motor.aviso': 'Vale para conversas novas. Cada conversa aberta mantém o modelo dela.',
   'botSettings.motor.usar': 'Usar também na conversa principal',
@@ -112,4 +114,18 @@ export const textos = {
   "botSettings.indisponivel.guiasLinha": "Suas instruções para orientar a escolha automática, sem mudar o que o bot pode acessar.",
   "botSettings.indisponivel.nota": "Por enquanto, as conversas novas usam a conta e o modelo escolhidos acima.",
   "botSettings.fechar": "Fechar",
+  "botSettings.open.motor.intro": "Esta edição roda só o Codex, em texto, sem comandos e sem controle do computador. Escolha abaixo a conta e o modelo deste bot; vale a partir da próxima mensagem.",
+  "botSettings.open.motor.semConta": "Nenhuma conta conectada. Conecte uma conta Codex em Ajustes → Contas de IA.",
+  "botSettings.open.motor.padrao": "{modelo} (padrão)",
+  "botSettings.open.motor.usar": "Usar",
+  "botSettings.open.motor.erro": "Não foi possível trocar o modelo. Tente de novo.",
+  "botSettings.open.motor.erroLeitura": "Não foi possível ler as contas conectadas.",
+  "botSettings.open.motor.tentar": "Tentar de novo",
+  "botSettings.open.memoria.aviso": "Manuais e notas desta aba entram como contexto nas conversas deste bot, como texto: não dão ferramentas nem acesso.",
+  "botSettings.open.fluxo.pasta": "Pasta de trabalho: na Mexerica Open o bot não acessa pastas do computador. Isso depende do controle de comandos, que fica com a frente de shell.",
+  "botSettings.open.fluxo.computador": "Usar o computador: a Open conversa só em texto e não controla o computador. Esse fluxo fica com a frente de controle do computador.",
+  "botSettings.open.fluxo.navegador": "Navegador do bot: depende de comandos no computador e não roda na Open.",
+  "botSettings.open.fluxo.conectores": "Conectores e logins guardados: dependem do Cofre e de login como fluxo e ficam com a frente de segurança. As skills do catálogo funcionam normalmente.",
+  "botSettings.open.fluxo.whatsapp": "O WhatsApp depende de login e pareamento de conta e não roda na Open. Ele aparece aqui quando o fluxo estiver liberado.",
+  "botSettings.open.fluxo.voz": "A voz depende do microfone e dos fluxos de voz, que ficam com a frente de voz.",
 } as const

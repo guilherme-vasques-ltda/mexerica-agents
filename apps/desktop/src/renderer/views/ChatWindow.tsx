@@ -79,11 +79,13 @@ import { useForkCloud, useForkCloudAttachments } from './fork/cloud/use-fork-clo
 import { noConfiguredRemote } from './fork/onboarding/remote-entry'
 import { WithRoutinesScreen } from './rotinas-central/camada'
 import { routinesScreen } from './rotinas-central/navigation'
+import { isOpenDesktop } from '@shared/fork-capacidades'
 import { settingsScreen, type SettingsPage } from './fork/ajustes/tela'
 import { WithTimesScreen } from './fork/times/camada'
 import { timesScreen } from './fork/times/navigation'
 import { WithTorreScreen } from './fork/torre/camada'
 import { torreScreen } from './fork/torre/lugar-atual'
+import { FaixaViva } from './fork/faixa/FaixaViva'
 import { RosterSearch, rosterSearch, useRosterFilter } from './sidebar-busca/RosterSearch'
 import { DonnaCard } from './fork/donna/DonnaCard'
 import { useDefaultSelection } from './fork/donna/use-default-selection'
@@ -220,6 +222,7 @@ function ChatShell() {
             onboarding.dismissForComputers()
             settingsScreen.show('computers')
           }}
+          onConnectAi={onboarding.controller.connectAi}
           onSkip={onboarding.closeStep3}
           onContinue={onboarding.closeStep3}
         />
@@ -692,7 +695,7 @@ function ChatSplitView() {
   const botActions = (bot: Bot, store: BotStore, reorder = true): MenuItem[] => [
     ...(bot.id !== store.principal.protectedId ? [
       ...(!isGroup(bot) ? [
-        { title: t('navegacao.janela.menu.organizar'), disabled: !spaceAllows(store.spaceId, 'teams'), detail: store.spaceId ? t('spaces.selector.unavailable') : undefined, icon: 'person.2', action: () => timesScreen.show(null, store.computer.id) },
+        ...(!isOpenDesktop(window.codync) ? [{ title: t('navegacao.janela.menu.organizar'), disabled: !spaceAllows(store.spaceId, 'teams'), detail: store.spaceId ? t('spaces.selector.unavailable') : undefined, icon: 'person.2', action: () => timesScreen.show(null, store.computer.id) }] : []),
         ...(reorder ? [
           { title: t('navegacao.janela.menu.subir'), detail: '⌥↑', action: () => roster.moveBot({ computerId: store.computer.id, botId: bot.id }, -1) },
           { title: t('navegacao.janela.menu.descer'), detail: '⌥↓', action: () => roster.moveBot({ computerId: store.computer.id, botId: bot.id }, 1) },
@@ -926,7 +929,7 @@ function ChatSplitView() {
         {spacesStore ? <SpaceSelector app={app} root={spacesStore} active={openSpaceRecord} onOpen={id => openSpace(spacesStore, id)} onPersonal={closeSpace}
           onCreate={() => openSpaceSheet(spacesStore, null)} onEdit={id => openSpaceSheet(spacesStore, id)} open={selectorOpen} setOpen={setSelectorOpen} /> : null}
       </JanelaHeader>
-      <SpaceRail
+      <FaixaViva><SpaceRail
         accountOpen={showAccount}
         onAccount={() => setShowAccount((s) => !s)}
         onSkills={() => openMarketplaceAt('skills')}
@@ -953,7 +956,7 @@ function ChatSplitView() {
           onEdit: (id) => openSpaceSheet(spacesStore, id),
           onMove: (id, delta) => moveRailSpace(spacesStore, id, delta),
         } : null}
-      />
+      /></FaixaViva>
       {collapsed && !peek ? <div className="sidebar-peek-edge" aria-hidden onMouseEnter={() => setPeek(true)} /> : null}
       {asideMounted ? (
       <aside

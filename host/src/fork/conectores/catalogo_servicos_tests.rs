@@ -76,9 +76,49 @@ fn o_catalogo_nao_tem_segredo_nem_duplicata_e_as_fichas_tem_fonte_oficial() {
     }
 }
 
-/// As fichas conectáveis além da do dono A, na ordem do catálogo. Entrar aqui é decisão consciente: só vale com leitura
-/// imposta pelo fornecedor (conferida abaixo) e, enquanto o filtro de ações perigosas (fatia 2) não existe, sem escrita.
-const CONECTAVEIS: &[&str] = &["linear", "context7", "neon", "wispr-flow", "github"];
+/// As fichas conectáveis além da do dono A, na ordem do catálogo. Entrar aqui é decisão consciente.
+const CONECTAVEIS: &[&str] = &[
+    "linear",
+    "context7",
+    "exa",
+    "neon",
+    "wispr-flow",
+    "github",
+    "better-stack",
+    "clerk",
+    "coderabbit",
+    "posthog",
+    "revenuecat",
+    "supabase",
+    "todoist",
+    "clickup",
+    "firecrawl",
+    "render",
+    "airtable",
+    "atlassian",
+    "cal-com",
+    "calendly",
+    "fal",
+    "granola",
+    "higgsfield",
+    "notion",
+    "openrouter",
+    "paypal",
+    "railway",
+    "resend",
+    "sentry",
+    "stripe",
+    "tally",
+    "tinyfish",
+    "tavily",
+    "apify",
+    "heygen",
+    "trello",
+    "wrike",
+    "agentmail",
+    "bright-data",
+    "prisma",
+];
 
 /// Id da ficha do dono A, lido do próprio arquivo JSON (nenhum nome de produto fora dele).
 fn id_dono_a() -> String {
@@ -86,12 +126,13 @@ fn id_dono_a() -> String {
 }
 
 #[test]
-fn so_conectam_as_fichas_listadas_e_so_para_ler() {
+fn so_conectam_as_fichas_listadas() {
     let conectaveis: Vec<_> = servicos().iter().filter(|s| s.conectavel()).map(|s| s.id.to_owned()).collect();
     let mut esperadas = vec![id_dono_a()];
     esperadas.extend(CONECTAVEIS.iter().map(|s| (*s).to_owned()));
     // O Google direto (app OAuth da própria pessoa) vem depois das fichas em JSON; a leitura é imposta pelo escopo.
     esperadas.extend(GOOGLE.iter().map(|s| (*s).to_owned()));
+    esperadas.extend(GOOGLE_NOVOS.iter().map(|(id, ..)| (*id).to_owned()));
     assert_eq!(conectaveis, esperadas, "ficha nova só conecta de propósito: inclua o id em CONECTAVEIS");
     for id in ["outlook", "slack", "instagram"] {
         let ficha = servico(id).unwrap();
@@ -282,10 +323,8 @@ fn cada_servico_traz_a_chave_da_sua_logo() {
     assert!(json["servicos"].as_array().unwrap().iter().all(|s| s["marca"].is_string()));
 }
 
-/// Nenhuma ficha escreve antes do filtro de ações perigosas: todo grupo disponível diz quem impõe a leitura e, quando
-/// são escopos, nenhum deles é de escrita.
 #[test]
-fn todo_grupo_disponivel_tem_a_leitura_imposta_pelo_fornecedor() {
+fn todo_grupo_disponivel_declara_a_contencao() {
     const ESCRITA: &[&str] = &["write", "delete", "invoke", "manage", "admin", "send", "create", "edit", "update"];
     // "Por natureza" é uma afirmação sobre o que a conta recebe depois do login, que o Hub não filtra. Só entra quem tem a
     // documentação do fornecedor conferida (Context7: duas ferramentas de consulta; Wispr Flow: só lê reuniões). O Exa
@@ -296,6 +335,10 @@ fn todo_grupo_disponivel_tem_a_leitura_imposta_pelo_fornecedor() {
         for tipo in ficha.tipos.iter().filter(|t| t.disponivel) {
             for grupo in tipo.grupos.iter().filter(|g| g.disponivel) {
                 let imposicao = grupo.imposicao.unwrap_or_else(|| panic!("{}/{} sem imposição", tipo.id, grupo.id));
+                if imposicao == Imposicao::Filtro {
+                    assert!(grupo.curadas.is_empty(), "{}/{}: o filtro não admite curadoria", tipo.id, grupo.id);
+                    continue;
+                }
                 if imposicao == Imposicao::Escopo {
                     assert!(!grupo.escopos.is_empty(), "{}/{}: imposição por escopo sem escopos", tipo.id, grupo.id);
                 }
@@ -340,7 +383,7 @@ fn todo_arquivo_de_fichas_esta_na_lista_e_e_valido() {
         ler(&conteudo).unwrap_or_else(|e| panic!("{}: {e}", caminho.display()));
     }
     assert_eq!(arquivos, FICHAS.len());
-    let google = servicos().iter().filter(|s| s.site == "https://workspace.google.com").count();
+    let google = super::catalogo_google::FICHAS.len();
     assert_eq!(servicos().len(), FICHAS.len() + google, "alguma ficha foi recusada ao carregar (veja o log)");
 }
 
@@ -371,11 +414,37 @@ fn ficha_fora_das_regras_do_catalogo_nao_entra() {
         "grupo disponível sem imposição",
     );
     recusa(&|v| v["tipos"][0]["id"] = json!("outra.oficial_oauth"), "tipo de outra ficha");
-    // Grupo indisponível pode não ter imposição (é o que o filtro de ações perigosas ainda vai liberar).
     let mut v = base.clone();
     v["tipos"][0]["grupos"][0]["disponivel"] = json!(false);
     v["tipos"][0]["grupos"][0].as_object_mut().unwrap().remove("imposicao");
     assert!(ler(&v.to_string()).is_ok());
+}
+
+#[test]
+fn acesso_de_escrita_pelo_filtro_exige_declaracao_e_nao_admite_curadoria() {
+    let ficha = super::catalogo_servicos::fixture_filtro();
+    let tipo = &ficha.tipos[0];
+    let acoes = vec!["acoes".to_owned()];
+    assert!(tipo.conectavel());
+    assert_eq!(tipo.escopos_efetivos(&acoes), ["items:write"]);
+    assert_eq!(serde_json::to_value(tipo).unwrap()["grupos"][0]["imposicao"], "filtro");
+
+    let ler_so = vec!["ler".to_owned()];
+    assert!(!tipo.ferramentas_curadas(&ler_so).is_empty());
+    assert!(tipo.ferramentas_curadas(&[acoes, ler_so].concat()).is_empty());
+
+    let mut v: serde_json::Value =
+        serde_json::from_str(include_str!("../../../tests/fixtures/catalogo-filtro.json")).unwrap();
+    for imposicao in [serde_json::Value::Null, json!("desconhecida")] {
+        v["tipos"][0]["grupos"][0]["imposicao"] = imposicao;
+        assert!(ler(&v.to_string()).is_err());
+    }
+    v["tipos"][0]["grupos"][0]["imposicao"] = json!("filtro");
+    let digest = "b".repeat(64);
+    for ferramenta in ["list_items", "create_item"] {
+        v["tipos"][0]["grupos"][0]["curadas"] = json!([{"ferramenta": ferramenta, "digest": digest}]);
+        assert!(ler(&v.to_string()).unwrap_err().to_string().contains("não admite curadoria"));
+    }
 }
 
 // MARK: Google direto (app OAuth da própria pessoa)
@@ -387,19 +456,24 @@ fn as_cinco_fichas_do_google_usam_o_app_da_pessoa_e_so_pedem_escopos_do_proprio_
     for id in GOOGLE {
         let ficha = servico(id).unwrap();
         assert!(ficha.conectavel() && ficha.em_breve.is_none(), "{id}");
-        assert!(
-            ficha.aviso.is_some_and(|a| a.contains("prévia") && a.contains("7 dias")),
-            "{id} avisa prévia e 7 dias"
-        );
+        assert!(ficha.aviso.is_some_and(|a| a.contains("teste externo") && a.contains("7 dias")), "{id}");
         assert!(ficha.fontes.iter().any(|f| f.contains("configure-mcp-server")), "{id} cita o guia oficial");
-        let [tipo] = ficha.tipos else { panic!("{id}: um jeito só") };
-        assert_eq!(tipo.id, format!("{id}.oficial_app"));
+        let [tipo, anterior] = ficha.tipos else { panic!("{id}: modo compatível e modo anterior") };
+        assert_eq!(tipo.id, format!("{id}.oficial_app_self"));
+        assert!(tipo.recomendado);
+        assert_eq!(anterior.id, format!("{id}.oficial_app"));
+        assert!(!anterior.recomendado);
+        assert_eq!(tipo.url.strip_suffix("self"), Some(anterior.url));
+        let padroes = anterior.liberacoes_validas(None).unwrap();
+        assert_eq!(tipo.escopos_efetivos(&padroes), anterior.escopos_efetivos(&padroes));
         assert_eq!(tipo.tipo, Tipo::OficialApp);
         assert_eq!(tipo.mantido_por, "Google");
-        let Auth::AppProprio { provedor, emissor, guia } = &tipo.auth else { panic!("{id}: app próprio") };
+        let Auth::AppProprio { provedor, emissor, guia, configuracao: None } = &tipo.auth else {
+            panic!("{id}: app próprio")
+        };
         assert_eq!((*provedor, *emissor), ("google", "https://accounts.google.com"));
         let passos: Vec<_> = guia.iter().map(|p| p.id).collect();
-        assert_eq!(passos, ["projeto", "apis", "previa", "tela_login", "cliente", "campos"]);
+        assert_eq!(passos, ["projeto", "apis", "tela_login", "escopos", "cliente", "campos"]);
         assert!(guia.iter().filter_map(|p| p.url).all(|u| u.starts_with("https://")));
         // Padrão seguro: só ler. Tudo que muda algo fica desligado até a pessoa ligar.
         let padrao: Vec<_> = tipo.grupos.iter().filter(|g| g.padrao).map(|g| g.id).collect();
@@ -461,6 +535,51 @@ fn escrita_que_pode_apagar_fica_indisponivel_ate_o_filtro_de_acoes_perigosas() {
         let tipo = servico(id).unwrap().tipos.first().unwrap();
         assert!(!tipo.grupos.iter().find(|g| g.id == grupo).unwrap().disponivel, "{id}/{grupo}");
         assert!(tipo.liberacoes_validas(Some(&[grupo.to_owned()])).is_err(), "{id}/{grupo} não liga");
+    }
+}
+
+const GOOGLE_NOVOS: &[(&str, &str, &str, &[&str])] = &[
+    ("google-contatos", "https://people.googleapis.com/mcp/v1", "contacts.readonly", &["search_contacts"]),
+    (
+        "google-slides",
+        "https://slidesmcp.googleapis.com/mcp/v1self",
+        "presentations.readonly",
+        &["read_presentation", "read_slide_page", "read_slide_page_thumbnail"],
+    ),
+    (
+        "google-analytics",
+        "https://analyticsdata.googleapis.com/mcp/v1",
+        "analytics.readonly",
+        &["run_report", "get_metadata", "run_realtime_report", "check_compatibility"],
+    ),
+    (
+        "google-tarefas",
+        "https://tasksmcp.googleapis.com/mcp/v1self",
+        "tasks.readonly",
+        &["list_task_lists", "list_tasks", "get_task"],
+    ),
+];
+
+#[test]
+fn novos_servicos_google_restringem_endereco_escopo_e_ferramentas() {
+    for &(id, url, escopo, ferramentas) in GOOGLE_NOVOS {
+        let ficha = servico(id).unwrap();
+        assert!(ficha.conectavel(), "{id}");
+        let [tipo] = ficha.tipos else { panic!("{id}: um tipo oficial") };
+        assert_eq!(tipo.url, url, "{id}");
+        assert!(matches!(
+            tipo.auth,
+            Auth::AppProprio { provedor: "google", emissor: "https://accounts.google.com", .. }
+        ));
+        let liberacoes = tipo.liberacoes_validas(None).unwrap();
+        assert_eq!(liberacoes, ["ler"]);
+        assert_eq!(tipo.escopos_efetivos(&liberacoes), [format!("https://www.googleapis.com/auth/{escopo}")]);
+        assert_eq!(
+            tipo.ferramentas_permitidas(&liberacoes).unwrap(),
+            ferramentas.iter().copied().collect::<std::collections::BTreeSet<_>>()
+        );
+        assert!(tipo.grupos.iter().all(|g| g.curadas.is_empty()));
+        assert!(tipo.liberacoes_validas(Some(&["editar".to_owned()])).is_err());
     }
 }
 

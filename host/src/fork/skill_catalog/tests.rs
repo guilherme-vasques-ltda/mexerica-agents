@@ -2216,7 +2216,8 @@ async fn recovery_r7_protocol_and_guard_reject_before_domain_data_or_ddl_includi
         assert_eq!(trace.take(), 0, "{method}");
     }
     let empty = f.call("skills", json!({"skillProtocol":2})).await.unwrap();
-    assert_eq!(empty, json!({"skillProtocol":2,"items":[]}));
+    let internas = internas::listar(crate::environment::Environment::is_open()).unwrap();
+    assert_eq!(empty, json!({"skillProtocol":2,"items":[],"internas":internas}));
     let p = registry::find("find-skills").unwrap();
     let mut body = intent(&p);
     body["skillProtocol"] = json!(2);

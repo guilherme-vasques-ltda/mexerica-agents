@@ -779,7 +779,7 @@ fn set_nonce_budget(store: &Store, sent: &[i64]) -> Result<()> {
 }
 
 fn grantable_scopes(scopes: &[Scope]) -> Vec<Scope> {
-    scopes.iter().copied().filter(|s| *s != Scope::OwnerDevices && *s != Scope::Executor).collect()
+    scopes.iter().copied().filter(|s| !matches!(s, Scope::OwnerDevices | Scope::Executor | Scope::WebChat)).collect()
 }
 
 #[derive(Clone)]

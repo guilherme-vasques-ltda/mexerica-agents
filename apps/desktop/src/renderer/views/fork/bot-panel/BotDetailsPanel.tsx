@@ -30,6 +30,7 @@ import { genuiChoiceOf } from '../genui/choice-entry'
 import { messagePreview } from '../../../lib/message-preview'
 import { sessionDetail, type DetailState, type SessionDetail, type SessionNeed } from '../sessoes/detalhe'
 import { abaQueSumiu, currentTab, tabKeyTarget, visibleTabs, type PanelTabDef } from './abas'
+import { AbaTime } from '../time/AbaTime'
 import { AbaWhatsapp, useCaixa, type WaControle } from '../whatsapp/MiniWhatsapp'
 import { mostraAba } from '../whatsapp/caixa'
 import type { BotWhatsapp } from '../whatsapp/regras'
@@ -77,9 +78,9 @@ export function DetailsPanel(props: PanelProps) {
 // As abas de cada painel (D335): uma aba extra condicional entra só aqui, com `visible(bot)`, e o corpo dela no
 // `body` do painel. A aba guardada que sumir volta para a primeira (Sessões).
 // WhatsApp R5c: a aba só para bot com número conectado (a leitura `donnaWhatsapp` do Hub). Nada na barra esquerda.
-type BotTabCtx = { bot: Bot; wa: BotWhatsapp | null; plugin: boolean }
+type BotTabCtx = { bot: Bot; wa: BotWhatsapp | null; plugin: boolean; routines: boolean }
 // `chave` é a chave do catálogo (bots.painel.aba.*); o texto sai no idioma do app em PanelTabs.
-const BOT_TABS: PanelTabDef<BotTabCtx>[] = [{ id: 'sessions', chave: 'bots.painel.aba.sessoes' }, { id: 'routines', chave: 'bots.painel.aba.rotinas' }, { id: 'whatsapp', chave: 'bots.painel.aba.whatsapp', visible: ({ wa, plugin }) => mostraAba(plugin, wa) }]
+const BOT_TABS: PanelTabDef<BotTabCtx>[] = [{ id: 'sessions', chave: 'bots.painel.aba.sessoes' }, { id: 'routines', chave: 'bots.painel.aba.rotinas', visible: ({ routines }) => routines }, { id: 'time', chave: 'bots.painel.aba.time' }, { id: 'whatsapp', chave: 'bots.painel.aba.whatsapp', visible: ({ wa, plugin }) => mostraAba(plugin, wa) }]
 const CHANNEL_TABS: PanelTabDef<Bot>[] = [{ id: 'sessions', chave: 'bots.painel.aba.sessoes' }, { id: 'members', chave: 'bots.painel.aba.membros' }, { id: 'settings', chave: 'bots.painel.aba.configuracoes' }]
 
 /**
@@ -89,7 +90,7 @@ const CHANNEL_TABS: PanelTabDef<Bot>[] = [{ id: 'sessions', chave: 'bots.painel.
  */
 function PanelTabs<C>({ ref, label, tabs, current, counts, dots, onSelect }: { ref?: Ref<HTMLDivElement>; label: string; tabs: PanelTabDef<C>[]; current: string; counts?: Record<string, number>; dots?: Record<string, string>; onSelect: (id: string) => void }) {
   const store = useStore()
-  const capability = (id: string): SpaceCapability => id === 'routines' ? 'routines' : id === 'sessions' ? 'sessions' : id === 'whatsapp' ? 'connectors' : 'channels'
+  const capability = (id: string): SpaceCapability => id === 'routines' ? 'routines' : id === 'sessions' ? 'sessions' : id === 'whatsapp' ? 'connectors' : id === 'time' ? 'teams' : 'channels'
   const allowed = (id: string) => spaceAllows(store.spaceId, capability(id))
   const refs = useRef(new Map<string, HTMLButtonElement>())
   const tr = useT()
@@ -143,7 +144,7 @@ function BotPanel({ bot, routineId, tab, setTab, sessions, openSession, onOpenSe
   const state = sessions.combined
   const role = principal.id === bot.id ? t('bots.painel.principal') : bot.title?.trim() || bot.description?.trim() || ''
   const model = `${store.backendName(bot.backend)}${bot.model ? ` · ${bot.model}` : ''}`
-  const tabs = visibleTabs(BOT_TABS, { bot, wa, plugin: caixa.leitura.leitura?.plugin.enabled === true })
+  const tabs = visibleTabs(BOT_TABS, { bot, wa, plugin: caixa.leitura.leitura?.plugin.enabled === true, routines: true })
   const current = currentTab(tabs, tab)
   // A3: a aba guardada sumiu (WhatsApp com o plugin desligado ou sem número): grava Sessões como seleção, para a aba não
   // voltar selecionada sozinha; se o foco caiu (estava nela), vai para Sessões. Só com a leitura do Hub em mãos.
@@ -175,9 +176,11 @@ function BotPanel({ bot, routineId, tab, setTab, sessions, openSession, onOpenSe
     <div {...superficie} style={{ display: 'contents' }}><NowCard bot={bot} sessions={sessions} onOpenSession={onOpenSession} />
     <PanelTabs ref={tablist} label={t('bots.painel.doBot')} tabs={tabs} current={current} counts={{ sessions: sessions.open.length }} onSelect={(id) => setTab(id as DetailsTab)}
       dots={unread > 0 ? { whatsapp: t.plural('bots.painel.whatsappNaoLidas', unread) } : undefined} /></div>
-    <div className={`rp-body${current === 'whatsapp' ? ' wa-body' : ''}`} role="tabpanel" aria-label={t(current === 'routines' ? 'bots.painel.aba.rotinas' : current === 'whatsapp' ? 'bots.painel.aba.whatsapp' : 'bots.painel.aba.sessoes')}>
-      {!spaceAllows(store.spaceId, current === 'routines' ? 'routines' : current === 'whatsapp' ? 'connectors' : 'sessions') ? <p role="status">{t('spaces.selector.unavailable')}</p> : current === 'whatsapp' && wa
+    <div className={`rp-body${current === 'whatsapp' ? ' wa-body' : ''}`} role="tabpanel" aria-label={t(current === 'routines' ? 'bots.painel.aba.rotinas' : current === 'whatsapp' ? 'bots.painel.aba.whatsapp' : current === 'time' ? 'bots.painel.aba.time' : 'bots.painel.aba.sessoes')}>
+      {!spaceAllows(store.spaceId, current === 'routines' ? 'routines' : current === 'whatsapp' ? 'connectors' : current === 'time' ? 'teams' : 'sessions') ? <p role="status">{t('spaces.selector.unavailable')}</p> : current === 'whatsapp' && wa
         ? <AbaWhatsapp bot={bot} wa={wa} controle={whatsapp} />
+        : current === 'time'
+        ? <div {...superficie} style={{ display: 'contents' }}><AbaTime store={store} bot={bot} active={active} /></div>
         : current === 'routines'
         ? <RoutinesView botId={bot.id} initialId={routineId} />
         : <div {...superficie} style={{ display: 'contents' }}><SessionTree chat={bot} sessions={sessions} openSession={openSession} onOpenSession={onOpenSession} onNew={onNewSession} /></div>}

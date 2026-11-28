@@ -109,10 +109,8 @@ o **chão próprio**: editar a configuração do motor sempre pergunta.
 O cartão do Codex filtra as opções que gravam regras permanentes no diretório
 compartilhado: `accept_execpolicy_amendment`, `apply_network_policy_amendment:*`
 (todas, inclusive o antigo "Never") e o `allow_always` de MCP (persistência `always`). Outras opções
-`allow_always` desconhecidas também não são oferecidas. Mantém `allow_once` e
-as permissões de sessão (`allow_for_session`, `allow_session` e
-`allow_permissions_session`), rotuladas **Permitir nesta sessão** no desktop e no
-iOS. O filtro também vale em Liberar. O sempre permitir
+`allow_always` desconhecidas e permissões de sessão também não são oferecidas.
+O cartão só autoriza a chamada atual. O filtro também vale em Liberar. O sempre permitir
 de verdade pertence às regras salvas no Hub previstas. O Hub guarda os IDs
 filtrados de cada cartão pendente e recusa qualquer `optionId` fora deles antes de
 responder ao motor ou à ferramenta. A recusa mantém o cartão pendente e retorna
@@ -273,7 +271,7 @@ isolamento nem substitui o fechamento futuro.
 8. Num `CODEX_HOME` descartável com fixtures de regra `allow`, MCP e hook,
    conferir o aviso no app com arquivo/tipo e sem conteúdo; o motor deve continuar.
    Em cartão de comando, rede e MCP, conferir ausência de opções persistentes e
-   o rótulo **Permitir nesta sessão**. Não inserir bypass no diretório de login
+   de sessão. Não inserir bypass no diretório de login
    usado pelos bots.
 
 Nada deste checklist substitui a conferência no Hub real. A mudança vale quando
@@ -306,6 +304,31 @@ entregar autorização ao motor. Repetir a mesma resposta apenas confirma esse
 encerramento. Cancelar não concede acesso, inclusive se o contexto do turno
 tiver mudado. O cancelamento interno usado ao parar um turno também continua
 funcionando.
+
+## Política de comandos locais mediados
+
+Em conversas Codex novas iniciadas pelo dono local, o bot pode pedir ao Hub
+para executar um comando. A opção começa desligada: o primeiro cartão avisa que
+o processo vai rodar com as permissões do dono, sem isolamento, e só libera a
+exibição do pedido. O segundo cartão mostra o caminho absoluto do executável,
+os argumentos e a pasta e exige uma nova aprovação. Não existe aprovação
+permanente. A mediação ocorre no Hub; o shell nativo do Codex continua desligado.
+Conversas anteriores preservam seu catálogo. O Hub devolve apenas o estado e
+o código de saída ou sinal, sem enviar stdout e stderr ao motor. Não use
+credenciais como argumentos.
+
+Cada aprovação vale para um pedido, bot, turno, executável, argumentos e pasta.
+É de uso único e perde a validade quando expira, quando a política muda ou
+quando o Hub revoga o turno. O Hub não tenta inferir os efeitos pelo nome do
+comando: se houver uma regra de recusa aplicável à ação ou ao alvo e o efeito
+não puder ser provado, o comando é recusado.
+No Linux, o executor usa os descritores abertos antes da aprovação para não
+seguir uma troca posterior de caminho. No macOS, a entrada na pasta usa o
+descritor aberto, e o Hub recusa se o dispositivo ou inode da pasta ou do
+executável mudar. O macOS executa o binário por caminho: ainda existe uma
+janela entre a última conferência e a execução. Nenhum método torna imutável
+o conteúdo de um arquivo nem confina o comando: ele ainda pode acessar os
+arquivos e a rede do dono. O executor não está disponível em outras plataformas.
 
 ## OpenCode: aviso no app
 

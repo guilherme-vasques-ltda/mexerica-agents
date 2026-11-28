@@ -9,10 +9,16 @@ mod entrega;
 #[cfg(test)]
 mod entrega_tests;
 mod installation;
+mod internas;
+#[cfg(test)]
+mod internas_tests;
 #[cfg(test)]
 mod manual_revision_tests;
 #[cfg(test)]
 mod marketing_tests;
+mod open;
+#[cfg(test)]
+mod open_tests;
 pub(crate) mod preparo;
 mod registry;
 mod review;
@@ -21,6 +27,8 @@ mod storage;
 mod tests;
 pub(crate) use criador_de_skills::{install_guide, instructions as extensibility_instructions};
 pub(crate) use entrega::{brief, comando, conferir};
+pub(crate) use open::installed as open_installed;
+pub(crate) use open::texto_para_bot as open_texto_para_bot;
 
 use crate::{LockExt, market::Skill, store::Store};
 use anyhow::{Context, Result, anyhow, bail, ensure};
@@ -294,6 +302,9 @@ fn catalog_item(p: &Package, all: &[Skill], state: &State) -> Result<Value> {
     item["installedId"] = json!(installed.map(|s| &s.id));
     let conflict = all.iter().any(|s| s.id == p.install_id) && installed.is_none();
     item["installable"] = json!(p.installable() && !conflict);
+    if crate::environment::Environment::is_open() {
+        open::marcar(&mut item, &p.metadata.id);
+    }
     if conflict {
         item["reason"] = json!(format!(
             "{} A identidade de instalação já pertence a outra versão/legado; nenhum arquivo será substituído. Confira e remova explicitamente o conflito antes de importar.",
@@ -358,7 +369,8 @@ fn list_locked(store: &Store) -> Result<Value> {
         }
         items.push(item);
     }
-    Ok(json!({"skillProtocol":PROTOCOL,"items":items}))
+    let internas = internas::listar(crate::environment::Environment::is_open())?;
+    Ok(json!({"skillProtocol":PROTOCOL,"items":items,"internas":internas}))
 }
 
 fn bounded_read(path: &Path, max: usize) -> Result<String> {
@@ -804,6 +816,16 @@ fn staged(store: &Store, files: &[registry::Asset], r: Option<&Receipt>) -> Resu
 }
 
 fn install_locked(store: &Store, p: &Package, seed: bool, repair: Option<&str>) -> Result<Value> {
+    install_locked_checked(store, p, seed, repair, || Ok(()))
+}
+
+fn install_locked_checked(
+    store: &Store,
+    p: &Package,
+    seed: bool,
+    repair: Option<&str>,
+    before_effect: impl Fn() -> Result<()>,
+) -> Result<Value> {
     p.validate()?;
     ensure!(p.installable(), "{}", p.metadata.reason);
     let (mut all, mut state) = installation::load_initialized(store)?;
@@ -842,6 +864,7 @@ fn install_locked(store: &Store, p: &Package, seed: bool, repair: Option<&str>) 
         }
         return Ok(json!({"skillProtocol":PROTOCOL,"skill":public(store,existing,&state)?,"alreadyInstalled":true}));
     }
+    before_effect()?;
     let created = publish(store, &p.install_id, &p.assets, Some(&r))?;
     let skill = Skill {
         id: p.install_id.clone(),
@@ -853,17 +876,25 @@ fn install_locked(store: &Store, p: &Package, seed: bool, repair: Option<&str>) 
     state.installed.insert(skill.id.clone(), r.digest.clone());
     state.receipts.insert(r.digest.clone(), r);
     state.seed_done |= seed || p.metadata.id == SEED;
-    if installation::issue(&skill, &mut state).and_then(|()| persist(store, &all, &state, None)).is_err() {
+    let saved = before_effect().and_then(|()| {
+        installation::issue(&skill, &mut state)
+            .and_then(|()| persist(store, &all, &state, None))
+            .map_err(|_| anyhow!("Não foi possível registrar a importação; tente novamente"))
+    });
+    if let Err(error) = saved {
         if created {
             let _ = fs::remove_dir_all(dir(store, &skill));
         }
-        bail!("Não foi possível registrar a importação; tente novamente");
+        return Err(error);
     }
     Ok(json!({"skillProtocol":PROTOCOL,"skill":public(store,&skill,&state)?,"alreadyInstalled":false}))
 }
 
 pub(crate) fn install(store: &Store, body: &Value, revalidate: impl FnOnce() -> Result<()>) -> Result<Value> {
     let intent = install_intent(body)?;
+    if crate::environment::Environment::is_open() {
+        open::conferir(&intent.catalog_id)?;
+    }
     let p = registry::find(&intent.catalog_id)?;
     ensure!(
         intent.expected_digest == p.metadata.digest,
@@ -875,7 +906,58 @@ pub(crate) fn install(store: &Store, body: &Value, revalidate: impl FnOnce() -> 
     install_locked(store, &p, false, intent.expected_installation_id.as_deref())
 }
 
+pub(crate) fn install_open_approved(
+    store: &Store,
+    body: &Value,
+    before_effect: impl Fn() -> Result<()>,
+) -> Result<Value> {
+    let intent = install_intent(body)?;
+    ensure!(intent.expected_installation_id.is_none(), "open_tools_skill_repair_unavailable");
+    open::conferir(&intent.catalog_id)?;
+    let package = registry::find(&intent.catalog_id)?;
+    ensure!(intent.expected_digest == package.metadata.digest, "open_tools_skill_catalog_changed");
+    let _guard = MUTATION.locked();
+    let _file = root_lock(store)?;
+    before_effect()?;
+    install_locked_checked(store, &package, false, None, before_effect)
+}
+
+pub(crate) fn open_catalog(store: &Store, check: impl FnOnce() -> Result<()>) -> Result<Value> {
+    let mut result = browse(store, check)?;
+    if let Some(items) = result["items"].as_array_mut() {
+        items.retain(|item| item["id"].as_str().is_some_and(open::permitida) && item["installable"] == true);
+        for item in items {
+            *item = json!({
+                "id": item["id"], "name": item["name"], "description": item["description"],
+                "digest": item["digest"], "installed": item["installed"],
+            });
+        }
+    }
+    Ok(result)
+}
+
+pub(crate) fn open_skill_installation(store: &Store, id: &str, check: impl FnOnce() -> Result<()>) -> Result<String> {
+    open::conferir(id)?;
+    with_snapshot(store, check, || {
+        let (all, state) = installation::load_initialized(store)?;
+        let skill = all.iter().find(|skill| skill.id == id).context("open_tools_skill_not_installed")?;
+        let receipt = installed_receipt(&state, id).context("open_tools_skill_not_catalogued")?;
+        let package =
+            registry::captured(&receipt.catalog_id, &receipt.digest)?.context("open_tools_skill_not_catalogued")?;
+        ensure!(
+            receipt.catalog_id == id && package.install_id == id && package.installable(),
+            "open_tools_skill_not_catalogued"
+        );
+        installation::checked_document(store, skill, &state)?;
+        let item = public(store, skill, &state)?;
+        Ok(item["installationId"].as_str().context("open_tools_skill_not_installed")?.to_owned())
+    })
+}
+
 pub(crate) fn custom(store: &Store, body: &Value, revalidate: impl FnOnce() -> Result<()>) -> Result<Value> {
+    if crate::environment::Environment::is_open() {
+        bail!("{}", open::MOTIVO);
+    }
     custom_with(store, body, revalidate, |_| Ok(()))
 }
 

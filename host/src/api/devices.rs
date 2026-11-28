@@ -38,6 +38,10 @@ pub enum Caller {
 }
 
 impl Caller {
+    pub(crate) fn is_web_chat(&self) -> bool {
+        matches!(self, Self::Device { scopes, .. } if scopes == &[Scope::WebChat])
+    }
+
     /// The key push and Live Activity tickets are bound to.
     pub fn device_key(&self) -> &str {
         match self {
@@ -56,6 +60,7 @@ const LOCAL_ONLY: &[&str] = &[
     crate::fork::onboarding::DETECT_METHOD,
     crate::fork::onboarding::STATUS_METHOD,
     crate::fork::onboarding::SAVE_METHOD,
+    crate::fork::open_modelo::SET_METHOD,
     "hostUpdateStatus",
     "checkHostUpdate",
     "installHostUpdate",
@@ -208,6 +213,9 @@ pub fn authorize(hub: &Hub, key: &str) -> Result<Device, RejectCode> {
     let d = hub.store.device(key).ok_or(RejectCode::Unauthorized)?;
     if crate::fork::workspace::bloqueado(hub, &d) {
         return Err(RejectCode::Revoked);
+    }
+    if !d.concessao_web_valida(now_ms()) {
+        return Err(RejectCode::LeaseExpired);
     }
     if d.source == DeviceSource::Account
         && (!hub.cloud_synced.load(Ordering::Acquire) || d.lease_until.is_none_or(|t| t <= now_ms()))

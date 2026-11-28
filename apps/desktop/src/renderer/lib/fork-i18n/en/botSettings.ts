@@ -3,6 +3,8 @@ import type { textos as fonte } from '../pt-BR/botSettings.ts'
 
 // DON-903: botSettings (registro.ts). Chaves completas; docs/guides/idiomas.md.
 export const textos: Traducao<typeof fonte> = {
+  'botSettings.comandosLocais.titulo': 'Local commands',
+  'botSettings.comandosLocais.aviso': 'Turn this on before the first message in a new bot. Each command still requires approval. Approved commands run without isolation under your permissions and can access files and the network.',
   // DON-865, fatia 4: Motor do criar bot e do editor (D372/D373/D375).
   'botSettings.motor.aviso': 'Applies to new conversations. Each open conversation keeps its own model.',
   'botSettings.motor.usar': 'Also use in the main conversation',
@@ -115,4 +117,18 @@ export const textos: Traducao<typeof fonte> = {
   "botSettings.indisponivel.guiasLinha": "Your instructions to steer the automatic choice, without changing what the bot can access.",
   "botSettings.indisponivel.nota": "For now, new conversations use the account and model chosen above.",
   "botSettings.fechar": "Close",
+  "botSettings.open.motor.intro": "This edition runs only Codex, in text, with no commands and no computer control. Pick this bot's account and model below; it applies from the next message.",
+  "botSettings.open.motor.semConta": "No account connected. Connect a Codex account in Settings → AI Accounts.",
+  "botSettings.open.motor.padrao": "{modelo} (default)",
+  "botSettings.open.motor.usar": "Use",
+  "botSettings.open.motor.erro": "Couldn't change the model. Try again.",
+  "botSettings.open.motor.erroLeitura": "Couldn't read the connected accounts.",
+  "botSettings.open.motor.tentar": "Try again",
+  "botSettings.open.memoria.aviso": "Manuals and notes in this tab are added as context to this bot's conversations, as text: they grant no tools or access.",
+  "botSettings.open.fluxo.pasta": "Working folder: in Mexerica Open the bot can't reach folders on this computer. That depends on command control, which belongs to the shell work.",
+  "botSettings.open.fluxo.computador": "Use the computer: Open chats in text only and doesn't control the computer. That flow belongs to the computer-control work.",
+  "botSettings.open.fluxo.navegador": "Bot browser: needs commands on this computer and doesn't run in Open.",
+  "botSettings.open.fluxo.conectores": "Connectors and saved logins: they depend on the Vault and on sign-in as a flow, which belong to the security work. Catalog skills work as usual.",
+  "botSettings.open.fluxo.whatsapp": "WhatsApp needs account sign-in and pairing and doesn't run in Open. It shows up here once that flow is released.",
+  "botSettings.open.fluxo.voz": "Voice needs the microphone and the voice flows, which belong to the voice work.",
 }

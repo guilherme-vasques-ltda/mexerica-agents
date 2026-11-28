@@ -1,0 +1,3180 @@
+{
+  "nome": "Ícones de interface da Mexerica",
+  "versao": "1.0.0",
+  "total": 159,
+  "desenho": {
+    "viewBox": "0 0 24 24",
+    "traco": 2,
+    "pontas": "redondas",
+    "cor": "currentColor",
+    "tamanhoDeReferencia": 19,
+    "tamanhoMinimo": 16
+  },
+  "estados": {
+    "neutro": "Tinta de texto secundária do tema.",
+    "ativo": "Tangerina (#E26A00 no tema claro, #F58A1F no escuro) sobre o fundo de item ativo.",
+    "desativado": "A mesma tinta do neutro com 40% de opacidade."
+  },
+  "triadeDoCompositor": [
+    "mx-enviar",
+    "mx-gravar-audio",
+    "mx-voz-ao-vivo"
+  ],
+  "grupos": [
+    {
+      "id": "barra",
+      "nome": "Barra lateral e navegação",
+      "icones": [
+        "mx-lado-a-lado",
+        "mx-mission-board",
+        "mx-rotinas",
+        "mx-conectores",
+        "mx-ajustes",
+        "mx-uso",
+        "mx-conta",
+        "mx-seletor",
+        "mx-pessoa",
+        "mx-buscar",
+        "mx-canal",
+        "mx-bot",
+        "mx-equipe",
+        "mx-lampada",
+        "mx-sino",
+        "mx-pasta"
+      ]
+    },
+    {
+      "id": "compositor",
+      "nome": "Compositor e voz",
+      "icones": [
+        "mx-enviar",
+        "mx-gravar-audio",
+        "mx-voz-ao-vivo",
+        "mx-microfone-mudo",
+        "mx-ondas-de-voz",
+        "mx-telefone",
+        "mx-encerrar-chamada",
+        "mx-parar",
+        "mx-mais"
+      ]
+    },
+    {
+      "id": "paineis",
+      "nome": "Painéis e janelas",
+      "icones": [
+        "mx-trocar",
+        "mx-chevron-esquerda",
+        "mx-chevron-direita",
+        "mx-expandir",
+        "mx-recolher",
+        "mx-fechar",
+        "mx-barra-lateral",
+        "mx-chevron-duplo-esquerda",
+        "mx-chevron-duplo-direita",
+        "mx-chevron-cima",
+        "mx-chevron-baixo",
+        "mx-detalhes-da-mensagem",
+        "mx-mais-opcoes",
+        "mx-abrir-fora"
+      ]
+    },
+    {
+      "id": "setas",
+      "nome": "Setas e direção",
+      "icones": [
+        "mx-seta-cima",
+        "mx-seta-baixo",
+        "mx-seta-esquerda",
+        "mx-seta-direita",
+        "mx-ordenar",
+        "mx-ir-ao-fim",
+        "mx-recarregar",
+        "mx-restaurar",
+        "mx-sincronizar",
+        "mx-desfazer",
+        "mx-responder",
+        "mx-ramificar",
+        "mx-baixar",
+        "mx-exportar",
+        "mx-sair"
+      ]
+    },
+    {
+      "id": "acoes",
+      "nome": "Ações",
+      "icones": [
+        "mx-editar",
+        "mx-escrever",
+        "mx-lixeira",
+        "mx-copiar",
+        "mx-prancheta",
+        "mx-link",
+        "mx-fixar",
+        "mx-desafixar",
+        "mx-estrela",
+        "mx-arquivar",
+        "mx-remover",
+        "mx-cursor",
+        "mx-arrastar",
+        "mx-controles",
+        "mx-ferramentas",
+        "mx-energia"
+      ]
+    },
+    {
+      "id": "estado",
+      "nome": "Estado e avisos",
+      "icones": [
+        "mx-confirmar",
+        "mx-concluido",
+        "mx-cancelar",
+        "mx-info",
+        "mx-alerta",
+        "mx-erro",
+        "mx-circulo",
+        "mx-circulo-pontilhado",
+        "mx-selo-verificado",
+        "mx-relogio",
+        "mx-historico",
+        "mx-ampulheta",
+        "mx-sem-conexao",
+        "mx-raio",
+        "mx-brilhos",
+        "mx-lua"
+      ]
+    },
+    {
+      "id": "seguranca",
+      "nome": "Permissão e segurança",
+      "icones": [
+        "mx-permissao-manual",
+        "mx-permissao-livre",
+        "mx-escudo",
+        "mx-escudo-ok",
+        "mx-escudo-cadeado",
+        "mx-cadeado",
+        "mx-chave",
+        "mx-olho",
+        "mx-olho-oculto"
+      ]
+    },
+    {
+      "id": "pessoas",
+      "nome": "Conta e pessoas",
+      "icones": [
+        "mx-adicionar-conta",
+        "mx-livro",
+        "mx-livro-aberto",
+        "mx-cerebro",
+        "mx-rosto"
+      ]
+    },
+    {
+      "id": "conversa",
+      "nome": "Conversa",
+      "icones": [
+        "mx-conversa",
+        "mx-conversas",
+        "mx-lista",
+        "mx-lista-de-tarefas",
+        "mx-cartao-lista",
+        "mx-texto-alinhado",
+        "mx-grafico"
+      ]
+    },
+    {
+      "id": "midia",
+      "nome": "Áudio e mídia",
+      "icones": [
+        "mx-reproduzir",
+        "mx-som",
+        "mx-som-mudo",
+        "mx-nota-musical",
+        "mx-gravar-tela",
+        "mx-video",
+        "mx-camera",
+        "mx-foto",
+        "mx-filme"
+      ]
+    },
+    {
+      "id": "arquivos",
+      "nome": "Arquivos e listas",
+      "icones": [
+        "mx-documento",
+        "mx-documento-novo",
+        "mx-arquivo-zip",
+        "mx-caixa-entrada",
+        "mx-pacote",
+        "mx-grade",
+        "mx-qr",
+        "mx-teclado",
+        "mx-paleta"
+      ]
+    },
+    {
+      "id": "dispositivos",
+      "nome": "Dispositivos e rede",
+      "icones": [
+        "mx-computador",
+        "mx-computador-alerta",
+        "mx-notebook",
+        "mx-celular",
+        "mx-servidor",
+        "mx-chip",
+        "mx-terminal",
+        "mx-nuvem",
+        "mx-globo",
+        "mx-rede",
+        "mx-wifi",
+        "mx-casa",
+        "mx-local"
+      ]
+    },
+    {
+      "id": "spaces",
+      "nome": "Símbolos de space",
+      "icones": [
+        "mx-maleta",
+        "mx-predio",
+        "mx-alvo",
+        "mx-foguete",
+        "mx-balanca",
+        "mx-contrato",
+        "mx-sacola",
+        "mx-carrinho",
+        "mx-loja",
+        "mx-caixas",
+        "mx-etiqueta",
+        "mx-caminhao",
+        "mx-cartao",
+        "mx-megafone",
+        "mx-codigo",
+        "mx-banco-de-dados",
+        "mx-folha",
+        "mx-coracao",
+        "mx-cafe",
+        "mx-pata",
+        "mx-haltere"
+      ]
+    }
+  ],
+  "icones": [
+    {
+      "id": "mx-lado-a-lado",
+      "arquivo": "svg/mx-lado-a-lado.svg",
+      "nome": "Lado a lado",
+      "rotuloAcessivel": "Lado a lado",
+      "grupo": "barra",
+      "uso": "Abre o quadro com duas ou três conversas lado a lado.",
+      "controles": [
+        "Faixa lateral: botão Lado a lado",
+        "Cabeçalho do quadro Lado a lado",
+        "Estado vazio do quadro"
+      ],
+      "simbolosDoApp": [
+        "donna.ladoalado"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": true,
+      "gesto": "Uma parte do desenho se desloca e volta."
+    },
+    {
+      "id": "mx-mission-board",
+      "arquivo": "svg/mx-mission-board.svg",
+      "nome": "Mission Board",
+      "rotuloAcessivel": "Mission Board",
+      "grupo": "barra",
+      "uso": "Abre o quadro de tarefas e missões: cartões em colunas.",
+      "controles": [
+        "Faixa lateral: botão Mission Board"
+      ],
+      "simbolosDoApp": [
+        "donna.torre"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": true,
+      "gesto": "Uma parte do desenho se desloca e volta."
+    },
+    {
+      "id": "mx-rotinas",
+      "arquivo": "svg/mx-rotinas.svg",
+      "nome": "Rotinas",
+      "rotuloAcessivel": "Rotinas",
+      "grupo": "barra",
+      "uso": "Abre as rotinas agendadas; também marca data e agenda.",
+      "controles": [
+        "Faixa lateral: botão Rotinas",
+        "Central de rotinas",
+        "Detalhe da tarefa: data"
+      ],
+      "simbolosDoApp": [
+        "calendar"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": true,
+      "gesto": "Uma parte do desenho se desloca e volta."
+    },
+    {
+      "id": "mx-conectores",
+      "arquivo": "svg/mx-conectores.svg",
+      "nome": "Conectores",
+      "rotuloAcessivel": "Conectores",
+      "grupo": "barra",
+      "uso": "Abre os conectores: serviços que a Mexerica pode usar.",
+      "controles": [
+        "Faixa lateral: botão Conectores",
+        "Menu da engrenagem: Conectores",
+        "Extensões: página Conectores",
+        "Criar bot: passo de conectores"
+      ],
+      "simbolosDoApp": [
+        "puzzlepiece.extension",
+        "square.grid.2x2"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": true,
+      "gesto": "Uma parte do desenho se desloca e volta."
+    },
+    {
+      "id": "mx-ajustes",
+      "arquivo": "svg/mx-ajustes.svg",
+      "nome": "Ajustes",
+      "rotuloAcessivel": "Ajustes",
+      "grupo": "barra",
+      "uso": "Abre os ajustes do app.",
+      "controles": [
+        "Faixa lateral: botão da engrenagem",
+        "Menu da engrenagem: Ajustes",
+        "Chamada de voz: ajustes",
+        "Painel do bot: ajustes"
+      ],
+      "simbolosDoApp": [
+        "gearshape"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": true,
+      "gesto": "Uma parte do desenho se desloca e volta."
+    },
+    {
+      "id": "mx-uso",
+      "arquivo": "svg/mx-uso.svg",
+      "nome": "Uso",
+      "rotuloAcessivel": "Uso",
+      "grupo": "barra",
+      "uso": "Mostra quanto do limite de uso já foi gasto.",
+      "controles": [
+        "Menu da engrenagem: Uso",
+        "Ilha: uso",
+        "Ajustes: uso"
+      ],
+      "simbolosDoApp": [
+        "gauge.with.dots.needle.33percent"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ponteiro avança e volta."
+    },
+    {
+      "id": "mx-conta",
+      "arquivo": "svg/mx-conta.svg",
+      "nome": "Conta e suporte",
+      "rotuloAcessivel": "Conta e suporte",
+      "grupo": "barra",
+      "uso": "Abre a conta do usuário e o suporte.",
+      "controles": [
+        "Menu da engrenagem: Conta e suporte",
+        "Cartão da conta em Ajustes",
+        "Entrar com provedor"
+      ],
+      "simbolosDoApp": [
+        "person.crop.circle",
+        "provedor.apple",
+        "person.crop.circle.badge.checkmark"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-seletor",
+      "arquivo": "svg/mx-seletor.svg",
+      "nome": "Trocar de space",
+      "rotuloAcessivel": "Trocar de space",
+      "grupo": "barra",
+      "uso": "Indica uma lista de escolha, como o seletor de space.",
+      "controles": [
+        "Seletor de space",
+        "Seletor de fuso horário"
+      ],
+      "simbolosDoApp": [
+        "chevron.up.chevron.down"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-pessoa",
+      "arquivo": "svg/mx-pessoa.svg",
+      "nome": "Pessoal",
+      "rotuloAcessivel": "Pessoal",
+      "grupo": "barra",
+      "uso": "Representa o próprio usuário ou o space pessoal.",
+      "controles": [
+        "Seletor de space: Pessoal",
+        "Painel do bot: dono",
+        "Detalhe da tarefa: responsável",
+        "Seletor de ícone do space"
+      ],
+      "simbolosDoApp": [
+        "person",
+        "person.fill"
+      ],
+      "simbolosDeSpace": [
+        "user"
+      ],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-buscar",
+      "arquivo": "svg/mx-buscar.svg",
+      "nome": "Buscar",
+      "rotuloAcessivel": "Buscar",
+      "grupo": "barra",
+      "uso": "Abre ou marca um campo de busca.",
+      "controles": [
+        "Barra lateral: Buscar",
+        "Paleta de busca",
+        "Biblioteca e catálogo"
+      ],
+      "simbolosDoApp": [
+        "magnifyingglass"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-canal",
+      "arquivo": "svg/mx-canal.svg",
+      "nome": "Canais",
+      "rotuloAcessivel": "Canais",
+      "grupo": "barra",
+      "uso": "Marca canais (conversas em grupo).",
+      "controles": [
+        "Barra lateral: Canais",
+        "Abas de conversa"
+      ],
+      "simbolosDoApp": [
+        "number"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-bot",
+      "arquivo": "svg/mx-bot.svg",
+      "nome": "Agentes",
+      "rotuloAcessivel": "Agentes",
+      "grupo": "barra",
+      "uso": "Marca a lista de agentes (bots).",
+      "controles": [
+        "Barra lateral: Agentes",
+        "Seletor de ícone do space"
+      ],
+      "simbolosDoApp": [
+        "donna.bot"
+      ],
+      "simbolosDeSpace": [
+        "bot"
+      ],
+      "assinatura": false,
+      "gesto": "O ícone balança de leve."
+    },
+    {
+      "id": "mx-equipe",
+      "arquivo": "svg/mx-equipe.svg",
+      "nome": "Equipes",
+      "rotuloAcessivel": "Equipes",
+      "grupo": "barra",
+      "uso": "Abre equipes e grupos de bots.",
+      "controles": [
+        "Menu da faixa: Equipes",
+        "Lista de bots: grupos"
+      ],
+      "simbolosDoApp": [
+        "person.2"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-lampada",
+      "arquivo": "svg/mx-lampada.svg",
+      "nome": "Skills",
+      "rotuloAcessivel": "Skills",
+      "grupo": "barra",
+      "uso": "Abre as skills (o que o bot sabe fazer).",
+      "controles": [
+        "Menu da faixa: Skills",
+        "Extensões: página Skills"
+      ],
+      "simbolosDoApp": [
+        "lightbulb"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-sino",
+      "arquivo": "svg/mx-sino.svg",
+      "nome": "Pendências",
+      "rotuloAcessivel": "Pendências",
+      "grupo": "barra",
+      "uso": "Avisa que há pendências esperando resposta.",
+      "controles": [
+        "Menu da faixa: Pendências",
+        "Detalhe da tarefa: lembrete"
+      ],
+      "simbolosDoApp": [
+        "bell.badge"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone balança de leve."
+    },
+    {
+      "id": "mx-pasta",
+      "arquivo": "svg/mx-pasta.svg",
+      "nome": "Projetos",
+      "rotuloAcessivel": "Projetos",
+      "grupo": "barra",
+      "uso": "Abre projetos ou marca uma pasta.",
+      "controles": [
+        "Menu da faixa: Projetos",
+        "Grupos de agentes",
+        "Editor do bot: pasta"
+      ],
+      "simbolosDoApp": [
+        "folder"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-enviar",
+      "arquivo": "svg/mx-enviar.svg",
+      "nome": "Enviar mensagem",
+      "rotuloAcessivel": "Enviar mensagem",
+      "grupo": "compositor",
+      "uso": "Envia a mensagem de texto escrita no compositor.",
+      "controles": [
+        "Compositor: botão Enviar"
+      ],
+      "simbolosDoApp": [],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone parte na diagonal e volta."
+    },
+    {
+      "id": "mx-gravar-audio",
+      "arquivo": "svg/mx-gravar-audio.svg",
+      "nome": "Gravar mensagem de áudio",
+      "rotuloAcessivel": "Gravar mensagem de áudio",
+      "grupo": "compositor",
+      "uso": "Grava ou dita uma mensagem de áudio. Não é conversa ao vivo.",
+      "controles": [
+        "Compositor: botão Ditar / gravar áudio",
+        "Chamada de voz: microfone ligado"
+      ],
+      "simbolosDoApp": [
+        "mic",
+        "mic.fill"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-voz-ao-vivo",
+      "arquivo": "svg/mx-voz-ao-vivo.svg",
+      "nome": "Voz ao vivo",
+      "rotuloAcessivel": "Voz ao vivo",
+      "grupo": "compositor",
+      "uso": "Abre a conversa por voz em tempo real com o bot.",
+      "controles": [
+        "Compositor: botão Ao vivo"
+      ],
+      "simbolosDoApp": [],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O desenho cresce ou encolhe e volta."
+    },
+    {
+      "id": "mx-microfone-mudo",
+      "arquivo": "svg/mx-microfone-mudo.svg",
+      "nome": "Microfone desligado",
+      "rotuloAcessivel": "Microfone desligado",
+      "grupo": "compositor",
+      "uso": "Indica que o microfone está mudo.",
+      "controles": [
+        "Chamada de voz: microfone mudo"
+      ],
+      "simbolosDoApp": [
+        "mic.slash",
+        "mic.slash.fill"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-ondas-de-voz",
+      "arquivo": "svg/mx-ondas-de-voz.svg",
+      "nome": "Voz",
+      "rotuloAcessivel": "Voz",
+      "grupo": "compositor",
+      "uso": "Marca recursos de voz e mensagens faladas. No compositor, o botão Ao vivo usa mx-voz-ao-vivo.",
+      "controles": [
+        "Ajustes: página Voz",
+        "Mensagem falada na conversa"
+      ],
+      "simbolosDoApp": [
+        "waveform"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-telefone",
+      "arquivo": "svg/mx-telefone.svg",
+      "nome": "Ligação",
+      "rotuloAcessivel": "Ligação",
+      "grupo": "compositor",
+      "uso": "Marca uma ligação ou número de telefone.",
+      "controles": [
+        "Painel do bot: telefone",
+        "WhatsApp: chamada"
+      ],
+      "simbolosDoApp": [
+        "phone"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone balança de leve."
+    },
+    {
+      "id": "mx-encerrar-chamada",
+      "arquivo": "svg/mx-encerrar-chamada.svg",
+      "nome": "Encerrar chamada",
+      "rotuloAcessivel": "Encerrar chamada",
+      "grupo": "compositor",
+      "uso": "Encerra a conversa por voz.",
+      "controles": [
+        "Reservado: a chamada de voz usa hoje o X para encerrar"
+      ],
+      "simbolosDoApp": [
+        "phone.down.fill"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone dá um passo na direção que aponta e volta."
+    },
+    {
+      "id": "mx-parar",
+      "arquivo": "svg/mx-parar.svg",
+      "nome": "Parar",
+      "rotuloAcessivel": "Parar",
+      "grupo": "compositor",
+      "uso": "Para a resposta em andamento ou a gravação.",
+      "controles": [
+        "Compositor: Parar / Interromper",
+        "Torre: parar"
+      ],
+      "simbolosDoApp": [
+        "stop.fill",
+        "stop.circle"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-mais",
+      "arquivo": "svg/mx-mais.svg",
+      "nome": "Adicionar",
+      "rotuloAcessivel": "Adicionar",
+      "grupo": "compositor",
+      "uso": "Adiciona um item; no compositor, anexa arquivos.",
+      "controles": [
+        "Compositor: Anexar",
+        "Seletor de space: novo space",
+        "Lado a lado: Adicionar conversa",
+        "Barra lateral: novo canal ou agente"
+      ],
+      "simbolosDoApp": [
+        "plus",
+        "plus.circle"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone gira uma vez."
+    },
+    {
+      "id": "mx-trocar",
+      "arquivo": "svg/mx-trocar.svg",
+      "nome": "Trocar conversa",
+      "rotuloAcessivel": "Trocar conversa",
+      "grupo": "paineis",
+      "uso": "Troca a conversa mostrada no painel.",
+      "controles": [
+        "Painel do Lado a lado: Trocar",
+        "Comparar rascunho de skill"
+      ],
+      "simbolosDoApp": [
+        "arrow.left.arrow.right"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-chevron-esquerda",
+      "arquivo": "svg/mx-chevron-esquerda.svg",
+      "nome": "Anterior",
+      "rotuloAcessivel": "Anterior",
+      "grupo": "paineis",
+      "uso": "Vai para o item anterior ou volta um nível.",
+      "controles": [
+        "Painel do Lado a lado: Anterior",
+        "Menus: voltar"
+      ],
+      "simbolosDoApp": [
+        "chevron.left"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone dá um passo na direção que aponta e volta."
+    },
+    {
+      "id": "mx-chevron-direita",
+      "arquivo": "svg/mx-chevron-direita.svg",
+      "nome": "Seguinte",
+      "rotuloAcessivel": "Seguinte",
+      "grupo": "paineis",
+      "uso": "Vai para o item seguinte ou abre um submenu.",
+      "controles": [
+        "Painel do Lado a lado: Seguinte",
+        "Linhas de menu com submenu"
+      ],
+      "simbolosDoApp": [
+        "chevron.right"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone dá um passo na direção que aponta e volta."
+    },
+    {
+      "id": "mx-expandir",
+      "arquivo": "svg/mx-expandir.svg",
+      "nome": "Expandir",
+      "rotuloAcessivel": "Expandir",
+      "grupo": "paineis",
+      "uso": "Abre o painel em tela cheia.",
+      "controles": [
+        "Painel do Lado a lado: Expandir",
+        "Quadro de equipes",
+        "Mini WhatsApp"
+      ],
+      "simbolosDoApp": [
+        "arrow.up.left.and.arrow.down.right"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O desenho cresce ou encolhe e volta."
+    },
+    {
+      "id": "mx-recolher",
+      "arquivo": "svg/mx-recolher.svg",
+      "nome": "Voltar para uma conversa",
+      "rotuloAcessivel": "Voltar para uma conversa",
+      "grupo": "paineis",
+      "uso": "Sai da tela cheia ou volta para uma conversa só.",
+      "controles": [
+        "Lado a lado: Voltar para uma conversa",
+        "WhatsApp: tela grande"
+      ],
+      "simbolosDoApp": [
+        "arrow.down.right.and.arrow.up.left"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O desenho cresce ou encolhe e volta."
+    },
+    {
+      "id": "mx-fechar",
+      "arquivo": "svg/mx-fechar.svg",
+      "nome": "Fechar",
+      "rotuloAcessivel": "Fechar",
+      "grupo": "paineis",
+      "uso": "Fecha um painel, aviso ou janela; também cancela.",
+      "controles": [
+        "Painel do Lado a lado: Fechar",
+        "Janelas e avisos",
+        "Compositor: cancelar resposta"
+      ],
+      "simbolosDoApp": [
+        "xmark"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone gira uma vez."
+    },
+    {
+      "id": "mx-barra-lateral",
+      "arquivo": "svg/mx-barra-lateral.svg",
+      "nome": "Mostrar barra lateral",
+      "rotuloAcessivel": "Mostrar barra lateral",
+      "grupo": "paineis",
+      "uso": "Mostra ou esconde a barra lateral.",
+      "controles": [
+        "Janela da conversa",
+        "Calendário de rotinas",
+        "Ajustes"
+      ],
+      "simbolosDoApp": [
+        "sidebar.left"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-chevron-duplo-esquerda",
+      "arquivo": "svg/mx-chevron-duplo-esquerda.svg",
+      "nome": "Recuar abas",
+      "rotuloAcessivel": "Recuar abas",
+      "grupo": "paineis",
+      "uso": "Rola as abas para trás.",
+      "controles": [
+        "Abas de conversa"
+      ],
+      "simbolosDoApp": [
+        "chevron.left.2"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone dá um passo na direção que aponta e volta."
+    },
+    {
+      "id": "mx-chevron-duplo-direita",
+      "arquivo": "svg/mx-chevron-duplo-direita.svg",
+      "nome": "Avançar abas",
+      "rotuloAcessivel": "Avançar abas",
+      "grupo": "paineis",
+      "uso": "Rola as abas para a frente ou mostra mais.",
+      "controles": [
+        "Abas de conversa",
+        "Cabeçalho da conversa"
+      ],
+      "simbolosDoApp": [
+        "chevron.right.2"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone dá um passo na direção que aponta e volta."
+    },
+    {
+      "id": "mx-chevron-cima",
+      "arquivo": "svg/mx-chevron-cima.svg",
+      "nome": "Recolher seção",
+      "rotuloAcessivel": "Recolher seção",
+      "grupo": "paineis",
+      "uso": "Recolhe uma seção aberta.",
+      "controles": [
+        "Seções que abrem e fecham"
+      ],
+      "simbolosDoApp": [
+        "chevron.up"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone dá um passo na direção que aponta e volta."
+    },
+    {
+      "id": "mx-chevron-baixo",
+      "arquivo": "svg/mx-chevron-baixo.svg",
+      "nome": "Abrir seção",
+      "rotuloAcessivel": "Abrir seção",
+      "grupo": "paineis",
+      "uso": "Abre uma seção ou lista de opções.",
+      "controles": [
+        "Seletores e seções que abrem e fecham"
+      ],
+      "simbolosDoApp": [
+        "chevron.down"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone dá um passo na direção que aponta e volta."
+    },
+    {
+      "id": "mx-detalhes-da-mensagem",
+      "arquivo": "svg/mx-detalhes-da-mensagem.svg",
+      "nome": "Detalhes da mensagem",
+      "rotuloAcessivel": "Detalhes da mensagem",
+      "grupo": "paineis",
+      "uso": "Abre o recibo da resposta: por onde ela passou e quanto custou.",
+      "controles": [
+        "Mensagem do bot: recibo ao lado da hora"
+      ],
+      "simbolosDoApp": [],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-mais-opcoes",
+      "arquivo": "svg/mx-mais-opcoes.svg",
+      "nome": "Mais ações",
+      "rotuloAcessivel": "Mais ações",
+      "grupo": "paineis",
+      "uso": "Abre o menu com mais ações.",
+      "controles": [
+        "Mensagem: Mais ações",
+        "Abas, cartões e listas"
+      ],
+      "simbolosDoApp": [
+        "ellipsis",
+        "ellipsis.circle"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-abrir-fora",
+      "arquivo": "svg/mx-abrir-fora.svg",
+      "nome": "Abrir em outra janela",
+      "rotuloAcessivel": "Abrir em outra janela",
+      "grupo": "paineis",
+      "uso": "Abre um link ou arquivo fora do app.",
+      "controles": [
+        "Links de ajuda e de contas",
+        "Arquivos de memória"
+      ],
+      "simbolosDoApp": [
+        "arrow.up.right.square"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone parte na diagonal e volta."
+    },
+    {
+      "id": "mx-seta-cima",
+      "arquivo": "svg/mx-seta-cima.svg",
+      "nome": "Para cima",
+      "rotuloAcessivel": "Para cima",
+      "grupo": "setas",
+      "uso": "Move para cima ou sobe na fila. O botão Enviar do compositor usa mx-enviar.",
+      "controles": [
+        "Fila de mensagens",
+        "Listas ordenáveis"
+      ],
+      "simbolosDoApp": [
+        "arrow.up"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone dá um passo na direção que aponta e volta."
+    },
+    {
+      "id": "mx-seta-baixo",
+      "arquivo": "svg/mx-seta-baixo.svg",
+      "nome": "Para baixo",
+      "rotuloAcessivel": "Para baixo",
+      "grupo": "setas",
+      "uso": "Move para baixo ou desce até o fim.",
+      "controles": [
+        "Listas ordenáveis",
+        "Atualização disponível"
+      ],
+      "simbolosDoApp": [
+        "arrow.down"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone dá um passo na direção que aponta e volta."
+    },
+    {
+      "id": "mx-seta-esquerda",
+      "arquivo": "svg/mx-seta-esquerda.svg",
+      "nome": "Voltar",
+      "rotuloAcessivel": "Voltar",
+      "grupo": "setas",
+      "uso": "Volta para a tela anterior.",
+      "controles": [
+        "Ajustes, Extensões e Mercado: voltar"
+      ],
+      "simbolosDoApp": [
+        "arrow.left"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone dá um passo na direção que aponta e volta."
+    },
+    {
+      "id": "mx-seta-direita",
+      "arquivo": "svg/mx-seta-direita.svg",
+      "nome": "Avançar",
+      "rotuloAcessivel": "Avançar",
+      "grupo": "setas",
+      "uso": "Avança para o próximo passo.",
+      "controles": [
+        "Primeiros passos",
+        "Acesso ao computador"
+      ],
+      "simbolosDoApp": [
+        "arrow.right"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone dá um passo na direção que aponta e volta."
+    },
+    {
+      "id": "mx-ordenar",
+      "arquivo": "svg/mx-ordenar.svg",
+      "nome": "Ordenar",
+      "rotuloAcessivel": "Ordenar",
+      "grupo": "setas",
+      "uso": "Muda a ordem de uma tabela ou lista.",
+      "controles": [
+        "Tabela de dados"
+      ],
+      "simbolosDoApp": [
+        "arrow.up.arrow.down"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-ir-ao-fim",
+      "arquivo": "svg/mx-ir-ao-fim.svg",
+      "nome": "Ir até o fim",
+      "rotuloAcessivel": "Ir até o fim",
+      "grupo": "setas",
+      "uso": "Leva até o fim da linha ou da lista.",
+      "controles": [
+        "Trabalho do bot"
+      ],
+      "simbolosDoApp": [
+        "arrow.right.to.line"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone dá um passo na direção que aponta e volta."
+    },
+    {
+      "id": "mx-recarregar",
+      "arquivo": "svg/mx-recarregar.svg",
+      "nome": "Tentar de novo",
+      "rotuloAcessivel": "Tentar de novo",
+      "grupo": "setas",
+      "uso": "Recarrega ou tenta de novo.",
+      "controles": [
+        "Mensagem que falhou: Reenviar",
+        "Código de pareamento",
+        "Listas: atualizar"
+      ],
+      "simbolosDoApp": [
+        "arrow.clockwise",
+        "rotate.right"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone gira uma vez."
+    },
+    {
+      "id": "mx-restaurar",
+      "arquivo": "svg/mx-restaurar.svg",
+      "nome": "Restaurar",
+      "rotuloAcessivel": "Restaurar",
+      "grupo": "setas",
+      "uso": "Volta ao estado anterior ou ao padrão.",
+      "controles": [
+        "Janela da conversa"
+      ],
+      "simbolosDoApp": [
+        "arrow.counterclockwise"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone gira uma vez."
+    },
+    {
+      "id": "mx-sincronizar",
+      "arquivo": "svg/mx-sincronizar.svg",
+      "nome": "Sincronizar",
+      "rotuloAcessivel": "Sincronizar",
+      "grupo": "setas",
+      "uso": "Sincroniza ou troca automaticamente.",
+      "controles": [
+        "Projetos",
+        "Propostas",
+        "Criar bot: prévia"
+      ],
+      "simbolosDoApp": [
+        "arrow.triangle.2.circlepath"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone gira uma vez."
+    },
+    {
+      "id": "mx-desfazer",
+      "arquivo": "svg/mx-desfazer.svg",
+      "nome": "Desfazer",
+      "rotuloAcessivel": "Desfazer",
+      "grupo": "setas",
+      "uso": "Desfaz a última mudança.",
+      "controles": [
+        "Memória do bot",
+        "Equipes"
+      ],
+      "simbolosDoApp": [
+        "arrow.uturn.backward"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone dá um passo na direção que aponta e volta."
+    },
+    {
+      "id": "mx-responder",
+      "arquivo": "svg/mx-responder.svg",
+      "nome": "Responder",
+      "rotuloAcessivel": "Responder",
+      "grupo": "setas",
+      "uso": "Responde a uma mensagem específica.",
+      "controles": [
+        "Mensagem: Responder"
+      ],
+      "simbolosDoApp": [
+        "arrowshape.turn.up.left"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone dá um passo na direção que aponta e volta."
+    },
+    {
+      "id": "mx-ramificar",
+      "arquivo": "svg/mx-ramificar.svg",
+      "nome": "Delegar",
+      "rotuloAcessivel": "Delegar",
+      "grupo": "setas",
+      "uso": "Mostra que o trabalho se divide ou é delegado.",
+      "controles": [
+        "Delegação",
+        "Equipes",
+        "Editor do bot"
+      ],
+      "simbolosDoApp": [
+        "arrow.triangle.branch"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-baixar",
+      "arquivo": "svg/mx-baixar.svg",
+      "nome": "Baixar",
+      "rotuloAcessivel": "Baixar",
+      "grupo": "setas",
+      "uso": "Baixa um arquivo ou uma atualização.",
+      "controles": [
+        "Cartão de arquivo",
+        "Catálogo de skills",
+        "Tabela: exportar",
+        "Atualização do app"
+      ],
+      "simbolosDoApp": [
+        "arrow.down.to.line",
+        "square.and.arrow.down",
+        "arrow.down.circle"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone dá um passo na direção que aponta e volta."
+    },
+    {
+      "id": "mx-exportar",
+      "arquivo": "svg/mx-exportar.svg",
+      "nome": "Exportar",
+      "rotuloAcessivel": "Exportar",
+      "grupo": "setas",
+      "uso": "Exporta ou compartilha.",
+      "controles": [
+        "Memória do bot: exportar"
+      ],
+      "simbolosDoApp": [
+        "square.and.arrow.up",
+        "tray.and.arrow.up"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone dá um passo na direção que aponta e volta."
+    },
+    {
+      "id": "mx-sair",
+      "arquivo": "svg/mx-sair.svg",
+      "nome": "Sair da conta",
+      "rotuloAcessivel": "Sair da conta",
+      "grupo": "setas",
+      "uso": "Sai da conta.",
+      "controles": [
+        "Menu da conta: Sair"
+      ],
+      "simbolosDoApp": [
+        "rectangle.portrait.and.arrow.right"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "Uma parte do desenho se desloca e volta."
+    },
+    {
+      "id": "mx-editar",
+      "arquivo": "svg/mx-editar.svg",
+      "nome": "Editar",
+      "rotuloAcessivel": "Editar",
+      "grupo": "acoes",
+      "uso": "Edita o item.",
+      "controles": [
+        "Memória",
+        "Skills",
+        "Cartões e listas"
+      ],
+      "simbolosDoApp": [
+        "pencil"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone balança de leve."
+    },
+    {
+      "id": "mx-escrever",
+      "arquivo": "svg/mx-escrever.svg",
+      "nome": "Nova conversa",
+      "rotuloAcessivel": "Nova conversa",
+      "grupo": "acoes",
+      "uso": "Começa uma conversa ou um texto novo.",
+      "controles": [
+        "Janela da conversa: nova conversa",
+        "Skills: escrever skill"
+      ],
+      "simbolosDoApp": [
+        "square.and.pencil"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-lixeira",
+      "arquivo": "svg/mx-lixeira.svg",
+      "nome": "Apagar",
+      "rotuloAcessivel": "Apagar",
+      "grupo": "acoes",
+      "uso": "Apaga o item. Peça confirmação quando não der para desfazer.",
+      "controles": [
+        "Mensagem que falhou: Apagar",
+        "Memória",
+        "Conversas"
+      ],
+      "simbolosDoApp": [
+        "trash"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone balança de leve."
+    },
+    {
+      "id": "mx-copiar",
+      "arquivo": "svg/mx-copiar.svg",
+      "nome": "Copiar",
+      "rotuloAcessivel": "Copiar",
+      "grupo": "acoes",
+      "uso": "Copia o conteúdo.",
+      "controles": [
+        "Mensagem: Copiar",
+        "Código de pareamento",
+        "Modelos de bot"
+      ],
+      "simbolosDoApp": [
+        "doc.on.doc",
+        "square.on.square"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-prancheta",
+      "arquivo": "svg/mx-prancheta.svg",
+      "nome": "Área de transferência",
+      "rotuloAcessivel": "Área de transferência",
+      "grupo": "acoes",
+      "uso": "Cola ou mostra o que foi copiado.",
+      "controles": [
+        "Trabalho do bot: copiar e colar"
+      ],
+      "simbolosDoApp": [
+        "doc.on.clipboard",
+        "doc.on.clipboard.fill",
+        "arrow.down.doc.on.clipboard",
+        "arrow.right.doc.on.clipboard",
+        "arrow.up.doc.on.clipboard"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-link",
+      "arquivo": "svg/mx-link.svg",
+      "nome": "Link",
+      "rotuloAcessivel": "Link",
+      "grupo": "acoes",
+      "uso": "Marca um link ou vínculo.",
+      "controles": [
+        "Rotinas: vínculo",
+        "Cartão de escolha"
+      ],
+      "simbolosDoApp": [
+        "link"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-fixar",
+      "arquivo": "svg/mx-fixar.svg",
+      "nome": "Fixar",
+      "rotuloAcessivel": "Fixar",
+      "grupo": "acoes",
+      "uso": "Fixa o item no topo.",
+      "controles": [
+        "Conversas",
+        "Memória",
+        "Painel do bot"
+      ],
+      "simbolosDoApp": [
+        "pin",
+        "pin.fill"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-desafixar",
+      "arquivo": "svg/mx-desafixar.svg",
+      "nome": "Desafixar",
+      "rotuloAcessivel": "Desafixar",
+      "grupo": "acoes",
+      "uso": "Tira o item do topo.",
+      "controles": [
+        "Memória"
+      ],
+      "simbolosDoApp": [
+        "pin.slash"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-estrela",
+      "arquivo": "svg/mx-estrela.svg",
+      "nome": "Favorito",
+      "rotuloAcessivel": "Favorito",
+      "grupo": "acoes",
+      "uso": "Marca como favorito ou padrão.",
+      "controles": [
+        "Seletor de modelo"
+      ],
+      "simbolosDoApp": [
+        "star",
+        "star.fill"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone gira uma vez."
+    },
+    {
+      "id": "mx-arquivar",
+      "arquivo": "svg/mx-arquivar.svg",
+      "nome": "Arquivar",
+      "rotuloAcessivel": "Arquivar",
+      "grupo": "acoes",
+      "uso": "Arquiva conversas ou tarefas.",
+      "controles": [
+        "Conversa encerrada",
+        "Tarefas",
+        "Memória"
+      ],
+      "simbolosDoApp": [
+        "archivebox"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-remover",
+      "arquivo": "svg/mx-remover.svg",
+      "nome": "Remover",
+      "rotuloAcessivel": "Remover",
+      "grupo": "acoes",
+      "uso": "Remove o item da lista.",
+      "controles": [
+        "Base central de skills"
+      ],
+      "simbolosDoApp": [
+        "minus.circle"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-cursor",
+      "arquivo": "svg/mx-cursor.svg",
+      "nome": "Controlar a tela",
+      "rotuloAcessivel": "Controlar a tela",
+      "grupo": "acoes",
+      "uso": "Mostra que o bot aponta ou clica na tela.",
+      "controles": [
+        "Acesso ao computador",
+        "Navegador ao vivo",
+        "Linha do bot"
+      ],
+      "simbolosDoApp": [
+        "cursorarrow.motionlines",
+        "hand.point.up.left",
+        "rectangle.and.hand.point.up.left"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-arrastar",
+      "arquivo": "svg/mx-arrastar.svg",
+      "nome": "Arrastar",
+      "rotuloAcessivel": "Arrastar",
+      "grupo": "acoes",
+      "uso": "Alça para arrastar e reordenar.",
+      "controles": [
+        "Ajustes da barra lateral"
+      ],
+      "simbolosDoApp": [
+        "line.3.horizontal"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-controles",
+      "arquivo": "svg/mx-controles.svg",
+      "nome": "Organizar",
+      "rotuloAcessivel": "Organizar",
+      "grupo": "acoes",
+      "uso": "Abre filtros ou a edição de uma lista.",
+      "controles": [
+        "Seletor de space: editar spaces",
+        "Biblioteca: filtros",
+        "Criar bot: prévia"
+      ],
+      "simbolosDoApp": [
+        "slider.horizontal.3"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-ferramentas",
+      "arquivo": "svg/mx-ferramentas.svg",
+      "nome": "Ferramentas",
+      "rotuloAcessivel": "Ferramentas",
+      "grupo": "acoes",
+      "uso": "Marca ferramentas usadas pelo bot.",
+      "controles": [
+        "Trabalho do bot",
+        "Primeiros passos"
+      ],
+      "simbolosDoApp": [
+        "wrench.and.screwdriver",
+        "hammer"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone balança de leve."
+    },
+    {
+      "id": "mx-energia",
+      "arquivo": "svg/mx-energia.svg",
+      "nome": "Ligar ou desligar",
+      "rotuloAcessivel": "Ligar ou desligar",
+      "grupo": "acoes",
+      "uso": "Liga ou desliga.",
+      "controles": [
+        "Reservado: nenhum controle usa hoje"
+      ],
+      "simbolosDoApp": [
+        "power"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-confirmar",
+      "arquivo": "svg/mx-confirmar.svg",
+      "nome": "Confirmar",
+      "rotuloAcessivel": "Confirmar",
+      "grupo": "estado",
+      "uso": "Marca o item escolhido ou confirma.",
+      "controles": [
+        "Menus: item marcado",
+        "Aprovação: permitiu"
+      ],
+      "simbolosDoApp": [
+        "checkmark"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-concluido",
+      "arquivo": "svg/mx-concluido.svg",
+      "nome": "Concluído",
+      "rotuloAcessivel": "Concluído",
+      "grupo": "estado",
+      "uso": "Mostra que deu certo ou está pronto.",
+      "controles": [
+        "Contas de IA",
+        "Atividade",
+        "Avisos de sucesso"
+      ],
+      "simbolosDoApp": [
+        "checkmark.circle",
+        "checkmark.circle.fill"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-cancelar",
+      "arquivo": "svg/mx-cancelar.svg",
+      "nome": "Cancelar",
+      "rotuloAcessivel": "Cancelar",
+      "grupo": "estado",
+      "uso": "Cancela, limpa o campo ou mostra recusa.",
+      "controles": [
+        "Campo de busca: limpar",
+        "Cartão de escolha",
+        "Mercado"
+      ],
+      "simbolosDoApp": [
+        "xmark.circle",
+        "xmark.circle.fill"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-info",
+      "arquivo": "svg/mx-info.svg",
+      "nome": "Informação",
+      "rotuloAcessivel": "Informação",
+      "grupo": "estado",
+      "uso": "Abre uma explicação curta.",
+      "controles": [
+        "Mensagem: Como foi",
+        "Avisos e explicações em telas de ajuste"
+      ],
+      "simbolosDoApp": [
+        "info.circle"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-alerta",
+      "arquivo": "svg/mx-alerta.svg",
+      "nome": "Atenção",
+      "rotuloAcessivel": "Atenção",
+      "grupo": "estado",
+      "uso": "Avisa de um risco ou de algo que precisa de atenção.",
+      "controles": [
+        "Avisos em conversas, bots e contas"
+      ],
+      "simbolosDoApp": [
+        "exclamationmark.triangle",
+        "exclamationmark.triangle.fill"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-erro",
+      "arquivo": "svg/mx-erro.svg",
+      "nome": "Erro",
+      "rotuloAcessivel": "Erro",
+      "grupo": "estado",
+      "uso": "Mostra que algo falhou.",
+      "controles": [
+        "Contas de IA",
+        "Atividade",
+        "Voz"
+      ],
+      "simbolosDoApp": [
+        "exclamationmark.circle",
+        "exclamationmark.circle.fill",
+        "exclamationmark"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-circulo",
+      "arquivo": "svg/mx-circulo.svg",
+      "nome": "Não marcado",
+      "rotuloAcessivel": "Não marcado",
+      "grupo": "estado",
+      "uso": "Item ainda não marcado ou sem ícone próprio.",
+      "controles": [
+        "Menus sem ícone",
+        "Mercado: passos"
+      ],
+      "simbolosDoApp": [
+        "circle"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-circulo-pontilhado",
+      "arquivo": "svg/mx-circulo-pontilhado.svg",
+      "nome": "Pendente",
+      "rotuloAcessivel": "Pendente",
+      "grupo": "estado",
+      "uso": "Passo ainda pendente.",
+      "controles": [
+        "Primeiros passos",
+        "Trabalho do bot"
+      ],
+      "simbolosDoApp": [
+        "circle.dotted"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone gira uma vez."
+    },
+    {
+      "id": "mx-selo-verificado",
+      "arquivo": "svg/mx-selo-verificado.svg",
+      "nome": "Verificado",
+      "rotuloAcessivel": "Verificado",
+      "grupo": "estado",
+      "uso": "Item conferido ou oficial.",
+      "controles": [
+        "Mercado: catálogo e ficha",
+        "Voz"
+      ],
+      "simbolosDoApp": [
+        "checkmark.seal"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-relogio",
+      "arquivo": "svg/mx-relogio.svg",
+      "nome": "Aguardando",
+      "rotuloAcessivel": "Aguardando",
+      "grupo": "estado",
+      "uso": "Mostra espera, horário ou prazo.",
+      "controles": [
+        "Pedidos pendentes",
+        "Rotinas",
+        "Conversa em pausa"
+      ],
+      "simbolosDoApp": [
+        "clock"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-historico",
+      "arquivo": "svg/mx-historico.svg",
+      "nome": "Histórico",
+      "rotuloAcessivel": "Histórico",
+      "grupo": "estado",
+      "uso": "Abre o histórico.",
+      "controles": [
+        "Rotinas: execuções",
+        "Conversa: histórico"
+      ],
+      "simbolosDoApp": [
+        "clock.arrow.circlepath"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-ampulheta",
+      "arquivo": "svg/mx-ampulheta.svg",
+      "nome": "Processando",
+      "rotuloAcessivel": "Processando",
+      "grupo": "estado",
+      "uso": "Mostra que algo está em andamento.",
+      "controles": [
+        "Reservado: nenhum controle usa hoje"
+      ],
+      "simbolosDoApp": [
+        "hourglass"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone gira uma vez."
+    },
+    {
+      "id": "mx-sem-conexao",
+      "arquivo": "svg/mx-sem-conexao.svg",
+      "nome": "Sem conexão",
+      "rotuloAcessivel": "Sem conexão",
+      "grupo": "estado",
+      "uso": "Avisa que o app está sem conexão.",
+      "controles": [
+        "Conversa: sem conexão",
+        "Biblioteca e catálogo"
+      ],
+      "simbolosDoApp": [
+        "wifi.slash"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-raio",
+      "arquivo": "svg/mx-raio.svg",
+      "nome": "Comando rápido",
+      "rotuloAcessivel": "Comando rápido",
+      "grupo": "estado",
+      "uso": "Marca um comando rápido.",
+      "controles": [
+        "Comandos de barra",
+        "Seletor de ícone do space"
+      ],
+      "simbolosDoApp": [
+        "bolt"
+      ],
+      "simbolosDeSpace": [
+        "zap"
+      ],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-brilhos",
+      "arquivo": "svg/mx-brilhos.svg",
+      "nome": "Sugestão",
+      "rotuloAcessivel": "Sugestão",
+      "grupo": "estado",
+      "uso": "Marca uma sugestão automática.",
+      "controles": [
+        "Editor de rotina",
+        "Ajustes"
+      ],
+      "simbolosDoApp": [
+        "sparkles"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-lua",
+      "arquivo": "svg/mx-lua.svg",
+      "nome": "Fora do horário",
+      "rotuloAcessivel": "Fora do horário",
+      "grupo": "estado",
+      "uso": "Mostra descanso ou limite de uso atingido.",
+      "controles": [
+        "Limites de uso",
+        "Memória"
+      ],
+      "simbolosDoApp": [
+        "moon"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-permissao-manual",
+      "arquivo": "svg/mx-permissao-manual.svg",
+      "nome": "Permissão manual",
+      "rotuloAcessivel": "Permissão manual",
+      "grupo": "seguranca",
+      "uso": "O bot pede permissão antes de agir.",
+      "controles": [
+        "Compositor: nível de permissão",
+        "Conversa: aguardando aprovação",
+        "Painel do bot",
+        "Nunca fazer"
+      ],
+      "simbolosDoApp": [
+        "hand.raised"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone balança de leve."
+    },
+    {
+      "id": "mx-permissao-livre",
+      "arquivo": "svg/mx-permissao-livre.svg",
+      "nome": "Sem pedir permissão",
+      "rotuloAcessivel": "Sem pedir permissão",
+      "grupo": "seguranca",
+      "uso": "O bot age sem pedir permissão.",
+      "controles": [
+        "Ajustes"
+      ],
+      "simbolosDoApp": [
+        "hand.raised.slash"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-escudo",
+      "arquivo": "svg/mx-escudo.svg",
+      "nome": "Segurança",
+      "rotuloAcessivel": "Segurança",
+      "grupo": "seguranca",
+      "uso": "Marca proteção ou o nível de permissão.",
+      "controles": [
+        "Compositor: escudo de permissão",
+        "Pedido seguro",
+        "Aviso de senha colada"
+      ],
+      "simbolosDoApp": [
+        "shield"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-escudo-ok",
+      "arquivo": "svg/mx-escudo-ok.svg",
+      "nome": "Protegido",
+      "rotuloAcessivel": "Protegido",
+      "grupo": "seguranca",
+      "uso": "Mostra que está protegido ou aprovado.",
+      "controles": [
+        "Cofre",
+        "Biblioteca",
+        "Pedido seguro"
+      ],
+      "simbolosDoApp": [
+        "checkmark.shield"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-escudo-cadeado",
+      "arquivo": "svg/mx-escudo-cadeado.svg",
+      "nome": "Privado",
+      "rotuloAcessivel": "Privado",
+      "grupo": "seguranca",
+      "uso": "Mostra que o dado fica protegido e privado.",
+      "controles": [
+        "Acesso ao computador",
+        "Contas de IA",
+        "Criar bot"
+      ],
+      "simbolosDoApp": [
+        "lock.shield"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-cadeado",
+      "arquivo": "svg/mx-cadeado.svg",
+      "nome": "Bloqueado",
+      "rotuloAcessivel": "Bloqueado",
+      "grupo": "seguranca",
+      "uso": "Item bloqueado ou guardado no cofre.",
+      "controles": [
+        "Cofre",
+        "Compositor: aviso do cofre"
+      ],
+      "simbolosDoApp": [
+        "lock",
+        "lock.display"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-chave",
+      "arquivo": "svg/mx-chave.svg",
+      "nome": "Credencial",
+      "rotuloAcessivel": "Credencial",
+      "grupo": "seguranca",
+      "uso": "Marca chaves e credenciais.",
+      "controles": [
+        "Extensões: Credenciais",
+        "Conta do motor",
+        "Pedido seguro"
+      ],
+      "simbolosDoApp": [
+        "key",
+        "key.fill"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-olho",
+      "arquivo": "svg/mx-olho.svg",
+      "nome": "Mostrar",
+      "rotuloAcessivel": "Mostrar",
+      "grupo": "seguranca",
+      "uso": "Mostra um conteúdo escondido.",
+      "controles": [
+        "Cofre",
+        "Contas do Hub",
+        "Memória"
+      ],
+      "simbolosDoApp": [
+        "eye"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-olho-oculto",
+      "arquivo": "svg/mx-olho-oculto.svg",
+      "nome": "Esconder",
+      "rotuloAcessivel": "Esconder",
+      "grupo": "seguranca",
+      "uso": "Esconde o conteúdo, como uma senha.",
+      "controles": [
+        "Compositor: senha escondida",
+        "Cofre",
+        "Contas do Hub"
+      ],
+      "simbolosDoApp": [
+        "eye.slash"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-adicionar-conta",
+      "arquivo": "svg/mx-adicionar-conta.svg",
+      "nome": "Adicionar conta",
+      "rotuloAcessivel": "Adicionar conta",
+      "grupo": "pessoas",
+      "uso": "Adiciona uma conta ou conexão.",
+      "controles": [
+        "Contas de IA: nova conta",
+        "Menu da conta: entrar"
+      ],
+      "simbolosDoApp": [
+        "person.crop.circle.badge.plus"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-livro",
+      "arquivo": "svg/mx-livro.svg",
+      "nome": "Ajuda",
+      "rotuloAcessivel": "Ajuda",
+      "grupo": "pessoas",
+      "uso": "Abre ajuda, suporte ou a biblioteca.",
+      "controles": [
+        "Menu da conta: Suporte e Ajuda",
+        "Biblioteca",
+        "Seletor de ícone do space"
+      ],
+      "simbolosDoApp": [
+        "book",
+        "book.closed"
+      ],
+      "simbolosDeSpace": [
+        "book"
+      ],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-livro-aberto",
+      "arquivo": "svg/mx-livro-aberto.svg",
+      "nome": "Catálogo",
+      "rotuloAcessivel": "Catálogo",
+      "grupo": "pessoas",
+      "uso": "Abre um catálogo para leitura.",
+      "controles": [
+        "Catálogo de skills",
+        "Base central"
+      ],
+      "simbolosDoApp": [
+        "book.pages"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-cerebro",
+      "arquivo": "svg/mx-cerebro.svg",
+      "nome": "Memória",
+      "rotuloAcessivel": "Memória",
+      "grupo": "pessoas",
+      "uso": "Abre a memória do bot.",
+      "controles": [
+        "Memória",
+        "Sugestões de memória"
+      ],
+      "simbolosDoApp": [
+        "brain"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-rosto",
+      "arquivo": "svg/mx-rosto.svg",
+      "nome": "Reagir",
+      "rotuloAcessivel": "Reagir",
+      "grupo": "pessoas",
+      "uso": "Abre as reações com emoji.",
+      "controles": [
+        "Mensagem: Reagir",
+        "WhatsApp: emoji"
+      ],
+      "simbolosDoApp": [
+        "face.smiling"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-conversa",
+      "arquivo": "svg/mx-conversa.svg",
+      "nome": "Conversa",
+      "rotuloAcessivel": "Conversa",
+      "grupo": "conversa",
+      "uso": "Marca uma conversa ou mensagem.",
+      "controles": [
+        "Menu da conta: relatar problema",
+        "Ilha",
+        "Torre",
+        "Cartão de escolha"
+      ],
+      "simbolosDoApp": [
+        "bubble.left",
+        "bubble.left.fill",
+        "text.bubble"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-conversas",
+      "arquivo": "svg/mx-conversas.svg",
+      "nome": "Conversas",
+      "rotuloAcessivel": "Conversas",
+      "grupo": "conversa",
+      "uso": "Marca várias conversas ou a discussão de uma tarefa.",
+      "controles": [
+        "Detalhe da tarefa",
+        "Mini WhatsApp",
+        "Ajustes"
+      ],
+      "simbolosDoApp": [
+        "bubble.left.and.bubble.right"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-lista",
+      "arquivo": "svg/mx-lista.svg",
+      "nome": "Ver o trabalho",
+      "rotuloAcessivel": "Ver o trabalho",
+      "grupo": "conversa",
+      "uso": "Abre a lista de passos que o bot fez.",
+      "controles": [
+        "Mensagem: Ver o trabalho",
+        "Equipes: lista"
+      ],
+      "simbolosDoApp": [
+        "list.bullet"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-lista-de-tarefas",
+      "arquivo": "svg/mx-lista-de-tarefas.svg",
+      "nome": "Tarefas",
+      "rotuloAcessivel": "Tarefas",
+      "grupo": "conversa",
+      "uso": "Marca tarefas e listas de conferência.",
+      "controles": [
+        "Tarefas",
+        "Detalhe da tarefa",
+        "Propostas"
+      ],
+      "simbolosDoApp": [
+        "checklist"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-cartao-lista",
+      "arquivo": "svg/mx-cartao-lista.svg",
+      "nome": "Quadro em lista",
+      "rotuloAcessivel": "Quadro em lista",
+      "grupo": "conversa",
+      "uso": "Mostra o conteúdo como lista.",
+      "controles": [
+        "Projetos",
+        "Torre",
+        "Cartão de gráfico"
+      ],
+      "simbolosDoApp": [
+        "list.bullet.rectangle"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-texto-alinhado",
+      "arquivo": "svg/mx-texto-alinhado.svg",
+      "nome": "Quebra de texto",
+      "rotuloAcessivel": "Quebra de texto",
+      "grupo": "conversa",
+      "uso": "Controla a quebra de linha do texto.",
+      "controles": [
+        "Tabela de dados",
+        "Ajustes"
+      ],
+      "simbolosDoApp": [
+        "text.alignleft"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-grafico",
+      "arquivo": "svg/mx-grafico.svg",
+      "nome": "Gráfico",
+      "rotuloAcessivel": "Gráfico",
+      "grupo": "conversa",
+      "uso": "Abre números e gráficos.",
+      "controles": [
+        "Cartão de gráfico",
+        "Ajustes: análises",
+        "Seletor de ícone do space"
+      ],
+      "simbolosDoApp": [
+        "chart.bar"
+      ],
+      "simbolosDeSpace": [
+        "chart"
+      ],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-reproduzir",
+      "arquivo": "svg/mx-reproduzir.svg",
+      "nome": "Reproduzir",
+      "rotuloAcessivel": "Reproduzir",
+      "grupo": "midia",
+      "uso": "Toca um áudio ou roda uma rotina agora. Não envia nem grava.",
+      "controles": [
+        "Rotinas: rodar agora",
+        "Detalhe da tarefa"
+      ],
+      "simbolosDoApp": [
+        "play.circle"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-som",
+      "arquivo": "svg/mx-som.svg",
+      "nome": "Som",
+      "rotuloAcessivel": "Som",
+      "grupo": "midia",
+      "uso": "Volume e saída de som.",
+      "controles": [
+        "Reservado: nenhum controle usa hoje"
+      ],
+      "simbolosDoApp": [
+        "speaker.wave.2",
+        "speaker.wave.2.fill"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-som-mudo",
+      "arquivo": "svg/mx-som-mudo.svg",
+      "nome": "Som desligado",
+      "rotuloAcessivel": "Som desligado",
+      "grupo": "midia",
+      "uso": "Som desligado.",
+      "controles": [
+        "Reservado: nenhum controle usa hoje"
+      ],
+      "simbolosDoApp": [
+        "speaker.slash.fill"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-nota-musical",
+      "arquivo": "svg/mx-nota-musical.svg",
+      "nome": "Anexo de áudio",
+      "rotuloAcessivel": "Anexo de áudio",
+      "grupo": "midia",
+      "uso": "Marca um arquivo de áudio anexado. Não grava nem toca.",
+      "controles": [
+        "Reservado: nenhum controle usa hoje"
+      ],
+      "simbolosDoApp": [
+        "music.note"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-gravar-tela",
+      "arquivo": "svg/mx-gravar-tela.svg",
+      "nome": "Gravando a tela",
+      "rotuloAcessivel": "Gravando a tela",
+      "grupo": "midia",
+      "uso": "Mostra que a tela está sendo gravada ou acompanhada.",
+      "controles": [
+        "Acesso ao computador",
+        "Navegador ao vivo"
+      ],
+      "simbolosDoApp": [
+        "record.circle"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-video",
+      "arquivo": "svg/mx-video.svg",
+      "nome": "Vídeo",
+      "rotuloAcessivel": "Vídeo",
+      "grupo": "midia",
+      "uso": "Marca vídeo ou chamada de vídeo.",
+      "controles": [
+        "WhatsApp: vídeo"
+      ],
+      "simbolosDoApp": [
+        "video"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-camera",
+      "arquivo": "svg/mx-camera.svg",
+      "nome": "Câmera",
+      "rotuloAcessivel": "Câmera",
+      "grupo": "midia",
+      "uso": "Marca foto tirada pela câmera.",
+      "controles": [
+        "WhatsApp: foto"
+      ],
+      "simbolosDoApp": [
+        "camera"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-foto",
+      "arquivo": "svg/mx-foto.svg",
+      "nome": "Imagem",
+      "rotuloAcessivel": "Imagem",
+      "grupo": "midia",
+      "uso": "Marca uma imagem anexada.",
+      "controles": [
+        "Anexos de imagem",
+        "Ajustes: papel de parede"
+      ],
+      "simbolosDoApp": [
+        "photo",
+        "photo.on.rectangle"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-filme",
+      "arquivo": "svg/mx-filme.svg",
+      "nome": "Filme",
+      "rotuloAcessivel": "Filme",
+      "grupo": "midia",
+      "uso": "Marca um arquivo de vídeo.",
+      "controles": [
+        "Anexos de vídeo"
+      ],
+      "simbolosDoApp": [
+        "film"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-documento",
+      "arquivo": "svg/mx-documento.svg",
+      "nome": "Documento",
+      "rotuloAcessivel": "Documento",
+      "grupo": "arquivos",
+      "uso": "Marca um arquivo de texto.",
+      "controles": [
+        "Anexos",
+        "Arquivos de memória",
+        "Criar bot"
+      ],
+      "simbolosDoApp": [
+        "doc",
+        "doc.text",
+        "doc.plaintext",
+        "doc.richtext"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-documento-novo",
+      "arquivo": "svg/mx-documento-novo.svg",
+      "nome": "Novo arquivo",
+      "rotuloAcessivel": "Novo arquivo",
+      "grupo": "arquivos",
+      "uso": "Cria um arquivo ou mostra arquivo criado.",
+      "controles": [
+        "Arquivos de memória",
+        "Mudanças da resposta",
+        "Pedido de permissão"
+      ],
+      "simbolosDoApp": [
+        "doc.badge.plus"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-arquivo-zip",
+      "arquivo": "svg/mx-arquivo-zip.svg",
+      "nome": "Arquivo compactado",
+      "rotuloAcessivel": "Arquivo compactado",
+      "grupo": "arquivos",
+      "uso": "Marca um arquivo compactado.",
+      "controles": [
+        "Anexos"
+      ],
+      "simbolosDoApp": [
+        "doc.zipper"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-caixa-entrada",
+      "arquivo": "svg/mx-caixa-entrada.svg",
+      "nome": "Caixa de entrada",
+      "rotuloAcessivel": "Caixa de entrada",
+      "grupo": "arquivos",
+      "uso": "Abre a caixa de entrada.",
+      "controles": [
+        "Gerenciador de e-mail"
+      ],
+      "simbolosDoApp": [
+        "tray"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-pacote",
+      "arquivo": "svg/mx-pacote.svg",
+      "nome": "Plugins",
+      "rotuloAcessivel": "Plugins",
+      "grupo": "arquivos",
+      "uso": "Marca plugins e pacotes instaláveis.",
+      "controles": [
+        "Extensões: página Plugins",
+        "Marketplace"
+      ],
+      "simbolosDoApp": [
+        "shippingbox"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-grade",
+      "arquivo": "svg/mx-grade.svg",
+      "nome": "Grade",
+      "rotuloAcessivel": "Grade",
+      "grupo": "arquivos",
+      "uso": "Mostra o conteúdo em grade.",
+      "controles": [
+        "Reservado: nenhum controle usa hoje"
+      ],
+      "simbolosDoApp": [
+        "square.grid.3x3"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-qr",
+      "arquivo": "svg/mx-qr.svg",
+      "nome": "Código QR",
+      "rotuloAcessivel": "Código QR",
+      "grupo": "arquivos",
+      "uso": "Mostra um código QR para parear.",
+      "controles": [
+        "Ajustes: computadores"
+      ],
+      "simbolosDoApp": [
+        "qrcode"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-teclado",
+      "arquivo": "svg/mx-teclado.svg",
+      "nome": "Teclado",
+      "rotuloAcessivel": "Teclado",
+      "grupo": "arquivos",
+      "uso": "Esconde ou mostra o teclado.",
+      "controles": [
+        "Reservado: nenhum controle usa hoje"
+      ],
+      "simbolosDoApp": [
+        "keyboard.chevron.compact.down"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-paleta",
+      "arquivo": "svg/mx-paleta.svg",
+      "nome": "Aparência",
+      "rotuloAcessivel": "Aparência",
+      "grupo": "arquivos",
+      "uso": "Abre aparência e cores.",
+      "controles": [
+        "Ajustes: Aparência"
+      ],
+      "simbolosDoApp": [
+        "paintpalette"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-computador",
+      "arquivo": "svg/mx-computador.svg",
+      "nome": "Computador",
+      "rotuloAcessivel": "Computador",
+      "grupo": "dispositivos",
+      "uso": "Marca o computador onde o bot roda.",
+      "controles": [
+        "Selo do computador",
+        "Filtro por computador",
+        "Estado do Hub"
+      ],
+      "simbolosDoApp": [
+        "desktopcomputer",
+        "display",
+        "display.2",
+        "macmini",
+        "macstudio",
+        "macpro.gen3"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-computador-alerta",
+      "arquivo": "svg/mx-computador-alerta.svg",
+      "nome": "Computador com problema",
+      "rotuloAcessivel": "Computador com problema",
+      "grupo": "dispositivos",
+      "uso": "Avisa que o computador está fora do ar ou com erro.",
+      "controles": [
+        "Estado do Hub",
+        "Acesso ao computador"
+      ],
+      "simbolosDoApp": [
+        "desktopcomputer.trianglebadge.exclamationmark",
+        "display.trianglebadge.exclamationmark"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-notebook",
+      "arquivo": "svg/mx-notebook.svg",
+      "nome": "Notebook",
+      "rotuloAcessivel": "Notebook",
+      "grupo": "dispositivos",
+      "uso": "Marca um notebook.",
+      "controles": [
+        "Selo do computador",
+        "Rotinas: onde roda"
+      ],
+      "simbolosDoApp": [
+        "laptopcomputer"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-celular",
+      "arquivo": "svg/mx-celular.svg",
+      "nome": "Celular",
+      "rotuloAcessivel": "Celular",
+      "grupo": "dispositivos",
+      "uso": "Marca o celular pareado.",
+      "controles": [
+        "WhatsApp: pareamento",
+        "Acesso ao computador",
+        "Ajustes"
+      ],
+      "simbolosDoApp": [
+        "iphone"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-servidor",
+      "arquivo": "svg/mx-servidor.svg",
+      "nome": "Servidor",
+      "rotuloAcessivel": "Servidor",
+      "grupo": "dispositivos",
+      "uso": "Marca o Hub ou um servidor.",
+      "controles": [
+        "Contas do Hub",
+        "Primeiros passos",
+        "Criar bot: prévia"
+      ],
+      "simbolosDoApp": [
+        "server.rack",
+        "internaldrive"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-chip",
+      "arquivo": "svg/mx-chip.svg",
+      "nome": "Processador",
+      "rotuloAcessivel": "Processador",
+      "grupo": "dispositivos",
+      "uso": "Marca o motor ou o processamento.",
+      "controles": [
+        "Seletor de ícone do space"
+      ],
+      "simbolosDoApp": [
+        "cpu"
+      ],
+      "simbolosDeSpace": [
+        "chip"
+      ],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-terminal",
+      "arquivo": "svg/mx-terminal.svg",
+      "nome": "Terminal",
+      "rotuloAcessivel": "Terminal",
+      "grupo": "dispositivos",
+      "uso": "Marca linha de comando.",
+      "controles": [
+        "Contas de IA: terminal de configuração",
+        "Motores do Hub"
+      ],
+      "simbolosDoApp": [
+        "terminal"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-nuvem",
+      "arquivo": "svg/mx-nuvem.svg",
+      "nome": "Nuvem",
+      "rotuloAcessivel": "Nuvem",
+      "grupo": "dispositivos",
+      "uso": "Marca o que roda na nuvem.",
+      "controles": [
+        "Lugares de trabalho",
+        "Seletor de ícone do space"
+      ],
+      "simbolosDoApp": [
+        "cloud"
+      ],
+      "simbolosDeSpace": [
+        "cloud"
+      ],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-globo",
+      "arquivo": "svg/mx-globo.svg",
+      "nome": "Internet",
+      "rotuloAcessivel": "Internet",
+      "grupo": "dispositivos",
+      "uso": "Marca a internet ou um site.",
+      "controles": [
+        "Trabalho do bot: navegação",
+        "Marketplace",
+        "Seletor de ícone do space"
+      ],
+      "simbolosDoApp": [
+        "globe",
+        "safari"
+      ],
+      "simbolosDeSpace": [
+        "globe"
+      ],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-rede",
+      "arquivo": "svg/mx-rede.svg",
+      "nome": "Rede",
+      "rotuloAcessivel": "Rede",
+      "grupo": "dispositivos",
+      "uso": "Marca ligações entre bots ou serviços.",
+      "controles": [
+        "Equipes",
+        "Criar bot",
+        "Conversa"
+      ],
+      "simbolosDoApp": [
+        "network",
+        "point.3.connected.trianglepath.dotted"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-wifi",
+      "arquivo": "svg/mx-wifi.svg",
+      "nome": "Conectado",
+      "rotuloAcessivel": "Conectado",
+      "grupo": "dispositivos",
+      "uso": "Mostra que há conexão.",
+      "controles": [
+        "Conversa"
+      ],
+      "simbolosDoApp": [
+        "wifi"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-casa",
+      "arquivo": "svg/mx-casa.svg",
+      "nome": "Início",
+      "rotuloAcessivel": "Início",
+      "grupo": "dispositivos",
+      "uso": "Volta ao início.",
+      "controles": [
+        "Ilha",
+        "Criar bot: prévia",
+        "Seletor de ícone do space"
+      ],
+      "simbolosDoApp": [
+        "house.fill"
+      ],
+      "simbolosDeSpace": [
+        "home"
+      ],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-local",
+      "arquivo": "svg/mx-local.svg",
+      "nome": "Local",
+      "rotuloAcessivel": "Local",
+      "grupo": "dispositivos",
+      "uso": "Marca um endereço ou lugar.",
+      "controles": [
+        "WhatsApp: localização"
+      ],
+      "simbolosDoApp": [
+        "mappin"
+      ],
+      "simbolosDeSpace": [],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-maleta",
+      "arquivo": "svg/mx-maleta.svg",
+      "nome": "Trabalho",
+      "rotuloAcessivel": "Trabalho",
+      "grupo": "spaces",
+      "uso": "Símbolo que a pessoa escolhe para um space.",
+      "controles": [
+        "Seletor de ícone do space"
+      ],
+      "simbolosDoApp": [],
+      "simbolosDeSpace": [
+        "briefcase"
+      ],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-predio",
+      "arquivo": "svg/mx-predio.svg",
+      "nome": "Empresa",
+      "rotuloAcessivel": "Empresa",
+      "grupo": "spaces",
+      "uso": "Símbolo que a pessoa escolhe para um space.",
+      "controles": [
+        "Seletor de ícone do space"
+      ],
+      "simbolosDoApp": [],
+      "simbolosDeSpace": [
+        "building"
+      ],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-alvo",
+      "arquivo": "svg/mx-alvo.svg",
+      "nome": "Metas",
+      "rotuloAcessivel": "Metas",
+      "grupo": "spaces",
+      "uso": "Símbolo que a pessoa escolhe para um space.",
+      "controles": [
+        "Seletor de ícone do space"
+      ],
+      "simbolosDoApp": [],
+      "simbolosDeSpace": [
+        "target"
+      ],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-foguete",
+      "arquivo": "svg/mx-foguete.svg",
+      "nome": "Lançamento",
+      "rotuloAcessivel": "Lançamento",
+      "grupo": "spaces",
+      "uso": "Símbolo que a pessoa escolhe para um space.",
+      "controles": [
+        "Seletor de ícone do space"
+      ],
+      "simbolosDoApp": [],
+      "simbolosDeSpace": [
+        "rocket"
+      ],
+      "assinatura": false,
+      "gesto": "O ícone dá um passo na direção que aponta e volta."
+    },
+    {
+      "id": "mx-balanca",
+      "arquivo": "svg/mx-balanca.svg",
+      "nome": "Jurídico",
+      "rotuloAcessivel": "Jurídico",
+      "grupo": "spaces",
+      "uso": "Símbolo que a pessoa escolhe para um space.",
+      "controles": [
+        "Seletor de ícone do space"
+      ],
+      "simbolosDoApp": [],
+      "simbolosDeSpace": [
+        "scale"
+      ],
+      "assinatura": false,
+      "gesto": "O ícone balança de leve."
+    },
+    {
+      "id": "mx-contrato",
+      "arquivo": "svg/mx-contrato.svg",
+      "nome": "Contratos",
+      "rotuloAcessivel": "Contratos",
+      "grupo": "spaces",
+      "uso": "Símbolo que a pessoa escolhe para um space.",
+      "controles": [
+        "Seletor de ícone do space"
+      ],
+      "simbolosDoApp": [],
+      "simbolosDeSpace": [
+        "contract"
+      ],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-sacola",
+      "arquivo": "svg/mx-sacola.svg",
+      "nome": "Compras",
+      "rotuloAcessivel": "Compras",
+      "grupo": "spaces",
+      "uso": "Símbolo que a pessoa escolhe para um space.",
+      "controles": [
+        "Seletor de ícone do space"
+      ],
+      "simbolosDoApp": [],
+      "simbolosDeSpace": [
+        "bag"
+      ],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-carrinho",
+      "arquivo": "svg/mx-carrinho.svg",
+      "nome": "Vendas",
+      "rotuloAcessivel": "Vendas",
+      "grupo": "spaces",
+      "uso": "Símbolo que a pessoa escolhe para um space.",
+      "controles": [
+        "Seletor de ícone do space"
+      ],
+      "simbolosDoApp": [],
+      "simbolosDeSpace": [
+        "cart"
+      ],
+      "assinatura": false,
+      "gesto": "O ícone dá um passo na direção que aponta e volta."
+    },
+    {
+      "id": "mx-loja",
+      "arquivo": "svg/mx-loja.svg",
+      "nome": "Loja",
+      "rotuloAcessivel": "Loja",
+      "grupo": "spaces",
+      "uso": "Símbolo que a pessoa escolhe para um space.",
+      "controles": [
+        "Seletor de ícone do space"
+      ],
+      "simbolosDoApp": [],
+      "simbolosDeSpace": [
+        "store"
+      ],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-caixas",
+      "arquivo": "svg/mx-caixas.svg",
+      "nome": "Estoque",
+      "rotuloAcessivel": "Estoque",
+      "grupo": "spaces",
+      "uso": "Símbolo que a pessoa escolhe para um space.",
+      "controles": [
+        "Seletor de ícone do space"
+      ],
+      "simbolosDoApp": [],
+      "simbolosDeSpace": [
+        "boxes"
+      ],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-etiqueta",
+      "arquivo": "svg/mx-etiqueta.svg",
+      "nome": "Preços",
+      "rotuloAcessivel": "Preços",
+      "grupo": "spaces",
+      "uso": "Símbolo que a pessoa escolhe para um space.",
+      "controles": [
+        "Seletor de ícone do space"
+      ],
+      "simbolosDoApp": [],
+      "simbolosDeSpace": [
+        "tag"
+      ],
+      "assinatura": false,
+      "gesto": "O ícone balança de leve."
+    },
+    {
+      "id": "mx-caminhao",
+      "arquivo": "svg/mx-caminhao.svg",
+      "nome": "Entregas",
+      "rotuloAcessivel": "Entregas",
+      "grupo": "spaces",
+      "uso": "Símbolo que a pessoa escolhe para um space.",
+      "controles": [
+        "Seletor de ícone do space"
+      ],
+      "simbolosDoApp": [],
+      "simbolosDeSpace": [
+        "truck"
+      ],
+      "assinatura": false,
+      "gesto": "O ícone dá um passo na direção que aponta e volta."
+    },
+    {
+      "id": "mx-cartao",
+      "arquivo": "svg/mx-cartao.svg",
+      "nome": "Pagamentos",
+      "rotuloAcessivel": "Pagamentos",
+      "grupo": "spaces",
+      "uso": "Símbolo que a pessoa escolhe para um space.",
+      "controles": [
+        "Seletor de ícone do space"
+      ],
+      "simbolosDoApp": [],
+      "simbolosDeSpace": [
+        "card"
+      ],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-megafone",
+      "arquivo": "svg/mx-megafone.svg",
+      "nome": "Marketing",
+      "rotuloAcessivel": "Marketing",
+      "grupo": "spaces",
+      "uso": "Símbolo que a pessoa escolhe para um space.",
+      "controles": [
+        "Seletor de ícone do space"
+      ],
+      "simbolosDoApp": [],
+      "simbolosDeSpace": [
+        "megaphone"
+      ],
+      "assinatura": false,
+      "gesto": "O ícone balança de leve."
+    },
+    {
+      "id": "mx-codigo",
+      "arquivo": "svg/mx-codigo.svg",
+      "nome": "Código",
+      "rotuloAcessivel": "Código",
+      "grupo": "spaces",
+      "uso": "Símbolo que a pessoa escolhe para um space.",
+      "controles": [
+        "Seletor de ícone do space"
+      ],
+      "simbolosDoApp": [],
+      "simbolosDeSpace": [
+        "code"
+      ],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-banco-de-dados",
+      "arquivo": "svg/mx-banco-de-dados.svg",
+      "nome": "Dados",
+      "rotuloAcessivel": "Dados",
+      "grupo": "spaces",
+      "uso": "Símbolo que a pessoa escolhe para um space.",
+      "controles": [
+        "Seletor de ícone do space"
+      ],
+      "simbolosDoApp": [],
+      "simbolosDeSpace": [
+        "database"
+      ],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-folha",
+      "arquivo": "svg/mx-folha.svg",
+      "nome": "Natureza",
+      "rotuloAcessivel": "Natureza",
+      "grupo": "spaces",
+      "uso": "Símbolo que a pessoa escolhe para um space.",
+      "controles": [
+        "Seletor de ícone do space"
+      ],
+      "simbolosDoApp": [],
+      "simbolosDeSpace": [
+        "leaf"
+      ],
+      "assinatura": false,
+      "gesto": "O ícone balança de leve."
+    },
+    {
+      "id": "mx-coracao",
+      "arquivo": "svg/mx-coracao.svg",
+      "nome": "Pessoal e saúde",
+      "rotuloAcessivel": "Pessoal e saúde",
+      "grupo": "spaces",
+      "uso": "Símbolo que a pessoa escolhe para um space.",
+      "controles": [
+        "Seletor de ícone do space"
+      ],
+      "simbolosDoApp": [],
+      "simbolosDeSpace": [
+        "heart"
+      ],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-cafe",
+      "arquivo": "svg/mx-cafe.svg",
+      "nome": "Pausa",
+      "rotuloAcessivel": "Pausa",
+      "grupo": "spaces",
+      "uso": "Símbolo que a pessoa escolhe para um space.",
+      "controles": [
+        "Seletor de ícone do space"
+      ],
+      "simbolosDoApp": [],
+      "simbolosDeSpace": [
+        "coffee"
+      ],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-pata",
+      "arquivo": "svg/mx-pata.svg",
+      "nome": "Pets",
+      "rotuloAcessivel": "Pets",
+      "grupo": "spaces",
+      "uso": "Símbolo que a pessoa escolhe para um space.",
+      "controles": [
+        "Seletor de ícone do space"
+      ],
+      "simbolosDoApp": [],
+      "simbolosDeSpace": [
+        "paw"
+      ],
+      "assinatura": false,
+      "gesto": "O ícone pulsa de leve."
+    },
+    {
+      "id": "mx-haltere",
+      "arquivo": "svg/mx-haltere.svg",
+      "nome": "Treino",
+      "rotuloAcessivel": "Treino",
+      "grupo": "spaces",
+      "uso": "Símbolo que a pessoa escolhe para um space.",
+      "controles": [
+        "Seletor de ícone do space"
+      ],
+      "simbolosDoApp": [],
+      "simbolosDeSpace": [
+        "dumbbell"
+      ],
+      "assinatura": false,
+      "gesto": "O ícone balança de leve."
+    }
+  ]
+}

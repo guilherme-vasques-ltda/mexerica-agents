@@ -358,6 +358,7 @@ async fn falha_ao_parar_ou_apagar_perfil_nao_mantem_o_proxy_e_a_limpeza_roda_dep
         );
         assert!(supervisor.start(scope("b"), now).await.is_err(), "{failure}: a sessão pendente ocupa a vaga");
         if failure == "processo" {
+            assert!(profile.is_dir(), "perfil removido sem confirmação de que o processo parou");
             supervisor.launcher_mut().fail_stop = false;
         } else {
             fs::set_permissions(&locked, fs::Permissions::from_mode(0o700))?;

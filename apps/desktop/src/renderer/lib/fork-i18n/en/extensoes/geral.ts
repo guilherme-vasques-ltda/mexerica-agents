@@ -26,6 +26,7 @@ export const textos: Traducao<typeof fonte> = {
   "extensoes.plugins.voltar": "Back to the plugin list",
   "extensoes.cred.sobre": "Passwords, keys and logins your bots use. Values are stored on the Hub and never shown on screen.",
   "extensoes.conectores.sobre": "Give your bots access to the services you use. Each account stays in this Space and starts off for every bot.",
+  "extensoes.conectores.sobreOpen": "In Mexerica Open, you can browse connector details. This edition doesn’t connect services to bots.",
   "extensoes.plugins.rodape": "New plugins show up here.",
   "extensoes.cred.adicionarLogin": "Add login",
   "extensoes.meusMcp": "My MCPs",

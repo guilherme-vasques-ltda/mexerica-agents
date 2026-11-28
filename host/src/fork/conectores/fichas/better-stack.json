@@ -1,0 +1,50 @@
+{
+  "id": "better-stack",
+  "nome": "Better Stack",
+  "categoria": "Infraestrutura",
+  "descricao": "Consulte os monitores e veja o estado deles no Better Stack, sem alterar monitores nem incidentes.",
+  "exemplos": [
+    "Quais monitores estão indisponíveis agora?",
+    "Consulte o estado de um monitor específico"
+  ],
+  "site": "https://betterstack.com/",
+  "docs": "https://betterstack.com/docs/getting-started/integrations/mcp/",
+  "links": {
+    "privacidade": "https://betterstack.com/privacy",
+    "termos": "https://betterstack.com/terms"
+  },
+  "conferidaEm": "2026-11-27",
+  "fontes": [
+    "https://betterstack.com/docs/getting-started/integrations/mcp/",
+    "https://mcp.betterstack.com/.well-known/oauth-protected-resource",
+    "https://betterstack.com/.well-known/oauth-authorization-server"
+  ],
+  "tipos": [
+    {
+      "id": "better-stack.oficial_oauth",
+      "tipo": "oficial_oauth",
+      "rotulo": "Oficial — entrar com a conta",
+      "mantidoPor": "Better Stack",
+      "url": "https://mcp.betterstack.com",
+      "auth": {
+        "modo": "oauth",
+        "registro": "dcr"
+      },
+      "grupos": [
+        {
+          "id": "ler",
+          "rotulo": "Ler monitores",
+          "escopos": [
+            "read"
+          ],
+          "ferramentas": ["monitors", "monitor"],
+          "padrao": true,
+          "disponivel": true,
+          "imposicao": "escopo"
+        }
+      ],
+      "recomendado": true,
+      "disponivel": true
+    }
+  ]
+}

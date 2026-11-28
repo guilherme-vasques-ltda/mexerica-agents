@@ -1,28 +1,63 @@
 import { resolve } from 'node:path'
 import { defineConfig, loadEnv } from 'vite'
+import react from '@vitejs/plugin-react'
+import { version } from './package.json'
 
 export default defineConfig(({ mode }) => {
   const cwd = process.cwd()
+  const enabled = loadEnv(mode, cwd, 'WEB_REMOTE_ENABLED').WEB_REMOTE_ENABLED === '1'
   const name = 'WEB_REMOTE_CLERK_TEST_PUBLISHABLE_KEY'
-  const key = loadEnv(mode, cwd, name)[name] ?? ''
+  const key = enabled ? loadEnv(mode, cwd, name)[name] ?? '' : ''
   const testKey = /^pk_test_([A-Za-z0-9+/]+={0,2})$/.exec(key)
   const host = testKey ? Buffer.from(testKey[1], 'base64').toString('ascii') : ''
   const frontend = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.clerk\.accounts\.dev\$$/.test(host)
     ? ` https://${host.slice(0, -1)}` : ''
   if (key && !frontend) throw new Error(`Invalid development publishable key in ${name}`)
+  const bindingName = 'WEB_REMOTE_HUBS'
+  const raw = enabled ? loadEnv(mode, cwd, bindingName)[bindingName] : undefined
+  const hubs: { workspaceId: string; hubId: string; origin: string; relayOrigin?: string; signKey: string }[] = raw ? JSON.parse(raw) : []
+  const validOrigin = (raw: unknown) => {
+    if (typeof raw !== 'string') return false
+    const url = URL.parse(raw)
+    return url?.protocol === 'wss:' && url.href === `${url.origin}/`
+  }
+  if (!Array.isArray(hubs) || hubs.some((hub) => {
+    if (!hub || typeof hub.workspaceId !== 'string' || !/^(?:org|personal):[\w-]+$/.test(hub.workspaceId)
+      || typeof hub.hubId !== 'string' || !/^[\w-]{1,128}$/.test(hub.hubId)
+      || typeof hub.signKey !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(hub.signKey)) return true
+    return !validOrigin(hub.origin) || (hub.relayOrigin !== undefined && !validOrigin(hub.relayOrigin))
+  }) || new Set(hubs.map((hub) => hub.workspaceId)).size !== hubs.length) throw new Error(`Invalid ${bindingName}`)
+  const configured = !!key && hubs.length > 0
+  if (enabled && !configured) throw new Error('Remote Web requires an explicit Clerk key and Hub binding')
+  const origins = configured ? [...new Set(hubs.flatMap(({ origin, relayOrigin }) =>
+    (relayOrigin ? [origin, relayOrigin] : [origin]).map((raw) => new URL(raw).origin)))] : []
   const csp = [
-    "default-src 'self'", `connect-src 'self'${frontend}`, "img-src 'self' data:",
+    "default-src 'self'", `connect-src 'self'${configured ? frontend : ''}${origins.map((origin) => ` ${origin}`).join('')}`,
+    "img-src 'self' data: blob:",
     "object-src 'none'", "base-uri 'none'", "form-action 'none'",
   ].join('; ')
   return {
     root: resolve(cwd, 'src/web/remote'),
     publicDir: false,
     resolve: { alias: { '@shared': resolve(cwd, 'src/shared') } },
-    define: { __REMOTE_CLERK_TEST_KEY__: JSON.stringify(key) },
-    plugins: [{
+    define: {
+      __REMOTE_CLERK_TEST_KEY__: JSON.stringify(configured ? key : ''),
+      __REMOTE_HUBS__: JSON.stringify(configured ? hubs.map(({ workspaceId, hubId, origin, relayOrigin, signKey }) =>
+        ({ workspaceId, hubId, origin, relayOrigin, signKey })) : []),
+      __DONNA_DEV_CLOUD_ACCESS__: 'false',
+      __REMOTE_WEB_RENDERER__: 'true',
+      __APP_VERSION__: JSON.stringify(version),
+    },
+    plugins: [react(), {
       name: 'mexerica-web-remote-csp',
       transformIndexHtml: (html) => html.replace('__REMOTE_WEB_CSP__', csp),
     }],
-    build: { outDir: resolve(cwd, 'dist/web-remote'), emptyOutDir: true, target: 'esnext' },
+    build: {
+      outDir: resolve(cwd, 'dist/web-remote'), emptyOutDir: true, target: 'esnext',
+      rollupOptions: { input: {
+        index: resolve(cwd, 'src/web/remote/index.html'),
+        ...(configured ? { renderer: resolve(cwd, 'src/web/remote/renderer.html') } : {}),
+      } },
+    },
   }
 })

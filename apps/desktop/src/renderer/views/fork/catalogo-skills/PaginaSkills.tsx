@@ -15,6 +15,7 @@ import { alvoDaAba } from './regras'
 import { textoDe, frase, type Frase } from './textos'
 import { useTextosSkills } from './textos-tela'
 import { superficieIdioma, useIdioma } from '../../../lib/fork-i18n/estado'
+import { extensoesSomenteCatalogo } from '../extensoes/tela'
 
 type Aba = 'central' | 'instaladas' | 'catalogo'
 const TODAS_ABAS: readonly { id: Aba; rotulo: Frase }[] = [
@@ -127,10 +128,12 @@ export function PaginaSkills({ busca, onBusca, inspecao }: { busca: string; onBu
               title={tx(frase('skills.adicionarUma'))}
               className="styled-button primary cs-adicionar"
               language={superficieIdioma(idioma)}
-              items={() => [
-                { title: textos.grupoCatalogo, icon: 'arrow.down.to.line', action: () => escolher('catalogo', true) },
-                { title: tx(frase('skills.escreverAMao')), icon: 'square.and.pencil', action: abrirEscrever },
-              ]}
+              items={() => extensoesSomenteCatalogo()
+                ? [{ title: textos.grupoCatalogo, icon: 'arrow.down.to.line', action: () => escolher('catalogo', true) }]
+                : [
+                  { title: textos.grupoCatalogo, icon: 'arrow.down.to.line', action: () => escolher('catalogo', true) },
+                  { title: tx(frase('skills.escreverAMao')), icon: 'square.and.pencil', action: abrirEscrever },
+                ]}
             >
               <Icon name="plus" size={12} weight="semibold" />
               <span>{tx(frase('skills.adicionar'))}</span>

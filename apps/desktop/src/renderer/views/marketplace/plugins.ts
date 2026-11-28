@@ -1,5 +1,8 @@
 // Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
-import type { HostClient } from '../../client/host-client'
+import { privateHubOrigin } from '../../../shared/fork-mac-local-hub'
+import { LoopbackTransport, type HostClient } from '../../client/host-client'
+import { traduzir } from '../../lib/fork-i18n'
+import { idiomaAtual } from '../../lib/fork-i18n/estado'
 import { Observable, useModel } from '../../lib/observable'
 import type { BotStore } from '../../store/bot-store'
 import type { InstalledSkillV2 } from '../../store/fork-skills'
@@ -116,15 +119,17 @@ export class Plugins extends Observable {
     return this.write((client) => market.importConnectors(client, config))
   }
 
-  async finishConnectorSignIn(retorno: RetornoLogin) {
-    return this.after(market.finishConnectorSignIn(await this.store.ready(), retorno))
+  async finishConnectorSignIn(retorno: RetornoLogin, cliente = () => this.store.ready()) {
+    return this.after(market.finishConnectorSignIn(await cliente(), retorno))
   }
 
   /** Waits while the user signs in in the computer's browser (the host catches the return). */
-  async waitForSignIn(id: string) {
+  async waitForSignIn(id: string, cliente?: () => Promise<HostClient>) {
     for (let i = 0; i < 150; i++) {
       await sleep(2000)
+      if (cliente) await cliente()
       await this.refresh()
+      if (cliente) await cliente()
       const c = this.installedConnectors.find((c) => c.id === id)
       if (c && !needsSignIn(c)) return
     }
@@ -142,13 +147,17 @@ export class Plugins extends Observable {
    * listener (main/fork-oauth-loopback.ts) and the code goes to the Hub over the authenticated channel.
    * Returns quietly when the user cancels.
    */
-  async signIn(id: string) {
+  async signIn(id: string, cliente?: () => Promise<HostClient>) {
     const retorno = window.codync.app.loginRetorno
-    // O ouvinte do app só abre para o login que o Hub preparou para ele; sem porta livre, segue pelo caminho de antes.
     const ouvinte = await retorno.abrir().catch(() => null)
     let plan: Awaited<ReturnType<typeof market.connectorSignIn>>
     try {
-      plan = await market.connectorSignIn(await this.store.ready(), id, ouvinte?.porta)
+      const c = await (cliente ? cliente() : this.store.ready())
+      if (!ouvinte && c.transport instanceof LoopbackTransport && c.transport.baseURL === privateHubOrigin) {
+        throw new Error(traduzir(idiomaAtual(), 'mercado.retorno.erro.texto'))
+      }
+      plan = await market.connectorSignIn(c, id, ouvinte?.porta)
+      if (cliente) await cliente()
     } catch (e) {
       if (ouvinte) retorno.fechar(ouvinte.tentativa)
       throw e
@@ -157,10 +166,10 @@ export class Plugins extends Observable {
     // Hub antigo (não conhece a porta e responde pelo caminho de antes) ou endereço inválido: o ouvinte não serve.
     if (ouvinte && (!usaOuvinte || !URL.canParse(plan.url))) retorno.fechar(ouvinte.tentativa)
     if (!URL.canParse(plan.url)) return
-    if (usaOuvinte) return this.finishWithAppListener(ouvinte.tentativa, plan.url)
+    if (usaOuvinte) return this.finishWithAppListener(ouvinte.tentativa, plan.url, cliente)
     if (plan.callback !== 'app') {
       window.codync.app.openExternal(plan.url)
-      await this.waitForSignIn(id)
+      await this.waitForSignIn(id, cliente)
       return
     }
     let back: string
@@ -170,11 +179,11 @@ export class Plugins extends Observable {
       return
     }
     // M3-B: o Hub confere o emissor; aqui só se recusa retorno ambíguo.
-    await this.finishConnectorSignIn(lerRetornoLogin(back))
+    await this.finishConnectorSignIn(lerRetornoLogin(back), cliente)
   }
 
   /** O navegador volta ao ouvinte do app; o Hub confere state, PKCE e emissor, e o navegador vê o desfecho. */
-  private async finishWithAppListener(tentativa: number, url: string) {
+  private async finishWithAppListener(tentativa: number, url: string, cliente?: () => Promise<HostClient>) {
     const retorno = window.codync.app.loginRetorno
     let back: string
     try {
@@ -184,7 +193,7 @@ export class Plugins extends Observable {
       return
     }
     try {
-      const conector = await this.finishConnectorSignIn(lerRetornoLogin(back))
+      const conector = await this.finishConnectorSignIn(lerRetornoLogin(back), cliente)
       retorno.responder(tentativa, { ok: true, nome: conector?.name ?? '' })
     } catch (e) {
       retorno.responder(tentativa, { ok: false, detalhe: errorText(e) })

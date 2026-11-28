@@ -17,6 +17,9 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
     if method == super::browser::METHOD {
         return super::browser::status(hub, caller, body).map(ControlFlow::Break);
     }
+    if matches!(method, super::browser::local::STATE | super::browser::local::CONSENT | super::browser::local::FRAME) {
+        return super::browser::local::call(hub, caller, method, body).await.map(ControlFlow::Break);
+    }
     if method == super::workspace::METHOD {
         return super::workspace::call(hub, caller).map(ControlFlow::Break);
     }
@@ -25,6 +28,9 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
     }
     if method == super::personal_bootstrap::STATUS_METHOD {
         return super::personal_bootstrap::status(caller, &body).map(ControlFlow::Break);
+    }
+    if method == super::open_modelo::SET_METHOD {
+        return super::open_modelo::call(hub, caller, body).await.map(ControlFlow::Break);
     }
     if super::onboarding::METHODS.contains(&method) {
         let body = super::onboarding::call(hub, caller, method, body).await?;
@@ -116,12 +122,16 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
         m if super::delegacao::api::METHODS.contains(&m) => {
             super::delegacao::api::call(hub, caller, method, body).await.map(ControlFlow::Break)
         }
+        super::pedidos_time::METHOD => super::pedidos_time::call(hub, caller, body).await.map(ControlFlow::Break),
         "donnaTimes" | "donnaTimesPreview" | "donnaTimesSave" => {
             super::times::api::call(hub, caller, method, body).await
         }
         "donnaEngineAccounts" => super::engine_accounts::call(hub, caller, body).await.map(ControlFlow::Break),
         "donnaSkillsDoutor" => super::skills_doutor::call(hub, caller, &body).map(ControlFlow::Break),
         "sessions" | "sessionCreate" | "sessionRename" => {
+            if method == "sessions" && caller.is_web_chat() {
+                return super::sessoes::api::web_list(hub, &body).map(ControlFlow::Break);
+            }
             super::sessoes::api::call(hub, method, &body).map(ControlFlow::Break)
         }
         "sessionEngineSet" => super::sessoes::api::engine_set(hub, caller, body).await.map(ControlFlow::Break),

@@ -3,6 +3,8 @@ import type { textos as fonte } from '../pt-BR/botSettings.ts'
 
 // DON-903: botSettings (registro.ts). Chaves completas; docs/guides/idiomas.md.
 export const textos: Traducao<typeof fonte> = {
+  'botSettings.comandosLocais.titulo': 'الأوامر المحلية',
+  'botSettings.comandosLocais.aviso': 'فعّل هذا الخيار قبل إرسال أول رسالة إلى بوت جديد. لا يزال كل أمر يتطلب موافقة. تعمل الأوامر الموافق عليها بصلاحياتك دون عزل، ويمكنها الوصول إلى الملفات والشبكة.',
   // DON-865, fatia 4: Motor do criar bot e do editor (D372/D373/D375).
   'botSettings.motor.aviso': 'يُطبَّق على المحادثات الجديدة. تحتفظ كل محادثة مفتوحة بنموذجها.',
   'botSettings.motor.usar': 'استخدامه أيضًا في المحادثة الرئيسية',
@@ -115,4 +117,18 @@ export const textos: Traducao<typeof fonte> = {
   "botSettings.indisponivel.guiasLinha": "تعليماتك لتوجيه الاختيار التلقائي، دون تغيير ما يمكن للبوت الوصول إليه.",
   "botSettings.indisponivel.nota": "في الوقت الحالي، تستخدم المحادثات الجديدة الحساب والنموذج المختارين أعلاه.",
   "botSettings.fechar": "إغلاق",
+  "botSettings.open.motor.intro": "يشغّل هذا الإصدار Codex فقط، نصًا، دون أوامر ودون تحكم في الحاسوب. اختر أدناه حساب هذا البوت ونموذجه؛ يسري من الرسالة التالية.",
+  "botSettings.open.motor.semConta": "لا يوجد حساب متصل. اربط حساب Codex من الإعدادات ← حسابات الذكاء الاصطناعي.",
+  "botSettings.open.motor.padrao": "{modelo} (الافتراضي)",
+  "botSettings.open.motor.usar": "استخدام",
+  "botSettings.open.motor.erro": "تعذّر تغيير النموذج. حاول مرة أخرى.",
+  "botSettings.open.motor.erroLeitura": "تعذّرت قراءة الحسابات المتصلة.",
+  "botSettings.open.motor.tentar": "أعد المحاولة",
+  "botSettings.open.memoria.aviso": "تُضاف الأدلة والملاحظات في هذا التبويب سياقًا نصيًا إلى محادثات هذا البوت: لا تمنح أدوات ولا صلاحيات وصول.",
+  "botSettings.open.fluxo.pasta": "مجلد العمل: في Mexerica Open لا يصل البوت إلى مجلدات هذا الكمبيوتر. هذا يعتمد على التحكم بالأوامر الذي يتبع مسار الـ shell.",
+  "botSettings.open.fluxo.computador": "استخدام الكمبيوتر: يتحدث Open نصًا فقط ولا يتحكم بالكمبيوتر. هذا المسار يتبع عمل التحكم بالكمبيوتر.",
+  "botSettings.open.fluxo.navegador": "متصفح البوت: يحتاج إلى أوامر على الكمبيوتر ولا يعمل في Open.",
+  "botSettings.open.fluxo.conectores": "الموصلات وتسجيلات الدخول المحفوظة: تعتمد على الخزنة وتسجيل الدخول كمسار، وتتبع عمل الأمان. تعمل مهارات الكتالوج بشكل طبيعي.",
+  "botSettings.open.fluxo.whatsapp": "يحتاج واتساب إلى تسجيل الدخول وربط الحساب ولا يعمل في Open. سيظهر هنا عند إتاحة هذا المسار.",
+  "botSettings.open.fluxo.voz": "يحتاج الصوت إلى الميكروفون ومسارات الصوت التي تتبع عمل الصوت.",
 }

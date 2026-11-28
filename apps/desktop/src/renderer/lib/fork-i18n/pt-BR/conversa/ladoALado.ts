@@ -5,7 +5,7 @@ export const textos = {
   'conversa.ladoALado.sair': "Voltar para uma conversa",
   'conversa.ladoALado.abrirNoMenu': "Abrir lado a lado",
   'conversa.ladoALado.regiao': "Quadro Lado a lado",
-  'conversa.ladoALado.contagem': "{atual} de {maximo}",
+  'conversa.ladoALado.contagem': "{atual} de {maximo} conversas abertas",
   'conversa.ladoALado.adicionar': "Adicionar conversa",
   'conversa.ladoALado.adicionarCurto': "Adicionar",
   'conversa.ladoALado.semConversas': "Nenhuma outra conversa disponível neste space",

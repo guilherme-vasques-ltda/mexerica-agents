@@ -1,28 +1,19 @@
-//! Fichas do Google direto (MEX-1447): Gmail, Agenda, Drive, Docs e Planilhas, todos com o app OAuth da PRÓPRIA pessoa
-//! (`Auth::AppProprio`). Nada aqui é segredo: o ID e a chave do app moram no cofre, por Space (`market::google_app`).
-//! Fontes lidas em 18/11/2026: os guias oficiais de MCP de cada serviço e os metadados `oauth-protected-resource` de cada
-//! servidor. Escopos de cada grupo são os mínimos do serviço e todos constam em `scopes_supported` do respectivo servidor
-//! (o Hub reconfere isso a cada login). Um login por serviço: o token de cada um só carrega os escopos dele.
 use super::catalogo_servicos::{Auth, Grupo, Imposicao, Links, PassoDoGuia, Servico, Tipo, TipoConexao};
 
-pub(super) const CONFERIDA: &str = "2026-11-18";
-const PESQUISA: &str = "docs/propostas/marketplace-20261113/google-caminho-proprio.md";
-const PREVIA: &str = "https://developers.google.com/workspace/preview";
-/// O servidor de login do Google. O PRM de cada MCP o anuncia com uma barra final; o Hub compara sem ela.
+pub(super) const CONFERIDA: &str = "2026-11-27";
+const SETUP: &str = "https://developers.google.com/workspace/guides/configure-mcp-servers";
+const TOOLSETS: &str = "https://developers.google.com/workspace/guides/mcp-server-tools";
 const EMISSOR: &str = "https://accounts.google.com";
-const AVISO: &str = "Os conectores do Google para IA estão em prévia e podem mudar. Enquanto o seu app do Google estiver em modo de teste, o Google pede o login de novo a cada 7 dias.";
+const AVISO: &str = "Em modo de teste externo, o Google pede o login de novo a cada 7 dias.";
 
-/// O guia de 6 passos é o mesmo para os cinco serviços; os textos ficam no app, os links aqui.
 const GUIA: &[PassoDoGuia] = &[
     PassoDoGuia { id: "projeto", url: Some("https://console.cloud.google.com/projectcreate") },
     PassoDoGuia {
         id: "apis",
-        url: Some(
-            "https://console.cloud.google.com/flows/enableapi?apiid=gmail.googleapis.com,calendar-json.googleapis.com,drive.googleapis.com,docs.googleapis.com,sheets.googleapis.com,gmailmcp.googleapis.com,calendarmcp.googleapis.com,drivemcp.googleapis.com,docsmcp.googleapis.com,sheetsmcp.googleapis.com",
-        ),
+        url: Some("https://developers.google.com/workspace/guides/configure-mcp-servers#enable_the_mcp_services"),
     },
-    PassoDoGuia { id: "previa", url: Some(PREVIA) },
     PassoDoGuia { id: "tela_login", url: Some("https://console.cloud.google.com/auth/overview") },
+    PassoDoGuia { id: "escopos", url: Some("https://console.cloud.google.com/auth/scopes") },
     PassoDoGuia { id: "cliente", url: Some("https://console.cloud.google.com/auth/clients/create") },
     PassoDoGuia { id: "campos", url: None },
 ];
@@ -30,13 +21,39 @@ const GUIA: &[PassoDoGuia] = &[
 const LINKS: Links =
     Links { privacidade: "https://policies.google.com/privacy", termos: "https://policies.google.com/terms" };
 
-const AUTH: Auth = Auth::AppProprio { provedor: "google", emissor: EMISSOR, guia: GUIA };
+const AUTH: Auth = Auth::AppProprio { provedor: "google", emissor: EMISSOR, guia: GUIA, configuracao: None };
 
-/// Escopo do Google por extenso, montado em tempo de compilação (`concat!` não aceita `const`).
 macro_rules! escopo {
     ($nome:literal) => {
         concat!("https://www.googleapis.com/auth/", $nome)
     };
+}
+
+macro_rules! tipos {
+    ($id:literal, $host:literal, $grupos:expr) => {{
+        const ORIGINAL: TipoConexao = TipoConexao {
+            id: concat!($id, ".oficial_app"),
+            tipo: Tipo::OficialApp,
+            rotulo: "Oficial — com o seu app do Google",
+            mantido_por: "Google",
+            url: concat!("https://", $host, "/mcp/v1"),
+            auth: AUTH,
+            grupos: $grupos,
+            perigosas: &[],
+            recomendado: false,
+            disponivel: true,
+            motivo_indisponivel: None,
+        };
+        &[
+            TipoConexao {
+                id: concat!($id, ".oficial_app_self"),
+                url: concat!("https://", $host, "/mcp/v1self"),
+                recomendado: true,
+                ..ORIGINAL
+            },
+            ORIGINAL,
+        ]
+    }};
 }
 
 pub(super) static FICHAS: &[Servico] = &[
@@ -45,27 +62,23 @@ pub(super) static FICHAS: &[Servico] = &[
         marca: "gmail",
         nome: "Gmail",
         categoria: "Comunicação",
-        descricao: "Resuma a caixa de entrada e rascunhe respostas, sem enviar nada sozinho.",
-        exemplos: &["Resuma os e-mails de hoje", "Rascunhe uma resposta ao último e-mail do João"],
+        descricao: "Leia e resuma sua caixa de entrada do Gmail.",
+        exemplos: &["Resuma os e-mails de hoje", "Encontre os e-mails não lidos desta semana"],
         site: "https://workspace.google.com",
         docs: Some("https://developers.google.com/workspace/gmail/api/guides/configure-mcp-server"),
         links: LINKS,
         conferida_em: CONFERIDA,
         fontes: &[
-            PESQUISA,
+            SETUP,
             "https://developers.google.com/workspace/gmail/api/guides/configure-mcp-server",
-            "https://gmailmcp.googleapis.com/.well-known/oauth-protected-resource/mcp/v1",
-            PREVIA,
+            "https://gmailmcp.googleapis.com/.well-known/oauth-protected-resource/mcp/v1self",
+            TOOLSETS,
         ],
         aviso: Some(AVISO),
-        tipos: &[TipoConexao {
-            id: "gmail.oficial_app",
-            tipo: Tipo::OficialApp,
-            rotulo: "Oficial — com o seu app do Google",
-            mantido_por: "Google",
-            url: "https://gmailmcp.googleapis.com/mcp/v1",
-            auth: AUTH,
-            grupos: &[
+        tipos: tipos!(
+            "gmail",
+            "gmailmcp.googleapis.com",
+            &[
                 Grupo {
                     id: "ler",
                     rotulo: "Ler e-mails",
@@ -77,8 +90,6 @@ pub(super) static FICHAS: &[Servico] = &[
                     disponivel: true,
                     imposicao: Some(Imposicao::Escopo),
                 },
-                // Criar rascunhos pede `gmail.compose`, que no Google também permite enviar: fica indisponível até o filtro de
-                // ações perigosas (fatia 2) ou até a prova com conta real mostrar que o `gmail.drafts.create` basta.
                 Grupo {
                     id: "rascunhos",
                     rotulo: "Criar rascunhos",
@@ -90,12 +101,8 @@ pub(super) static FICHAS: &[Servico] = &[
                     disponivel: false,
                     imposicao: None,
                 },
-            ],
-            perigosas: &[],
-            recomendado: true,
-            disponivel: true,
-            motivo_indisponivel: None,
-        }],
+            ]
+        ),
         skills: &[],
         skills_oficiais: &[],
         em_breve: None,
@@ -112,20 +119,16 @@ pub(super) static FICHAS: &[Servico] = &[
         links: LINKS,
         conferida_em: CONFERIDA,
         fontes: &[
-            PESQUISA,
+            SETUP,
             "https://developers.google.com/workspace/calendar/api/guides/configure-mcp-server",
-            "https://calendarmcp.googleapis.com/.well-known/oauth-protected-resource/mcp/v1",
-            PREVIA,
+            "https://calendarmcp.googleapis.com/.well-known/oauth-protected-resource/mcp/v1self",
+            TOOLSETS,
         ],
         aviso: Some(AVISO),
-        tipos: &[TipoConexao {
-            id: "google-agenda.oficial_app",
-            tipo: Tipo::OficialApp,
-            rotulo: "Oficial — com o seu app do Google",
-            mantido_por: "Google",
-            url: "https://calendarmcp.googleapis.com/mcp/v1",
-            auth: AUTH,
-            grupos: &[
+        tipos: tipos!(
+            "google-agenda",
+            "calendarmcp.googleapis.com",
+            &[
                 Grupo {
                     id: "ler",
                     rotulo: "Ler a agenda",
@@ -141,7 +144,6 @@ pub(super) static FICHAS: &[Servico] = &[
                     disponivel: true,
                     imposicao: Some(Imposicao::Escopo),
                 },
-                // Criar e editar compromissos pode apagar também: só depois do filtro de ações perigosas.
                 Grupo {
                     id: "criar_editar",
                     rotulo: "Criar e editar compromissos",
@@ -153,12 +155,8 @@ pub(super) static FICHAS: &[Servico] = &[
                     disponivel: false,
                     imposicao: None,
                 },
-            ],
-            perigosas: &[],
-            recomendado: true,
-            disponivel: true,
-            motivo_indisponivel: None,
-        }],
+            ]
+        ),
         skills: &[],
         skills_oficiais: &[],
         em_breve: None,
@@ -175,20 +173,16 @@ pub(super) static FICHAS: &[Servico] = &[
         links: LINKS,
         conferida_em: CONFERIDA,
         fontes: &[
-            PESQUISA,
+            SETUP,
             "https://developers.google.com/workspace/drive/api/guides/configure-mcp-server",
-            "https://drivemcp.googleapis.com/.well-known/oauth-protected-resource/mcp/v1",
-            PREVIA,
+            "https://drivemcp.googleapis.com/.well-known/oauth-protected-resource/mcp/v1self",
+            TOOLSETS,
         ],
         aviso: Some(AVISO),
-        tipos: &[TipoConexao {
-            id: "google-drive.oficial_app",
-            tipo: Tipo::OficialApp,
-            rotulo: "Oficial — com o seu app do Google",
-            mantido_por: "Google",
-            url: "https://drivemcp.googleapis.com/mcp/v1",
-            auth: AUTH,
-            grupos: &[
+        tipos: tipos!(
+            "google-drive",
+            "drivemcp.googleapis.com",
+            &[
                 // `drive.file` sozinho só enxerga o que o próprio app criou ou abriu; para achar e ler os arquivos
                 // que a pessoa já tem, o mínimo é `drive.readonly`.
                 Grupo {
@@ -202,7 +196,6 @@ pub(super) static FICHAS: &[Servico] = &[
                     disponivel: true,
                     imposicao: Some(Imposicao::Escopo),
                 },
-                // Escrever (mesmo só arquivos do próprio app) fica para depois do filtro de ações perigosas (fatia 2).
                 Grupo {
                     id: "criar",
                     rotulo: "Criar arquivos novos",
@@ -214,12 +207,8 @@ pub(super) static FICHAS: &[Servico] = &[
                     disponivel: false,
                     imposicao: None,
                 },
-            ],
-            perigosas: &[],
-            recomendado: true,
-            disponivel: true,
-            motivo_indisponivel: None,
-        }],
+            ]
+        ),
         skills: &[],
         skills_oficiais: &[],
         em_breve: None,
@@ -236,20 +225,16 @@ pub(super) static FICHAS: &[Servico] = &[
         links: LINKS,
         conferida_em: CONFERIDA,
         fontes: &[
-            PESQUISA,
+            SETUP,
             "https://developers.google.com/workspace/docs/api/guides/configure-mcp-server",
-            "https://docsmcp.googleapis.com/.well-known/oauth-protected-resource/mcp/v1",
-            PREVIA,
+            "https://docsmcp.googleapis.com/.well-known/oauth-protected-resource/mcp/v1self",
+            TOOLSETS,
         ],
         aviso: Some(AVISO),
-        tipos: &[TipoConexao {
-            id: "google-docs.oficial_app",
-            tipo: Tipo::OficialApp,
-            rotulo: "Oficial — com o seu app do Google",
-            mantido_por: "Google",
-            url: "https://docsmcp.googleapis.com/mcp/v1",
-            auth: AUTH,
-            grupos: &[
+        tipos: tipos!(
+            "google-docs",
+            "docsmcp.googleapis.com",
+            &[
                 Grupo {
                     id: "ler",
                     rotulo: "Ler documentos",
@@ -272,12 +257,8 @@ pub(super) static FICHAS: &[Servico] = &[
                     disponivel: false,
                     imposicao: None,
                 },
-            ],
-            perigosas: &[],
-            recomendado: true,
-            disponivel: true,
-            motivo_indisponivel: None,
-        }],
+            ]
+        ),
         skills: &[],
         skills_oficiais: &[],
         em_breve: None,
@@ -294,20 +275,16 @@ pub(super) static FICHAS: &[Servico] = &[
         links: LINKS,
         conferida_em: CONFERIDA,
         fontes: &[
-            PESQUISA,
+            SETUP,
             "https://developers.google.com/workspace/sheets/api/guides/configure-mcp-server",
-            "https://sheetsmcp.googleapis.com/.well-known/oauth-protected-resource/mcp/v1",
-            PREVIA,
+            "https://sheetsmcp.googleapis.com/.well-known/oauth-protected-resource/mcp/v1self",
+            TOOLSETS,
         ],
         aviso: Some(AVISO),
-        tipos: &[TipoConexao {
-            id: "google-planilhas.oficial_app",
-            tipo: Tipo::OficialApp,
-            rotulo: "Oficial — com o seu app do Google",
-            mantido_por: "Google",
-            url: "https://sheetsmcp.googleapis.com/mcp/v1",
-            auth: AUTH,
-            grupos: &[
+        tipos: tipos!(
+            "google-planilhas",
+            "sheetsmcp.googleapis.com",
+            &[
                 Grupo {
                     id: "ler",
                     rotulo: "Ler planilhas",
@@ -330,7 +307,175 @@ pub(super) static FICHAS: &[Servico] = &[
                     disponivel: false,
                     imposicao: None,
                 },
-            ],
+            ]
+        ),
+        skills: &[],
+        skills_oficiais: &[],
+        em_breve: None,
+    },
+    Servico {
+        id: "google-contatos",
+        marca: "google-contatos",
+        nome: "Google Contatos",
+        categoria: "Produtividade",
+        descricao: "Encontre pessoas nos seus contatos do Google.",
+        exemplos: &["Encontre o contato de exemplo"],
+        site: "https://contacts.google.com",
+        docs: Some("https://developers.google.com/people/v1/configure-mcp-server"),
+        links: LINKS,
+        conferida_em: CONFERIDA,
+        fontes: &[
+            "https://developers.google.com/people/v1/configure-mcp-server",
+            "https://people.googleapis.com/.well-known/oauth-protected-resource/mcp/v1",
+        ],
+        aviso: Some(AVISO),
+        tipos: &[TipoConexao {
+            id: "google-contatos.oficial_app",
+            tipo: Tipo::OficialApp,
+            rotulo: "Oficial — com o seu app do Google",
+            mantido_por: "Google",
+            url: "https://people.googleapis.com/mcp/v1",
+            auth: AUTH,
+            grupos: &[Grupo {
+                id: "ler",
+                rotulo: "Buscar contatos",
+                escopos: &[escopo!("contacts.readonly")],
+                url: None,
+                ferramentas: &["search_contacts"],
+                curadas: &[],
+                padrao: true,
+                disponivel: true,
+                imposicao: Some(Imposicao::Escopo),
+            }],
+            perigosas: &[],
+            recomendado: true,
+            disponivel: true,
+            motivo_indisponivel: None,
+        }],
+        skills: &[],
+        skills_oficiais: &[],
+        em_breve: None,
+    },
+    Servico {
+        id: "google-slides",
+        marca: "google-slides",
+        nome: "Google Slides",
+        categoria: "Produtividade",
+        descricao: "Leia slides de uma apresentação pelo seu identificador.",
+        exemplos: &["Resuma os pontos destes slides"],
+        site: "https://slides.google.com",
+        docs: Some("https://developers.google.com/workspace/slides/api/guides/configure-mcp-server"),
+        links: LINKS,
+        conferida_em: CONFERIDA,
+        fontes: &[
+            "https://developers.google.com/workspace/slides/api/guides/configure-mcp-server",
+            "https://slidesmcp.googleapis.com/.well-known/oauth-protected-resource/mcp/v1self",
+        ],
+        aviso: Some(AVISO),
+        tipos: &[TipoConexao {
+            id: "google-slides.oficial_app_self",
+            tipo: Tipo::OficialApp,
+            rotulo: "Oficial — com o seu app do Google",
+            mantido_por: "Google",
+            url: "https://slidesmcp.googleapis.com/mcp/v1self",
+            auth: AUTH,
+            grupos: &[Grupo {
+                id: "ler",
+                rotulo: "Ler apresentações",
+                escopos: &[escopo!("presentations.readonly")],
+                url: None,
+                ferramentas: &["read_presentation", "read_slide_page", "read_slide_page_thumbnail"],
+                curadas: &[],
+                padrao: true,
+                disponivel: true,
+                imposicao: Some(Imposicao::Escopo),
+            }],
+            perigosas: &[],
+            recomendado: true,
+            disponivel: true,
+            motivo_indisponivel: None,
+        }],
+        skills: &[],
+        skills_oficiais: &[],
+        em_breve: None,
+    },
+    Servico {
+        id: "google-analytics",
+        marca: "google-analytics",
+        nome: "Google Analytics",
+        categoria: "Dados",
+        descricao: "Consulte relatórios e métricas de uma propriedade do Google Analytics 4.",
+        exemplos: &["Mostre as sessões da semana nesta propriedade"],
+        site: "https://analytics.google.com",
+        docs: None,
+        links: LINKS,
+        conferida_em: CONFERIDA,
+        fontes: &[
+            "https://developers.google.com/analytics/devguides/reporting/data/v1/rest",
+            "https://analyticsdata.googleapis.com/.well-known/oauth-protected-resource/mcp/v1",
+        ],
+        aviso: Some(AVISO),
+        tipos: &[TipoConexao {
+            id: "google-analytics.oficial_app",
+            tipo: Tipo::OficialApp,
+            rotulo: "Oficial — com o seu app do Google",
+            mantido_por: "Google",
+            url: "https://analyticsdata.googleapis.com/mcp/v1",
+            auth: AUTH,
+            grupos: &[Grupo {
+                id: "ler",
+                rotulo: "Ler relatórios",
+                escopos: &[escopo!("analytics.readonly")],
+                url: None,
+                ferramentas: &["run_report", "get_metadata", "run_realtime_report", "check_compatibility"],
+                curadas: &[],
+                padrao: true,
+                disponivel: true,
+                imposicao: Some(Imposicao::Escopo),
+            }],
+            perigosas: &[],
+            recomendado: true,
+            disponivel: true,
+            motivo_indisponivel: None,
+        }],
+        skills: &[],
+        skills_oficiais: &[],
+        em_breve: None,
+    },
+    Servico {
+        id: "google-tarefas",
+        marca: "google-tarefas",
+        nome: "Google Tarefas",
+        categoria: "Produtividade",
+        descricao: "Veja suas listas e tarefas do Google.",
+        exemplos: &["Mostre as tarefas pendentes da lista de exemplo"],
+        site: "https://tasks.google.com",
+        docs: Some("https://developers.google.com/workspace/tasks/guides/configure-mcp-server"),
+        links: LINKS,
+        conferida_em: CONFERIDA,
+        fontes: &[
+            "https://developers.google.com/workspace/tasks/guides/configure-mcp-server",
+            "https://tasksmcp.googleapis.com/.well-known/oauth-protected-resource/mcp/v1self",
+        ],
+        aviso: Some(AVISO),
+        tipos: &[TipoConexao {
+            id: "google-tarefas.oficial_app_self",
+            tipo: Tipo::OficialApp,
+            rotulo: "Oficial — com o seu app do Google",
+            mantido_por: "Google",
+            url: "https://tasksmcp.googleapis.com/mcp/v1self",
+            auth: AUTH,
+            grupos: &[Grupo {
+                id: "ler",
+                rotulo: "Ler tarefas",
+                escopos: &[escopo!("tasks.readonly")],
+                url: None,
+                ferramentas: &["list_task_lists", "list_tasks", "get_task"],
+                curadas: &[],
+                padrao: true,
+                disponivel: true,
+                imposicao: Some(Imposicao::Escopo),
+            }],
             perigosas: &[],
             recomendado: true,
             disponivel: true,

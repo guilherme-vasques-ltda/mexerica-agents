@@ -35,6 +35,8 @@ export const textos: Traducao<typeof fonte> = {
   'sessions.new.title': "Nouvelle session avec {nome}",
   'sessions.new.label': "Nouvelle session",
   'sessions.new.busy': "Création de la session…",
+  'sessions.newTab.title': "Nouvel onglet",
+  'sessions.newTab.detail': "Ouvre une conversation parallèle avec le même bot. Tapez /nova-aba suivi d’un texte pour y commencer.",
   'sessions.untitled': "Sans titre",
   'sessions.state.running': "En cours",
   'sessions.state.needsYou': "Vous attend",

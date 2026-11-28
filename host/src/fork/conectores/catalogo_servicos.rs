@@ -40,7 +40,25 @@ pub(crate) enum Auth {
     /// `provedor` agrupa os serviços na tela ("google"); `emissor` é o servidor de login fixado pela ficha (o Hub só
     /// aceita esse); `guia` são os passos para a pessoa criar o app, com os links como dado.
     #[serde(rename_all = "camelCase")]
-    AppProprio { provedor: &'static str, emissor: &'static str, guia: &'static [PassoDoGuia] },
+    AppProprio {
+        provedor: &'static str,
+        emissor: &'static str,
+        guia: &'static [PassoDoGuia],
+        #[serde(skip_serializing_if = "Option::is_none")]
+        configuracao: Option<AppProprioConfig>,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AppProprioConfig {
+    pub cadastro: &'static str,
+    #[serde(skip)]
+    pub recurso: &'static str,
+    #[serde(skip)]
+    pub autorizacao: &'static str,
+    #[serde(skip)]
+    pub token: &'static str,
 }
 
 /// Um passo do guia "crie o seu app": o `id` escolhe o texto na tela; `url` é o link oficial (https), se houver.
@@ -69,8 +87,7 @@ pub(crate) const CATEGORIAS: &[&str] = &[
     "Agregadores",
 ];
 
-/// Quem impõe que um grupo só lê. Grupo disponível sem isto não entra no catálogo: nenhuma ficha conecta antes do
-/// filtro de ações perigosas (fatia 2) a menos que o próprio fornecedor garanta a leitura.
+/// Quem contém os efeitos do grupo: o fornecedor limita a leitura ou o Hub exige liberação de cada ação.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Imposicao {
@@ -80,6 +97,7 @@ pub(crate) enum Imposicao {
     Escopo,
     /// O serviço não tem nenhuma ferramenta que escreve (ex.: só documentação ou busca).
     Natureza,
+    Filtro,
 }
 
 /// Um bloco de permissão que a pessoa liga ou desliga.
@@ -93,7 +111,7 @@ pub(crate) struct Grupo {
     pub escopos: &'static [&'static str],
     /// Endereço do MCP que impõe este grupo (ex.: `/readonly`). Entre os grupos ligados vale o último declarado.
     pub url: Option<&'static str>,
-    /// Ferramentas permitidas. Vazio = o fornecedor impõe o limite (URL ou escopo); preenchido = o Hub filtra.
+    /// Ferramentas elegíveis. Vazio = o grupo não declara uma lista; não libera nenhuma ação por si só.
     pub ferramentas: &'static [&'static str],
     /// Leitura automática: só o par nome + digest curado aqui passa sem a pessoa ligar. O digest que o fornecedor
     /// mostrar tem de ser exatamente o curado; nome sem digest curado nunca passa sozinho. Não vai para a tela.
@@ -102,7 +120,7 @@ pub(crate) struct Grupo {
     /// Pré-marcado ao conectar (o padrão seguro, em geral só leitura).
     pub padrao: bool,
     pub disponivel: bool,
-    /// Como o fornecedor garante que o grupo só lê; obrigatório em grupo disponível (conferido ao carregar a ficha).
+    /// Contenção declarada, obrigatória em grupo disponível (conferida ao carregar a ficha).
     pub imposicao: Option<Imposicao>,
 }
 
@@ -216,7 +234,37 @@ pub(crate) fn publico() -> Catalogo {
     }
 }
 
+#[cfg(test)]
+pub(crate) fn fixture_filtro() -> &'static Servico {
+    static FICHA: std::sync::LazyLock<Servico> = std::sync::LazyLock::new(|| {
+        super::catalogo_json::ler(include_str!("../../../tests/fixtures/catalogo-filtro.json")).unwrap()
+    });
+    &FICHA
+}
+
+#[cfg(test)]
+pub(crate) fn fixture_app_proprio() -> &'static Servico {
+    static FICHA: std::sync::LazyLock<Servico> = std::sync::LazyLock::new(|| {
+        super::catalogo_json::ler(include_str!("../../../tests/fixtures/catalogo-app-proprio.json")).unwrap()
+    });
+    &FICHA
+}
+
 pub(crate) fn servico(id: &str) -> Option<&'static Servico> {
+    #[cfg(test)]
+    if id == "fixture-local" {
+        static FICHA: std::sync::LazyLock<Servico> = std::sync::LazyLock::new(|| {
+            let mut ficha: serde_json::Value =
+                serde_json::from_str(include_str!("../../../tests/fixtures/catalogo-filtro.json")).unwrap();
+            ficha["id"] = "fixture-local".into();
+            ficha["conferidaEm"] = hoje().to_string().into();
+            ficha["tipos"][0]["id"] = "fixture-local.local".into();
+            ficha["tipos"][0]["tipo"] = "local".into();
+            ficha["tipos"][0]["url"] = "".into();
+            super::catalogo_json::ler(&ficha.to_string()).unwrap()
+        });
+        return Some(&FICHA);
+    }
     super::catalogo_fichas::servicos().iter().find(|s| s.id == id)
 }
 
@@ -293,6 +341,10 @@ impl TipoConexao {
         self.grupos.iter().filter(|g| liberacoes.iter().any(|l| l == g.id))
     }
 
+    pub(crate) fn exige_filtro(&self, liberacoes: &[String]) -> bool {
+        self.ligados(liberacoes).any(|g| g.imposicao == Some(Imposicao::Filtro))
+    }
+
     /// Endereço do MCP para os grupos ligados: o do último grupo que declara um, senão o da ficha.
     pub(crate) fn url_efetiva(&self, liberacoes: &[String]) -> &'static str {
         self.ligados(liberacoes).filter_map(|g| g.url).last().unwrap_or(self.url)
@@ -317,9 +369,12 @@ impl TipoConexao {
             && liberacoes.iter().all(|id| self.grupo(id).is_some_and(|g| g.disponivel))
     }
 
-    /// Pares nome + digest curados pelos grupos ligados. O mesmo nome com dois digests diferentes é ambíguo: nenhum
-    /// dos dois passa.
+    /// Pares nome + digest curados pelos grupos ligados. Com filtro, nem a curadoria de outro grupo do perfil se aplica.
+    /// O mesmo nome com dois digests diferentes é ambíguo: nenhum dos dois passa.
     pub(crate) fn ferramentas_curadas(&self, liberacoes: &[String]) -> BTreeMap<&'static str, &'static str> {
+        if self.exige_filtro(liberacoes) {
+            return BTreeMap::new();
+        }
         let mut vistas: BTreeMap<&'static str, Option<&'static str>> = BTreeMap::new();
         for curada in self.ligados(liberacoes).flat_map(|g| g.curadas.iter()) {
             let antiga = vistas.insert(curada.ferramenta, Some(curada.digest));
@@ -330,7 +385,7 @@ impl TipoConexao {
         vistas.into_iter().filter_map(|(nome, digest)| digest.map(|d| (nome, d))).collect()
     }
 
-    /// `None`: o fornecedor impõe o limite (todos os grupos ligados têm lista vazia). `Some`: só estes nomes passam;
+    /// `None`: nenhum grupo ligado restringe nomes. `Some`: só estes nomes são elegíveis;
     /// um grupo sem lista misturado a grupos com lista não libera nada por conta própria (fail-closed).
     pub(crate) fn ferramentas_permitidas(&self, liberacoes: &[String]) -> Option<BTreeSet<&'static str>> {
         let ligados: Vec<_> = self.ligados(liberacoes).collect();

@@ -188,6 +188,36 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
     let credential = fs::read_to_string(&token_path).unwrap();
     let first = identity(&session_client, &credential, [3u8; 32]).await;
     assert!(session_client.post(endpoint).bearer_auth(&credential).send().await.unwrap().status().is_success());
+    let catalog = rpc(&session_client, &credential, "marketCatalogo", json!({})).await;
+    let services = catalog["servicos"].as_array().unwrap();
+    assert!(services.iter().any(|s| s["id"] == "linear"));
+    assert!(services.iter().all(|s| s["contas"] == json!([])));
+    assert_eq!(catalog["appsProprios"]["google"], Value::Null);
+    for method in ["marketContas", "marketConectar", "credentialStatus"] {
+        let response = session_client
+            .post(format!("http://localhost/api/{method}"))
+            .bearer_auth(&credential)
+            .json(&json!({}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::FORBIDDEN, "{method}");
+    }
+    assert!(!rpc(&session_client, &credential, "skills", json!({})).await.is_null());
+    for body in [
+        json!({"source": "pdf"}),
+        json!({"name": "manual", "description": "d", "instructions": "texto"}),
+        json!({"catalogId": "grilling", "source": "pdf"}),
+    ] {
+        let response = session_client
+            .post("http://localhost/api/installSkill")
+            .bearer_auth(&credential)
+            .json(&body)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::FORBIDDEN, "installSkill {body}");
+    }
     assert_eq!(
         tcp.post("http://127.0.0.1:19524/api/hello").bearer_auth(&credential).send().await.unwrap().status(),
         reqwest::StatusCode::NOT_FOUND
@@ -362,7 +392,11 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
         session_client.post("http://localhost/api/send").bearer_auth(&credential).json(&message).send().await.unwrap();
     assert_eq!(refused.status(), reqwest::StatusCode::BAD_REQUEST);
     assert!(refused.text().await.unwrap().contains("open_chat_account_required"));
-    for (key, value) in [("attachments", json!(["upload-fixture"])), ("sessionId", json!("session-fixture"))] {
+    for (key, value, expected) in [
+        ("attachments", json!(["upload-fixture"]), reqwest::StatusCode::BAD_REQUEST),
+        ("sessionId", json!(["session-fixture"]), reqwest::StatusCode::FORBIDDEN),
+        ("sessionId", json!("session-fixture"), reqwest::StatusCode::BAD_REQUEST),
+    ] {
         let mut body = message.clone();
         body[key] = value;
         let status = session_client
@@ -373,7 +407,7 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
             .await
             .unwrap()
             .status();
-        assert_eq!(status, reqwest::StatusCode::FORBIDDEN, "{key}");
+        assert_eq!(status, expected, "{key}");
     }
     let after = rpc(&session_client, &credential, "donnaConversationHistory", conversation).await;
     assert_eq!(after["entries"], before["entries"], "a refused message is not saved");
@@ -384,16 +418,14 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
         "setCloud",
         "installHostUpdate",
         "credentialStatus",
-        "donnaWhatsappSave",
-        "donnaWhatsappPair",
-        "donnaWhatsappWacliRetry",
         "listDirs",
         "installConnector",
         "importConnectors",
         "connectorVerify",
-        "saveRoutine",
+        "routineWebhook",
+        "routineCall",
+        "duplicateRoutine",
         "credentialSaveLogin",
-        "donnaEngineAccountUsage",
         "donnaEngineFallback",
         "donnaEngineFallbackSave",
         "donnaEngineFallbackAction",
@@ -411,6 +443,41 @@ async fn open_hub_owns_its_socket_and_exits_at_stdin_eof() {
             "{method} must be rejected by the Open API"
         );
     }
+    for (method, body) in [
+        ("donnaWhatsappDisconnect", json!({"botId": berga, "erase": true})),
+        ("donnaWhatsappPair", json!({"botId": berga, "method": "qr"})),
+    ] {
+        let response = session_client
+            .post(format!("http://localhost/api/{method}"))
+            .bearer_auth(&credential)
+            .json(&body)
+            .send()
+            .await
+            .unwrap();
+        assert!(!response.status().is_success(), "{method} sem executor não pode dar certo");
+        assert!(response.text().await.unwrap().contains("open_executor_unavailable"), "{method}");
+    }
+    let leitura = rpc(&session_client, &credential, "donnaWhatsapp", json!({})).await;
+    assert_eq!(leitura["plugin"]["wacli"]["state"], "unsupported", "{leitura}");
+    let manual = json!({"botId": berga, "name": "Fixture", "instruction": "Fixture", "schedule": {"kind": "manual"}});
+    let saved = session_client
+        .post("http://localhost/api/saveRoutine")
+        .bearer_auth(&credential)
+        .json(&manual)
+        .send()
+        .await
+        .unwrap();
+    assert!(saved.status().is_success(), "a clock routine is saved by the Open API, got {}", saved.status());
+    let webhook = json!({"botId": berga, "name": "Fixture", "instruction": "Fixture", "schedule": {"kind": "webhook"}});
+    let refused = session_client
+        .post("http://localhost/api/saveRoutine")
+        .bearer_auth(&credential)
+        .json(&webhook)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(refused.status(), reqwest::StatusCode::BAD_REQUEST, "a webhook routine must be refused by the Open API");
+    assert!(refused.text().await.unwrap().contains("open_routine_trigger_unavailable"));
     let stream = session_client.get("http://localhost/events").bearer_auth(&credential).send().await.unwrap();
     assert_eq!(stream.status(), reqwest::StatusCode::OK);
     close_stdin(&mut child).await;

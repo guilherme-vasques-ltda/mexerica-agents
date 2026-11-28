@@ -24,6 +24,56 @@ function montar(responder: (c: Chamada) => unknown, extra: Partial<Dependencias>
 const ficha = (contas: { id: string; name: string; identidade: null }[]) =>
   servico('stripe', 'Stripe', { contas, tipos: [tipo([grupo('ler', { padrao: true }), grupo('faturas')])] })
 
+test('app próprio usa o cofre da ficha e não manda a chave no pedido de conexão', async () => {
+  const s = ficha([])
+  const jeito = { ...s.tipos[0], auth: {
+    modo: 'app_proprio' as const, provedor: s.id, emissor: 'https://auth.example.invalid', guia: [],
+    configuracao: { cadastro: 'https://auth.example.invalid/config' },
+  } }
+  const { chamadas, deps } = montar(({ metodo }) => {
+    if (metodo === 'marketAppProprioSalvar') return { configurado: true }
+    if (metodo === 'marketAppProprioRemover') return { configurado: false }
+    return { connector: conta('a', 'Fixture', s.id), proximoPasso: 'entrar' }
+  })
+  const f = new FluxoConectar(s, jeito, deps, { app: { configurado: false }, spaceId: 'fixture-space', redirects: [] })
+  await f.confirmar()
+  assert.equal(chamadas.length, 0)
+  assert.equal(await f.escreverAppProprio({ id: 'fixture-id', chave: 'fixture-only' }), true)
+  assert.equal(f.podeContinuar, true)
+  assert.equal(await f.escreverAppProprio(), true)
+  assert.equal(f.podeContinuar, false)
+  await f.escreverAppProprio({ id: 'fixture-id', chave: 'fixture-only' })
+  await f.confirmar()
+  const alvo = { servico: 'stripe', tipo: jeito.id, spaceId: 'fixture-space' }
+  assert.deepEqual(chamadas[0], { metodo: 'marketAppProprioSalvar', corpo: { ...alvo, clientId: 'fixture-id', clientSecret: 'fixture-only' } })
+  assert.deepEqual(chamadas[1], { metodo: 'marketAppProprioRemover', corpo: alvo })
+  assert.deepEqual(chamadas[3], { metodo: 'marketConectar', corpo: { ...alvo, liberacoes: ['ler'] } })
+  assert.equal(f.passo, 'pronto')
+})
+
+test('app próprio relê o Space após resposta perdida e não presume que a chave ficou salva', async () => {
+  const s = ficha([])
+  const jeito = { ...s.tipos[0], auth: {
+    modo: 'app_proprio' as const, provedor: s.id, emissor: 'https://auth.example.invalid', guia: [],
+    configuracao: { cadastro: 'https://auth.example.invalid/config' },
+  } }
+  let configurar = false
+  let spaceId = 'fixture-space'
+  const { deps } = montar(({ metodo }) => {
+    if (metodo === 'marketCatalogo') return { spaceId, appsProprios: { [jeito.id]: { configurado: configurar } } }
+    throw new Error('resposta perdida')
+  })
+  const f = new FluxoConectar(s, jeito, deps, { app: { configurado: true }, spaceId, redirects: [] })
+  assert.equal(await f.escreverAppProprio(), false)
+  assert.equal(f.podeContinuar, false)
+  configurar = true
+  assert.equal(await f.escreverAppProprio({ id: 'fixture-id', chave: 'fixture-only' }), false)
+  assert.equal(f.podeContinuar, true)
+  spaceId = 'outro-space'
+  assert.equal(await f.escreverAppProprio(), false)
+  assert.equal(f.podeContinuar, false)
+})
+
 test('1ª conta: não pede nome, manda o padrão seguro e segue do login à conferência até ficar pronta', async () => {
   const s = ficha([])
   const { chamadas, eventos, deps } = montar(() => ({ connector: conta('stripe-1', 'Stripe', 'stripe', { auth: 'signedOut' }), proximoPasso: 'entrar' }))
@@ -48,6 +98,22 @@ test('2ª conta: o campo do nome novo já vem com "Stripe 2" e o nome sugerido �
   const editavel = new FluxoConectar(s, s.tipos[0], deps)
   editavel.nomear('nova', 'Stripe – Consultoria')
   assert.equal(editavel.nomeDaNova, 'Stripe – Consultoria')
+})
+
+test('perfil com filtro só pede confirmação de acesso de escrita quando selecionado', async () => {
+  const s = servico('fixture-filtro', 'Serviço fictício', {
+    tipos: [tipo([grupo('ler', { padrao: true, imposicao: 'escopo' }), grupo('acoes', { imposicao: 'filtro' })])],
+  })
+  const { chamadas, deps } = montar(() => ({ connector: conta('a', 'Serviço fictício', s.id), proximoPasso: 'chave' }))
+  const f = new FluxoConectar(s, s.tipos[0], deps)
+  assert.equal(f.credencialComEscrita, false)
+  f.alternar('acoes')
+  assert.equal(f.credencialComEscrita, true)
+  f.voltarAoPadrao()
+  assert.equal(f.credencialComEscrita, false)
+  f.alternar('acoes')
+  await f.confirmar()
+  assert.equal(chamadas[0].corpo.aceitaCredencialComEscrita, true)
 })
 
 test('2ª conta: sem os dois nomes não continua; com eles, manda nome e nomePrimeira', async () => {

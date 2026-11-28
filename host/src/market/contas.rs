@@ -166,6 +166,7 @@ pub(crate) struct Pedido<'a> {
     pub nome: Option<&'a str>,
     pub nome_primeira: Option<&'a str>,
     pub liberacoes: Option<Vec<String>>,
+    pub aceita_credencial_com_escrita: bool,
 }
 
 /// Recusa estável de `conectar`/login de uma ficha com app próprio (Google) quando o Space ainda não cadastrou o app.
@@ -189,6 +190,10 @@ pub(crate) fn conectar_em(
 ) -> Result<Value> {
     let tipo = ficha.exigir_conectavel(pedido.tipo, hoje)?;
     let liberacoes = tipo.liberacoes_validas(pedido.liberacoes.as_deref())?;
+    ensure!(
+        !tipo.exige_filtro(&liberacoes) || pedido.aceita_credencial_com_escrita,
+        "credencial_com_escrita: use uma versão do app que mostre o aviso de que esta conta pode alterar dados."
+    );
     store.require_space(pedido.space)?;
     let mut conta = Connector {
         id: String::new(),
@@ -198,7 +203,7 @@ pub(crate) fn conectar_em(
         command: None,
         args: vec![],
         env: std::collections::BTreeMap::default(),
-        url: Some(tipo.url_efetiva(&liberacoes).to_owned()),
+        url: (tipo.tipo != catalogo::Tipo::Local).then(|| tipo.url_efetiva(&liberacoes).to_owned()),
         headers: std::collections::BTreeMap::default(),
         oauth: None,
         oauth_binding: None,
@@ -226,7 +231,13 @@ pub(crate) fn conectar_em(
             conta.oauth = Some(oauth::OAuth::default());
             "entrar"
         }
-        Auth::AppProprio { .. } => bail!("tipo_indisponivel: esse provedor ainda não é aceito."),
+        Auth::AppProprio { .. } => {
+            use super::google_app::{APP_DA_FICHA_AUSENTE, AppDaFicha};
+            let app = AppDaFicha::novo(ficha, tipo).ok_or_else(|| anyhow!("tipo_indisponivel"))?;
+            ensure!(app.ler(store, pedido.space)?.is_some(), "{APP_DA_FICHA_AUSENTE}");
+            conta.oauth = Some(oauth::OAuth::default());
+            "entrar"
+        }
     };
     let (publico, _) = update_connectors_com(
         store,
@@ -266,17 +277,25 @@ pub(crate) fn tipo_da_conta(c: &Connector) -> Result<Option<&'static TipoConexao
         .and_then(|ficha| ficha.tipo(tipo))
         .ok_or_else(|| anyhow!("ficha_indisponivel: a ficha dessa conta não está mais no catálogo."))?;
     ensure!(
-        c.url.as_deref() == Some(tipo.url_efetiva(&c.liberacoes)),
+        if tipo.tipo == catalogo::Tipo::Local {
+            crate::fork::conectores::catalogo_local::da_conta(c).is_some()
+        } else {
+            c.url.as_deref() == Some(tipo.url_efetiva(&c.liberacoes))
+        },
         "ficha_indisponivel: o endereço da conta não confere com a ficha."
     );
     Ok(Some(tipo))
 }
 
+pub(crate) fn desktop_catalog(c: &Connector) -> bool {
+    c.command.is_none() && tipo_da_conta(c).is_ok_and(|tipo| tipo.is_some())
+}
+
 /// O servidor de login que a ficha fixa, quando a conta entra com o app OAuth da própria pessoa. `None`: o caminho
 /// comum (descoberta + cadastro automático) ou conta sem ficha.
-pub(crate) fn emissor_proprio(c: &Connector) -> Result<Option<&'static str>> {
+pub(crate) fn auth_proprio(c: &Connector) -> Result<Option<&'static Auth>> {
     Ok(tipo_da_conta(c)?.and_then(|tipo| match &tipo.auth {
-        Auth::AppProprio { emissor, .. } => Some(*emissor),
+        auth @ Auth::AppProprio { .. } => Some(auth),
         _ => None,
     }))
 }
@@ -295,7 +314,7 @@ pub(crate) fn escopos_do_login(c: &Connector, desafio: Option<Vec<String>>, docu
     }
 }
 
-/// Ferramentas permitidas pelos grupos ligados (`None`: o fornecedor impõe o limite, ou conta sem ficha).
+/// Ferramentas elegíveis pelos grupos ligados (`None`: nenhum limite de nomes declarado, ou conta sem ficha).
 pub(crate) fn ferramentas_da_conta(c: &Connector) -> Result<Option<BTreeSet<&'static str>>> {
     Ok(tipo_da_conta(c)?.and_then(|tipo| tipo.ferramentas_permitidas(&c.liberacoes)))
 }

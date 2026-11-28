@@ -3,6 +3,8 @@ import type { textos as fonte } from '../pt-BR/botSettings.ts'
 
 // DON-903: botSettings (registro.ts). Chaves completas; docs/guides/idiomas.md.
 export const textos: Traducao<typeof fonte> = {
+  'botSettings.comandosLocais.titulo': 'Commandes locales',
+  'botSettings.comandosLocais.aviso': 'Activez cette option avant le premier message dans un nouveau bot. Chaque commande requiert toujours une approbation. Les commandes approuvées s’exécutent sans isolation avec vos permissions et peuvent accéder aux fichiers et au réseau.',
   // DON-865, fatia 4: Motor do criar bot e do editor (D372/D373/D375).
   'botSettings.motor.aviso': 'S’applique aux nouvelles conversations. Chaque conversation ouverte garde son modèle.',
   'botSettings.motor.usar': 'Utiliser aussi dans la conversation principale',
@@ -115,4 +117,18 @@ export const textos: Traducao<typeof fonte> = {
   "botSettings.indisponivel.guiasLinha": "Vos consignes pour orienter le choix automatique, sans changer ce à quoi le bot peut accéder.",
   "botSettings.indisponivel.nota": "Pour l’instant, les nouvelles conversations utilisent le compte et le modèle choisis ci-dessus.",
   "botSettings.fechar": "Fermer",
+  "botSettings.open.motor.intro": "Cette édition n'exécute que Codex, en texte, sans commandes ni contrôle de l'ordinateur. Choisissez ci-dessous le compte et le modèle de ce bot ; cela vaut dès le prochain message.",
+  "botSettings.open.motor.semConta": "Aucun compte connecté. Connectez un compte Codex dans Réglages → Comptes d'IA.",
+  "botSettings.open.motor.padrao": "{modelo} (par défaut)",
+  "botSettings.open.motor.usar": "Utiliser",
+  "botSettings.open.motor.erro": "Impossible de changer le modèle. Réessayez.",
+  "botSettings.open.motor.erroLeitura": "Impossible de lire les comptes connectés.",
+  "botSettings.open.motor.tentar": "Réessayer",
+  "botSettings.open.memoria.aviso": "Les manuels et notes de cet onglet sont ajoutés comme contexte aux conversations de ce bot, sous forme de texte : ils ne donnent ni outils ni accès.",
+  "botSettings.open.fluxo.pasta": "Dossier de travail : dans Mexerica Open, le bot n'accède pas aux dossiers de l'ordinateur. Cela dépend du contrôle des commandes, qui relève du chantier shell.",
+  "botSettings.open.fluxo.computador": "Utiliser l'ordinateur : Open converse en texte seulement et ne contrôle pas l'ordinateur. Ce flux relève du chantier de contrôle de l'ordinateur.",
+  "botSettings.open.fluxo.navegador": "Navigateur du bot : nécessite des commandes sur l'ordinateur et ne fonctionne pas dans Open.",
+  "botSettings.open.fluxo.conectores": "Connecteurs et identifiants enregistrés : ils dépendent du Coffre et de la connexion comme flux, qui relèvent du chantier sécurité. Les skills du catalogue fonctionnent normalement.",
+  "botSettings.open.fluxo.whatsapp": "WhatsApp nécessite connexion et appairage du compte et ne fonctionne pas dans Open. Il apparaîtra ici quand ce flux sera disponible.",
+  "botSettings.open.fluxo.voz": "La voix nécessite le micro et les flux vocaux, qui relèvent du chantier voix.",
 }

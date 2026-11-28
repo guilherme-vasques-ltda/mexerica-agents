@@ -6,7 +6,7 @@ import { HStack, VStack } from '../../../components/Stack'
 import { Text } from '../../../components/Text'
 import { ThinkingOrb } from '../../../components/ThinkingOrb'
 import { useStore } from '../../../store/context'
-import type { InstalledSkillV2 } from '../../../store/fork-skills'
+import type { InstalledSkillV2, InternalSkill } from '../../../store/fork-skills'
 import { EmptyState, FormSheet, MarketSection, SkeletonGrid, SkillGlyph } from '../../marketplace/pieces'
 import { useCatalogo } from './CatalogoSkills'
 import type { InspecaoSkills, IntencaoHub } from './catalogo-store'
@@ -15,7 +15,8 @@ import { useRetencaoRascunho } from './ComparaRascunho'
 import { AvisoDeRemocao, LinhaDeUso } from './Acabamento'
 import { Anuncio, Selo } from './partes'
 import { LigarEmTodos } from '../extensoes/LigarEmTodos'
-import { agruparInstaladas, capturarRemocao, filtrarInstaladas, type AlvoRemocao, type GrupoInstaladas } from './regras'
+import { extensoesSomenteCatalogo } from '../extensoes/tela'
+import { agruparInstaladas, capturarRemocao, filtrarInstaladas, filtrarInternas, type AlvoRemocao, type GrupoInstaladas } from './regras'
 import { textoDe, frase, semHub, type Frase } from './textos'
 import { useTextosSkills } from './textos-tela'
 import { superficieIdioma, useIdioma, useT } from '../../../lib/fork-i18n/estado'
@@ -84,6 +85,8 @@ export function SkillsInstaladas({ naPagina = false, busca = '', onVerCatalogo, 
   const grupos = agruparInstaladas(filtrarInstaladas(lista, busca))
   /** A ordem em que as linhas aparecem (grupos e busca): é nela que o foco procura a vizinha. */
   const visiveis = grupos.flatMap((g) => g.skills)
+  /** As que vêm com o app, da mesma leitura: só na página, só leitura. */
+  const internas = naPagina && instaladasLidas !== null ? filtrarInternas(loja.internas ?? [], busca) : []
   const origemDaLista = loja.capturarIntencao()
   const abertaIndice = useRef(0)
   useLayoutEffect(() => {
@@ -138,6 +141,7 @@ export function SkillsInstaladas({ naPagina = false, busca = '', onVerCatalogo, 
         : <Text tone="secondary">{tx(frase('skills.nenhumaInstaladaFrase'))}</Text>
     }
     if (visiveis.length === 0) {
+      if (internas.length > 0) return null
       return <EmptyState toque icon="magnifyingglass" title={tx(frase('skills.nenhumaInstaladaEncontrada'))} detail={tx(frase('skills.nadaCom', { busca: busca.trim() }))} />
     }
     return grupos.map((g) => {
@@ -202,6 +206,7 @@ export function SkillsInstaladas({ naPagina = false, busca = '', onVerCatalogo, 
         </HStack>
       ) : null}
       {corpo()}
+      {!loja.semProtocolo && internas.length > 0 ? <GrupoInternas internas={internas} /> : null}
       {!inspecao ? <Dialog
         // Presa à conexão e à instalação que a pessoa viu: outra instalação na mesma ID fecha a confirmação.
         open={confirmar !== null && loja.conexaoAtual(confirmar.origem) && !loja.outraInstalacaoNaId(confirmar.alvo)}
@@ -227,6 +232,43 @@ export function SkillsInstaladas({ naPagina = false, busca = '', onVerCatalogo, 
 
   // Fora da página Skills (Instalados do Marketplace), a seção declara o idioma: o resto da folha pode ser legado.
   return naPagina ? <VStack gap={16} className="cs-aba">{conteudo}</VStack> : <div className="idioma-superficie" {...superficieIdioma(idioma)} style={{ display: 'contents' }}><MarketSection title={tx(frase('skills.titulo'))}>{conteudo}</MarketSection></div>
+}
+
+/**
+ * As internas: vêm com o app e o Hub aplica sozinho. Nome, descrição e onde é usada, sem detalhes,
+ * lixeira, ligar ou editar: o Hub não aceita mudança nelas.
+ */
+function GrupoInternas({ internas }: { internas: InternalSkill[] }) {
+  const textos = useTextosSkills()
+  const t = useT()
+  const uid = useId()
+  const cabeca = `${uid}-internas`
+  return (
+    <section className="cs-grupo" aria-labelledby={cabeca}>
+      <VStack gap={2} className="cs-grupo-cabeca">
+        <Text as="h3" id={cabeca} size="callout" weight="semibold" tone="text" className="cs-grupo-titulo">
+          <span>{textos.grupoInternas}</span>
+          <span className="cs-anuncio">{', '}{t.plural('skills.contagem', internas.length)}</span>
+          <Text size="callout" weight="regular" tone="secondary" tabular aria-hidden>{internas.length}</Text>
+        </Text>
+        <Text size="footnote" tone="secondary">{textos.notaInternas}</Text>
+      </VStack>
+      <ul className="cs-grade-instaladas cs-internas">
+        {internas.map((s) => (
+          <li key={s.id} className="cs-item">
+            <div className="cs-linha">
+              <span className="market-row-icon cs-tile"><SkillGlyph /></span>
+              <VStack as="span" gap={2} grow className="cs-linha-textos">
+                <Text size="body" weight="medium" tone="text" truncate title={s.name} translate="no" dir="auto">{s.name}</Text>
+                <Text size="callout" tone="secondary" lines={2} title={s.description} translate="no" dir="auto">{s.description}</Text>
+                <Text size="footnote" tone="secondary">{Object.hasOwn(textos.usoInterna, s.uso) ? textos.usoInterna[s.uso] : textos.usoInternaOutro}</Text>
+              </VStack>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
 }
 
 /**
@@ -291,7 +333,7 @@ function LinhaInstalada({ somenteLeitura, aoMudarNovosBots, skill, grupo, pedido
         </button> : null}
       </div>
       {/* MX-264: "Ligar em todos os bots" e "Novos bots já vêm com esta skill"; o Hub só liga skill com o conteúdo conferido. */}
-      {!somenteLeitura && skill.contentStatus === 'verified' ? <LigarEmTodos tipo="skill" id={skill.id} nome={skill.name} novosBots={skill.novosBots === true} aoMudarNovosBots={aoMudarNovosBots} /> : null}
+      {!somenteLeitura && !extensoesSomenteCatalogo() && skill.contentStatus === 'verified' ? <LigarEmTodos tipo="skill" id={skill.id} nome={skill.name} novosBots={skill.novosBots === true} aoMudarNovosBots={aoMudarNovosBots} /> : null}
       {/* Em bloco: aviso longo quebra alinhado ao texto da linha, não na borda. */}
       {falha ? <Text as="div" id={`${id}-falha`} size="footnote" tone="danger" className="cs-linha-falha selectable">{falha}</Text> : null}
       {incerto ? <Text as="div" id={`${id}-incerto`} size="footnote" tone="attention" className="cs-linha-falha selectable">{incerto.aguardando ? `${incerto.mensagem} ${textos.incertoConferir}` : incerto.mensagem}</Text> : null}

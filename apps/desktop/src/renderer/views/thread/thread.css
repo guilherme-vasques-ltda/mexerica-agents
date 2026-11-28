@@ -294,7 +294,7 @@ html[data-wallpaper] .chat-author {
   min-width: 0;
   max-width: 100%;
 }
-/* The reserved 88 pt beside a bubble holds its actions. */
+/* The 88 pt beside a bubble keeps the two sides of the chat apart. */
 .message.user .message-body {
   align-items: flex-end;
   margin-left: 88px;
@@ -390,10 +390,10 @@ html[data-wallpaper] .chat-header-name {
 .user-status-time.shown {
   opacity: 1;
 }
+/* Under the bubble, aligned with it; the row is always reserved, so showing it never moves the bubble or the list. */
 .message-actions {
-  position: absolute;
-  bottom: 0;
   display: flex;
+  height: 26px;
   align-items: center;
   gap: 2px;
   opacity: 0;
@@ -406,10 +406,10 @@ html[data-wallpaper] .chat-header-name {
   pointer-events: auto;
 }
 .message-actions.leading {
-  right: calc(100% + 6px);
+  align-self: flex-end;
 }
 .message-actions.trailing {
-  left: calc(100% + 6px);
+  align-self: flex-start;
 }
 .message-action {
   width: 26px;

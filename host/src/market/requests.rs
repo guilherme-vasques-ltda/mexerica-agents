@@ -552,7 +552,7 @@ pub(crate) async fn finish_as(
             Ok(())
         })?;
     }
-    super::verify::verify(&hub.store, connector_id, hub.port).await?;
+    super::verify::verify(&hub.store, connector_id, hub.bridge_destination()).await?;
     let bot = text(request, "botId")?;
     let cfg = crate::fork::spaces::connector_cards::check(hub, &e, e.turn)?;
     if cfg.context.is_some() {
@@ -770,6 +770,7 @@ mod tests {
             nome: None,
             nome_primeira: None,
             liberacoes: None,
+            aceita_credencial_com_escrita: false,
         };
         crate::market::contas::conectar(&hub.store, &pedido).unwrap();
         let owner = crate::fork::autoridade::Autoridade::local();

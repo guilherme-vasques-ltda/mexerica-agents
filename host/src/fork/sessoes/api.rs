@@ -24,6 +24,10 @@ pub(crate) const ENGINE_ACTION: &str = "engine";
 
 fn actions(c: &rusqlite::Connection, chat: &str) -> Result<Vec<&'static str>> {
     let mut actions = SESSION_ACTIONS.to_vec();
+    // Open: só criar a aba e escrever nela; encerrar, motor e demais ações seguem fechados em open_allows.
+    if crate::environment::Environment::is_open() {
+        return Ok(actions);
+    }
     // Sessões PR5: encerrar e continuar, implementados por este Hub (Hub antigo não os anuncia; sem fallback).
     actions.extend(super::encerrar::ACTIONS);
     if engine_choice::personal_bot(c, chat)?.is_some() {
@@ -51,6 +55,16 @@ pub(crate) fn call(hub: &Hub, method: &str, body: &Value) -> Result<Value> {
             Ok(json!({"sessions": sessions, "sessionActions": actions}))
         });
     }
+    let reconnecting: Vec<String> = if method == "sessionCreate" && crate::environment::Environment::is_open() {
+        crate::fork::engine_accounts::Registry::load(&hub.store)?
+            .accounts
+            .into_iter()
+            .filter(|a| crate::fork::engine_setup::in_setup(&hub.store, &a.id))
+            .map(|a| a.id)
+            .collect()
+    } else {
+        Vec::new()
+    };
     let db = hub.store.db.locked();
     let tx = db.unchecked_transaction()?;
     if method == "sessionCreate" {
@@ -58,7 +72,7 @@ pub(crate) fn call(hub: &Hub, method: &str, body: &Value) -> Result<Value> {
             Some(title) => title.as_str().ok_or_else(|| anyhow!("invalid_title"))?,
             None => "",
         };
-        let created = store::create(
+        let created = store::create_in(
             &tx,
             &store::NewSession {
                 chat: chat.to_owned(),
@@ -68,6 +82,7 @@ pub(crate) fn call(hub: &Hub, method: &str, body: &Value) -> Result<Value> {
                 title: title.to_owned(),
                 runs_on: None,
             },
+            &reconnecting,
         )?;
         // Título dado na criação é do dono: a 1ª mensagem não o troca.
         if !title.trim().is_empty() {
@@ -87,6 +102,12 @@ pub(crate) fn call(hub: &Hub, method: &str, body: &Value) -> Result<Value> {
     drop(db);
     let _ = hub.events.send(json!({"type": "session", "session": session}));
     Ok(json!({"session": session}))
+}
+
+pub(crate) fn web_list(hub: &Hub, body: &Value) -> Result<Value> {
+    let chat = body["botId"].as_str().ok_or_else(|| anyhow!("`botId` is required"))?;
+    ensure!(hub.store.bot(chat)?.is_some_and(|b| !b.deleted), "unknown bot");
+    Ok(json!({"sessions": store::list(&hub.store.db.locked(), chat)?}))
 }
 
 /// O pedido `sessionEngineSet`. `sessionId` é obrigatório no corpo (`null` = principal).
@@ -184,7 +205,10 @@ pub(crate) fn send_lane(c: &rusqlite::Connection, chat: &str, body: &Value) -> R
     }
     // A extra roda em série no próprio slot; a admissão (recibo + CAS da escolha) acontece no `queued` → `sent`.
     let lane = crate::store::Lane { chat: chat.to_owned(), session: Some(session.id) };
-    extra_admissible(c, &lane)?;
+    // Open: a conta do Codex isolado é conferida no precheck do envio; a classe de roteamento é do app completo.
+    if !crate::environment::Environment::is_open() {
+        extra_admissible(c, &lane)?;
+    }
     Ok(lane)
 }
 

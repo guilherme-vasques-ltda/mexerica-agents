@@ -147,8 +147,14 @@ fn build_status(hub: &Hub, caller: &Caller, space_id: &str) -> Result<Value> {
     } else {
         None
     };
+    // Na Open, pronto é o que a conversa usa de fato: a conta escolhida no Berga ou, sem escolha, a conectada mais
+    // recente, desde que não esteja reconectando.
     let has_ready_ai = can_manage_accounts
         && berga.as_ref().is_some_and(|row| {
+            if open {
+                return crate::fork::open_chat::account_profile(hub, &row.config)
+                    .is_ok_and(|(account, _, _)| !engine_setup::in_setup(&hub.store, &account));
+            }
             let mut config = row.config.clone();
             let lane = Lane::main(&config.id);
             let selection =

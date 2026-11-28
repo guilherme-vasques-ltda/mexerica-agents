@@ -13,14 +13,13 @@ use tokio::process::{Child, Command};
 const SELECTION: &str = "codex-local.json";
 const VERSION: &str = "0.164.0";
 const AUTH_CONFIG: &[u8] = b"cli_auth_credentials_store = \"file\"\n";
-const MAX_EXECUTABLE: u64 = 256 * 1024 * 1024;
+const MAX_EXECUTABLE: u64 = 384 * 1024 * 1024;
 const ADMIN_POLICY: &str = "/private/etc/codex";
 /// Certificados públicos do macOS: o TLS do Codex usa este arquivo em vez do Chaveiro. O `.env` do perfil, que o Codex
 /// leria antes de iniciar e poderia trocar este caminho, fica fora do alcance do processo isolado.
 const CA_BUNDLE: &str = "/private/etc/ssl/cert.pem";
-/// Conversa só de texto: desliga as ferramentas do Codex 0.164.0 antes de qualquer turno. O Seatbelt continua barrando
-/// execução de outro programa e leitura fora do perfil; o turno também recusa qualquer item que não seja texto.
-pub(crate) const CHAT_OVERRIDES: [&str; 19] = [
+/// Ferramentas do Hub não rodam no processo do chat. O Seatbelt continua isolando o processo.
+pub(crate) const CHAT_OVERRIDES: [&str; 20] = [
     "sandbox_mode=\"read-only\"",
     "approval_policy=\"never\"",
     "features.shell_tool=false",
@@ -39,7 +38,8 @@ pub(crate) const CHAT_OVERRIDES: [&str; 19] = [
     "features.skill_mcp_dependency_install=false",
     "tools.experimental_request_user_input.enabled=false",
     "mcp_oauth_credentials_store=\"file\"",
-    "web_search=\"disabled\"",
+    "features.standalone_web_search=false",
+    "web_search=\"cached\"",
 ];
 const SANDBOX: &str = "/usr/bin/sandbox-exec";
 const POLICY: &str = r#"(version 1)
@@ -181,12 +181,16 @@ fn prepare_profile(open: &Path, directory: &Path) -> Result<()> {
     Ok(())
 }
 
-fn command(executable: &Path, directory: &Path, login: bool) -> Result<Command> {
+fn command(executable: &Path, directory: &Path, login: bool, browser_port: Option<u16>) -> Result<Command> {
     use std::process::Stdio;
     let home = directory.parent().context("perfil Codex inválido")?;
     let tmp = home.join("tmp");
     Directory::open(&tmp, true)?;
-    let policy = if login { format!("{POLICY}{LOGIN_NETWORK}") } else { POLICY.to_owned() };
+    let mut policy = if login { format!("{POLICY}{LOGIN_NETWORK}") } else { POLICY.to_owned() };
+    if let Some(port) = browser_port {
+        use std::fmt::Write as _;
+        write!(policy, "\n(allow network-outbound (remote tcp \"localhost:{port}\"))\n")?;
+    }
     let mut command = Command::new(SANDBOX);
     command
         .args(["-p", &policy])
@@ -220,7 +224,11 @@ impl AppServer {
     }
 }
 
-pub(crate) async fn app_server(directory: &Path, chat: bool) -> Result<AppServer> {
+pub(crate) async fn app_server(
+    directory: &Path,
+    chat: bool,
+    browser: Option<&crate::fork::browser::turn::Bridge>,
+) -> Result<AppServer> {
     use std::time::Duration;
     use tokio::io::AsyncReadExt;
     ensure!(cfg!(target_os = "macos"), "open_codex_platform");
@@ -251,7 +259,7 @@ pub(crate) async fn app_server(directory: &Path, chat: bool) -> Result<AppServer
     .ok()
     .and_then(Result::ok)
     .context("open_codex_unavailable")?;
-    let mut probe = command(&selection.executable, directory, false)?;
+    let mut probe = command(&selection.executable, directory, false, None)?;
     let probe = async {
         let mut child = probe.arg("--version").spawn()?;
         let mut version = Vec::new();
@@ -263,7 +271,7 @@ pub(crate) async fn app_server(directory: &Path, chat: bool) -> Result<AppServer
     if !matches!(tokio::time::timeout(Duration::from_secs(10), probe).await, Ok(Ok(()))) {
         anyhow::bail!("open_codex_unavailable");
     }
-    let mut command = command(&selection.executable, directory, true)?;
+    let mut command = command(&selection.executable, directory, true, browser.map(|bridge| bridge.address().port()))?;
     command.args(["-c", "cli_auth_credentials_store=\"file\""]);
     if chat {
         let place = directory.parent().context("open_codex_unavailable")?.join("chat");
@@ -271,6 +279,13 @@ pub(crate) async fn app_server(directory: &Path, chat: bool) -> Result<AppServer
         command.current_dir(place);
         for setting in CHAT_OVERRIDES {
             command.args(["-c", setting]);
+        }
+        if let Some(browser) = browser {
+            use crate::fork::browser::turn::{SERVER, TOKEN_ENV};
+            command
+                .args(["-c", &format!("mcp_servers.{SERVER}.url=\"http://{}/mcp\"", browser.address())])
+                .args(["-c", &format!("mcp_servers.{SERVER}.bearer_token_env_var=\"{TOKEN_ENV}\"")])
+                .env(TOKEN_ENV, browser.token());
         }
     }
     command.args(["app-server", "--listen", "stdio://"]);

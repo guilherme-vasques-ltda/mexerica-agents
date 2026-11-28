@@ -289,11 +289,19 @@ impl Estado {
 
 /// O que a ficha da conta diz sobre as ferramentas.
 pub(crate) struct Politica {
-    /// `Some`: só estes nomes (mais as `perigosas`) existem para a conta; `None`: o fornecedor impõe o limite.
+    /// `Some`: só estes nomes são elegíveis; `None`: a ficha não restringe nomes.
     permitidas: Option<BTreeSet<&'static str>>,
     /// Pares nome → digest que a ficha curou: só estes passam sem a pessoa ligar.
     curadas: BTreeMap<String, String>,
     tipo: &'static TipoConexao,
+}
+
+impl Politica {
+    fn para_perfil(tipo: &'static TipoConexao, liberacoes: &[String]) -> Self {
+        let curadas =
+            tipo.ferramentas_curadas(liberacoes).into_iter().map(|(n, d)| (n.to_owned(), d.to_owned())).collect();
+        Self { permitidas: tipo.ferramentas_permitidas(liberacoes), curadas, tipo }
+    }
 }
 
 /// `None`: conta sem ficha, fora deste filtro (decisão em aberto do produto). Erro: ficha sumiu, venceu, não confere ou
@@ -309,9 +317,7 @@ pub(crate) fn politica(c: &Connector) -> Result<Option<Politica>> {
         tipo.perfil_disponivel(&c.liberacoes),
         "ficha_indisponivel: o perfil desta conta não está mais disponível."
     );
-    let curadas =
-        tipo.ferramentas_curadas(&c.liberacoes).into_iter().map(|(n, d)| (n.to_owned(), d.to_owned())).collect();
-    Ok(Some(Politica { permitidas: tipo.ferramentas_permitidas(&c.liberacoes), curadas, tipo }))
+    Ok(Some(Politica::para_perfil(tipo, &c.liberacoes)))
 }
 
 fn palavras(nome: &str) -> Vec<String> {
@@ -1034,14 +1040,19 @@ fn invalidar_em(c: &Connection, conta: &str) -> Result<()> {
         "INSERT INTO mexerica_conta_inventario(conta,completo) VALUES(?1,0) ON CONFLICT(conta) DO UPDATE SET completo=0",
         [conta],
     )?;
-    c.execute(
-        "INSERT INTO mexerica_conta_geracao(conta,n) VALUES(?1,1) ON CONFLICT(conta) DO UPDATE SET n=n+1",
-        [conta],
-    )?;
+    iniciar_descoberta_open(c, conta)?;
     Ok(())
 }
 
-fn geracao_em(c: &Connection, conta: &str) -> Result<i64> {
+pub(crate) fn iniciar_descoberta_open(c: &Connection, conta: &str) -> Result<i64> {
+    Ok(c.query_row(
+        "INSERT INTO mexerica_conta_geracao(conta,n) VALUES(?1,1) ON CONFLICT(conta) DO UPDATE SET n=n+1 RETURNING n",
+        [conta],
+        |row| row.get(0),
+    )?)
+}
+
+pub(crate) fn geracao_em(c: &Connection, conta: &str) -> Result<i64> {
     Ok(c.query_row("SELECT n FROM mexerica_conta_geracao WHERE conta=?1", [conta], |r| r.get(0))
         .optional()?
         .unwrap_or(0))
@@ -1106,23 +1117,34 @@ fn recibo(c: &Connection, conta: &str, bot: &str, ferramenta: &str, evento: &str
     Ok(())
 }
 
-fn decidir_chamada(store: &Store, bot: &str, conta: &str, pol: &Politica, nome: &str) -> Result<Estado> {
-    let db = store.db.locked();
+fn decisao_em(db: &Connection, bot: &str, conta: &str, pol: &Politica, nome: &str) -> Result<(Estado, Option<String>)> {
     // Sem uma lista completa vista, ou com a conta fora do bot, nenhuma decisão antiga vale.
-    let no_bot = Store::bot_on(&db, bot)?.is_some_and(|b| !b.deleted && b.config.connectors.iter().any(|c| c == conta));
-    if !no_bot || !inventario_completo(&db, conta)? {
-        return Ok(Estado::Desligada(Motivo::SemInventario));
+    let no_bot = Store::bot_on(db, bot)?.is_some_and(|b| !b.deleted && b.config.connectors.iter().any(|c| c == conta));
+    if !no_bot || !inventario_completo(db, conta)? {
+        return Ok((Estado::Desligada(Motivo::SemInventario), None));
     }
-    let linhas = linhas(&db, conta)?;
-    let Some(linha) = linhas.get(nome) else { return Ok(Estado::Desligada(Motivo::SemInventario)) };
-    Ok(estado(pol, nome, linha, liberacoes(&db, bot, conta)?.get(nome)))
+    let linhas = linhas(db, conta)?;
+    let Some(linha) = linhas.get(nome) else { return Ok((Estado::Desligada(Motivo::SemInventario), None)) };
+    Ok((estado(pol, nome, linha, liberacoes(db, bot, conta)?.get(nome)), Some(linha.digest.clone())))
+}
+
+#[cfg(test)]
+fn decidir_chamada(store: &Store, bot: &str, conta: &str, pol: &Politica, nome: &str) -> Result<Estado> {
+    decisao_em(&store.db.locked(), bot, conta, pol, nome).map(|(estado, _)| estado)
+}
+
+pub(crate) fn digest_autorizado(db: &Connection, bot: &str, conta: &Connector, nome: &str) -> Result<String> {
+    let pol = politica(conta)?.ok_or_else(|| anyhow!("conta sem ficha"))?;
+    let (estado, digest) = decisao_em(db, bot, &conta.id, &pol, nome)?;
+    ensure!(estado.passa(), "Ferramenta MCP indisponível");
+    digest.ok_or_else(|| anyhow!("Ferramenta MCP indisponível"))
 }
 
 /// Decide uma chamada e, se recusada, grava o recibo. `true` = recusar.
 fn chamar(store: &Store, bot: &str, conta: &str, pol: Option<&Politica>, nome: &str) -> bool {
     let estado = pol
         .ok_or_else(|| anyhow!("ficha da conta indisponível"))
-        .and_then(|pol| decidir_chamada(store, bot, conta, pol, nome))
+        .and_then(|pol| decisao_em(&store.db.locked(), bot, conta, pol, nome).map(|(estado, _)| estado))
         .unwrap_or_else(|error| {
             tracing::warn!(%error, "filtro de ferramentas indisponível; chamada recusada");
             Estado::Desligada(Motivo::SemInventario)
@@ -1232,42 +1254,95 @@ fn filtrar_lista_com(
 ) -> Result<()> {
     let tools = lista_do_frame(store, conta, bruto)?;
     let mediados = nomes_mediados(mediado);
-    let mediados_ref = mediados.clone().unwrap_or_default();
     // O texto mediado é projetado ANTES de abrir o banco: a projeção dos schemas não segura o lock.
     let textos = descricoes_mediadas(mediado);
     // Instalar e decidir o que passa é uma transação só: só uma resposta aceita agora decide o que o bot vê, e só
     // pelos digests dela. Outra descoberta que reabra o inventário em seguida não empresta digest a esta resposta.
     let mut db = store.db.locked();
     let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-    let instalada = instalar_em(
+    let passam =
+        instalar_para_bot(&tx, bot, conta, pol, tools, mediados, &textos, lista_completa(pedido, bruto), geracao)?;
+    tx.commit()?;
+    projetar_lista(mediado, &passam, false);
+    Ok(())
+}
+
+pub(crate) fn filtrar_lista_open(
+    db: &mut Connection,
+    bot: &str,
+    conta: &Connector,
+    bruto: &Value,
+    mediado: &mut Value,
+    geracao: i64,
+    validate: impl FnOnce(&Connection) -> Result<()>,
+) -> Result<()> {
+    let pol = politica(conta)?.ok_or_else(|| anyhow!("conta sem ficha"))?;
+    let mediados = nomes_mediados(mediado);
+    let textos = descricoes_mediadas(mediado);
+    let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    ensure!(geracao_em(&tx, &conta.id)? == geracao, "Descoberta revogada");
+    let tools = bruto["result"]["tools"].as_array();
+    let completa = tools.is_some() && lista_completa(&Value::Null, bruto) && mediados.is_some();
+    let passam = instalar_para_bot(
         &tx,
-        conta,
-        tools,
-        &mediados_ref,
+        bot,
+        &conta.id,
+        &pol,
+        tools.map_or(&[], Vec::as_slice),
+        mediados,
         &textos,
-        lista_completa(pedido, bruto) && mediados.is_some(),
-        geracao,
+        completa,
+        Some(geracao),
     )?;
-    let passam: BTreeSet<String> = if instalada {
-        let linhas = linhas(&tx, conta)?;
-        let liberadas = liberacoes(&tx, bot, conta)?;
+    validate(&tx)?;
+    tx.commit()?;
+    ensure!(completa, "Descoberta inválida ou parcial");
+    projetar_lista(mediado, &passam, true);
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn instalar_para_bot(
+    tx: &Connection,
+    bot: &str,
+    conta: &str,
+    pol: &Politica,
+    tools: &[Value],
+    mediados: Option<BTreeSet<String>>,
+    textos: &BTreeMap<String, TextoMediado>,
+    completa: bool,
+    geracao: Option<i64>,
+) -> Result<BTreeMap<String, String>> {
+    let completa = completa && mediados.is_some();
+    let mediados_ref = mediados.unwrap_or_default();
+    let instalada = instalar_em(tx, conta, tools, &mediados_ref, textos, completa, geracao)?;
+    let passam = if instalada {
+        let linhas = linhas(tx, conta)?;
+        let liberadas = liberacoes(tx, bot, conta)?;
         mediados_ref
-            .iter()
-            .filter(|n| linhas.get(*n).is_some_and(|l| estado(pol, n, l, liberadas.get(*n)).passa()))
-            .cloned()
+            .into_iter()
+            .filter_map(|n| {
+                let linha = linhas.get(&n)?;
+                estado(pol, &n, linha, liberadas.get(&n)).passa().then(|| (n, linha.digest.clone()))
+            })
             .collect()
     } else {
-        BTreeSet::new()
+        BTreeMap::new()
     };
-    tx.commit()?;
-    drop(db);
+    Ok(passam)
+}
+
+fn projetar_lista(mediado: &mut Value, passam: &BTreeMap<String, String>, com_digest: bool) {
     if let Some(lista) = mediado["message"]["result"]["tools"].as_array_mut() {
-        lista.retain(|t| t["name"].as_str().is_some_and(|n| passam.contains(n)));
-        for tool in lista.iter_mut() {
+        lista.retain_mut(|tool| {
+            let Some(digest) = tool["name"].as_str().and_then(|n| passam.get(n)) else { return false };
             tool["inputSchema"] = projetar_schema(&tool["inputSchema"]);
-        }
+            if com_digest {
+                tool["digest"] = json!(digest);
+            }
+            true
+        });
     }
-    Ok(())
 }
 
 fn conta_do_bot(todas: &[Connector], bot: &crate::store::BotConfig, id: &str) -> Result<Connector> {
@@ -1475,7 +1550,7 @@ pub(crate) fn gravar_liberacao(tx: &Connection, pedido: &PedidoLigar<'_>) -> Res
     recibo(tx, pedido.conta, pedido.bot, pedido.ferramenta, "ligada", "confirmada")
 }
 
-fn epoca_em(c: &Connection, bot: &str, conta: &str) -> Result<i64> {
+pub(crate) fn epoca_em(c: &Connection, bot: &str, conta: &str) -> Result<i64> {
     Ok(c.query_row("SELECT n FROM mexerica_vinculo_epoca WHERE bot=?1 AND conta=?2", params![bot, conta], |r| r.get(0))
         .optional()?
         .unwrap_or(0))

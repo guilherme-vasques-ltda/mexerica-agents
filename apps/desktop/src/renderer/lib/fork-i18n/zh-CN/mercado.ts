@@ -3,6 +3,15 @@ import type { textos as fonte } from '../pt-BR/mercado.ts'
 
 // Marketplace de conectores (fatia 1b): Extensões → Conectores e Contas no bot. Chaves completas; docs/guides/idiomas.md.
 export const textos: Traducao<typeof fonte> = {
+  "mercado.appProprio.titulo": "你的 OAuth 应用",
+  "mercado.appProprio.salvar": "将应用保存到保险库",
+  "mercado.appProprio.editar": "配置应用",
+  "mercado.appProprio.portal": "打开服务商设置",
+  "mercado.appProprio.redirect": "保存前，请在服务商处登记这些重定向地址。",
+  "mercado.appProprio.aviso": "更换或移除应用将退出此空间中使用该连接类型的账户。",
+  "mercado.appProprio.remover": "移除应用",
+  "mercado.appProprio.erro": "无法确认 OAuth 应用的更改。",
+  "mercado.appProprio.indisponivel": "解锁保险库并重新加载服务页面以配置 OAuth 应用。",
   "mercado.tab.rotulo": "连接器分区",
   "mercado.tab.catalogo": "目录",
   "mercado.tab.contas": "我的账号",
@@ -271,4 +280,6 @@ export const textos: Traducao<typeof fonte> = {
   "mercado.acoes.confirmar.campos": "以及它在此操作每个字段中将读到的内容：",
   "mercado.acoes.confirmar.campo": "{campo}：{texto}",
   "mercado.acoes.ocultos": "注意：此说明含有屏幕上看不见或会改变书写方向的字符。",
+  "mercado.lib.filtro": "此账号可以修改服务中的数据。在 Mexerica 中，所有操作默认关闭。要使用某个操作，必须为每个机器人单独启用该操作。",
+  "mercado.erro.credencial_com_escrita": "请更新应用，以便在连接此账号前查看写入权限提示。",
 } as const

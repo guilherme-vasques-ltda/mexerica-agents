@@ -115,6 +115,25 @@ pub(crate) fn record(hub: &Hub, provider: &str, windows: &[Window]) {
     }
 }
 
+pub(crate) fn record_open_codex(hub: &Hub, account: &str, windows: &[Window]) {
+    if !windows.is_empty()
+        && account.strip_prefix("ac_").is_some_and(|id| id.len() == 64 && id.bytes().all(|b| b.is_ascii_hexdigit()))
+        && let Err(error) = record_at(&hub.store, &format!("codex:{account}"), windows, now_ms())
+    {
+        tracing::warn!(%error, "amostra de cota local não gravada");
+    }
+}
+
+pub(crate) fn remover_conta(db: &Connection, account: &str) -> Result<()> {
+    db.execute("DELETE FROM donna_usage_samples WHERE provider=?1", [format!("codex:{account}")])?;
+    Ok(())
+}
+
+pub(crate) fn invalidar_conta(store: &Store, account: &str) {
+    let provider = format!("codex:{account}");
+    store.uso_historico.locked().ultimas.retain(|(p, _), _| p != &provider);
+}
+
 fn record_at(store: &Store, provider: &str, windows: &[Window], now: i64) -> Result<()> {
     let pendentes: Vec<&Window> = windows.iter().filter(|w| w.percent.is_finite()).collect();
     if pendentes.is_empty() {
@@ -492,13 +511,19 @@ fn report(c: &Connection, faixa: Faixa, now: i64) -> Result<Value> {
                 _ => json!({"exhausted":false,"exhaustsAt":null}),
             }
         };
-        saida.push(json!({
-            "provider": provider,
+        let (provedor, conta) =
+            provider.strip_prefix("codex:").map_or((provider.as_str(), None), |c| ("codex", Some(c)));
+        let mut janela = json!({
+            "provider": provedor,
             "windowId": window,
             "resetsAt": reset,
             "buckets": buckets,
             "forecast": previsao,
-        }));
+        });
+        if let Some(conta) = conta {
+            janela["accountId"] = conta.into();
+        }
+        saida.push(janela);
     }
     Ok(json!({
         "range": faixa.nome(),

@@ -694,8 +694,10 @@ impl Actor {
             // Extra que a classificação canônica não admitiria (ex.: restaurada no boot, conta trocada antes do
             // despacho) fica na fila, como na VG: sem reserva, sem pendência de admissão e sem virar prompt da principal.
             let held = match lane.session {
-                Some(_) => crate::fork::sessoes::api::extra_admissible(&self.hub.store.db.locked(), &lane).err(),
-                None => None,
+                Some(_) if !crate::environment::Environment::is_open() => {
+                    crate::fork::sessoes::api::extra_admissible(&self.hub.store.db.locked(), &lane).err()
+                }
+                _ => None,
             };
             if let Some(error) = held {
                 tracing::warn!(%error, "sessão extra sem seleção roteável; fila conservada");

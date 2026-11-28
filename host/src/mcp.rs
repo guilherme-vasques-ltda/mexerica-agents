@@ -228,13 +228,9 @@ async fn memory_tools(port: u16, token: &str, bot: &str) -> Result<Value, Value>
 
 /// The `computer` tools the host offers; none when it can't be reached.
 async fn computer_tools(port: u16, token: &str) -> Value {
-    let res = crate::http()
-        .post(format!("http://127.0.0.1:{port}/api/computerTools"))
-        .bearer_auth(token)
-        .json(&json!({}))
-        .timeout(Duration::from_secs(30))
-        .send()
-        .await;
+    let Ok(bridge) = crate::fork::bridge_http::BridgeHttp::new(port) else { return json!({"tools": []}) };
+    let res =
+        bridge.post("computerTools").bearer_auth(token).json(&json!({})).timeout(Duration::from_secs(30)).send().await;
     match res {
         Ok(r) if r.status().is_success() => r.json::<Value>().await.unwrap_or_else(|_| json!({"tools": []})),
         _ => json!({"tools": []}),
@@ -361,13 +357,8 @@ async fn send(
         Server::Memory => ("memoryCall", Duration::from_secs(120)),
         Server::Tasks => ("taskCall", Duration::from_secs(30)),
     };
-    let res = crate::http()
-        .post(format!("http://127.0.0.1:{port}/api/{method}"))
-        .bearer_auth(token)
-        .json(&body)
-        .timeout(timeout)
-        .send()
-        .await;
+    let bridge = crate::fork::bridge_http::BridgeHttp::new(port).map_err(|_| failure("Hub indisponível"))?;
+    let res = bridge.post(method).bearer_auth(token).json(&body).timeout(timeout).send().await;
     let error = match res {
         Ok(r) if r.status() == reqwest::StatusCode::UNAUTHORIZED => {
             "chamada vencida: credencial da ponte inválida ou revogada".to_owned()
@@ -396,7 +387,7 @@ async fn send(
                 Err(e) => return Err(failure(&format!("bad response from the Mexerica host: {e}"))),
             }
         }
-        Err(e) => return Err(failure(&format!("can't reach the Mexerica host: {e}"))),
+        Err(_) => return Err(failure("can't reach the Mexerica host")),
     };
     Ok(failure(&error))
 }
@@ -406,8 +397,8 @@ fn failure(error: &str) -> Value {
 }
 
 /// O fork medeia stdio antes de qualquer retorno externo chegar ao motor.
-pub async fn serve_local(connector: String, port: u16, context: String) -> Result<()> {
-    crate::guard_hub::mcp::stdio::serve(connector, port, context).await
+pub async fn serve_local(connector: String, port: u16, context: String, catalog_local: bool) -> Result<()> {
+    crate::guard_hub::mcp::stdio::serve(connector, port, context, catalog_local).await
 }
 
 #[cfg(test)]

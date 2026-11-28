@@ -28,6 +28,7 @@ Valem mais as falhas que atravessam a fronteira entre o bot e o computador do op
 - O que o modelo faz dentro da permissão que recebeu. Executar o que o operador aprovou é o trabalho da ferramenta; um resultado ruim dentro das permissões concedidas não é falha de segurança desta cópia.
 - Separação entre bots que rodam com o mesmo usuário do sistema: não existe, conforme declarado acima.
 - Falhas no serviço do fornecedor do modelo (disponibilidade, incidentes do provedor): relate ao fornecedor.
+- Falhas em software de terceiros (sistema operacional, Electron, motores e conectores de terceiros): relate ao projeto deles. Se a configuração padrão desta cópia deixa esse software inseguro, a falha é nossa e vale o relato aqui.
 
 ## Versões atendidas
 

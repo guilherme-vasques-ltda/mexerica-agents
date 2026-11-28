@@ -23,7 +23,7 @@ export function Catalogo({ catalogo, contas, cofreTrancado, contasFalharam, appG
   aoTentar: () => void
   aoAbrir: (servico: Servico) => void
   /** Abre o fluxo do Google: o guia quando falta o app, senão a escolha dos serviços. */
-  aoAbrirGoogle: () => void
+  aoAbrirGoogle?: () => void
 }) {
   const t = useT()
   const [busca, setBusca] = useState('')
@@ -52,7 +52,10 @@ export function Catalogo({ catalogo, contas, cofreTrancado, contasFalharam, appG
         ))}
       </div>
 
-      {visao.google.length > 0 ? <GrupoGoogle servicos={visao.google} app={appGoogle} contas={contas} cofreTrancado={cofreTrancado} aoAbrir={aoAbrirGoogle} /> : null}
+      {visao.google.length > 0 ? aoAbrirGoogle
+        ? <GrupoGoogle servicos={visao.google} app={appGoogle} contas={contas} cofreTrancado={cofreTrancado} aoAbrir={aoAbrirGoogle} />
+        : <div className="mercado-grade">{visao.google.map((s) => <CartaoDoServico key={s.id} servico={s} contas={contas} aoAbrir={aoAbrir} soLeitura />)}</div>
+        : null}
 
       {visao.lista.length > 0 ? (
         <section className="mercado-secao" aria-label={t('mercado.lista.titulo')}>
@@ -69,7 +72,7 @@ export function Catalogo({ catalogo, contas, cofreTrancado, contasFalharam, appG
                 </div>
               ) : null}
               <div className="mercado-grade">
-                {grupo.servicos.map((s) => <CartaoDoServico key={s.id} servico={s} contas={contas} aoAbrir={aoAbrir} />)}
+                {grupo.servicos.map((s) => <CartaoDoServico key={s.id} servico={s} contas={contas} aoAbrir={aoAbrir} soLeitura={!aoAbrirGoogle} />)}
               </div>
             </div>
           ))}
@@ -125,7 +128,7 @@ function SelosDoServico({ servico }: { servico: Servico }) {
   )
 }
 
-function CartaoDoServico({ servico, contas, aoAbrir }: { servico: Servico; contas: readonly Conta[]; aoAbrir: (s: Servico) => void }) {
+function CartaoDoServico({ servico, contas, aoAbrir, soLeitura }: { servico: Servico; contas: readonly Conta[]; aoAbrir: (s: Servico) => void; soLeitura: boolean }) {
   const t = useT()
   const estado = estadoDoServico(servico, contas)
   return (
@@ -137,7 +140,7 @@ function CartaoDoServico({ servico, contas, aoAbrir }: { servico: Servico; conta
         <SelosDoServico servico={servico} />
       </span>
       <span className="mercado-card-fim">
-        {estado.tipo === 'semConta' ? (
+        {soLeitura ? <Icon name="chevron.right" size={11} /> : estado.tipo === 'semConta' ? (
           <span className="mercado-capsula"><Text size="callout" weight="medium">{t('mercado.acao.conectar')}</Text></span>
         ) : (
           <>

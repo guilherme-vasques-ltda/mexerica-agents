@@ -2,6 +2,7 @@
 //! bot). O app só renderiza e manda intenção; nome, Space, escopos e liberações são decididos e conferidos aqui.
 //! Contrato para a tela (fatia 1b): `docs/features/marketplace.md`, seção "API do Marketplace".
 use super::contas::{self, Pedido};
+use super::google_app::AppDaFicha;
 use crate::agent::bot::Cmd;
 use crate::api::devices::Caller;
 use crate::fork::conectores::catalogo_servicos as catalogo;
@@ -26,6 +27,8 @@ pub(crate) const METHODS: &[&str] = &[
     "marketGoogleApp",
     "marketGoogleAppSalvar",
     "marketGoogleAppRemover",
+    "marketAppProprioSalvar",
+    "marketAppProprioRemover",
 ];
 
 fn texto<'a>(b: &'a Value, campo: &str) -> Result<&'a str> {
@@ -47,9 +50,24 @@ fn ficha(
     hoje: chrono::NaiveDate,
     contas: Option<&[super::Connector]>,
     space: &str,
+    open: bool,
 ) -> Value {
     let mut v = serde_json::to_value(servico).unwrap_or(Value::Null);
-    v["conectavel"] = json!(servico.conectavel() && servico.conferencia_vigente(hoje));
+    let conectavel = if open {
+        let tipos: Vec<_> = servico
+            .tipos
+            .iter()
+            .filter(|t| {
+                AppDaFicha::novo(servico, t).is_none()
+                    && !t.grupos.iter().any(|g| g.imposicao == Some(catalogo::Imposicao::Filtro))
+            })
+            .collect();
+        v["tipos"] = json!(tipos);
+        tipos.iter().any(|t| t.conectavel())
+    } else {
+        servico.conectavel()
+    };
+    v["conectavel"] = json!(conectavel && servico.conferencia_vigente(hoje));
     v["conferenciaVigente"] = json!(servico.conferencia_vigente(hoje));
     v["diasDesdeConferencia"] = json!(catalogo::dias_desde_conferencia(servico.conferida_em, hoje));
     v["contas"] = json!(contas.map(|todas| {
@@ -62,9 +80,45 @@ fn ficha(
     v
 }
 
+#[cfg(test)]
+#[test]
+fn open_omite_jeito_que_usa_filtro_e_preserva_leitura_do_fornecedor() {
+    let com_filtro = catalogo::fixture_filtro();
+    let hoje = chrono::NaiveDate::parse_from_str(com_filtro.conferida_em, "%Y-%m-%d").unwrap();
+    let completa = ficha(com_filtro, hoje, None, "", false);
+    assert_eq!(completa["tipos"][0]["grupos"][0]["imposicao"], "filtro");
+    assert_eq!(completa["conectavel"], true);
+    let open = ficha(com_filtro, hoje, None, "", true);
+    assert_eq!(open["tipos"], json!([]));
+    assert_eq!(open["conectavel"], false);
+
+    let linear = catalogo::servico("linear").unwrap();
+    assert_eq!(ficha(linear, hoje, None, "", true), ficha(linear, hoje, None, "", false));
+}
+
+#[cfg(test)]
+#[test]
+fn open_omite_app_proprio_mesmo_com_escopo_de_leitura() {
+    let servico = catalogo::fixture_app_proprio();
+    let hoje = chrono::NaiveDate::parse_from_str(servico.conferida_em, "%Y-%m-%d").unwrap();
+    let completa = ficha(servico, hoje, None, "", false);
+    assert_eq!(completa["conectavel"], true);
+    assert_eq!(
+        completa["tipos"][0]["auth"]["configuracao"],
+        json!({"cadastro":"https://servico.example.invalid/config"})
+    );
+    let open = ficha(servico, hoje, None, "", true);
+    assert_eq!(open["conectavel"], false);
+    assert_eq!(open["tipos"], json!([]));
+}
+
 pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: &Value) -> Result<Option<Value>> {
     if !METHODS.contains(&method) {
         return Ok(None);
+    }
+    let open = crate::environment::Environment::is_open();
+    if open && (!matches!(caller, Caller::Local) || method != "marketCatalogo") {
+        return Err(crate::api::devices::Forbidden.into());
     }
     let store = &hub.store;
     let space = contas::space_do_pedido(store, b)?;
@@ -72,8 +126,19 @@ pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: &Valu
     Ok(Some(match method {
         // O catálogo é dado público; a lista de contas do Space só aparece com o cofre aberto.
         "marketCatalogo" => {
-            let todas = super::connectors(store).ok();
+            let todas = if open { Some(Vec::new()) } else { super::connectors(store).ok() };
             let catalogo = catalogo::publico();
+            let mut apps = Map::new();
+            apps.insert("google".into(), json!((!open).then(|| super::google_app::publico(store, &space)).flatten()));
+            if !open {
+                for ficha in catalogo.servicos {
+                    for tipo in ficha.tipos.iter().filter(|t| t.conectavel()) {
+                        if let Some(app) = AppDaFicha::novo(ficha, tipo) {
+                            apps.insert(tipo.id.into(), json!(app.publico(store, &space)));
+                        }
+                    }
+                }
+            }
             json!({
                 "versao": catalogo.versao,
                 "prazoConferenciaDias": catalogo.prazo_conferencia_dias,
@@ -81,14 +146,18 @@ pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: &Valu
                 "hoje": hoje.to_string(),
                 "spaceId": space,
                 // O app OAuth da própria pessoa, por Space: só o ID, nunca a chave. Cofre trancado = `null`.
-                "appsProprios": {"google": super::google_app::publico(store, &space)},
-                "servicos": catalogo.servicos.iter().map(|s| ficha(s, hoje, todas.as_deref(), &space)).collect::<Vec<_>>(),
+                "appsProprios": apps,
+                "oauthRedirectUris": if apps.len() > 1 {
+                    std::iter::once(hub.port).chain(crate::fork::conectores::oauth_desktop::PORTAS)
+                        .map(super::oauth::loopback_uri).collect::<Vec<_>>()
+                } else { Vec::new() },
+                "servicos": catalogo.servicos.iter().map(|s| ficha(s, hoje, todas.as_deref(), &space, open)).collect::<Vec<_>>(),
             })
         }
         "marketServico" => {
             let servico = catalogo::servico(texto(b, "id")?).ok_or_else(|| anyhow!("servico_desconhecido"))?;
             let todas = super::connectors(store).ok();
-            json!({"servico": ficha(servico, hoje, todas.as_deref(), &space), "spaceId": space})
+            json!({"servico": ficha(servico, hoje, todas.as_deref(), &space, false), "spaceId": space})
         }
         "marketContas" => contas::listar(store, &space)?,
         "marketConectar" => {
@@ -109,6 +178,7 @@ pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: &Valu
                 nome: texto_opcional(b, "nome")?,
                 nome_primeira: texto_opcional(b, "nomePrimeira")?,
                 liberacoes,
+                aceita_credencial_com_escrita: b["aceitaCredencialComEscrita"] == true,
             };
             contas::conectar(store, &pedido)?
         }
@@ -131,6 +201,17 @@ pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: &Valu
         }
         "marketGoogleAppRemover" => {
             let resposta = super::google_app::remover(store, &space)?;
+            atualizar_bots_do_space(hub, &space);
+            resposta
+        }
+        "marketAppProprioSalvar" | "marketAppProprioRemover" => {
+            let app = AppDaFicha::resolver(texto(b, "servico")?, texto(b, "tipo")?)?;
+            let dados = if method == "marketAppProprioSalvar" {
+                Some((texto(b, "clientId")?, texto(b, "clientSecret")?))
+            } else {
+                None
+            };
+            let resposta = app.escrever(store, &space, dados)?;
             atualizar_bots_do_space(hub, &space);
             resposta
         }

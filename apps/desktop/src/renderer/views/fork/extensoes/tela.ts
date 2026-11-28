@@ -2,6 +2,7 @@
 // Modelo sem DOM nem React: se a tela está aberta, em que página e em que computador. Cada atalho abre a sua
 // página: Conectores (faixa e engrenagem) abre o catálogo e as contas, Skills abre Skills.
 import { Observable } from '../../../lib/observable.ts'
+import { isOpenDesktop } from '../../../../shared/fork-capacidades.ts'
 
 // Pedido do dono em 17/11/2026: Aplicativos e Conectores eram a mesma coisa; sobrou só Conectores.
 // Revisão do app (Entrega 2, pedido do dono em 10/11/2026): Plugins sai de Ajustes e vira a quarta página;
@@ -10,6 +11,8 @@ export type PaginaExtensoes = 'connectors' | 'skills' | 'plugins' | 'credentials
 /** As páginas que a loja (MarketplaceView) desenha; Plugins e Credenciais têm tela própria. */
 export type PaginaLoja = 'connectors' | 'skills'
 export const ehPaginaLoja = (p: PaginaExtensoes): p is PaginaLoja => p === 'connectors' || p === 'skills'
+export const extensoesSomenteCatalogo = () => isOpenDesktop(globalThis.window?.codync)
+export const paginaDisponivel = (page: PaginaExtensoes) => page !== 'credentials' || !extensoesSomenteCatalogo()
 
 /** D454 (fatia 8a): cada página leva só a chave do catálogo; a tela traduz no idioma escolhido. */
 export const PAGINAS_EXTENSOES: { id: PaginaExtensoes; chave: `extensoes.pagina.${PaginaExtensoes}`; icon: string }[] = [
@@ -35,7 +38,7 @@ export class TelaExtensoes extends Observable {
 
   /** `plugin`: abre Plugins já dentro dele (o atalho do WhatsApp nas Configurações do bot). */
   show(page: PaginaExtensoes, computer: string | null, plugin: string | null = null) {
-    if (!computer) return
+    if (!computer || !paginaDisponivel(page)) return
     this.aoAbrir()
     this.page = page
     this.computer = computer
@@ -45,7 +48,7 @@ export class TelaExtensoes extends Observable {
 
   /** Trocar de página, ou clicar em Plugins de novo, volta à lista fechada. */
   setPage(page: PaginaExtensoes) {
-    if (!this.open || (this.page === page && this.plugin === null)) return
+    if (!this.open || !paginaDisponivel(page) || (this.page === page && this.plugin === null)) return
     this.page = page
     this.plugin = null
     this.changed()

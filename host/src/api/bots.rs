@@ -154,7 +154,12 @@ pub(super) async fn call(
             let before = b["beforeSeq"].as_i64().unwrap_or(i64::MAX);
             let limit = b["limit"].as_i64().unwrap_or(100).clamp(1, 500);
             let session = crate::fork::sessoes::api::history_session(hub, bot, &b)?;
-            json!({"entries": hub.store.history_in_session(bot, session, before, limit)?})
+            let entries = if caller.is_web_chat() {
+                hub.store.web_history(bot, session, before, limit)?
+            } else {
+                hub.store.history_in_session(bot, session, before, limit)?
+            };
+            json!({"entries": entries})
         }
         // Notices between a bot and one peer (the newest 200), for the read-only bot conversation sheet.
         "botConversation" => {
@@ -223,6 +228,9 @@ pub(super) async fn call(
             .await??})
         }
         "updateBot" => {
+            if b.get(crate::fork::open_command_settings::FIELD).is_some() {
+                return crate::fork::open_command_settings::update(hub, caller, b).map(ControlFlow::Break);
+            }
             // c1: intenção tipada de uma célula; captura antes de team_lock, sem recaptura.
             if let Some(selection) = crate::fork::skill_selection::Selection::capture(hub, caller, &b)? {
                 let guard = hub.store.team_lock.clone().lock_owned().await;
@@ -341,12 +349,22 @@ pub(super) async fn call(
             {
                 return Ok(ControlFlow::Break(json!({"entry": e})));
             }
-            // Open: a conversa só de texto reserva o turno antes de gravar a mensagem.
-            let open_turn = if crate::environment::Environment::is_open() {
-                Some(crate::fork::open_chat::begin(hub, &row.config)?)
-            } else {
-                None
+            // Open: recusas que não dependem de resposta em curso saem antes de gravar; com resposta em curso a
+            // mensagem entra na fila do Hub (`fork::open_chat_fila`).
+            let (lane, effective) = {
+                let db = hub.store.db.locked();
+                let lane = crate::fork::sessoes::api::send_lane(&db, bot, &b)?;
+                let mut effective = row.config.clone();
+                if !row.config.is_group() {
+                    crate::fork::sessoes::admissao::apply_configured(&db, &lane, &mut effective)?;
+                }
+                (lane, effective)
             };
+            let open_turn = crate::environment::Environment::is_open();
+            let open_config = if lane.session.is_some() { &effective } else { &row.config };
+            if open_turn {
+                crate::fork::open_chat::precheck(hub, open_config, text)?;
+            }
             // `replyTo`: the message of this chat it answers (`chat::replies`).
             let reply = match quoted {
                 Some(id) => Some(crate::chat::replies::quote(&hub.store, bot, id)?),
@@ -361,13 +379,13 @@ pub(super) async fn call(
             }
             // A group has no agent of its own to queue behind; its message stays pending until the room's first
             // round has passed it to the members (`fork::grupo_entrega`), so a restart in between can resume it.
-            let status = match (row.config.is_group(), open_turn.is_some()) {
+            let status = match (row.config.is_group(), open_turn) {
                 (true, false) => crate::fork::grupo_entrega::PENDING,
                 (true, true) => "sent",
                 (false, _) => "queued",
             };
             let mut data = json!({"text": text, "clientNonce": nonce, "status": status, "attachments": attachments, "intent": intent});
-            if effect_authority.is_some() && status == "queued" && open_turn.is_none() {
+            if effect_authority.is_some() && status == "queued" && !open_turn {
                 data["remoteAdmissionRequired"] = json!(true);
             }
             crate::computers::registry::remember_source(&hub.store, &b, &mut data);
@@ -400,15 +418,6 @@ pub(super) async fn call(
             if crate::api::AUTOMATICO.try_get().is_ok() {
                 data["contentOrigin"]["hubOrigin"] = json!("automatico");
             }
-            let (lane, effective) = {
-                let db = hub.store.db.locked();
-                let lane = crate::fork::sessoes::api::send_lane(&db, bot, &b)?;
-                let mut effective = row.config.clone();
-                if !row.config.is_group() {
-                    crate::fork::sessoes::admissao::apply_configured(&db, &lane, &mut effective)?;
-                }
-                (lane, effective)
-            };
             let antigravity_owner = if crate::agent::backends::is_antigravity(&effective.backend) {
                 crate::fork::antigravity::config(&effective)?;
                 data[crate::fork::antigravity::ENTRY_MARKER] = json!(true);
@@ -422,6 +431,7 @@ pub(super) async fn call(
             };
             crate::fork::idioma_app::carimbar(&hub.store, caller, &mut data); // D395
             // MB-1b: a mensagem humana responde, na mesma transação, as perguntas pendentes desta conversa.
+            let _ordem = open_turn.then(crate::fork::open_chat_fila::ordem);
             let e = if let (Some(delivery), Some(authority)) = (&mailbox, &mailbox_authority) {
                 let Some(new) =
                     crate::fork::owner_question::add_mailbox_message(hub, delivery, authority, &lane, &b, &data)?
@@ -452,16 +462,8 @@ pub(super) async fn call(
             if let Err(error) = hub.mark_read_authorized(bot, effect_authority) {
                 tracing::warn!(%error, bot, "couldn't mark bot read after send");
             }
-            if let Some(ticket) = open_turn {
-                crate::fork::open_chat::run(
-                    hub,
-                    ticket,
-                    &row.config,
-                    lane,
-                    e.turn,
-                    (e.id.clone(), effect_authority.cloned()),
-                    text.to_owned(),
-                );
+            if open_turn {
+                crate::fork::open_canal::deliver(hub, open_config, lane, &e, effect_authority, text);
             } else if row.config.is_group() {
                 // Each member reads it in its room prompt (`chat::group`).
                 crate::chat::group::start_authorized(
@@ -543,6 +545,11 @@ pub(super) async fn call(
         "stop" => {
             let bot = str_arg(&b, "botId")?;
             match hub.store.bot(bot)? {
+                Some(row) if crate::environment::Environment::is_open() && row.config.is_group() => {
+                    for member in &row.config.members {
+                        crate::fork::open_chat::stop(member);
+                    }
+                }
                 _ if crate::environment::Environment::is_open() => crate::fork::open_chat::stop(bot),
                 Some(row) if row.config.is_group() => {
                     // Gravada antes da confirmação: a mensagem parada nunca é retomada no boot.

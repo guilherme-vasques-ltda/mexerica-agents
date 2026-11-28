@@ -11,7 +11,7 @@ export const CODIGOS_DE_RECUSA = [
   'servico_desconhecido', 'tipo_desconhecido', 'tipo_indisponivel', 'liberacao_desconhecida', 'liberacao_indisponivel',
   'liberacao_obrigatoria', 'conta_de_outro_space', 'conta_padrao_invalida', 'ficha_indisponivel', 'ligar_e_desligar', 'principal_sem_contas',
   'confirmacao_obrigatoria', 'ferramenta_mudou', 'vinculo_mudou', 'vinculo_obrigatorio', 'ferramenta_desconhecida', 'ferramenta_fora_da_ficha', 'conta_sem_ficha', 'conta_desligada_no_bot', 'descricao_invalida', 'descricao_desconhecida', 'app_desatualizado',
-  'app_proprio_ausente', 'app_google_invalido', 'cofre_trancado',
+  'app_proprio_ausente', 'app_google_invalido', 'cofre_trancado', 'credencial_com_escrita',
 ] as const
 export type CodigoDeRecusa = (typeof CODIGOS_DE_RECUSA)[number]
 

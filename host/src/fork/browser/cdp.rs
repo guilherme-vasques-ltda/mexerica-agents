@@ -28,6 +28,7 @@ const ALLOWED_METHODS: &[&str] = &[
     "Fetch.continueWithAuth",
     "Fetch.enable",
     "Fetch.failRequest",
+    "Page.captureScreenshot",
     "Page.createIsolatedWorld",
     "Page.enable",
     "Page.getFrameTree",
@@ -46,6 +47,21 @@ pub(crate) fn url_allowed(url: &str) -> bool {
     url == "about:blank" || url.starts_with("https://")
 }
 
+fn read_only_request(origin: Option<&reqwest::Url>, request: &Value) -> bool {
+    if !matches!(request["method"].as_str(), Some("GET" | "HEAD"))
+        || request.get("hasPostData").is_some_and(|value| value.as_bool() != Some(false))
+        || request.get("postData").is_some()
+        || request.get("postDataEntries").is_some()
+    {
+        return false;
+    }
+    let Some(origin) = origin else { return false };
+    request["url"]
+        .as_str()
+        .and_then(|url| super::nav::parse_navigation_url(url).ok())
+        .is_some_and(|url| reqwest::Url::parse(&url.url).is_ok_and(|url| url.origin() == origin.origin()))
+}
+
 fn closed_ok(result: &Result<Value>) -> bool {
     result.as_ref().is_ok_and(|value| value.get("success").and_then(Value::as_bool) == Some(true))
 }
@@ -59,6 +75,7 @@ struct Shared<W> {
     auth: Mutex<Option<mpsc::Sender<Value>>>,
     closed: std::sync::atomic::AtomicBool,
     page: Mutex<Option<String>>,
+    read_only: Option<Mutex<Option<reqwest::Url>>>,
     /// Uma operação de página por vez: abrir e ler não se intercalam na mesma aba.
     operation: AsyncMutex<()>,
     /// Chamado uma vez quando o canal cai por falha (não pelo corte deliberado): liga a perda do controle
@@ -79,6 +96,14 @@ impl<W> Clone for Cdp<W> {
 
 impl<W: AsyncWrite + Unpin + Send + 'static> Cdp<W> {
     pub(crate) fn new<R: AsyncRead + Unpin + Send + 'static>(reader: R, writer: W) -> Self {
+        Self::with_mode(reader, writer, false)
+    }
+
+    pub(crate) fn read_only<R: AsyncRead + Unpin + Send + 'static>(reader: R, writer: W) -> Self {
+        Self::with_mode(reader, writer, true)
+    }
+
+    fn with_mode<R: AsyncRead + Unpin + Send + 'static>(reader: R, writer: W, read_only: bool) -> Self {
         let (events, _) = broadcast::channel(256);
         let shared = Arc::new(Shared {
             writer: AsyncMutex::new(writer),
@@ -88,6 +113,7 @@ impl<W: AsyncWrite + Unpin + Send + 'static> Cdp<W> {
             auth: Mutex::new(None),
             closed: false.into(),
             page: Mutex::new(None),
+            read_only: read_only.then(|| Mutex::new(None)),
             operation: AsyncMutex::new(()),
             on_close: Mutex::new(None),
             close_signal: tokio::sync::Notify::new(),
@@ -152,6 +178,13 @@ impl<W: AsyncWrite + Unpin + Send + 'static> Cdp<W> {
         target: &super::nav::ValidatedNavigation,
         authorized: &(dyn Fn() -> bool + Sync),
     ) -> Result<Value> {
+        if let Some(origin) = &self.shared.read_only {
+            let mut origin = origin.lock().map_err(|_| anyhow!("browser_network_policy_unavailable"))?;
+            if !authorized() {
+                bail!("browser_authority_revoked");
+            }
+            *origin = Some(reqwest::Url::parse(&target.url)?);
+        }
         self.command_inner(
             Some(session),
             "Page.navigate",
@@ -368,9 +401,13 @@ impl<W: AsyncWrite + Unpin + Send + 'static> Cdp<W> {
                     client.close();
                     break;
                 };
-                let url = event.pointer("/params/request/url").and_then(Value::as_str).unwrap_or_default().to_owned();
                 let token = Arc::clone(&token);
-                let (method, params) = if event["method"] == "Fetch.requestPaused" && !url_allowed(&url) {
+                let request = &event["params"]["request"];
+                let permitted = match &client.shared.read_only {
+                    Some(origin) => origin.lock().is_ok_and(|origin| read_only_request(origin.as_ref(), request)),
+                    None => url_allowed(request["url"].as_str().unwrap_or_default()),
+                };
+                let (method, params) = if event["method"] == "Fetch.requestPaused" && !permitted {
                     ("Fetch.failRequest", json!({"requestId":request_id,"errorReason":"BlockedByClient"}))
                 } else if event["method"] == "Fetch.authRequired" {
                     let response =
@@ -393,6 +430,9 @@ impl<W: AsyncWrite + Unpin + Send + 'static> Cdp<W> {
                 });
             }
         });
+        if self.shared.read_only.is_some() {
+            self.disable_scripts(&session).await?;
+        }
         if let Err(error) =
             self.command_session(&session, "Fetch.enable", json!({"handleAuthRequests":true}), AUTH_TIMEOUT).await
         {
@@ -503,7 +543,9 @@ impl<W: AsyncWrite + Unpin + Send + 'static> Cdp<W> {
                 // OOPIF/filhos: auto-attach recursivo a partir da sessão de
                 // página/iframe, para herdar a mesma regra.
                 let covered = matches!(target_type.as_str(), "page" | "iframe");
-                let mut refused = covered
+                let strict = watcher.shared.read_only.is_some();
+                let mut refused = strict && (!covered || watcher.disable_scripts(&new_session).await.is_err());
+                refused |= covered
                     && watcher
                         .command_session(
                             &new_session,
@@ -523,7 +565,7 @@ impl<W: AsyncWrite + Unpin + Send + 'static> Cdp<W> {
                 if fetch_refused && !covered {
                     tracing::warn!(target_type, "Fetch.enable recusado no alvo anexado; sessão mantida sem Fetch");
                 }
-                refused |= fetch_refused && covered;
+                refused |= fetch_refused && (covered || strict);
                 if refused {
                     // Página ou iframe sem o filtro Fetch (ou sem auto-attach) fica só com o proxy: fecha o alvo.
                     tracing::warn!(target_type, "alvo sem Fetch ou auto-attach recursivo; fechado");
@@ -546,6 +588,12 @@ impl<W: AsyncWrite + Unpin + Send + 'static> Cdp<W> {
                     .await;
             }
         });
+        Ok(())
+    }
+
+    async fn disable_scripts(&self, session: &str) -> Result<()> {
+        self.command_session(session, "Emulation.setScriptExecutionDisabled", json!({"value":true}), AUTH_TIMEOUT)
+            .await?;
         Ok(())
     }
 
@@ -662,15 +710,41 @@ mod tests {
     use super::*;
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream};
 
-    fn pair() -> (
+    #[test]
+    fn leitura_no_mac_so_permite_get_e_head_sem_corpo_na_origem_aberta() {
+        let origin = reqwest::Url::parse("https://example.invalid/pagina").unwrap();
+        for method in ["GET", "HEAD"] {
+            assert!(read_only_request(Some(&origin), &json!({"url":"https://example.invalid/asset","method":method})));
+        }
+        for request in [
+            json!({"url":"https://example.invalid/","method":"POST"}),
+            json!({"url":"https://example.invalid/","method":"GET","postData":"data"}),
+            json!({"url":"https://example.invalid/","method":"GET","hasPostData":true}),
+            json!({"url":"https://example.invalid:444/","method":"GET"}),
+            json!({"url":"https://other.example.invalid/","method":"GET"}),
+            json!({"url":"https://example.invalid/","method":null}),
+        ] {
+            assert!(!read_only_request(Some(&origin), &request), "{request}");
+        }
+        assert!(!read_only_request(None, &json!({"url":"https://example.invalid/","method":"GET"})));
+    }
+
+    type PipeFixture = (
         Cdp<tokio::io::WriteHalf<DuplexStream>>,
         BufReader<tokio::io::ReadHalf<DuplexStream>>,
         tokio::io::WriteHalf<DuplexStream>,
-    ) {
+    );
+
+    fn pair() -> PipeFixture {
+        pair_mode(false)
+    }
+
+    fn pair_mode(read_only: bool) -> PipeFixture {
         let (a, b) = tokio::io::duplex(16384);
         let (read, write) = tokio::io::split(a);
         let (browser_read, browser_write) = tokio::io::split(b);
-        (Cdp::new(read, write), BufReader::new(browser_read), browser_write)
+        let client = if read_only { Cdp::read_only(read, write) } else { Cdp::new(read, write) };
+        (client, BufReader::new(browser_read), browser_write)
     }
     async fn receive(reader: &mut BufReader<tokio::io::ReadHalf<DuplexStream>>) -> Value {
         let mut bytes = Vec::new();
@@ -940,12 +1014,12 @@ mod tests {
         assert_eq!(deliberate.load(Ordering::SeqCst), 0, "o corte deliberado não é uma queda");
     }
 
-    async fn conectado() -> (
-        Cdp<tokio::io::WriteHalf<DuplexStream>>,
-        BufReader<tokio::io::ReadHalf<DuplexStream>>,
-        tokio::io::WriteHalf<DuplexStream>,
-    ) {
-        let (client, mut reader, mut writer) = pair();
+    async fn conectado() -> PipeFixture {
+        conectado_no_modo(false).await
+    }
+
+    async fn conectado_no_modo(read_only: bool) -> PipeFixture {
+        let (client, mut reader, mut writer) = pair_mode(read_only);
         let prover = client.clone();
         let task = tokio::spawn(async move { prover.provide_proxy_credentials("segredo-teste".into()).await.unwrap() });
         let version = receive(&mut reader).await;
@@ -954,12 +1028,59 @@ mod tests {
         send(&mut writer, json!({"id":targets["id"],"result":{"targetInfos":[{"type":"page","targetId":"t1"}]}})).await;
         let attach = receive(&mut reader).await;
         send(&mut writer, json!({"id":attach["id"],"result":{"sessionId":"s1"}})).await;
-        for _ in 0..3 {
+        if read_only {
+            let disable = receive(&mut reader).await;
+            assert_eq!(disable["method"], "Emulation.setScriptExecutionDisabled");
+            assert_eq!(disable["params"]["value"], true);
+            send(&mut writer, json!({"id":disable["id"],"result":{}})).await;
+        }
+        for expected in ["Fetch.enable", "Browser.setDownloadBehavior", "Target.setAutoAttach"] {
             let command = receive(&mut reader).await;
+            assert_eq!(command["method"], expected);
             send(&mut writer, json!({"id":command["id"],"result":{}})).await;
         }
         task.await.unwrap();
         (client, reader, writer)
+    }
+
+    #[tokio::test]
+    async fn protocolo_de_leitura_limita_requisicoes_e_fecha_iframe_sem_protecao() {
+        let (client, mut reader, mut writer) = conectado_no_modo(true).await;
+        let navigation = super::super::nav::parse_navigation_url("https://example.invalid/").unwrap();
+        let turn = tokio::spawn({
+            let client = client.clone();
+            async move { client.navigate("s1", &navigation, &|| true).await.unwrap() }
+        });
+        let go = receive(&mut reader).await;
+        assert_eq!(go["method"], "Page.navigate");
+        send(&mut writer, json!({"id":go["id"],"result":{}})).await;
+        turn.await.unwrap();
+        for (method, url, expected) in [
+            ("GET", "https://example.invalid/asset", "Fetch.continueRequest"),
+            ("POST", "https://example.invalid/form", "Fetch.failRequest"),
+            ("GET", "https://other.example.invalid/", "Fetch.failRequest"),
+        ] {
+            send(&mut writer, json!({"sessionId":"s1","method":"Fetch.requestPaused","params":{"requestId":"r","request":{"url":url,"method":method}}})).await;
+            let answer = receive(&mut reader).await;
+            assert_eq!(answer["method"], expected);
+            send(&mut writer, json!({"id":answer["id"],"result":{}})).await;
+        }
+        send(&mut writer, json!({"method":"Target.attachedToTarget","params":{"sessionId":"s2","targetInfo":{"targetId":"iframe","type":"iframe"}}})).await;
+        let disable = receive(&mut reader).await;
+        assert_eq!(disable["method"], "Emulation.setScriptExecutionDisabled");
+        assert_eq!(disable["sessionId"], "s2");
+        send(&mut writer, json!({"id":disable["id"],"error":{"code":-1}})).await;
+        for expected in ["Target.setAutoAttach", "Fetch.enable", "Target.closeTarget"] {
+            let command = receive(&mut reader).await;
+            assert_eq!(command["method"], expected);
+            send(&mut writer, json!({"id":command["id"],"result":{"success":true}})).await;
+        }
+        let probe =
+            tokio::spawn(async move { client.command("Target.getTargets", json!({}), AUTH_TIMEOUT).await.unwrap() });
+        let command = receive(&mut reader).await;
+        assert_eq!(command["method"], "Target.getTargets", "o iframe recusado não pode ser retomado");
+        send(&mut writer, json!({"id":command["id"],"result":{}})).await;
+        probe.await.unwrap();
     }
     fn popup(url: &str, target: Option<&str>) -> Value {
         let mut info = json!({"type":"page","url":url});

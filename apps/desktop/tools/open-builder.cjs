@@ -12,6 +12,7 @@ module.exports = {
   extraResources: [
     { from: 'config/open.json', to: 'open-profile.json' },
     { from: 'build/native/mexerica-open-hub', to: 'mexerica-open-hub' },
+    { from: 'build/native/mexerica-hub-supervisor', to: 'mexerica-hub-supervisor' },
     ...['LICENSE', 'NOTICE', 'THIRD_PARTY.md', 'TRADEMARK.md', 'MODIFICACOES.md'].map((file) => ({
       from: join('../..', file), to: join('avisos', file),
     })),
@@ -36,6 +37,7 @@ module.exports = {
     accessSync(join(project, 'out-open/renderer/index.html'))
     accessSync(join(project, 'build/native/codync-speech'))
     accessSync(join(project, 'build/native/mexerica-open-hub'))
+    accessSync(join(project, 'build/native/mexerica-hub-supervisor'))
   },
   mac: {
     category: 'public.app-category.developer-tools',
@@ -44,7 +46,11 @@ module.exports = {
     identity: null,
     hardenedRuntime: false,
     notarize: false,
-    extendInfo: { CFBundleName: open.name },
+    extendInfo: {
+      CFBundleName: open.name,
+      NSMicrophoneUsageDescription: 'Talk to your bots in a voice call or dictate a message.',
+      NSSpeechRecognitionUsageDescription: 'Transcribe your speech on this Mac.',
+    },
     extraResources: [{ from: 'build/native/codync-speech', to: 'codync-speech' }],
   },
 }
