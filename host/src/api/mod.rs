@@ -355,10 +355,14 @@ async fn route(
         // Só chave/geração tocam o cofre: estado e transporte de quadros não
         // devem pedir desbloqueio do chaveiro ao exibir avatar.
         || matches!(method, "mexeriquinhaGeradorChave" | "mexeriquinhaGerar")
+        || matches!(
+            method,
+            "marketConectar" | "marketGoogleAppSalvar" | "marketAppProprioSalvar" | "marketPersonalizado" | "installConnector"
+        )
         || (matches!(method, "agentAuth" | "agentAuthenticate" | "setAgentEnv")
             && !b["backend"].as_str().is_some_and(crate::agent::backends::is_antigravity))
     {
-        market::vault::unlock(hub.clone()).await?;
+        market::vault::unlock_para(hub.clone(), caller).await?;
     }
     if let Some(attempt) = observation {
         let args = b.get("arguments").filter(|a| a.is_object()).cloned().unwrap_or_else(|| serde_json::json!({}));

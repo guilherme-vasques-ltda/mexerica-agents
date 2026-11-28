@@ -26,7 +26,6 @@ export const textos: Traducao<typeof fonte> = {
   "extensoes.plugins.voltar": "Volver a la lista de plugins",
   "extensoes.cred.sobre": "Contraseñas, claves e inicios de sesión que usan los bots. Los valores se guardan en el Hub y nunca aparecen en pantalla.",
   "extensoes.conectores.sobre": "Da a tus bots acceso a los servicios que usas. Cada cuenta queda en este Space y empieza desactivada en los bots.",
-  "extensoes.conectores.sobreOpen": "En Mexerica Open puedes consultar las fichas de los conectores. Esta edición no conecta servicios a los bots.",
   "extensoes.plugins.rodape": "Los nuevos plugins aparecen aquí.",
   "extensoes.cred.adicionarLogin": "Añadir inicio de sesión",
   "extensoes.meusMcp": "Mis MCP",

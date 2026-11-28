@@ -10,12 +10,12 @@ const mensagem = (e: unknown) => (e instanceof Error ? e.message : String(e))
 /** O que o Hub e o login precisam para o fluxo andar; os testes entregam os seus. */
 export interface Dependencias {
   cliente(): Promise<import('../../../client/host-client').HostClient>
-  /** O login do navegador (`connectorSignIn` → `connectorSignInFinish`); volta quando a conta entrou ou a pessoa desistiu. */
-  entrar(id: string): Promise<void>
+  /** O login do navegador (`connectorSignIn` → `connectorSignInFinish`); true só com o fim confirmado pelo Hub; desistir volta false. */
+  entrar(id: string): Promise<boolean>
   /** `connectorVerify`: devolve o estado que o Hub achou. */
   verificar(id: string): Promise<{ status: string }>
-  /** `credentialUpdateConnector`: guarda a chave no cofre do Hub (nunca na tela). */
-  guardarChave(id: string, campos: Record<string, string>): Promise<unknown>
+  /** `credentialUpdateConnector`: guarda a chave no cofre do Hub (nunca na tela); verified: false é chave só guardada. */
+  guardarChave(id: string, campos: Record<string, string>): Promise<{ verified?: boolean; aviso?: string | null } | null | undefined>
   /** Relê catálogo e contas depois de cada escrita. */
   reler(): Promise<void>
 }
@@ -26,7 +26,7 @@ export const valorDoCabecalho = (prefixo: string | null | undefined, valor: stri
   return prefixo && !chave.toLowerCase().startsWith(prefixo.trim().toLowerCase() + ' ') ? `${prefixo}${chave}` : chave
 }
 
-export type Passo = 'configurar' | 'entrando' | 'chave' | 'conferindo' | 'pronto'
+export type Passo = 'configurar' | 'entrando' | 'chave' | 'conferindo' | 'pronto' | 'salva'
 
 export interface ErroDoFluxo {
   codigo: CodigoDeRecusa | null
@@ -53,6 +53,8 @@ export class FluxoConectar extends Observable {
   /** A chave que o fornecedor recusou, ou o login que falhou: o passo de "Entrar" fala disso. */
   falhaDeEntrada: string | null = null
   conta: Conta | null = null
+  /** A chave ficou salva, mas o Hub não conseguiu avisar algum bot: a tela diz isso em vez de falhar. */
+  aviso: string | null = null
   ocupado = false
   appProprio: AppProprio | null = null
   erroAppProprio = false
@@ -166,7 +168,7 @@ export class FluxoConectar extends Observable {
     if (!this.conta) return
     this.passo = 'entrando'; this.falhaDeEntrada = null; this.changed()
     try {
-      await this.deps.entrar(this.conta.id)
+      if (!(await this.deps.entrar(this.conta.id))) { this.changed(); return }
     } catch (e) {
       this.falhaDeEntrada = mensagem(e); this.changed()
       return
@@ -179,13 +181,20 @@ export class FluxoConectar extends Observable {
     const auth = this.tipo.auth
     if (!conta || auth.modo !== 'chave' || valor.trim() === '') return
     this.falhaDeEntrada = null; this.ocupado = true; this.changed()
+    let guardada: Awaited<ReturnType<Dependencias['guardarChave']>>
     try {
-      await this.deps.guardarChave(conta.id, { [auth.nome]: valorDoCabecalho(auth.prefixo, valor) })
+      guardada = await this.deps.guardarChave(conta.id, { [auth.nome]: valorDoCabecalho(auth.prefixo, valor) })
     } catch (e) {
       this.falhaDeEntrada = mensagem(e); this.ocupado = false; this.changed()
       return
     }
     this.ocupado = false
+    this.aviso = guardada?.aviso ?? null
+    if (guardada?.verified === false) {
+      await this.deps.reler().catch(() => undefined)
+      this.passo = 'salva'; this.changed()
+      return
+    }
     await this.conferir()
   }
 
@@ -209,7 +218,7 @@ export class FluxoConectar extends Observable {
   /** Desistir antes do fim: a conta criada pela metade sai (só o registro dela), sem deixar conta fantasma. */
   async cancelar(): Promise<void> {
     const conta = this.conta
-    if (!conta || this.passo === 'pronto') return
+    if (!conta || this.passo === 'pronto' || this.passo === 'salva') return
     this.conta = null
     // Hub ocupado ou link caído: uma segunda tentativa; se ainda assim falhar, a conta aparece em Minhas contas.
     for (let tentativa = 0; tentativa < 2; tentativa++) {

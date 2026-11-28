@@ -52,12 +52,32 @@ pub(super) async fn call(
                 }
                 Ok(())
             })?;
-            let ready = market::verify::verify(&hub.store, id, hub.bridge_destination()).await?;
-            for row in hub.store.bots()? {
-                if !row.deleted && !row.config.is_group() && row.config.connectors.iter().any(|c| c == id) {
-                    hub.send_cmd(&row.config.id, Cmd::RefreshTools)?;
+            // A chave já está gravada: falha ao avisar um bot é aviso, nunca erro de gravação.
+            let mut aviso = None;
+            let bots = hub.store.bots().unwrap_or_else(|error| {
+                tracing::warn!(%error, "chave salva; lista de bots indisponível para atualizar as ferramentas");
+                aviso = Some("bot_nao_atualizado");
+                Vec::new()
+            });
+            for row in bots {
+                if !row.deleted
+                    && !row.config.is_group()
+                    && row.config.connectors.iter().any(|c| c == id)
+                    && let Err(error) = hub.send_cmd(&row.config.id, Cmd::RefreshTools)
+                {
+                    tracing::warn!(%error, bot = %row.config.id, "chave salva; atualização das ferramentas do bot pendente");
+                    aviso = Some("bot_nao_atualizado");
                 }
             }
+            if crate::environment::Environment::is_open() {
+                return Ok(ControlFlow::Break(
+                    json!({"saved": true, "verified": false, "status": "saved", "aviso": aviso}),
+                ));
+            }
+            let mut ready = market::verify::verify(&hub.store, id, hub.bridge_destination()).await?;
+            ready["saved"] = json!(true);
+            ready["verified"] = json!(true);
+            ready["aviso"] = json!(aviso);
             ready
         }
         "credentialStatus" => market::passwords::status(&hub.store)?,
