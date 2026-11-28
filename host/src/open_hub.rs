@@ -81,7 +81,12 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
         | "pinMemory"
         | "archiveMemory"
         | "forgetMemory"
-        | "clearMemory" => matches!(caller, Caller::Local),
+        | "clearMemory"
+        | "nuncaFazer"
+        | "nuncaFazerAdicionar"
+        | "nuncaFazerEditar"
+        | "nuncaFazerRemover"
+        | "nuncaFazerReordenar" => matches!(caller, Caller::Local),
         crate::fork::native_catalog::ADD_METHOD => {
             // Fora do Pessoal, só com a conta de IA escolhida; o Hub a confere como na criação manual.
             matches!(caller, Caller::Local)
@@ -223,6 +228,17 @@ mod tests {
         "setRoutinesPaused",
         "runRoutine",
     ];
+
+    #[test]
+    fn open_so_deixa_o_dono_local_ler_e_gravar_nunca_fazer() {
+        let device = Caller::Device { key: "aparelho".into(), scopes: vec![Scope::Control], autoridade: None };
+        for method in
+            ["nuncaFazer", "nuncaFazerAdicionar", "nuncaFazerEditar", "nuncaFazerRemover", "nuncaFazerReordenar"]
+        {
+            assert!(open_allows(&Caller::Local, method, &json!({})), "{method} é do dono local");
+            assert!(!open_allows(&device, method, &json!({})), "{method} não é de aparelho");
+        }
+    }
 
     #[test]
     fn open_so_deixa_o_dono_local_ler_e_escrever_manuais_do_bot() {
