@@ -24,6 +24,7 @@ pub(crate) fn prepare(cfg: &BotConfig, attachments: &Value, text: &str) -> (Stri
         let name = meta["name"].as_str().unwrap_or("arquivo");
         let Some(path) = crate::chat::uploads::path_of(&root, meta) else { continue };
         if !std::fs::symlink_metadata(&path).is_ok_and(|m| m.is_file()) {
+            tracing::warn!("open attachment unavailable; skipped");
             continue;
         }
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or_default().to_ascii_lowercase();

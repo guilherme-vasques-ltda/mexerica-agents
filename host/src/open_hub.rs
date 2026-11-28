@@ -126,7 +126,7 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
         "upload" => matches!(caller, Caller::Local),
         "send" => {
             body.get("sessionId").is_none_or(Value::is_null)
-                && (matches!(caller, Caller::Local) || body.get("attachments").is_none_or(Value::is_null))
+                && (matches!(caller, Caller::Local) || body.get("attachments").is_none_or(|a| a.is_null() || a.as_array().is_some_and(Vec::is_empty)))
         }
         _ if crate::fork::engine_setup::open_login_method(method) => true,
         _ => false,
@@ -218,6 +218,7 @@ mod tests {
         let device = Caller::Device { key: "aparelho".into(), scopes: vec![Scope::Control], autoridade: None };
         assert!(open_allows(&device, "send", &json!({"text": "oi"})));
         assert!(!open_allows(&device, "send", &json!({"attachments": ["arquivo"]})));
+        assert!(open_allows(&device, "send", &json!({"attachments": []})));
         assert!(!open_allows(&device, "upload", &json!({})));
     }
 
