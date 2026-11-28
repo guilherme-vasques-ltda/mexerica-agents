@@ -170,6 +170,8 @@ async fn uso_respeita_conversa_turno_e_cotas_esparsas() {
 fn custo_local_separa_turnos_contas_e_lacunas() {
     use super::uso::{Contagem, Cursor};
     use crate::store::Lane;
+    type LinhaUso = (String, Option<i64>, Option<i64>, Option<f64>);
+
     let bot = "open-fixture-custo";
     let (hub, root) = hub_de_teste(bot);
     let mut cfg = hub.store.bot(bot).unwrap().unwrap().config;
@@ -204,7 +206,6 @@ fn custo_local_separa_turnos_contas_e_lacunas() {
             "SELECT account_id,input_tokens,output_tokens,amount FROM donna_turn_usage WHERE bot_id=?1 ORDER BY turn",
         )
         .unwrap();
-    type LinhaUso = (String, Option<i64>, Option<i64>, Option<f64>);
     let linhas: Vec<LinhaUso> = q
         .query_map([bot], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
         .unwrap()

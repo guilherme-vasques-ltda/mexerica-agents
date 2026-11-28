@@ -225,7 +225,7 @@ test('estimativas aparecem separadas do motor em todas as abas e sem inventar pr
 })
 
 const janelaH = (o: Record<string, unknown> = {}) => ({ provider: 'codex', accountId: 'acc-1', windowId: 'primary', resetsAt: Date.UTC(2026, 10, 28, 12), buckets: [{ start: 0, percent: 40 }, { start: 10800000, percent: 55.4 }], forecast: { exhausted: false, exhaustsAt: null }, ...o })
-const hist = (windows: unknown[], o: Record<string, unknown> = {}) => ({ range: '7d', bucketMs: 3600000, measuredAt: 5, truncated: false, windows, ...o })
+const hist = (windows: unknown[], o: Record<string, unknown> = {}) => ({ range: '7d', bucketMs: 3600000, measuredAt: 64800000, truncated: false, windows, ...o })
 const historico = (estado: unknown, o: Record<string, unknown> = {}) => ({ estado, lendo: false, online: true, faixa: '7d', onFaixa() {}, onAtualizar() {}, ...o }) as never
 
 test('histórico de cotas: só na aba Conta, por conta, sem misturar com tokens nem dinheiro', () => {
@@ -237,10 +237,19 @@ test('histórico de cotas: só na aba Conta, por conta, sem misturar com tokens 
   assert.match(html, /Conta não identificada/)
   assert.match(html, /codex[^<]*Janela principal/)
   assert.match(html, /codex[^<]*Janela secundária/)
-  assert.match(html, /inset-inline-start:75%;inline-size:20%;height:55\.4%/)
   assert.equal(barras(html), 1, 'o histórico não cria barra de progresso dos limites')
   for (const aba of ['modelo', 'bot'] as const) assert.doesNotMatch(render({ aba, historico: historico(pronto) }), /Histórico das cotas/)
   assert.doesNotMatch(render(), /Histórico das cotas/)
+})
+
+test('histórico de cotas: o gráfico conserva as bordas vazias e expõe cada leitura sem ponteiro', () => {
+  const pronto = { kind: 'pronto', historico: hist([janelaH()], { range: '24h' }) }
+  const html = render({ historico: historico(pronto, { faixa: '24h' }) })
+  assert.match(html, /inset-inline-start:min\(25%, calc\(100% - 1px\)\);inline-size:3\.333[^;]*%;height:40%/)
+  assert.match(html, /inset-inline-start:min\(37\.5%, calc\(100% - 1px\)\);inline-size:3\.333[^;]*%;height:55\.4%/)
+  assert.match(html, /class="custo-historico-barras" aria-hidden="true"/)
+  assert.match(html, /role="list" aria-label="[^"]*Janela principal"/)
+  assert.match(html, /role="listitem">[^<]* · 40%<\/span><span role="listitem">[^<]* · 55%<\/span>/)
 })
 
 test('histórico de cotas: vazio, sem leitura, previsão e truncado nunca viram zero', () => {

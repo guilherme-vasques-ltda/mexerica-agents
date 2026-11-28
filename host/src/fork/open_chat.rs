@@ -509,7 +509,7 @@ async fn turn_in_profile(
     _: &Hub,
     _: &std::path::Path,
     _: &str,
-    _: &Lane,
+    _: (&Lane, &BotConfig),
     _: (&str, Option<&str>),
     _: (&str, Duration),
     _: (&str, Option<&Autoridade>),

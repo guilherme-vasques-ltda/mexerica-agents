@@ -13,6 +13,8 @@ import type { EstadoCadastro } from './useCadastroContas'
 import type { EstadoHistorico } from './useHistorico'
 
 const P = 'conversa.custo.historico'
+const DIAS_POR_FAIXA: Record<FaixaHistorico, number> = { '24h': 1, '7d': 7, '30d': 30 }
+const MS_POR_DIA = 86_400_000
 
 export interface HistoricoProps {
   estado: EstadoHistorico
@@ -43,6 +45,8 @@ export function HistoricoCota({ historico, cadastro }: { historico: HistoricoPro
 function Janelas({ historico, cadastro }: { historico: Extract<EstadoHistorico, { kind: 'pronto' }>['historico']; cadastro: EstadoCadastro }) {
   const t = useT()
   const contas = cadastro.kind === 'pronto' ? cadastro.contas : null
+  const fim = historico.measuredAt
+  const inicio = fim - DIAS_POR_FAIXA[historico.range] * MS_POR_DIA
   if (historico.windows.length === 0) {
     return <VStack gap={4}><Text tone="secondary">{t(`${P}.vazio`)}</Text><Text tone="secondary" size="callout">{t(`${P}.vazioDica`)}</Text></VStack>
   }
@@ -54,7 +58,7 @@ function Janelas({ historico, cadastro }: { historico: Extract<EstadoHistorico, 
         return (
           <VStack key={grupo.accountId ?? 'sem-conta'} gap={4} align="stretch">
             <Text tone="secondary" size="callout">{nome}</Text>
-            {grupo.janelas.map((j) => <Janela key={`${j.provider}/${j.windowId}`} janela={j} bucketMs={historico.bucketMs} />)}
+            {grupo.janelas.map((j) => <Janela key={`${j.provider}/${j.windowId}`} janela={j} bucketMs={historico.bucketMs} inicio={inicio} fim={fim} />)}
           </VStack>
         )
       })}
@@ -63,14 +67,14 @@ function Janelas({ historico, cadastro }: { historico: Extract<EstadoHistorico, 
   )
 }
 
-function Janela({ janela, bucketMs }: { janela: JanelaHistorico; bucketMs: number }) {
+function Janela({ janela, bucketMs, inicio, fim }: { janela: JanelaHistorico; bucketMs: number; inicio: number; fim: number }) {
   const idioma = useIdioma()
   const t = useT()
   const quando = (ms: number) => formatarData(idioma, ms, { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
-  const primeiro = janela.buckets[0]
   const ultimo = janela.buckets.at(-1)
-  const faixa = primeiro && ultimo ? ultimo.start - primeiro.start + bucketMs : bucketMs
+  const faixa = fim - inicio
   const pct = (n: number) => `${formatarNumero(idioma, n, { maximumFractionDigits: 0 })}%`
+  const leituras = janela.buckets.map((b) => ({ ...b, texto: `${quando(b.start)} · ${pct(b.percent)}` }))
   const previsao = janela.forecast === null ? t(`${P}.previsao.indisponivel`)
     : janela.forecast.exhausted ? (janela.forecast.exhaustsAt === null ? t(`${P}.previsao.esgotadaSemHora`) : t(`${P}.previsao.esgotada`, { quando: quando(janela.forecast.exhaustsAt) }))
     : janela.forecast.exhaustsAt === null ? t(`${P}.previsao.nenhuma`)
@@ -82,15 +86,23 @@ function Janela({ janela, bucketMs }: { janela: JanelaHistorico; bucketMs: numbe
     : janela.windowId === 'week' ? t('sistema.barra.uso.semanal') : ltr(janela.windowId)
   return (
     <ValueRow label={`${ltr(janela.provider)} · ${rotulo}`} detail={detalhe}>
-      {primeiro && ultimo ? (
+      {ultimo ? (
         <VStack as="span" gap={4} align="flex-end">
           <Text tabular>{t(`${P}.ultimo`, { pct: pct(ultimo.percent) })}</Text>
-          <span className="custo-historico-barras" role="img" aria-label={t(`${P}.barras`)}>
-            {janela.buckets.map((b) => <span key={b.start} className="custo-historico-barra" style={{
-              insetInlineStart: `${100 * (b.start - primeiro.start) / faixa}%`,
-              inlineSize: `${80 * bucketMs / faixa}%`,
-              height: `${Math.min(100, b.percent)}%`,
-            }} title={`${quando(b.start)} · ${pct(b.percent)}`} />)}
+          <span className="custo-historico-barras" aria-hidden="true">
+            {leituras.map((b) => {
+              const esquerda = Math.max(inicio, b.start)
+              const direita = Math.min(fim, b.start + bucketMs)
+              if (direita < esquerda) return null
+              return <span key={b.start} className="custo-historico-barra" style={{
+                insetInlineStart: `min(${100 * (esquerda - inicio) / faixa}%, calc(100% - 1px))`,
+                inlineSize: `${80 * (direita - esquerda) / faixa}%`,
+                height: `${Math.min(100, b.percent)}%`,
+              }} title={b.texto} />
+            })}
+          </span>
+          <span className="custo-historico-leituras" role="list" aria-label={`${t(`${P}.barras`)} · ${rotulo}`}>
+            {leituras.map((b) => <span key={b.start} role="listitem">{b.texto}</span>)}
           </span>
         </VStack>
       ) : <Text tone="secondary">{t(`${P}.semLeituras`)}</Text>}

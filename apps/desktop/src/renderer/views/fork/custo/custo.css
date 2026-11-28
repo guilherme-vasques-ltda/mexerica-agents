@@ -33,6 +33,15 @@
   position: absolute;
   inset-block-end: 0;
   min-block-size: 1px;
+  min-inline-size: 1px;
   background: var(--accent, currentColor);
   opacity: 0.7;
+}
+.custo-historico-leituras {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
