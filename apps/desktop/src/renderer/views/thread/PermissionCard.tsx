@@ -127,7 +127,7 @@ export function PermissionCard({ entry, hostName, answering, respond }: { entry:
         {notaAcesso ? <p className="approval-note">{notaAcesso}</p> : null}
         {acesso?.kind === 'folder' && acesso.path ? <CodeBox text={acesso.path} /> : null}
         {acesso?.state === 'undone' ? <p className="approval-note" role="status">{t('conversa.aprovacao.acesso.desfeito')}</p> : null}
-        {acesso?.state === 'granted' ? (
+        {acesso?.state === 'granted' && store.isLoopback ? (
           <div className="approval-actions">
             <button className="approval-deny" disabled={answering !== null || semConexao} onClick={() => { void store.undoAccessGrant(entry) }}>
               <HStack as="span" gap={6}>{t('conversa.aprovacao.acesso.desfazer')}{answering === 'undo' ? <Spinner size={12} /> : null}</HStack>
