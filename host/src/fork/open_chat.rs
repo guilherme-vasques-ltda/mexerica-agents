@@ -453,7 +453,7 @@ async fn turn_in_profile(
     })?;
     let mut rpc = Rpc::from_child(child)?;
     let stopped = cancel.clone();
-    let cursor_key = format!("{}.usage", thread_key(lane, account));
+    let cursor_key = format!("{key}.usage");
     let mut cursor = None;
     // O ponto em que o texto passa a ser entregue ao Codex: um `stop` aterrissado durante o lançamento e uma
     // exclusão que tenha passado são conferidos aqui, antes de o `turn/start` seguir.
