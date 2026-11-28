@@ -5,8 +5,10 @@ use crate::store::{BotConfig, EntryKind, Lane, bot_groups::Edit};
 #[tokio::test]
 async fn navegador_confirma_envio_gravado_quando_ator_nao_esta_disponivel() {
     let hub = temp_hub();
-    let bot: BotConfig = serde_json::from_value(json!({"id":"chat","name":"Chat"})).unwrap();
-    hub.store.save_bot(&bot).unwrap();
+    for id in ["chat", "outro-chat"] {
+        let bot: BotConfig = serde_json::from_value(json!({"id":id,"name":id})).unwrap();
+        hub.store.save_bot(&bot).unwrap();
+    }
     let actor = hub.test_bot_commands("chat");
     drop(actor);
 
@@ -19,6 +21,8 @@ async fn navegador_confirma_envio_gravado_quando_ator_nao_esta_disponivel() {
     let first = com_posse(&mut p, &hub, 2, "send", send.clone()).await;
     let id = first["ok"]["entry"]["id"].as_str().expect("mensagem gravada tem recibo");
     assert_eq!(first["ok"]["entry"]["data"]["status"], "sent");
+    assert_eq!(first["ok"]["entry"]["data"]["webTurnFailed"], true);
+    assert!(first["ok"]["entry"]["data"].get("error").is_none());
     assert_eq!(hub.store.entry(id).unwrap().data["status"], "failed");
     let replay = com_posse(&mut p, &hub, 3, "send", send).await;
     assert_eq!(replay["ok"]["entry"]["id"], id);
@@ -39,6 +43,7 @@ async fn navegador_confirma_envio_gravado_quando_ator_nao_esta_disponivel() {
         assert_eq!(entries.len(), expected);
         if let Some(entry) = entries.first() {
             assert_eq!(entry["id"], id);
+            assert_eq!(entry["data"]["webTurnFailed"], true);
         }
     }
 
@@ -48,6 +53,120 @@ async fn navegador_confirma_envio_gravado_quando_ator_nao_esta_disponivel() {
     let pop = pop(&p.key, &hub.host_id, &p.th, "sub:events");
     let stream = pedir(&mut p, 7, json!({"sub":"events","b":b,"pop":pop})).await;
     assert_eq!(stream["err"], json!({"status":500,"message":"request_failed","code":"request_failed"}));
+
+    let mut actor = hub.test_bot_commands("chat");
+    let mut other = hub.test_bot_commands("outro-chat");
+    let revision = first["ok"]["entry"]["rev"].as_i64().unwrap();
+    for (request, chat, session, rev) in [
+        (8, "chat", "chat", revision - 1),
+        (9, "outro-chat", "outro-chat", revision),
+        (10, "chat", "outra-sessao", revision),
+    ] {
+        let refused = com_posse(
+            &mut p,
+            &hub,
+            request,
+            "send",
+            json!({"botId":chat,"sessionId":session,"retryEntryId":id,"retryEntryRevision":rev}),
+        )
+        .await;
+        assert!(refused.get("err").is_some());
+    }
+    assert!(actor.try_recv().is_err());
+    assert!(other.try_recv().is_err());
+    let retry = json!({"botId":"chat","sessionId":"chat","retryEntryId":id,"retryEntryRevision":revision});
+    let recovered = com_posse(&mut p, &hub, 11, "send", retry.clone()).await;
+    assert_eq!(recovered["ok"]["entry"]["id"], id);
+    assert!(recovered["ok"]["entry"]["data"].get("webTurnFailed").is_none());
+    let crate::agent::bot::Cmd::Send { lane, entry_id, text } = actor.try_recv().unwrap() else {
+        panic!("a tentativa deve enviar a mensagem gravada");
+    };
+    assert_eq!(lane, Lane::main("chat"));
+    assert_eq!(entry_id, id);
+    assert_eq!(text, "mensagem fictícia");
+    let repeated = com_posse(&mut p, &hub, 12, "send", retry).await;
+    assert!(repeated.get("err").is_some());
+    assert!(actor.try_recv().is_err());
+    let rows = hub.store.history("chat", i64::MAX, 10).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].id, id);
+    assert_eq!(rows[0].data["status"], "queued");
+}
+
+#[tokio::test]
+async fn navegador_tenta_turno_adicional_so_na_conversa_e_revisao_originais() {
+    use crate::api::{devices::Caller, dispatch};
+    let hub = temp_hub();
+    let bot: BotConfig = serde_json::from_value(json!({"id":"chat","name":"Chat","backend":"codex"})).unwrap();
+    hub.store.save_bot(&bot).unwrap();
+    let account = format!("ac_{}", "1".repeat(64));
+    hub.store
+        .kv_set(
+            "fork.engine-accounts.v1",
+            &json!({"salt":uuid::Uuid::new_v4().to_string(),"accounts":[{
+                "id":account,"backend":"codex","billing":"paid_api","state":"connected","scope":"owner",
+                "launch":{"kind":"cli_profile","executable":"/fixture/cli","directory":"/fixture/config"},
+                "quotaIdentity":null,"verifiedAt":null,"subscriptionProof":null,
+                "models":[{"id":"fixture-model","options":[]}]
+            }]})
+            .to_string(),
+        )
+        .unwrap();
+    let created = dispatch(
+        &hub,
+        &Caller::Local,
+        "donnaConversationCreate",
+        json!({"hubId":hub.host_id,"spaceId":PERSONAL,"botId":"chat"}),
+    )
+    .await
+    .unwrap();
+    let chat = created["conversation"]["id"].as_str().unwrap();
+    let configured = dispatch(
+        &hub,
+        &Caller::Local,
+        "donnaConversationUpdate",
+        json!({
+            "hubId":hub.host_id,"spaceId":PERSONAL,"conversationId":chat,
+            "expectedRevision":created["conversation"]["revision"],"expectedAccountRevision":1,
+            "engineAccountId":account,"engineSelection":{"backend":"codex","model":"fixture-model","modelOptions":{}}
+        }),
+    )
+    .await
+    .unwrap();
+    let revision = configured["conversation"]["revision"].as_i64().unwrap();
+    drop(hub.test_bot_commands("chat"));
+
+    vincular(&hub, &vinculo_pessoal());
+    let key = parear_em(&hub, &afirmacoes(DONO), "web").await.unwrap();
+    let mut p = conectado_via(&hub, key, Via::Direto).await;
+    assert_eq!(autenticar(&mut p, &hub, 1, &token(&afirmacoes(DONO))).await["ok"]["userId"], DONO);
+    let saved = com_posse(
+        &mut p,
+        &hub,
+        2,
+        "donnaConversationSend",
+        json!({"hubId":hub.host_id,"spaceId":PERSONAL,"conversationId":chat,
+            "expectedRevision":revision,"text":"Mensagem adicional fictícia","clientNonce":"nonce-adicional"}),
+    )
+    .await;
+    let entry = &saved["ok"]["entry"];
+    let id = entry["id"].as_str().expect("mensagem adicional tem recibo");
+    assert_eq!(entry["data"]["webTurnFailed"], true);
+    let mut actor = hub.test_bot_commands("chat");
+    let retry = |expected| {
+        json!({"hubId":hub.host_id,"spaceId":PERSONAL,"conversationId":chat,
+        "expectedRevision":expected,"retryEntryId":id,"retryEntryRevision":entry["rev"]})
+    };
+    let refused = com_posse(&mut p, &hub, 3, "donnaConversationSend", retry(revision - 1)).await;
+    assert!(refused.get("err").is_some());
+    assert!(actor.try_recv().is_err());
+    let recovered = com_posse(&mut p, &hub, 4, "donnaConversationSend", retry(revision)).await;
+    assert_eq!(recovered["ok"]["entry"]["id"], id);
+    assert_eq!(recovered["ok"]["entry"]["conversationId"], chat);
+    assert!(recovered["ok"]["entry"]["data"].get("webTurnFailed").is_none());
+    assert!(matches!(actor.try_recv().unwrap(),
+        crate::agent::bot::Cmd::Send { lane, entry_id, .. } if lane == Lane::main(chat) && entry_id == id));
+    assert_eq!(hub.store.history(chat, i64::MAX, 10).unwrap().len(), 1);
 }
 
 #[tokio::test]

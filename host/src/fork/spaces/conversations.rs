@@ -383,6 +383,13 @@ fn mark_read(hub: &Hub, mut c: Conversation) -> Result<Value> {
     Ok(json!({"conversation":c}))
 }
 fn send(hub: &Arc<Hub>, caller: &Caller, c: &Conversation, b: &Value) -> Result<Value> {
+    if caller.is_web_chat() && b.get("retryEntryId").is_some() {
+        require_revision(c, b)?;
+        ensure!(c.id != c.bot_id && !c.closed, "conversation_unavailable");
+        let cfg = super::execution_config(&hub.store, &source(hub, c)?, &c.id)?;
+        let entry = crate::api::fork_web_chat::retry_turn(hub, caller, &cfg, &c.id, b)?;
+        return Ok(json!({"context":context(c),"entry":entry_value(c,&entry)?,"replayed":true}));
+    }
     let text = arg(b, "text")?.trim();
     let nonce = arg(b, "clientNonce")?;
     let revision = expected(b)?;
@@ -415,23 +422,40 @@ fn send(hub: &Arc<Hub>, caller: &Caller, c: &Conversation, b: &Value) -> Result<
     data["contentOrigin"] = crate::guard_hub::origem::capture(caller, b, &data);
     crate::fork::idioma_app::carimbar(&hub.store, caller, &mut data); // D395
     // MB-1b: responde as perguntas pendentes da conversa na mesma transação da mensagem.
-    let entry = match crate::fork::owner_question::add_human_message_no_turno(hub, &Lane::main(&c.id), &data)? {
+    let lane = Lane::main(&c.id);
+    let authority = if caller.is_web_chat() {
+        data["remoteAdmissionRequired"] = true.into();
+        Some(crate::fork::autoridade::Autoridade::de_requisicao(caller).ok_or(crate::api::devices::Forbidden)?)
+    } else {
+        None
+    };
+    let committed = match authority {
+        Some(authority) => crate::fork::owner_question::add_channel_message(hub, authority, &lane, b, &data)?,
+        None => crate::fork::owner_question::add_human_message_no_turno(hub, &lane, &data)?,
+    };
+    let mut entry = match committed {
         crate::fork::owner_question::Human::New(entry) => entry,
         crate::fork::owner_question::Human::Replayed(entry) => {
             return Ok(json!({"context":entry.data["spaceContext"],"entry":entry_value(c,&entry)?,"replayed":true}));
         }
     };
     let prompt = crate::chat::prompt::of_entry(hub, &cfg, &entry.data);
-    let delivery = hub.send_cmd(
-        &c.bot_id,
-        crate::agent::bot::Cmd::Send { lane: Lane::main(&c.id), entry_id: entry.id.clone(), text: prompt },
-    );
+    let cmd = crate::agent::bot::Cmd::Send { lane, entry_id: entry.id.clone(), text: prompt };
+    let delivery = match authority {
+        Some(authority) => hub.login_command_sender(&c.bot_id).and_then(|sender| {
+            authority.com_saida(hub, None, || sender.send(cmd).map_err(|_| anyhow!("bot stopped")))?
+        }),
+        None => hub.send_cmd(&c.bot_id, cmd),
+    };
     let queued = delivery.is_ok();
     if let Err(error) = delivery {
         if !caller.is_web_chat() {
             return Err(error);
         }
         tracing::warn!(%error, "couldn't start a turn for a saved Web message");
+        if let Some(failed) = hub.fail_web_turn(&entry) {
+            entry = failed;
+        }
     }
     let mut answer = json!({"context":context(c),"entry":entry_value(c,&entry)?,"replayed":false});
     if queued {

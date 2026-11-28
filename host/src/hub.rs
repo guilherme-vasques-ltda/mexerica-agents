@@ -399,6 +399,14 @@ impl Hub {
 
     pub(crate) fn fail_remote_turn(&self, id: &str, expected: &str) {
         self.remote_send_authorities.locked().remove(id);
+        self.fail_remote_turn_as(id, expected, None);
+    }
+
+    pub(crate) fn fail_web_turn(&self, entry: &Entry) -> Option<Entry> {
+        self.fail_remote_turn_as(&entry.id, "queued", Some(entry.rev))
+    }
+
+    fn fail_remote_turn_as(&self, id: &str, expected: &str, web_revision: Option<i64>) -> Option<Entry> {
         let _emit = self.emit_lock.locked();
         let saved = (|| -> Result<_> {
             let db = self.store.db.locked();
@@ -406,15 +414,30 @@ impl Hub {
                 return Ok(None);
             };
             entry.data["status"] = json!("failed");
-            entry.data["error"] = json!("O Hub registrou a mensagem, mas a autorização do turno remoto terminou.");
+            if let Some(revision) = web_revision {
+                if entry.rev != revision {
+                    return Ok(None);
+                }
+                entry.data["webTurnFailed"] = true.into();
+                self.remote_send_authorities.locked().remove(id);
+            }
+            entry.data["error"] = if web_revision.is_some() {
+                json!("O Hub registrou a mensagem, mas não conseguiu iniciar o turno.")
+            } else {
+                json!("O Hub registrou a mensagem, mas a autorização do turno remoto terminou.")
+            };
             Store::update_entry_on(&db, id, &entry.data, None)
         })();
         match saved {
             Ok(Some(entry)) => {
                 let _ = self.events.send(json!({"type":"entry","rev":entry.rev,"entry":entry}));
+                Some(entry)
             }
-            Ok(None) => {}
-            Err(error) => tracing::warn!(%error, "couldn't record remote turn refusal"),
+            Ok(None) => None,
+            Err(error) => {
+                tracing::warn!(%error, "couldn't record remote turn refusal");
+                None
+            }
         }
     }
 
