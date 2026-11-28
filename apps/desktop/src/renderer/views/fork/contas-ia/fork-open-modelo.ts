@@ -65,3 +65,13 @@ export async function aplicarModeloOpen(client: ChamadaHub, escolha: EscolhaOpen
   avisarContaOpen()
   return resposta.applied
 }
+
+/** Índice que a tecla do painel de escolha leva: setas andam em círculo, Home e End vão às pontas. */
+export function alvoDaTecla(tecla: string, total: number, agora: number): number | null {
+  if (total === 0) return null
+  if (tecla === 'ArrowDown') return (agora + 1) % total
+  if (tecla === 'ArrowUp') return (agora - 1 + total) % total
+  if (tecla === 'Home') return 0
+  if (tecla === 'End') return total - 1
+  return null
+}

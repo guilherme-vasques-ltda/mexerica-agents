@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { aoMudarContaOpen, aplicarModeloOpen, contasEscolhiveis, modelosDaConta, opcoesDoModelo, padraoDaConta, valorDaOpcao } from './fork-open-modelo.ts'
+import { alvoDaTecla, aoMudarContaOpen, aplicarModeloOpen, contasEscolhiveis, modelosDaConta, opcoesDoModelo, padraoDaConta, valorDaOpcao } from './fork-open-modelo.ts'
 
 const conta = (over: Record<string, unknown> = {}) => ({
   backend: 'codex' as const,
@@ -69,4 +69,14 @@ test('falha do Hub não avisa mudança', async () => {
   await assert.rejects(aplicarModeloOpen(client, { accountId: 'a1', model: 'x' }), /model_unavailable/)
   parar()
   assert.equal(avisos, 0)
+})
+
+test('teclas do painel andam em círculo e vão às pontas', () => {
+  assert.equal(alvoDaTecla('ArrowDown', 4, 3), 0)
+  assert.equal(alvoDaTecla('ArrowUp', 4, 0), 3)
+  assert.equal(alvoDaTecla('ArrowDown', 4, -1), 0)
+  assert.equal(alvoDaTecla('Home', 4, 2), 0)
+  assert.equal(alvoDaTecla('End', 4, 1), 3)
+  assert.equal(alvoDaTecla('a', 4, 1), null)
+  assert.equal(alvoDaTecla('End', 0, 0), null)
 })

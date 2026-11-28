@@ -85,9 +85,23 @@ pub(crate) fn account_profile(hub: &Hub, cfg: &BotConfig) -> Result<(String, Pat
     Ok((account.id.clone(), directory.clone(), model))
 }
 
-/// Escolhas de raciocínio e velocidade enviadas ao motor: valor `Some` é o que se manda; `None` manda `null` no
-/// `turn/start`, que desfaz a velocidade que um turno anterior da mesma conversa deixou valendo.
-type Options = BTreeMap<String, Option<String>>;
+/// Raciocínio e velocidade do turno: `Chosen` é a escolha do bot e vai sempre; `Default` é o padrão do catálogo e só
+/// vai numa conversa retomada, para desfazer o override que um turno anterior deixou valendo (`None` vira `null`).
+enum Pick {
+    Chosen(String),
+    Default(Option<String>),
+}
+
+impl Pick {
+    fn to_send(&self, was_resumed: bool) -> Option<Value> {
+        match self {
+            Pick::Chosen(value) => Some(value.as_str().into()),
+            Pick::Default(value) => was_resumed.then(|| value.as_deref().into()),
+        }
+    }
+}
+
+type Options = BTreeMap<String, Pick>;
 
 /// As escolhas do bot que o `model/list` da conta comprovou para o modelo dele; o que não consta no catálogo é
 /// descartado. Sem escolha, o turno volta ao padrão que o catálogo informa, porque o override de um turno vale para os
@@ -103,13 +117,13 @@ fn proven_options(hub: &Hub, cfg: &BotConfig, account: &str, model: Option<&str>
     known
         .options
         .iter()
-        .filter_map(|option| {
+        .map(|option| {
             let chosen = cfg.model_options.get(&option.id).filter(|value| option.values.contains(value));
-            match (option.id.as_str(), chosen) {
-                (_, Some(value)) => Some((option.id.clone(), Some(value.clone()))),
-                ("service_tier", None) => Some((option.id.clone(), option.default.clone())),
-                (_, None) => option.default.clone().map(|value| (option.id.clone(), Some(value))),
-            }
+            let pick = match chosen {
+                Some(value) => Pick::Chosen(value.clone()),
+                None => Pick::Default(option.default.clone()),
+            };
+            (option.id.clone(), pick)
         })
         .collect()
 }
@@ -687,9 +701,10 @@ async fn drive(
         if let Some(model) = model {
             session["model"] = model.into();
         }
-        if let Some(Some(tier)) = options.get("service_tier") {
+        if let Some(Pick::Chosen(tier)) = options.get("service_tier") {
             session["serviceTier"] = tier.as_str().into();
         }
+        let was_resumed = thread.is_some_and(valid_id);
         let resumed = match thread.filter(|id| valid_id(id)) {
             Some(id) => {
                 let mut params = session.clone();
@@ -719,11 +734,13 @@ async fn drive(
         let model = started["model"].as_str().filter(|id| !id.is_empty() && id.len() <= 128).map(str::to_owned);
         before_text(&thread)?;
         let mut params = json!({"threadId": thread, "input": [{"type": "text", "text": text, "text_elements": []}]});
-        if let Some(Some(effort)) = options.get("reasoning_effort") {
-            params["effort"] = effort.as_str().into();
+        if let Some(effort) =
+            options.get("reasoning_effort").and_then(|pick| pick.to_send(was_resumed)).filter(|v| !v.is_null())
+        {
+            params["effort"] = effort;
         }
-        if let Some(tier) = options.get("service_tier") {
-            params["serviceTier"] = tier.as_deref().into();
+        if let Some(tier) = options.get("service_tier").and_then(|pick| pick.to_send(was_resumed)) {
+            params["serviceTier"] = tier;
         }
         let turn = match authority {
             Some((hub, proof)) => {

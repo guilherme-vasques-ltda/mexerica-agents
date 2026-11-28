@@ -8,7 +8,7 @@ import { useStoreRef } from '../../../store/context'
 import { engineSetup } from '../../../store/fork-engine-setup'
 import type { ManagedAccount } from '../../../../shared/fork-engine-accounts'
 import { clientePessoal } from '../contas-ia/fork-open-cliente'
-import { aoMudarContaOpen, aplicarModeloOpen, contasEscolhiveis, modelosDaConta, opcoesDoModelo, padraoDaConta, valorDaOpcao } from '../contas-ia/fork-open-modelo'
+import { alvoDaTecla, aoMudarContaOpen, aplicarModeloOpen, contasEscolhiveis, modelosDaConta, opcoesDoModelo, padraoDaConta, valorDaOpcao } from '../contas-ia/fork-open-modelo'
 import { ancoraNoCampo, posicaoLista } from './posicao'
 import { noBody, usePresaAoChip } from './presa'
 
@@ -69,14 +69,10 @@ export function ChipModeloOpen({ bot }: { bot: Bot }) {
   }, [aberto]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const navegar = (e: TeclaReact<HTMLDivElement>) => {
-    const passo = ({ ArrowDown: 1, ArrowUp: -1 } as Record<string, number>)[e.key]
-    const ponta = ({ Home: 0, End: -1 } as Record<string, number>)[e.key]
-    if (passo === undefined && ponta === undefined) return
-    const lista = Array.from(painel.current?.querySelectorAll<HTMLButtonElement>('[role="option"]:not(:disabled)') ?? [])
-    if (!lista.length) return
+    const lista = Array.from(painel.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [])
+    const alvo = alvoDaTecla(e.key, lista.length, lista.indexOf(document.activeElement as HTMLButtonElement))
+    if (alvo === null) return
     e.preventDefault()
-    const agora = lista.indexOf(document.activeElement as HTMLButtonElement)
-    const alvo = passo !== undefined ? (agora + passo + lista.length) % lista.length : (ponta! + lista.length) % lista.length
     lista[alvo]?.focus()
   }
 

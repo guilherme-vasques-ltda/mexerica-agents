@@ -109,7 +109,7 @@ async fn turn_with_options(
     mode: &str,
     thread: Option<&str>,
     model: Option<&str>,
-    options: &BTreeMap<String, Option<String>>,
+    options: &BTreeMap<String, super::Pick>,
 ) -> (anyhow::Result<String>, String, Vec<Value>, Option<String>) {
     let (result, text, sent, kept) = fixture_turn(mode, thread, model, options).await;
     (result.map(|concluido| concluido.thread), text, sent, kept)
@@ -119,7 +119,7 @@ async fn fixture_turn(
     mode: &str,
     thread: Option<&str>,
     model: Option<&str>,
-    options: &BTreeMap<String, Option<String>>,
+    options: &BTreeMap<String, super::Pick>,
 ) -> (anyhow::Result<super::TurnoConcluido>, String, Vec<Value>, Option<String>) {
     let dir = std::env::temp_dir().join(format!("open-chat-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
@@ -262,8 +262,8 @@ async fn text_turn_streams_reply_without_tools_or_approvals() {
 #[tokio::test]
 async fn reasoning_and_speed_choices_go_to_the_engine_and_absence_changes_nothing() {
     let options = BTreeMap::from([
-        ("reasoning_effort".to_owned(), Some("high".to_owned())),
-        ("service_tier".to_owned(), Some("fast".to_owned())),
+        ("reasoning_effort".to_owned(), super::Pick::Chosen("high".to_owned())),
+        ("service_tier".to_owned(), super::Pick::Chosen("fast".to_owned())),
     ]);
     let (result, _, sent, _) = turn_with_options("ok", None, Some("gpt-test-model"), &options).await;
     assert_eq!(result.unwrap(), "thread-1");
@@ -274,12 +274,17 @@ async fn reasoning_and_speed_choices_go_to_the_engine_and_absence_changes_nothin
     let turn = &find(&sent, "turn/start").unwrap()["params"];
     assert!(turn.get("effort").is_none() && turn.get("serviceTier").is_none());
     assert!(find(&sent, "thread/start").unwrap()["params"].get("serviceTier").is_none());
-    let reset =
-        BTreeMap::from([("reasoning_effort".to_owned(), Some("low".to_owned())), ("service_tier".to_owned(), None)]);
+    let reset = BTreeMap::from([
+        ("reasoning_effort".to_owned(), super::Pick::Default(Some("low".to_owned()))),
+        ("service_tier".to_owned(), super::Pick::Default(None)),
+    ]);
     let (_, _, sent, _) = turn_with_options("resume", Some("thread-9"), Some("gpt-test-model"), &reset).await;
     let turn = &find(&sent, "turn/start").unwrap()["params"];
     assert_eq!((&turn["effort"], &turn["serviceTier"]), (&Value::from("low"), &Value::Null));
     assert!(find(&sent, "thread/resume").unwrap()["params"].get("serviceTier").is_none());
+    let (_, _, sent, _) = turn_with_options("ok", None, Some("gpt-test-model"), &reset).await;
+    let turn = &find(&sent, "turn/start").unwrap()["params"];
+    assert!(turn.get("effort").is_none() && turn.get("serviceTier").is_none(), "a new thread gets no catalog defaults");
 }
 
 #[tokio::test]
