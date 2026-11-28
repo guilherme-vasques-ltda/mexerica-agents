@@ -3,6 +3,8 @@ import type { textos as fonte } from '../pt-BR/botSettings.ts'
 
 // DON-903: botSettings (registro.ts). Chaves completas; docs/guides/idiomas.md.
 export const textos: Traducao<typeof fonte> = {
+  'botSettings.comandosLocais.titulo': '本地命令',
+  'botSettings.comandosLocais.aviso': '请在向新机器人发送首条消息前启用。每条命令仍需批准。获批的命令会以您的权限在无隔离的情况下运行，可以访问文件和网络。',
   // DON-865, fatia 4: Motor do criar bot e do editor (D372/D373/D375).
   'botSettings.motor.aviso': '适用于新对话。每个已打开的对话保留自己的模型。',
   'botSettings.motor.usar': '也用于主对话',

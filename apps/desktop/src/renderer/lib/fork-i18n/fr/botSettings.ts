@@ -3,6 +3,8 @@ import type { textos as fonte } from '../pt-BR/botSettings.ts'
 
 // DON-903: botSettings (registro.ts). Chaves completas; docs/guides/idiomas.md.
 export const textos: Traducao<typeof fonte> = {
+  'botSettings.comandosLocais.titulo': 'Commandes locales',
+  'botSettings.comandosLocais.aviso': 'Activez cette option avant le premier message dans un nouveau bot. Chaque commande requiert toujours une approbation. Les commandes approuvées s’exécutent sans isolation avec vos permissions et peuvent accéder aux fichiers et au réseau.',
   // DON-865, fatia 4: Motor do criar bot e do editor (D372/D373/D375).
   'botSettings.motor.aviso': 'S’applique aux nouvelles conversations. Chaque conversation ouverte garde son modèle.',
   'botSettings.motor.usar': 'Utiliser aussi dans la conversation principale',

@@ -195,7 +195,7 @@ export function BotSettingsPage({ botId, initialSection, onClose, onConversation
           {sections.slice(1).map(([id, label]) => <section key={id} role="tabpanel" id={`bot-settings-panel-${id}`} aria-labelledby={`bot-settings-tab-${id}`} hidden={section !== id} tabIndex={0} className="bot-settings-placeholder">
             <h2>{t(label)}</h2>
             {bot && open && id === 'engine' ? <MotorDaOpen bot={bot} disabled={disabled} />
-              : bot && open && id === 'behaviour' ? <fieldset disabled={disabled} className="bot-settings-controls"><ComportamentoDaOpen bot={bot} permission={(permission) => { void saveIntent('permission', () => store.setPermission(botId, permission)) }} onFerramentas={() => setSection('tools')} /></fieldset>
+              : bot && open && id === 'behaviour' ? <fieldset disabled={disabled} className="bot-settings-controls"><ComportamentoDaOpen bot={bot} permission={(permission) => { void saveIntent('permission', () => store.setPermission(botId, permission)) }} localCommands={(localCommandsEnabled) => save('localCommandsEnabled', { localCommandsEnabled })} commandError={intentErrors.localCommandsEnabled} onFerramentas={() => setSection('tools')} /></fieldset>
               : bot && open && id === 'tools' ? <><AvisoDoFluxo fluxo="conectores" /><fieldset className="bot-settings-controls"><CurrentToolsSettings bot={bot} save={save} saveSkill={saveSkill} feedback={feedback} disabled={disabled} /></fieldset></>
               : open && id === 'whatsapp' ? <AvisoDoFluxo fluxo="whatsapp" />
               : open && id === 'voice' ? <AvisoDoFluxo fluxo="voz" />

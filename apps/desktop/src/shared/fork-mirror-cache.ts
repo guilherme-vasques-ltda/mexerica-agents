@@ -101,8 +101,8 @@ import { normalizeBot, unavailableRuntime, type Bot } from './models.ts'
 // Schema 77: o aviso de conferência da mensagem de grupo interrompida usa `Entry.data.code` (`group_review`) para
 // tradução; cache anterior não tem o código e o aviso cairia no texto gravado.
 // Schema 78: a lista de skills (`skills`) traz `internas`, as que vêm com o app, só leitura.
-// Schema 81: o app esvazia a conversa ao receber `chatCleared` (/clear da Open).
-export const MIRROR_SCHEMA = 81
+// Schema 82: o app esvazia a conversa ao receber `chatCleared` (/clear da Open).
+export const MIRROR_SCHEMA = 82
 
 export const mirrorCacheStamp = (appVersion: string, hostVersion: string): string =>
   `donnabot-mirror-v${MIRROR_SCHEMA}/${appVersion}/${hostVersion}`
