@@ -26,6 +26,40 @@
   font: 400 16px/1.5 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
 
+body:has(.rv-renderer) {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  block-size: 100dvh;
+  margin: 0;
+}
+
+.rv-renderer {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  border: 0;
+}
+
+.remote-view[data-status='active'] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  max-inline-size: none;
+  padding: 8px 16px;
+}
+
+.rv-pair {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.rv-pair input {
+  min-block-size: 44px;
+  max-inline-size: 100%;
+  font: inherit;
+}
+
 .remote-view[data-theme='dark'],
 :root[data-theme='dark'] .remote-view {
   --rv-chao: #1f1812;

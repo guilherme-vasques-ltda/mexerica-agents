@@ -1,289 +1,252 @@
-import { hostCallError } from '../../shared/host-call-error.ts'
 import type { CallError, CodyncBridge, HostSnapshot } from '../../shared/ipc.ts'
+import { FALLBACK_LANGUAGE, sugerirIdioma } from '../../shared/fork-idioma.ts'
+import { tradutor } from '../../renderer/lib/fork-i18n/index.ts'
+import { WEB_UNAVAILABLE } from '../platform.ts'
 import type { RemoteHub } from './controller.ts'
-import type { WorkspaceContext } from './workspace-session.ts'
+import { markDevice, remoteDevice } from './device.ts'
+import { createPartitions, partitionId } from './partitions.ts'
+import { channelOrigin, openRemoteChannel, type ChannelTarget, type Terminal } from './socket.ts'
+import { hubOffline, type WorkspaceContext } from './workspace-session.ts'
 import type { Workspace } from './workspaces.ts'
 
-interface HubBinding {
-  origin: string
-  authorize(request: Request): Promise<HeadersInit>
-  fetch(request: Request): Promise<Response>
+export interface HubBinding extends ChannelTarget {
+  userId: string
+  getSessionToken(): Promise<string | null>
 }
 
-type Callbacks = Parameters<RemoteHub['confirm']>[1]
-interface Connection {
-  origin: string
-  binding: HubBinding
-  callbacks: Callbacks
-  token: string
-  context?: WorkspaceContext
-  computerId?: string
+const texto = tradutor(sugerirIdioma(globalThis.navigator?.languages ?? []) ?? FALLBACK_LANGUAGE)
+const unavailable: CallError = { status: 0, code: hubOffline.code, message: texto('botCreate.erroCriacao.offline') }
+const inactive: CallError = { status: 0, code: WEB_UNAVAILABLE, message: texto('web.login.indisponivel') }
+const timeoutMs = 8_000
+const object = (v: unknown): Record<string, unknown> =>
+  v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : {}
+
+function readContext(raw: unknown, binding: HubBinding): WorkspaceContext {
+  const c = object(raw)
+  if (c.schema !== 1 || c.hubId !== binding.hubId || c.userId !== binding.userId
+    || !Array.isArray(c.capabilities) || !c.capabilities.every((cap) => typeof cap === 'string')) throw inactive
+  return c as unknown as WorkspaceContext
 }
 
-const transportError = (status: number, code: string): CallError => ({ status, code, message: code })
-const offline = transportError(0, 'hub_offline')
-const inactive = transportError(409, 'workspace_inactive')
-const invalid = transportError(502, 'invalid_hub_response')
-const unauthorized = transportError(401, 'auth_invalid')
-const streamIdleMs = 45_000
-const maxFrameLength = 8 * 1024 * 1024
-const terminalTypes = new Set(['workspace_revoked', 'role_changed', 'device_revoked'])
-
-function abortable<T>(signal: AbortSignal, run: () => Promise<T>): Promise<T> {
-  signal.throwIfAborted()
-  return new Promise<T>((resolve, reject) => {
-    const abort = () => reject(signal.reason)
-    signal.addEventListener('abort', abort, { once: true })
-    Promise.resolve().then(() => {
-      signal.throwIfAborted()
-      return run()
-    }).then(resolve, reject).finally(() => signal.removeEventListener('abort', abort))
-  })
-}
-
-async function request(c: Connection, url: URL, init: RequestInit, signal: AbortSignal) {
-  const unsigned = new Request(url, { ...init, signal, credentials: 'omit', redirect: 'error', cache: 'no-store', referrerPolicy: 'no-referrer' })
-  const proof = await abortable(signal, async () => new Headers(await c.binding.authorize(unsigned.clone())))
-    .catch(() => { throw signal.aborted ? offline : unauthorized })
-  const headers = new Headers(unsigned.headers)
-  for (const [key, value] of proof) headers.set(key, value)
-  try {
-    return await abortable(signal, () => c.binding.fetch(new Request(unsigned, { headers })))
-  } catch {
-    throw offline
+export function createRemoteHub(
+  resolve: (workspace: Workspace) => HubBinding | null,
+  deps = { device: remoteDevice, mark: markDevice, connect: openRemoteChannel, now: Date.now },
+): RemoteHub & { host: CodyncBridge['host']; rendererContext(): { storage: Storage; host: CodyncBridge['host'] } | undefined } {
+  type Callbacks = Parameters<RemoteHub['confirm']>[1]
+  type Link = ReturnType<typeof openRemoteChannel>
+  type Connection = {
+    origin: string
+    token: string
+    link: Link
+    context: WorkspaceContext
+    callbacks: Callbacks
+    authorized: () => boolean
+    storage: Storage
   }
-}
-
-async function readText(response: Response, signal: AbortSignal) {
-  try { return await abortable(signal, () => response.text()) } catch { throw offline }
-}
-
-function readContext(event: Record<string, unknown>): WorkspaceContext {
-  const c = event.workspace as Partial<WorkspaceContext> | null | undefined
-  if (!c || c.schema !== 1 || typeof c.hubId !== 'string' || !c.hubId.trim()
-    || (c.kind !== 'personal' && c.kind !== 'team') || typeof c.workspaceId !== 'string'
-    || typeof c.userId !== 'string' || !c.userId || !['owner', 'admin', 'member'].includes(c.role ?? '')
-    || typeof c.workspaceEpoch !== 'number' || !Number.isSafeInteger(c.workspaceEpoch) || c.workspaceEpoch < 0
-    || !Array.isArray(c.capabilities) || !c.capabilities.every((value) => typeof value === 'string')) throw invalid
-  return c as WorkspaceContext
-}
-
-async function readEvents(c: Connection, url: URL, signal: AbortSignal, onData: (data: string) => boolean) {
-  const timer = new AbortController()
-  const scoped = AbortSignal.any([signal, timer.signal])
-  let timeout: ReturnType<typeof setTimeout> | undefined
-  const reset = () => {
-    clearTimeout(timeout)
-    timeout = setTimeout(() => timer.abort(), streamIdleMs)
-  }
-  reset()
-  let awaitingHello = url.pathname === '/events'
-  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
-  try {
-    const response = await request(c, url, { headers: { Accept: 'text/event-stream' } }, scoped)
-    if (!response.ok) throw hostCallError(response.status, await readText(response, scoped))
-    if (!response.body || !/^text\/event-stream(?:\s*;|$)/i.test(response.headers.get('content-type') ?? '')) throw invalid
-    reader = response.body.getReader()
-    const input = reader
-    const decoder = new TextDecoder()
-    let buffer = ''
-    let data = ''
-    let skipLF = false
-    for (;;) {
-      const { value, done } = await abortable(scoped, () => input.read()).catch(() => { throw offline })
-      if (done) return
-      if (!awaitingHello) reset()
-      let chunk = decoder.decode(value, { stream: true })
-      if (skipLF && chunk) {
-        if (chunk.startsWith('\n')) chunk = chunk.slice(1)
-        skipLF = false
-      }
-      buffer += chunk
-      let end: number
-      while ((end = buffer.search(/[\r\n]/)) >= 0) {
-        const line = buffer.slice(0, end)
-        const cr = buffer[end] === '\r'
-        skipLF = cr && end === buffer.length - 1
-        buffer = buffer.slice(end + (cr && buffer[end + 1] === '\n' ? 2 : 1))
-        if (line.startsWith('data:')) data += line.slice(5).replace(/^ /, '') + '\n'
-        if (data.length > maxFrameLength) throw invalid
-        if (!line && data) {
-          scoped.throwIfAborted()
-          const helloAccepted = onData(data.slice(0, -1))
-          if (awaitingHello && helloAccepted) { awaitingHello = false; reset() }
-          data = ''
-        }
-      }
-      if (buffer.length > maxFrameLength) throw invalid
-    }
-  } catch (error) {
-    if (timer.signal.aborted) throw offline
-    throw error
-  } finally {
-    clearTimeout(timeout)
-    void reader?.cancel().catch(() => {})
-  }
-}
-
-export function createRemoteHub(resolve: (workspace: Workspace) => HubBinding | null): RemoteHub & { host: CodyncBridge['host'] } {
   let current: Connection | undefined
+  const partitions = createPartitions(deps.now)
   const listeners = new Set<(snapshot: HostSnapshot) => void>()
   const snapshot = (): HostSnapshot => {
     const c = current
-    const local = c?.computerId && c.callbacks.acceptsResponse()
-      ? { computerId: c.computerId, baseURL: c.origin, token: c.token }
-      : null
+    const local = c?.authorized() ? { computerId: c.link.computerId, baseURL: c.origin, token: c.token } : null
     return { state: { kind: local ? 'running' : 'disabled' }, local, dev: false, logPath: '' }
   }
   const publish = () => { for (const listener of listeners) listener(snapshot()) }
   const connection = (origin: string, token: string) => {
     const c = current
-    if (!c?.context || origin !== c.origin || token !== c.token || !c.callbacks.acceptsResponse()) throw inactive
-    return c as Connection & { context: WorkspaceContext }
+    if (!c?.authorized() || c.origin !== origin || c.token !== token) throw inactive
+    return c
   }
-  const fail = (c: Connection, error: unknown) => {
-    if (c.callbacks.signal.aborted) return
-    if (error === offline) c.callbacks.offline()
-    else if (error === invalid) c.callbacks.accessLost(403, 'workspace_forbidden')
-    else if (typeof (error as CallError | undefined)?.status === 'number') {
-      const { status, code } = error as CallError
-      if (status === 409 && code === 'workspace_epoch_mismatch') c.callbacks.recoverContext()
-      else c.callbacks.accessLost(status, code)
-    }
-  }
-  const inspect = (c: Connection, event: Record<string, unknown>) => {
-    const context = c.context!
-    const { type, workspaceId, workspaceEpoch } = event
-    if (typeof type === 'string' && terminalTypes.has(type)) {
-      if (workspaceId !== context.workspaceId || typeof workspaceEpoch !== 'number' || !Number.isSafeInteger(workspaceEpoch)
-        || workspaceEpoch < 0) throw invalid
-      if (type === 'device_revoked') {
-        if (workspaceEpoch >= context.workspaceEpoch) c.callbacks.accessLost(401, type)
-      } else if (workspaceEpoch > context.workspaceEpoch) c.callbacks.recoverContext()
-      return false
-    }
-    if (workspaceId !== undefined && workspaceId !== context.workspaceId) throw invalid
-    if (type === 'hello') {
-      const hello = readContext(event)
-      if (hello.hubId !== context.hubId || hello.workspaceId !== context.workspaceId || hello.userId !== context.userId
-        || hello.kind !== context.kind || event.hostId !== context.hubId) throw invalid
-      if (hello.workspaceEpoch !== context.workspaceEpoch) {
-        c.callbacks.recoverContext()
-        return false
-      }
-      if (hello.role !== context.role) throw invalid
-      return true
-    }
-    if (typeof workspaceEpoch !== 'number' || !Number.isSafeInteger(workspaceEpoch) || workspaceEpoch < 0) return false
-    if (workspaceEpoch > context.workspaceEpoch) c.callbacks.recoverContext()
-    return workspaceEpoch === context.workspaceEpoch
-  }
-  const parseEvent = (data: string): Record<string, unknown> => {
-    let event: unknown
-    try { event = JSON.parse(data) } catch { throw invalid }
-    if (!event || typeof event !== 'object' || typeof (event as Record<string, unknown>).type !== 'string') throw invalid
-    return event as Record<string, unknown>
+  const recover = (c: Connection, code: unknown) => {
+    if (c.authorized() && code === 'workspace_epoch_mismatch') c.callbacks.recoverContext()
   }
 
-  return {
-    async confirm(workspace, callbacks) {
+  const remote: ReturnType<typeof createRemoteHub> = {
+    async confirm(workspace, callbacks, pairingCode) {
       const binding = resolve(workspace)
-      if (!binding || typeof binding.authorize !== 'function' || typeof binding.fetch !== 'function') throw inactive
-      const url = new URL(binding.origin)
-      if (url.protocol !== 'https:' || url.username || url.password || url.href !== `${url.origin}/`) throw inactive
-      const c: Connection = { origin: url.origin, binding, callbacks, token: crypto.randomUUID() }
-      current = c
+      if (!binding) throw inactive
+      const origin = channelOrigin(binding.origin).replace(/^wss:/, 'https:')
+      const signal = callbacks.signal
+      const scope = partitionId(binding.hubId, workspace.id, binding.userId)
+      const device = await deps.device(scope, pairingCode !== undefined)
+      signal.throwIfAborted()
+      if (device?.state === 'revoked') {
+        callbacks.accessLost(401, 'device_revoked')
+        throw inactive
+      }
+      if (!device || (device.state === 'new' && pairingCode === undefined)) {
+        callbacks.needsPairing()
+        throw inactive
+      }
+      const getToken = async () => {
+        const token = await binding.getSessionToken()
+        signal.throwIfAborted()
+        if (!token) throw inactive
+        return token
+      }
+      if (pairingCode !== undefined) {
+        const pair = deps.connect(binding, device.signer, signal, true, () => {})
+        try {
+          await pair.ready
+          const result = await pair.call('pair', { code: pairingCode, platform: 'web', name: 'Web', sessionToken: await getToken() }, timeoutMs)
+          if (result.kind !== 'ok' || object(result.value).computerId !== pair.computerId) throw inactive
+          await deps.mark(scope, 'paired')
+        } catch {
+          if (!signal.aborted) callbacks.needsPairing()
+          throw inactive
+        } finally {
+          pair.close()
+        }
+      }
+      signal.throwIfAborted()
+      let context: WorkspaceContext | undefined
+      let expiresAt = 0
+      let renewal: ReturnType<typeof setTimeout> | undefined
+      let hardExpiry: ReturnType<typeof setTimeout> | undefined
+      const onEnd = (reason?: Terminal) => {
+        if (signal.aborted) return
+        if (reason?.code === 'device_revoked') {
+          partitions.revokeHub(binding.hubId)
+          void deps.mark(scope, 'revoked').catch(() => {})
+          callbacks.accessLost(401, 'device_revoked')
+        } else if (reason?.code === 'device_unpaired') {
+          void deps.mark(scope, 'new').catch(() => {})
+          callbacks.needsPairing()
+        } else if (context && (reason?.code === 'role_changed' || reason?.code === 'workspace_revoked')) {
+          partitions.cut(context, reason.epoch)
+          callbacks.recoverContext()
+        } else {
+          callbacks.offline()
+        }
+      }
+      const link = deps.connect(binding, device.signer, signal, false, onEnd)
       callbacks.onDispose(() => {
-        if (current === c) { current = undefined; publish() }
+        clearTimeout(renewal)
+        clearTimeout(hardExpiry)
+        link.close()
+        if (current?.link === link) { current = undefined; publish() }
       })
-      return new Promise<WorkspaceContext>((resolve, reject) => {
-        void readEvents(c, new URL('/events', url), callbacks.signal, (data) => {
-          const event = parseEvent(data)
-          if (c.context) { inspect(c, event); return false }
-          if (typeof event.type === 'string' && terminalTypes.has(event.type) && event.workspaceId === workspace.id) {
-            if (typeof event.workspaceEpoch !== 'number' || !Number.isSafeInteger(event.workspaceEpoch) || event.workspaceEpoch < 0) throw invalid
-            if (event.type === 'device_revoked') callbacks.accessLost(401, 'device_revoked')
-            else callbacks.recoverContext()
-            return false
-          }
-          if (event.type !== 'hello' || typeof event.computerId !== 'string' || !event.computerId.trim()) throw invalid
-          const context = readContext(event)
-          if (event.hostId !== context.hubId || !callbacks.acceptContext(context)) throw invalid
-          c.context = context
-          c.computerId = event.computerId
-          publish()
-          resolve(context)
-          return true
-        }).then(() => { throw offline }).catch((error: unknown) => {
-          reject(error)
-          fail(c, error)
-        })
-      })
+      const authorized = () => link.isOpen() && !signal.aborted && deps.now() < expiresAt && callbacks.acceptsResponse()
+      const authenticate = async () => {
+        const token = await getToken()
+        const result = await link.call('sessionAuthenticate', { sessionToken: token }, timeoutMs,
+          () => !signal.aborted && (!expiresAt || deps.now() < expiresAt))
+        if (result.kind !== 'ok') throw inactive
+        const verified = object(result.value)
+        const next = verified.expiresAt
+        if (verified.userId !== binding.userId || typeof next !== 'number' || !Number.isSafeInteger(next)
+          || next <= Math.max(expiresAt, deps.now()) || (context && verified.role !== context.role)) throw inactive
+        expiresAt = next
+        const remaining = next - deps.now()
+        clearTimeout(hardExpiry)
+        hardExpiry = setTimeout(() => link.close(), Math.min(remaining, 2_147_483_647))
+        renewal = setTimeout(() => {
+          void authenticate().then(() => { if (authorized() && context) partitions.authenticate(context) }).catch(() => link.close())
+        }, Math.max(1, Math.min(remaining * 0.75, remaining - 5_000, 2_147_483_647)))
+        return verified.role
+      }
+      try {
+        await link.ready
+        const role = await authenticate()
+        const result = await link.call('workspaceContext', {}, timeoutMs, () => deps.now() < expiresAt && !signal.aborted)
+        if (result.kind !== 'ok' || signal.aborted) throw inactive
+        const candidate = readContext(result.value, binding)
+        if (candidate.role !== role || !callbacks.acceptContext(candidate)) throw inactive
+        const storage = partitions.authenticate(candidate)
+        context = candidate
+        link.bindEpoch(candidate.workspaceEpoch)
+        const hello = await link.call('hello', { corte: 1, workspaceEpoch: candidate.workspaceEpoch }, timeoutMs, authorized)
+        if (hello.kind !== 'ok' || !authorized()) throw inactive
+        current = { origin, token: crypto.randomUUID(), link, context, callbacks, authorized, storage }
+        publish()
+        return context
+      } catch (error) {
+        link.close()
+        throw error
+      }
+    },
+    rendererContext() {
+      const c = current
+      if (!c?.authorized()) return undefined
+      const allowed = () => current === c && c.authorized()
+      const empty: HostSnapshot = { state: { kind: 'disabled' }, local: null, dev: false, logPath: '' }
+      const storage = c.storage
+      return {
+        storage: {
+          get length() { return allowed() ? storage.length : 0 },
+          key: (index: number) => allowed() ? storage.key(index) : null,
+          getItem: (key: string) => allowed() ? storage.getItem(key) : null,
+          setItem(key: string, value: string) { if (allowed()) storage.setItem(key, value) },
+          removeItem(key: string) { if (allowed()) storage.removeItem(key) },
+          clear() { if (allowed()) storage.clear() },
+        },
+        host: {
+          ...remote.host,
+          snapshot: async () => allowed() ? snapshot() : empty,
+          onChange(listener) {
+            if (!allowed()) return () => {}
+            const stop = remote.host.onChange((next) => { if (allowed()) listener(next) })
+            c.callbacks.onDispose(stop)
+            return stop
+          },
+          call: (origin, token, method, body, timeout) => allowed()
+            ? remote.host.call(origin, token, method, body, timeout) : Promise.reject(inactive),
+          stream: (url, token, onData, onEnd) => allowed()
+            ? remote.host.stream(url, token, onData, onEnd) : () => {},
+        },
+      }
     },
     host: {
       snapshot: async () => snapshot(),
       onChange(listener) { listeners.add(listener); return () => { listeners.delete(listener) } },
       install() {},
       restart() {},
-      async call(origin, token, method, body, timeoutMs) {
+      async call(origin, token, method, body, requestedTimeout) {
         const c = connection(origin, token)
-        if (!/^[A-Za-z0-9_-]+$/.test(method) || (body != null && (typeof body !== 'object' || Array.isArray(body)))) throw invalid
-        const signal = AbortSignal.any([c.callbacks.signal, AbortSignal.timeout(timeoutMs)])
-        try {
-          const response = await request(c, new URL(`/api/${method}`, origin), {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...body as object, workspaceEpoch: c.context.workspaceEpoch }),
-          }, signal)
-          const text = await readText(response, signal)
-          if (c.callbacks.signal.aborted) throw inactive
-          if (signal.aborted) throw offline
-          if (!response.ok) throw hostCallError(response.status, text)
-          try { return text ? JSON.parse(text) : {} } catch { throw invalid }
-        } catch (error) {
-          if (c.callbacks.signal.aborted) throw inactive
-          const reason = signal.aborted ? offline : error
-          fail(c, reason)
-          throw reason
+        if (method === 'pair' || method === 'sessionAuthenticate' || (body != null && (typeof body !== 'object' || Array.isArray(body)))) throw inactive
+        const result = await c.link.call(method, { ...object(body), workspaceEpoch: c.context.workspaceEpoch }, requestedTimeout, c.authorized)
+        if (!c.authorized()) throw unavailable
+        if (result.kind === 'ok') return result.value
+        if (result.kind === 'err') {
+          recover(c, result.code)
+          throw { status: result.status, message: result.message, code: result.code } satisfies CallError
         }
+        throw unavailable
       },
       stream(raw, token, onData, onEnd) {
-        const stop = new AbortController()
-        let ended = false
+        let active = true
+        let sub: Awaited<ReturnType<Link['subscribe']>>
         const finish = (error: CallError | null) => {
-          if (ended || stop.signal.aborted) return
-          ended = true
+          if (!active) return
+          active = false
           onEnd(error)
         }
         void (async () => {
           const url = new URL(raw)
           const c = connection(url.origin, token)
-          if (url.username || url.password || url.hash || !/^\/(?:events|term\/[^/]+)$/.test(url.pathname)) throw inactive
-          url.searchParams.set('workspaceEpoch', String(c.context.workspaceEpoch))
-          const signal = AbortSignal.any([c.callbacks.signal, stop.signal])
-          try {
-            let needsHello = url.pathname === '/events'
-            await readEvents(c, url, signal, (data) => {
-              const event = parseEvent(data)
-              const allowed = inspect(c, event)
-              if (needsHello && allowed) {
-                if (event.type !== 'hello') throw invalid
-                needsHello = false
-              }
-              if (allowed && !signal.aborted && c.callbacks.acceptsResponse()) onData(data)
-              return allowed && event.type === 'hello'
-            })
-            if (!signal.aborted) {
-              if (url.pathname === '/events') throw offline
-              finish(null)
-            }
-          } catch (error) {
-            if (signal.aborted) return
-            fail(c, error)
-            finish(typeof (error as CallError | undefined)?.status === 'number' ? error as CallError : invalid)
+          const path = /^\/term\/([^/]+)$/.exec(url.pathname)
+          const kind = url.pathname === '/events' ? 'events' : path ? 'term' : null
+          if (!kind || url.hash || url.username || url.password) throw inactive
+          const body = {
+            ...(path ? { term: decodeURIComponent(path[1]) } : {}),
+            ...(url.searchParams.has('spaceId') ? { spaceId: url.searchParams.get('spaceId') } : {}),
+            ...(url.searchParams.has('client') ? { client: url.searchParams.get('client') } : {}),
+            ...(url.searchParams.has('since') ? { since: Number(url.searchParams.get('since')) } : {}),
+            workspaceEpoch: c.context.workspaceEpoch,
           }
-        })().catch(() => finish(inactive))
-        return () => stop.abort()
+          const allowed = () => active && c.authorized()
+          sub = await c.link.subscribe(kind, body, (event) => {
+            if (allowed()) onData(JSON.stringify(event))
+          }, (error) => {
+            if (error) recover(c, error.code)
+            finish(error)
+          }, allowed)
+          if (!active) sub?.cancel()
+          else if (!sub) finish(unavailable)
+        })().catch(() => finish(unavailable))
+        return () => { active = false; sub?.cancel() }
       },
     },
   }
+  return remote
 }

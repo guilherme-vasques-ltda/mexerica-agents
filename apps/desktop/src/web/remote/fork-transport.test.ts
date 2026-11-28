@@ -1,253 +1,273 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import test from 'node:test'
-import { createRemoteHub } from './fork-transport.ts'
-import { createWebBridge } from '../platform.ts'
-import type { CodyncBridge } from '../../shared/ipc.ts'
+import { nobleBackend } from '../../shared/relay-protocol/backend-noble.ts'
+import { createProtocol, type ChannelKeys } from '../../shared/relay-protocol/protocol.ts'
 import { createRemoteController } from './controller.ts'
+import { createRemoteHub } from './fork-transport.ts'
+import { openRemoteChannel } from './socket.ts'
 import { createWorkspaceSession, type WorkspaceContext } from './workspace-session.ts'
-import type { HubWorkspaceGrant } from './workspaces.ts'
 
+const protocol = createProtocol(nobleBackend)
+const host = protocol.signerFromSeed(new Uint8Array(32).fill(9))
+const device = protocol.signerFromSeed(new Uint8Array(32).fill(7))
+const webDevice = { publicKey: device.publicKey, sign: async (input: Uint8Array) => device.sign(input) }
+const personal = { id: 'personal:user_fixture', kind: 'personal' } as const
+const context: WorkspaceContext = {
+  schema: 1, kind: 'personal', hubId: 'fixture-hub', userId: 'user_fixture', workspaceId: personal.id,
+  role: 'owner', workspaceEpoch: 5, capabilities: ['chat'],
+}
 const origin = 'https://hub.example.invalid'
-const personal: HubWorkspaceGrant = { id: 'personal:u1', kind: 'personal' }
-const workspace: WorkspaceContext = {
-  schema: 1, hubId: 'hub-fixture', kind: 'personal', workspaceId: personal.id,
-  userId: 'u1', role: 'owner', workspaceEpoch: 2, capabilities: [],
+const target = { origin: 'wss://hub.example.invalid', hubId: context.hubId, signKey: protocol.b64url(host.publicKey) }
+const replyToken = 'fixture-token'
+const b64 = (data: Uint8Array) => Buffer.from(data).toString('base64url')
+const raw = (data: string) => Buffer.from(data, 'base64url')
+const bytes = (label: string, ...parts: Uint8Array[]) => Buffer.concat([Buffer.from(label), ...parts])
+const be = (n: number) => {
+  const out = Buffer.alloc(8)
+  out.writeBigUInt64BE(BigInt(n))
+  return out
 }
-const attentionChanged = { type: 'donnaAttentionChanged', workspaceEpoch: 2, fixture: true }
-type FixtureFetch = (request: Request) => Promise<Response>
 
-function sse(events: unknown[], keepOpen = false): Response {
-  const encoder = new TextEncoder()
-  const body = new ReadableStream<Uint8Array>({
-    start(stream) {
-      for (const event of events) stream.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
-      if (!keepOpen) stream.close()
+type Envelope = { id: number; m?: string; sub?: string; cancel?: boolean; b: Record<string, unknown>; pop: { v: number; ts: number; nonce: string; sig: string } }
+
+function fixture(options: { enrolled?: boolean; renew?: boolean; mismatch?: boolean; holdSend?: boolean; noToken?: boolean } = {}) {
+  let joined = options.enrolled ?? true
+  let now = Date.now()
+  let epoch = context.workspaceEpoch
+  let tokenRequests = 0
+  const messages: Envelope[] = []
+  const receivedNonces = new Set<string>()
+  const sockets: FakeSocket[] = []
+
+  class FakeSocket extends EventTarget {
+    readyState: number = WebSocket.CONNECTING
+    private keys?: ChannelKeys
+    private hello?: { dk: string; ek: string; n: string; sig: string; pair?: boolean }
+    private th?: Buffer
+    private sendCount = 0
+    private received = 0
+
+    constructor(url: string) {
+      super()
+      assert.equal(url, target.origin + '/channel?v=1')
+      sockets.push(this)
+      queueMicrotask(() => {
+        this.readyState = WebSocket.OPEN
+        this.dispatchEvent(new Event('open'))
+      })
+    }
+    close() {
+      this.readyState = WebSocket.CLOSED
+      queueMicrotask(() => this.dispatchEvent(new Event('close')))
+    }
+    deliver(frame: object) {
+      queueMicrotask(() => this.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(frame) })))
+    }
+    cut(stableCode: 'device_revoked' | 'workspace_revoked' | 'role_changed', signed = true) {
+      const marker = { device_revoked: 1, workspace_revoked: 2, role_changed: 3 }[stableCode]
+      const abertoEm = epoch++
+      const sig = b64(host.sign(bytes('codync/corte/v1', this.th!, Uint8Array.of(marker), be(epoch), be(abertoEm))))
+      this.deliver({ t: 'reject', code: 'revoked', stableCode, ...(signed && {
+        prova: { v: 1, tipo: 'corte', workspaceEpoch: epoch, abertoEm, sig },
+      }) })
+    }
+    private answer(message: object) {
+      const c = this.sendCount++
+      this.deliver({ t: 'f', c, d: protocol.sealFrame(this.keys!.h2d, c, true, Buffer.from(JSON.stringify(message))) })
+    }
+    send(data: string) {
+      const frame = JSON.parse(data)
+      if (frame.t === 'hello') {
+        const hello = this.hello = frame
+        const cid = protocol.cidRaw(host.publicKey)
+        const [dk, ek, n] = [raw(hello.dk), raw(hello.ek), raw(hello.n)]
+        assert.ok(protocol.verifyEd25519(device.publicKey, raw(hello.sig), bytes('codync/hs1/v1', cid, dk, ek, n)))
+        if (!joined && !hello.pair) {
+          const sig = b64(host.sign(bytes('codync/recusa/v1', cid, dk, ek, n, Uint8Array.of(4))))
+          this.deliver({ t: 'reject', code: 'unauthorized', stableCode: 'device_unpaired', prova: { v: 1, tipo: 'recusa', sig } })
+          return
+        }
+        const eph = protocol.ephemeral()
+        const th = this.th = createHash('sha256').update(bytes('codync/hs2/v1', cid, dk, ek, n, eph.pub)).digest()
+        this.keys = protocol.channelKeys(eph.dh(ek), th)
+        this.deliver({ t: 'welcome', v: 1, ek: b64(eph.pub), sig: b64(host.sign(th)) })
+        return
+      }
+      assert.equal(frame.t, 'f')
+      assert.equal(frame.c, this.received++)
+      const plain = protocol.openFrame(this.keys!.d2h, frame.c, frame.d)
+      const m = JSON.parse(Buffer.from(plain.chunk).toString()) as Envelope
+      if (m.cancel) return
+      messages.push(m)
+      const label = m.m ?? 'sub:' + m.sub
+      assert.equal(m.pop.v, 1)
+      assert.ok(Math.abs(Date.now() - m.pop.ts) < 30_000)
+      assert.ok(raw(m.pop.nonce).length >= 16 && raw(m.pop.nonce).length <= 64)
+      assert.ok(!receivedNonces.has(m.pop.nonce))
+      receivedNonces.add(m.pop.nonce)
+      const packed = Buffer.concat([
+        Buffer.from('mexerica-pop-v1'),
+        ...[context.hubId, b64(this.th!), label, String(m.pop.ts), m.pop.nonce].map((s) => Buffer.concat([Buffer.of(0), Buffer.from(s)])),
+      ])
+      assert.ok(protocol.verifyEd25519(device.publicKey, raw(m.pop.sig), packed))
+      if (m.m === 'pair') {
+        assert.equal(this.hello?.pair, true)
+        assert.equal(m.b.platform, 'web')
+        assert.equal(m.b.sessionToken, replyToken)
+        joined = true
+        return this.answer({ id: m.id, ok: { computerId: protocol.computerIdOf(host.publicKey) } })
+      }
+      if (m.m === 'sessionAuthenticate') {
+        assert.equal(m.b.sessionToken, replyToken)
+        return this.answer({ id: m.id, ok: { userId: context.userId, role: context.role, expiresAt: now + (options.renew && tokenRequests === 1 ? 60 : 60_000) } })
+      }
+      if (m.m === 'workspaceContext') {
+        assert.ok(!('workspaceEpoch' in m.b))
+        return this.answer({ id: m.id, ok: { ...context, workspaceEpoch: epoch } })
+      }
+      assert.equal(m.b.workspaceEpoch, epoch)
+      if (m.sub === 'events') {
+        assert.equal(m.b.since, 12)
+        return this.answer({ id: m.id, ev: { type: 'entry', value: 'fixture', extension: true } })
+      }
+      if (m.sub === 'term') {
+        assert.equal(m.b.term, 'fixture')
+        return this.answer({ id: m.id, ev: { type: 'output', data: 'fixture' } })
+      }
+      if (m.m === 'send' && options.holdSend) return
+      if (m.m === 'send' && options.mismatch) return this.answer({ id: m.id, err: { status: 409, code: 'workspace_epoch_mismatch' } })
+      this.answer({ id: m.id, ok: { value: m.b.value ?? 7, extra: true } })
+    }
+  }
+
+  let record: 'new' | 'paired' | 'revoked' = 'paired'
+  const remote = createRemoteHub(() => ({
+    ...target, userId: context.userId, getSessionToken: async () => {
+      tokenRequests++
+      return options.noToken ? null : replyToken
     },
+  }), {
+    device: async () => ({ signer: webDevice, state: record }),
+    mark: async (_scope, state) => { record = state },
+    now: () => now,
+    connect: (hub, signer, signal, pair, end) =>
+      openRemoteChannel(hub, signer, signal, pair, end, (url) => new FakeSocket(url) as unknown as WebSocket),
   })
-  return new Response(body, { headers: { 'content-type': 'text/event-stream' } })
-}
-
-function hello(epoch = workspace.workspaceEpoch) {
-  return { type: 'hello', hostId: workspace.hubId, computerId: 'computer-fixture', workspace: { ...workspace, workspaceEpoch: epoch } }
-}
-
-async function activeFixture(fetcher: FixtureFetch, cleared: string[] = []) {
-  const remote = createRemoteHub(() => ({ origin, authorize: async () => ({}), fetch: fetcher }))
-  const states: { status: string; activeId: string | null }[] = []
-  const controller = createRemoteController((state) => states.push(state), remote,
-    createWorkspaceSession(async (id) => { cleared.push(id) }))
-  await controller.setIdentity('u1', [], [personal])
-  return { remote, states, controller }
-}
-
-async function until(predicate: () => boolean) {
-  for (let i = 0; i < 100 && !predicate(); i++) await new Promise((resolve) => setTimeout(resolve, 0))
-  assert.ok(predicate(), 'fixture state did not settle')
-}
-
-test('host transport passes RPC results through the generic web bridge unchanged', async () => {
-  const requests: Request[] = []
-  const hub = createRemoteHub(() => ({
-    origin,
-    authorize: async (request): Promise<HeadersInit> => request.method === 'POST'
-      ? { 'Content-Type': 'application/vnd.fixture+json', 'X-Fixture-Proof': 'validated' }
-      : {},
-    fetch: async (request) => {
-      requests.push(request)
-      if (new URL(request.url).pathname === '/events') return sse([
-        hello(), { type: 'missingEpoch' }, { type: 'invalidEpoch', workspaceEpoch: '2' },
-        { type: 'lateData', workspaceEpoch: 1 }, attentionChanged,
-      ], true)
-      return Response.json({ ok: true, result: { value: 7 } })
-    },
-  }))
-  const session = createWorkspaceSession(async () => {})
-  const ctl = createRemoteController(() => {}, hub, session)
-  await ctl.setIdentity('u1', [], [personal])
-  const host: CodyncBridge['host'] = hub.host
-  const bridge = createWebBridge({ host })
-  const snapshot = await bridge.host.snapshot()
-  assert.equal(snapshot.local?.token, (await hub.host.snapshot()).local?.token)
-  const result = await bridge.host.call(origin, snapshot.local!.token, 'donnaAttention', { prompt: 'fixture' }, 1000)
-  assert.deepEqual(result, { ok: true, result: { value: 7 } })
-  const rpc = requests.find((request) => request.method === 'POST')!
-  assert.equal(new URL(rpc.url).origin, origin)
-  assert.equal(new URL(rpc.url).pathname, '/api/donnaAttention')
-  assert.equal(rpc.headers.get('Content-Type'), 'application/vnd.fixture+json')
-  assert.equal(rpc.headers.get('X-Fixture-Proof'), 'validated')
-  assert.equal(rpc.headers.has('workspaceEpoch'), false)
-  assert.deepEqual(await rpc.json(), { prompt: 'fixture', workspaceEpoch: 2 })
-  const events: unknown[] = []
-  bridge.host.stream(`${origin}/events?since=12&spaceId=personal&workspaceEpoch=999`, snapshot.local!.token,
-    (line) => events.push(JSON.parse(line)), () => {})
-  await until(() => events.length === 2)
-  assert.deepEqual(events, [hello(), attentionChanged])
-  assert.equal(new URL(requests[0].url).searchParams.has('workspaceEpoch'), false)
-  assert.deepEqual(Object.fromEntries(new URL(requests[2].url).searchParams), { since: '12', spaceId: 'personal', workspaceEpoch: '2' })
-  assert.ok(requests.every((request) => request.credentials === 'omit' && request.redirect === 'error' && request.cache === 'no-store'))
-  await ctl.setIdentity(null, [], [])
-})
-
-test('missing binding and unavailable authorization fail without sending a request', async () => {
-  let fetchCount = 0
-  const configured = createRemoteHub(() => ({
-    origin,
-    authorize: async () => { throw new Error('fixture proof unavailable') },
-    fetch: async () => { fetchCount++; return Response.json({}) },
-  }))
-  for (const hub of [createRemoteHub(() => null), configured]) {
-    const controller = createRemoteController(() => {}, hub, createWorkspaceSession(async () => {}))
-    await controller.setIdentity('u1', [], [personal])
-    assert.equal((await hub.host.snapshot()).local, null)
-    await assert.rejects(hub.host.call(origin, 'old-lease', 'donnaAttention', {}, 1000), { code: 'workspace_inactive' })
-    await controller.setIdentity(null, [], [])
+  const states: string[] = []
+  const controller = createRemoteController(({ status }) => states.push(status), remote, createWorkspaceSession(async () => {}))
+  return {
+    remote, controller, messages, states, sockets, advance: () => { epoch++; now++ },
+    open: () => controller.setIdentity(context.userId, [], [personal]),
+    close: () => controller.setIdentity(null, [], []),
+    last: () => states.at(-1),
   }
-  assert.equal(fetchCount, 0)
+}
+
+async function until(check: () => boolean) {
+  for (let i = 0; i < 100 && !check(); i++) await new Promise((resolve) => setTimeout(resolve, 1))
+  assert.ok(check())
+}
+
+test('opens and pairs using independent Hub transcript/possession bytes, then delivers unfiltered RPCs and events', async (t) => {
+  const f = fixture({ enrolled: false })
+  t.after(f.close)
+  await f.open()
+  assert.equal(f.last(), 'device_unpaired')
+  await f.controller.pair('fixture-code')
+  assert.equal(f.last(), 'active')
+  const local = (await f.remote.host.snapshot()).local!
+  assert.deepEqual(await f.remote.host.call(origin, local.token, 'send', { value: 'hello', workspaceEpoch: 0 }, 1000),
+    { value: 'hello', extra: true })
+  const event = await new Promise((resolve, reject) => {
+    const stop = f.remote.host.stream(origin + '/events?since=12&workspaceEpoch=0', local.token,
+      (line) => { stop(); resolve(JSON.parse(line)) }, reject)
+  })
+  assert.deepEqual(event, { type: 'entry', value: 'fixture', extension: true })
+  const terminal = await new Promise((resolve, reject) => {
+    const stop = f.remote.host.stream(origin + '/term/fixture', local.token,
+      (line) => { stop(); resolve(JSON.parse(line)) }, reject)
+  })
+  assert.deepEqual(terminal, { type: 'output', data: 'fixture' })
+  assert.deepEqual(f.messages.map((m) => m.m ?? m.sub), ['pair', 'sessionAuthenticate', 'workspaceContext', 'hello', 'send', 'events', 'term'])
 })
 
-for (const type of ['workspace_revoked', 'role_changed', 'device_revoked'] as const) {
-  test(`terminal ${type} cuts the old lease with no action replay`, async () => {
-    const streams: ReadableStreamDefaultController<Uint8Array>[] = []
-    const requests: Request[] = []
-    const cleared: string[] = []
-    const encoder = new TextEncoder()
-    const frame = (event: unknown) => encoder.encode(`data: ${JSON.stringify(event)}\n\n`)
-    const fetcher: FixtureFetch = async (request) => {
-      requests.push(request)
-      if (request.method === 'POST') return streams.length > 2 ? Response.json({}) : new Promise(() => {})
-      return new Response(new ReadableStream<Uint8Array>({
-        start(stream) { streams.push(stream); stream.enqueue(frame(hello(streams.length > 2 ? 3 : 2))) },
-      }), { headers: { 'content-type': 'text/event-stream' } })
-    }
-    const { remote, states, controller } = await activeFixture(fetcher, cleared)
-    const token = (await remote.host.snapshot()).local!.token
-    const delivered: unknown[] = []
-    remote.host.stream(`${origin}/events`, token, (line) => delivered.push(JSON.parse(line)), () => {})
-    const pending = assert.rejects(remote.host.call(origin, token, 'send', {}, 1000), { code: 'workspace_inactive' })
-    await until(() => delivered.length === 1 && requests.some((r) => r.method === 'POST'))
-    streams[1].enqueue(frame({ type, workspaceId: personal.id, workspaceEpoch: 1 }))
-    streams[1].enqueue(frame({ type: 'fixtureMarker', workspaceEpoch: 2 }))
-    await until(() => delivered.length === 2)
-    assert.equal(states.at(-1)?.status, 'active')
-    streams[1].enqueue(frame({ type, workspaceId: personal.id, workspaceEpoch: 3 }))
-    streams[1].enqueue(frame({ type: 'entry' }))
-    await pending
-    await until(() => cleared.length === 1 && (states.at(-1)?.status === 'active' || states.at(-1)?.status === 'device_revoked'))
-    if (type === 'device_revoked') {
-      assert.equal(states.at(-1)?.status, 'device_revoked')
-      assert.equal(states.at(-1)?.activeId, null)
-      assert.equal((await remote.host.snapshot()).local, null)
-      await controller.retry()
-      assert.equal(streams.length, 2)
-    } else {
-      assert.equal(states.at(-1)?.activeId, personal.id)
-      assert.equal(streams.length, 3)
-      assert.notEqual((await remote.host.snapshot()).local?.token, token)
-      assert.equal(new URL(requests[3].url).searchParams.has('workspaceEpoch'), false)
-    }
-    assert.ok(requests.slice(0, 3).every((r) => r.signal.aborted))
-    assert.equal(requests.filter((r) => r.method === 'POST').length, 1)
-    assert.deepEqual(delivered, [hello(), { type: 'fixtureMarker', workspaceEpoch: 2 }])
-    assert.deepEqual(cleared, [personal.id])
-    if (type !== 'device_revoked') {
-      const current = (await remote.host.snapshot()).local!.token
-      await remote.host.call(origin, current, 'donnaAttention', {}, 1000)
-      assert.deepEqual(await requests.at(-1)!.json(), { workspaceEpoch: 3 })
-    }
-    await controller.setIdentity(null, [], [])
+test('renews before the authenticated expiry on the same channel; no mutation is retried', async (t) => {
+  const f = fixture({ renew: true })
+  t.after(f.close)
+  await f.open()
+  await until(() => f.messages.filter((m) => m.m === 'sessionAuthenticate').length === 2)
+  assert.equal(f.last(), 'active')
+  assert.equal(f.sockets.length, 1)
+})
+
+test('missing binding or session token denies app access without sending authenticated envelopes', async (t) => {
+  let lookup = 0
+  const disabled = createRemoteHub(() => { lookup++; return null })
+  const controller = createRemoteController(() => {}, disabled, createWorkspaceSession(async () => {}))
+  await controller.setIdentity(context.userId, [], [personal])
+  assert.equal(lookup, 1)
+  assert.equal((await disabled.host.snapshot()).local, null)
+  const f = fixture({ noToken: true })
+  t.after(f.close)
+  await f.open()
+  assert.equal((await f.remote.host.snapshot()).local, null)
+  assert.deepEqual(f.messages, [])
+})
+
+for (const code of ['role_changed', 'workspace_revoked', 'device_revoked'] as const) {
+  test(`signed ${code} fences responses and purges without replay`, async (t) => {
+    const f = fixture({ holdSend: true })
+    t.after(f.close)
+    await f.open()
+    const renderer = f.remote.rendererContext()!
+    renderer.storage.setItem('sentinel', 'old')
+    const local = (await renderer.host.snapshot()).local!
+    const sending = assert.rejects(renderer.host.call(origin, local.token, 'send', {}, 1000))
+    await until(() => f.messages.some((m) => m.m === 'send'))
+    f.sockets[0].cut(code)
+    await sending
+    await until(() => f.last() === (code === 'device_revoked' ? 'device_revoked' : 'active'))
+    assert.equal(renderer.storage.getItem('sentinel'), null)
+    assert.equal((await renderer.host.snapshot()).local, null)
+    assert.equal(f.remote.rendererContext()?.storage.getItem('sentinel') ?? null, null)
+    assert.equal(f.messages.filter((m) => m.m === 'send').length, 1)
+    assert.equal(f.sockets.length, code === 'device_revoked' ? 1 : 2)
   })
 }
 
-test('epoch mismatch clears workspace cache, confirms once again, and never replays an action', async () => {
-  const cleared: string[] = []
-  const requests: Request[] = []
-  let opens = 0
-  const fetcher: FixtureFetch = async (request) => {
-    requests.push(request)
-    if (request.method === 'POST' && opens === 1) return Response.json({ error: 'epoch', code: 'workspace_epoch_mismatch' }, { status: 409 })
-    if (request.method === 'POST') return Response.json({ ok: true })
-    opens++
-    return sse([hello(opens === 1 ? 2 : 3)], true)
+for (const loss of ['unsigned reject', 'transport close'] as const) {
+  test(`${loss} is offline and retains the partition until a new session attests an epoch change`, async (t) => {
+    const f = fixture()
+    t.after(f.close)
+    await f.open()
+    f.remote.rendererContext()?.storage.setItem('sentinel', 'saved')
+    if (loss === 'unsigned reject') f.sockets[0].deliver({ t: 'reject', code: 'revoked', stableCode: 'device_revoked' })
+    else f.sockets[0].close()
+    await until(() => f.last() === 'hub_offline')
+    assert.equal(f.remote.rendererContext(), undefined)
+    await f.controller.retry()
+    assert.equal(f.remote.rendererContext()?.storage.getItem('sentinel'), 'saved')
+    f.sockets[1].close()
+    await until(() => f.last() === 'hub_offline')
+    f.advance()
+    await f.controller.retry()
+    assert.equal(f.remote.rendererContext()?.storage.getItem('sentinel'), null)
+  })
+}
+
+test('repeated authenticated epoch mismatch has a bounded recovery and never replays send', async (t) => {
+  const f = fixture({ mismatch: true })
+  t.after(f.close)
+  await f.open()
+  const send = async () => {
+    const local = (await f.remote.host.snapshot()).local!
+    await assert.rejects(f.remote.host.call(origin, local.token, 'send', {}, 1000))
   }
-  const { remote, states, controller } = await activeFixture(fetcher, cleared)
-  const token = (await remote.host.snapshot()).local!.token
-  await assert.rejects(remote.host.call(origin, token, 'send', {}, 1000), { status: 409, code: 'workspace_epoch_mismatch' })
-  await until(() => opens >= 2)
-  await until(() => states.at(-1)?.status === 'active')
-  assert.deepEqual(cleared, [personal.id])
-  assert.equal(opens, 2)
-  assert.equal(requests.filter((request) => request.method === 'POST').length, 1)
-  assert.ok(requests[0].signal.aborted)
-  await assert.rejects(remote.host.call(origin, token, 'send', {}, 1000), { code: 'workspace_inactive' })
-  const current = (await remote.host.snapshot()).local!.token
-  await remote.host.call(origin, current, 'donnaAttention', {}, 1000)
-  assert.deepEqual(await requests.at(-1)!.json(), { workspaceEpoch: 3 })
-  await controller.setIdentity(null, [], [])
-})
-
-test('a repeated 409 clears the recovered session and waits for a manual choice', async () => {
-  const cleared: string[] = []
-  const requests: Request[] = []
-  let opens = 0
-  const { remote, states, controller } = await activeFixture(async (request) => {
-    requests.push(request)
-    if (request.method === 'POST') return Response.json({ code: 'workspace_epoch_mismatch' }, { status: 409 })
-    return sse([hello(++opens)], true)
-  }, cleared)
-  const action = async () => {
-    const token = (await remote.host.snapshot()).local!.token
-    await assert.rejects(remote.host.call(origin, token, 'send', {}, 1000), { status: 409, code: 'workspace_epoch_mismatch' })
-  }
-  await action()
-  await until(() => opens === 2 && states.at(-1)?.status === 'active')
-  await action()
-  await until(() => cleared.length === 2)
-  assert.equal(opens, 2)
-  assert.equal(states.at(-1)?.status, 'unavailable')
-  assert.equal(states.at(-1)?.activeId, null)
-  assert.equal((await remote.host.snapshot()).local, null)
-  assert.equal(requests.filter((request) => request.method === 'POST').length, 2)
-  await controller.select(personal.id)
-  assert.equal(opens, 3)
-  assert.equal(states.at(-1)?.status, 'active')
-  await controller.setIdentity(null, [], [])
-})
-
-for (const failure of ['network', 'timeout']) test(`${failure} marks hub offline without retrying the action`, async () => {
-  let calls = 0
-  const fetcher: FixtureFetch = async (request) => {
-    if (new URL(request.url).pathname === '/events') return sse([hello()], true)
-    calls++
-    if (failure === 'timeout') return new Promise(() => {})
-    throw new TypeError('fixture network failure')
-  }
-  const { remote, states } = await activeFixture(fetcher)
-  const token = (await remote.host.snapshot()).local!.token
-  await assert.rejects(remote.host.call(origin, token, 'donnaAttention', {}, failure === 'timeout' ? 30 : 1000), { code: 'hub_offline' })
-  await until(() => states.at(-1)?.status === 'hub_offline')
-  assert.equal(calls, 1)
-})
-
-test('a renderer stream that ends unexpectedly reports the offline error once', async () => {
-  const { remote, states } = await activeFixture(async (request) =>
-    sse([hello()], !new URL(request.url).searchParams.has('workspaceEpoch')))
-  const ended: unknown[] = []
-  const token = (await remote.host.snapshot()).local!.token
-  remote.host.stream(`${origin}/events`, token, () => {}, (error) => ended.push(error))
-  await until(() => ended.length === 1)
-  assert.deepEqual(ended, [{ status: 0, code: 'hub_offline', message: 'hub_offline' }])
-  assert.equal(states.at(-1)?.status, 'hub_offline')
-})
-
-test('SSE accepts CR and a CRLF split between chunks', async () => {
-  const encoder = new TextEncoder()
-  const { remote, controller, states } = await activeFixture(async () => new Response(new ReadableStream({
-    start(stream) {
-      stream.enqueue(encoder.encode(`: fixture\r`))
-      stream.enqueue(encoder.encode(`\ndata: ${JSON.stringify(hello())}\r\r`))
-    },
-  }), { headers: { 'content-type': 'text/event-stream' } }))
-  assert.equal(states.at(-1)?.status, 'active')
-  assert.ok((await remote.host.snapshot()).local)
-  await controller.setIdentity(null, [], [])
+  await send()
+  await until(() => f.sockets.length === 2 && f.last() === 'active')
+  assert.equal(f.messages.filter((m) => m.m === 'send').length, 1)
+  await send()
+  await until(() => f.last() === 'unavailable')
+  assert.equal(f.sockets.length, 2)
 })
