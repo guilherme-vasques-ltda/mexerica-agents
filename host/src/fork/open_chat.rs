@@ -352,13 +352,18 @@ pub(crate) fn run(
     });
 }
 
-/// Instruções do turno só texto: descrição do bot, regras da conversa e o texto das skills selecionadas.
+/// Instruções do turno só texto: descrição do bot, regras da conversa e o texto das skills selecionadas e dos manuais do dono.
 fn instructions(hub: &Hub, cfg: &BotConfig) -> String {
-    let instructions = format!("{}\n\n{INSTRUCTIONS}", cfg.description.trim());
-    let instructions = match crate::fork::skill_catalog::open_texto_para_bot(&hub.store, &cfg.skills) {
-        Some(skills) => format!("{instructions}\n\n{skills}"),
-        None => instructions,
-    };
+    let mut instructions = format!("{}\n\n{INSTRUCTIONS}", cfg.description.trim());
+    for extra in [
+        crate::fork::skill_catalog::open_texto_para_bot(&hub.store, &cfg.skills),
+        crate::fork::open_manuais::texto_para_bot(&hub.store, cfg),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        instructions = format!("{instructions}\n\n{extra}");
+    }
     match crate::fork::open_contexto::starting_point(hub, &cfg.id) {
         Some(summary) => format!("{instructions}\n\n{summary}"),
         None => instructions,

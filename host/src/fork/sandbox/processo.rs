@@ -75,10 +75,18 @@ impl Drop for Guarda {
 
 /// Roda o comando até o fim ou o prazo.
 pub(crate) async fn rodar(lancamento: Lancamento, limites: Limites) -> Result<Saida> {
+    rodar_guardado(lancamento, limites, |command| command.spawn().context("sandbox_spawn_falhou")).await
+}
+
+pub(crate) async fn rodar_guardado(
+    lancamento: Lancamento,
+    limites: Limites,
+    spawn: impl FnOnce(&mut Command) -> Result<tokio::process::Child>,
+) -> Result<Saida> {
     let Lancamento { mut command, manter, graca } = lancamento;
     command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).process_group(0).kill_on_drop(true);
     let inicio = std::time::Instant::now();
-    let mut child = command.spawn().context("sandbox_spawn_falhou")?;
+    let mut child = spawn(&mut command)?;
     drop(manter);
     let pid = child.id().and_then(|p| i32::try_from(p).ok()).context("sandbox_sem_pid")?;
     // Declarada depois de `child`: cai antes dele, com o líder ainda sem recolher.
