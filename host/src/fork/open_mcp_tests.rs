@@ -209,6 +209,22 @@ async fn mcp_open_planetscale_nao_tenta_sse_legado() {
     let (hub, _ticket, proof) = turn_for_account(account, "local");
     let proof = proof.unwrap();
     RuntimeIntent::capture_open(&hub, &proof, ACCOUNT).unwrap().snapshot(&hub).unwrap();
+    let key = hub.store.secret_key.locked().take();
+    let refused = run(
+        &hub,
+        &proof,
+        CALL,
+        &json!({"account":ACCOUNT,"tool":"planetscale_run_sql","arguments":{}}),
+        Some(endpoint.clone()),
+        #[cfg(target_os = "linux")]
+        None,
+    )
+    .await
+    .unwrap_err();
+    assert!(refused.is::<PolicyDenied>());
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    assert_eq!(gets.load(Ordering::SeqCst), 0);
+    *hub.store.secret_key.locked() = key;
     let result = run(
         &hub,
         &proof,

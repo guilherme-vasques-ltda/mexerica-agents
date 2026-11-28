@@ -97,6 +97,12 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
         // Guarda03b antes de encaminhar: a execução vem do RuntimeIntent da Sessões3.
         let mcp_method = body["method"].as_str().ok_or_else(|| anyhow!("Método MCP obrigatório"))?;
         let intent = RuntimeIntent::capture(hub, id, connector, mcp_method)?;
+        if body["transport"] == "http"
+            && mcp_method == "tools/call"
+            && crate::market::catalogo_preflight::nome_recusado(&hub.store, connector, body["params"]["name"].as_str())?
+        {
+            return Ok(json!({"valid":false,"ruleDenied":true}));
+        }
         // Marketplace, fatia 2: a conta é lida antes do lock de memória (o cofre pode esperar).
         let conta_final = if catalog_local(&body) || (body["transport"] == "http" && mcp_method == "tools/call") {
             crate::market::vault::unlock(hub.clone()).await?;

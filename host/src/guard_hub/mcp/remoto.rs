@@ -145,6 +145,11 @@ pub(super) async fn call(
         {
             bail!("Runtime de setup não admite este método");
         }
+        if method == "tools/call"
+            && crate::market::catalogo_preflight::nome_recusado(&hub.store, connector, body["params"]["name"].as_str())?
+        {
+            return Ok(json!({"ruleDenied":true}));
+        }
         #[cfg(test)]
         crate::market::oauth::upstream02_tests::runtime_window(
             hub,

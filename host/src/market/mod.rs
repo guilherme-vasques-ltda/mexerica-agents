@@ -15,6 +15,7 @@
 //! they're reduced to a safe slug first. Secret values (API keys, tokens) stay
 //! on this computer; listings only say which keys are set.
 
+pub(crate) mod catalogo_preflight;
 pub(crate) mod contas;
 pub(crate) mod contas_api;
 pub(crate) mod contas_escolha;
@@ -238,7 +239,13 @@ pub fn connectors(store: &crate::store::Store) -> Result<Vec<Connector>> {
 pub(crate) fn connectors_locked(store: &crate::store::Store) -> Result<Vec<Connector>> {
     let (mut all, plaintext) = load_connectors(store)?;
     if oauth_binding::initialize(&mut all) || plaintext {
-        persist_connectors(store, &all)?;
+        let sealed = vault::seal(store, "connectors", &serde_json::to_string(&all)?)?;
+        crate::fork::donna_fixa::pedido::gravar(store, |db| {
+            vault::write_sealed(db, "connectors", &sealed)?;
+            catalogo_preflight::gravar(db, &all)
+        })?;
+    } else if store.kv_read(catalogo_preflight::KEY)?.is_none() {
+        crate::fork::donna_fixa::pedido::gravar(store, |db| catalogo_preflight::gravar(db, &all))?;
     }
     Ok(all)
 }
@@ -246,10 +253,6 @@ pub(crate) fn connectors_locked(store: &crate::store::Store) -> Result<Vec<Conne
 #[cfg(test)]
 pub fn skills(store: &crate::store::Store) -> Vec<Skill> {
     load(store, "skills")
-}
-
-fn persist_connectors(store: &crate::store::Store, items: &[Connector]) -> Result<()> {
-    vault::write(store, "connectors", &serde_json::to_string(items)?)
 }
 
 #[cfg(test)]
