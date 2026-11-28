@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
-import { chmod, link, lstat, mkdir, mkdtemp, open, realpath, rm } from 'node:fs/promises'
+import { chmod, link, lstat, mkdir, mkdtemp, open, realpath, rm, type FileHandle } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
@@ -73,27 +73,25 @@ async function checkDirectories(path: string, create = false) {
 
 async function verifiedBytes(source: Readable, limit: number, expected: string, signal: AbortSignal,
   destination?: { path: string; mode: number }) {
-  const fd = destination ? await open(destination.path, createFlags, 0o600).catch((error: unknown) => {
-    source.destroy()
-    throw error
-  }) : null
-  try {
-    await pipeline(source, async (chunks) => {
+  await pipeline(source, async (chunks) => {
+    let fd: FileHandle | undefined
+    try {
       let size = 0
       const hash = createHash('sha256')
       for await (const chunk of chunks as AsyncIterable<Buffer>) {
         size += chunk.length
         if (size > limit) throw new CodexPreparationError('open_codex_integrity')
         hash.update(chunk)
+        if (destination && !fd) fd = await open(destination.path, createFlags, 0o600)
         await fd?.writeFile(chunk)
       }
       if (!size || hash.digest('hex') !== expected) throw new CodexPreparationError('open_codex_integrity')
-    }, { signal })
-    if (fd && destination) {
-      await fd.chmod(destination.mode)
-      await fd.sync()
-    }
-  } finally { await fd?.close() }
+      if (fd && destination) {
+        await fd.chmod(destination.mode)
+        await fd.sync()
+      }
+    } finally { await fd?.close() }
+  }, { signal })
 }
 
 async function verifyExecutable(candidate: Candidate, digest: string, signal: AbortSignal, destination?: string) {

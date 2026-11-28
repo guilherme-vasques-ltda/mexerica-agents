@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
-import { execFileSync } from 'node:child_process'
+import childProcess, { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import fs, { chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { Readable } from 'node:stream'
@@ -111,6 +112,62 @@ test('downloads only after consent; verifies both hashes and cleans up failures'
   const { executable } = JSON.parse(await readFile(file, 'utf8'))
   assert.deepEqual(await readFile(executable), binary)
   assert.deepEqual(await readdir(dirname(executable)), ['codex'])
+})
+
+test('keeps TAR output when the extractor exits before the destination opens', { timeout: 5_000 }, async (t) => {
+  const { home, profile, file } = await fixture(t)
+  const archive = join(home, 'asset.tar.gz')
+  await writeFile(join(home, member), binary)
+  execFileSync('/usr/bin/tar', ['-czf', archive, '-C', home, member])
+  const bytes = await readFile(archive)
+  const spawn = childProcess.spawn
+  const open = fs.open
+  let extractorClosed: Promise<void> | undefined
+  let delayed = false
+  const spawnMock = t.mock.method(childProcess, 'spawn', (...args: Parameters<typeof spawn>) => {
+    const child = spawn(...args)
+    if (args[0] === '/usr/bin/tar') extractorClosed = new Promise((resolve) => child.once('close', () => resolve()))
+    return child
+  })
+  const openMock = t.mock.method(fs, 'open', async (...args: Parameters<typeof open>) => {
+    if (String(args[0]).endsWith('/codex')) {
+      assert.ok(extractorClosed)
+      await extractorClosed
+      delayed = true
+    }
+    return open(...args)
+  })
+  syncBuiltinESMExports()
+  try {
+    const prepare = createCodexPreparer(profile, 'x64', async () => true, {
+      candidates: [], asset: { ...asset, archiveHash: hash(bytes) },
+      download: async () => Readable.from([bytes]),
+    })
+    await prepare(signal)
+    assert.equal(delayed, true)
+    const { executable } = JSON.parse(await readFile(file, 'utf8'))
+    assert.deepEqual(await readFile(executable), binary)
+  } finally {
+    openMock.mock.restore()
+    spawnMock.mock.restore()
+    syncBuiltinESMExports()
+  }
+})
+
+test('rejects an empty TAR member even when both hashes match', async (t) => {
+  const { home, profile, file, share } = await fixture(t)
+  const archive = join(home, 'asset.tar.gz')
+  const empty = Buffer.alloc(0)
+  await writeFile(join(home, member), empty)
+  execFileSync('/usr/bin/tar', ['-czf', archive, '-C', home, member])
+  const bytes = await readFile(archive)
+  const prepare = createCodexPreparer(profile, 'x64', async () => true, {
+    candidates: [], asset: { ...asset, archiveHash: hash(bytes), binaryHash: hash(empty) },
+    download: async () => Readable.from([bytes]),
+  })
+  await assert.rejects(prepare(signal), { code: 'open_codex_integrity' })
+  assert.deepEqual(await readdir(share), [])
+  await assert.rejects(lstat(file), missing)
 })
 
 test('never overwrites a selection that appears after consent', async (t) => {
