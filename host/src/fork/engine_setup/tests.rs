@@ -1896,6 +1896,74 @@ async fn mx6_modelos_ocultos_pela_intencao_com_revisao_idempotencia_e_remocao() 
 /// Perfil antigo (sem conta gerenciada): "Excluir" só vale desconectado e só tira o registro da lista; o diretório do
 /// perfil do computador (login) não é tocado, e conectado/revisão errada/cofre seguem preservados.
 #[tokio::test]
+async fn remover_conta_apaga_so_o_uso_e_as_cotas_dela() {
+    let f = Fixture::new();
+    let conta = f.create("codex", "cli", "remover-uso").await;
+    let outra = f.create("codex", "cli", "manter-uso").await;
+    let id = conta["id"].as_str().unwrap();
+    let outro = outra["id"].as_str().unwrap();
+    let janelas = ["primary", "secondary"].map(|janela| crate::usage::Window {
+        id: janela.into(),
+        label: janela.into(),
+        percent: 10.0,
+        resets_at: None,
+        resets_text: None,
+        minutes: None,
+    });
+    crate::fork::uso_historico::record_open_codex(&f.hub, id, &janelas);
+    crate::fork::uso_historico::record_open_codex(&f.hub, outro, &janelas);
+    crate::fork::uso_historico::record(&f.hub, "codex", &janelas);
+    let db = &f.hub.store.db;
+    for (linha, conta) in [("a", Some(id)), ("b", Some(outro)), ("sem-conta", None)] {
+        db.locked()
+            .execute(
+                "INSERT INTO donna_turn_usage(id,bot_id,chat_id,session_id,account_id,at,input_tokens,source)
+                 VALUES(?1,'bot','chat','main',?2,1,10,'medido')",
+                rusqlite::params![linha, conta],
+            )
+            .unwrap();
+    }
+    let uso = |conta: Option<&str>| -> i64 {
+        db.locked()
+            .query_row("SELECT COUNT(*) FROM donna_turn_usage WHERE account_id IS ?1", [conta], |r| r.get(0))
+            .unwrap()
+    };
+    let cotas = |provedor: &str| -> i64 {
+        db.locked()
+            .query_row("SELECT COUNT(*) FROM donna_usage_samples WHERE provider=?1", [provedor], |r| r.get(0))
+            .unwrap()
+    };
+    let provedor = format!("codex:{id}");
+    let outro_provedor = format!("codex:{outro}");
+    let desconectada = call(
+        &f.hub,
+        &Caller::Local,
+        "donnaEngineAccountDisconnect",
+        json!({"engineAccountId": id, "expectedRevision": conta["revision"]}),
+    )
+    .await
+    .unwrap();
+    assert_eq!((uso(Some(id)), cotas(&provedor)), (1, 2));
+    let pedido = json!({"engineAccountId": id, "expectedRevision": desconectada["revision"]});
+    db.locked()
+        .execute_batch(
+            "CREATE TEMP TRIGGER recusar_limpeza BEFORE DELETE ON donna_turn_usage
+             BEGIN SELECT RAISE(ABORT, 'recusa da fixture'); END;",
+        )
+        .unwrap();
+    assert!(call(&f.hub, &Caller::Local, "donnaEngineAccountRemove", pedido.clone()).await.is_err());
+    assert!(Registry::load(&f.hub.store).unwrap().account(id).is_ok());
+    assert_eq!((uso(Some(id)), cotas(&provedor)), (1, 2));
+    db.locked().execute_batch("DROP TRIGGER recusar_limpeza").unwrap();
+
+    call(&f.hub, &Caller::Local, "donnaEngineAccountRemove", pedido).await.unwrap();
+    assert!(Registry::load(&f.hub.store).unwrap().account(id).is_err());
+    assert_eq!((uso(Some(id)), cotas(&provedor)), (0, 0));
+    assert_eq!((uso(Some(outro)), cotas(&outro_provedor)), (1, 2));
+    assert_eq!((uso(None), cotas("codex")), (1, 2));
+}
+
+#[tokio::test]
 async fn remover_perfil_antigo_desconectado_tira_so_o_registro() {
     use crate::fork::engine_accounts::{Account, AuthorizedScope};
     let f = Fixture::new();

@@ -124,6 +124,17 @@ pub(crate) fn record_open_codex(hub: &Hub, account: &str, windows: &[Window]) {
     }
 }
 
+pub(crate) fn remover_conta(db: &Connection, account: &str) -> Result<()> {
+    db.execute("DELETE FROM donna_usage_samples WHERE provider=?1", [format!("codex:{account}")])?;
+    db.execute("DELETE FROM donna_turn_usage WHERE account_id=?1", [account])?;
+    Ok(())
+}
+
+pub(crate) fn invalidar_conta(store: &Store, account: &str) {
+    let provider = format!("codex:{account}");
+    store.uso_historico.locked().ultimas.retain(|(p, _), _| p != &provider);
+}
+
 fn record_at(store: &Store, provider: &str, windows: &[Window], now: i64) -> Result<()> {
     let pendentes: Vec<&Window> = windows.iter().filter(|w| w.percent.is_finite()).collect();
     if pendentes.is_empty() {

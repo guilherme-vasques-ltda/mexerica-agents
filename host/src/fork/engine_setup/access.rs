@@ -96,6 +96,7 @@ impl Authority {
                     crate::fork::engine_accounts::managed::bot_ids_in(db, account)?.is_empty(),
                     "account_in_use: remova os vínculos dos bots primeiro."
                 );
+                crate::fork::uso_historico::remover_conta(db, account)?;
             }
             if let Some(slot) = slot {
                 db.execute("DELETE FROM kv WHERE k=?1", [slot])?;
@@ -106,6 +107,9 @@ impl Authority {
             )?;
             Ok(())
         })?;
+        if let Some(account) = unused {
+            crate::fork::uso_historico::invalidar_conta(&hub.store, account);
+        }
         // MEX-1355: mudança no cadastro tira a função de fundo da parada.
         crate::fork::background_selection::backoff::changed(&hub.store);
         Ok(())
