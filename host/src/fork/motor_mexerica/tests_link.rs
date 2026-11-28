@@ -565,6 +565,47 @@ async fn conversa_volta_por_session_load_quando_a_conexao_fecha() {
     nova.kill_and_wait().await;
 }
 
+#[tokio::test]
+#[cfg(target_os = "linux")]
+async fn conversa_retomada_oferece_o_mesmo_mcp_que_uma_nova() {
+    let case = caso!("conversa_retomada_oferece_o_mesmo_mcp_que_uma_nova");
+    let store = novo_store();
+    crate::market::vault::write(&store, &credential_slot("faux"), SEGREDO).unwrap();
+    let (antiga, mut rx) = acp_motor(store.clone());
+    let criada = antiga.request("session/new", json!({"cwd": case.dir, "mcpServers": []})).await.unwrap();
+    let sid = criada["sessionId"].as_str().unwrap();
+    antiga.request("session/set_model", json!({"sessionId": sid, "modelId": "faux/faux-1"})).await.unwrap();
+    turno_de_texto(&antiga, &mut rx, sid, "mensagem anterior ao conector").await;
+    antiga.kill_and_wait().await;
+
+    let script = case.dir.join("servidor.mjs");
+    std::fs::write(&script, SERVIDOR_MCP).unwrap();
+    let servers = json!([{"name": "fake", "command": node_path().unwrap(), "args": [script], "env": []}]);
+    let (acp, mut rx) = acp_motor(store);
+    acp.request("session/load", json!({"sessionId": sid, "cwd": case.dir, "mcpServers": servers})).await.unwrap();
+    acp.request("session/set_model", json!({"sessionId": sid, "modelId": "faux/faux-1"})).await.unwrap();
+    assert_eq!(historico_visto(&acp, &mut rx, sid).await, "historico: mensagem anterior ao conector | /historico");
+
+    let nova = acp.request("session/new", json!({"cwd": case.dir, "mcpServers": servers})).await.unwrap();
+    let nova = nova["sessionId"].as_str().unwrap();
+    assert_ne!(nova, sid);
+    acp.request("session/set_model", json!({"sessionId": nova, "modelId": "faux/faux-1"})).await.unwrap();
+    for sessao in [sid, nova] {
+        let answer = acp
+            .send(
+                "session/prompt",
+                json!({"sessionId": sessao, "prompt": [{"type": "text", "text": r#"/ferramenta mcp__fake__eco {"texto":"oi"}"#}]}),
+            )
+            .await
+            .unwrap();
+        let (result, updates, permissions) = dirigir(&acp, answer, &mut rx, true).await;
+        assert_eq!(result["stopReason"], "end_turn");
+        assert_eq!(permissions, 1);
+        assert!(texto_do_turno(&updates).contains("ferramenta respondeu: eco:oi"));
+    }
+    acp.kill_and_wait().await;
+}
+
 /// A credencial de um provedor muda DE VERDADE no cofre. A conversa que já passou por ele recomeça sem
 /// cópia (não dá para provar que a chave nova é da mesma conta); a outra conversa do mesmo bot, que só passou por
 /// outro provedor, segue intacta.

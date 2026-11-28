@@ -37,6 +37,7 @@ pub(super) fn check_send(hub: &Hub, method: &str, body: &Value) -> Result<()> {
         return Ok(());
     }
     ensure!(body.get("attachments").is_none_or(|v| v.is_null() || v.as_array().is_some_and(Vec::is_empty)), Forbidden);
+    ensure!(body["clientNonce"].as_str().is_some_and(valid_nonce), Forbidden);
     if let Some(id) = body["replyTo"].as_str().filter(|id| !id.is_empty()) {
         let target = body[if method == "send" { "botId" } else { "conversationId" }].as_str();
         ensure!(
@@ -49,6 +50,28 @@ pub(super) fn check_send(hub: &Hub, method: &str, body: &Value) -> Result<()> {
         );
     }
     Ok(())
+}
+
+fn valid_nonce(nonce: &str) -> bool {
+    !nonce.is_empty() && nonce.len() <= 128
+}
+
+pub(crate) fn receipt(hub: &Hub, chat: &str, session: &str, proof: &Value) -> Result<Vec<crate::store::Entry>> {
+    let nonce = proof["nonce"].as_str().filter(|n| valid_nonce(n)).ok_or(Forbidden)?;
+    let text = proof["text"].as_str().ok_or(Forbidden)?.trim();
+    Ok(hub
+        .store
+        .find_by_nonce(chat, nonce)
+        .filter(|e| {
+            let intent = &e.data["intent"];
+            e.session_id == session
+                && intent["text"] == text
+                && intent["revision"] == proof["revision"]
+                && intent["replyTo"] == proof["replyTo"]
+                && intent["attachments"].as_array().is_some_and(Vec::is_empty)
+        })
+        .into_iter()
+        .collect())
 }
 
 fn entry(value: &Value) -> Option<Value> {
@@ -73,6 +96,9 @@ fn entry(value: &Value) -> Option<Value> {
         ],
     )?;
     out["data"] = fields(data, &["text", "final", "author", "status", "clientNonce"])?;
+    if out["kind"] == "user" {
+        out["data"]["status"] = "sent".into();
+    }
     Some(out)
 }
 

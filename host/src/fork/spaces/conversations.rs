@@ -328,6 +328,11 @@ fn update(hub: &Hub, mut c: Conversation, b: &Value) -> Result<Value> {
     Ok(json!({"conversation":c}))
 }
 fn history(hub: &Hub, c: &Conversation, b: &Value, web: bool) -> Result<Value> {
+    if web && let Some(proof) = b.get("sendReceipt") {
+        let entries = crate::api::fork_web_chat::receipt(hub, &c.id, &c.id, proof)?;
+        let entries = entries.iter().map(|e| entry_value(c, e)).collect::<Result<Vec<_>>>()?;
+        return Ok(json!({"context":context(c),"entries":entries,"hasMore":false}));
+    }
     let before = b["beforeSeq"].as_i64().unwrap_or(i64::MAX);
     if before != i64::MAX {
         let owner: Option<String> = hub
@@ -420,11 +425,22 @@ fn send(hub: &Arc<Hub>, caller: &Caller, c: &Conversation, b: &Value) -> Result<
         }
     };
     let prompt = crate::chat::prompt::of_entry(hub, &cfg, &entry.data);
-    hub.send_cmd(
+    let delivery = hub.send_cmd(
         &c.bot_id,
         crate::agent::bot::Cmd::Send { lane: Lane::main(&c.id), entry_id: entry.id.clone(), text: prompt },
-    )?;
-    Ok(json!({"context":context(c),"entry":entry_value(c,&entry)?,"replayed":false,"queued":true}))
+    );
+    let queued = delivery.is_ok();
+    if let Err(error) = delivery {
+        if !caller.is_web_chat() {
+            return Err(error);
+        }
+        tracing::warn!(%error, "couldn't start a turn for a saved Web message");
+    }
+    let mut answer = json!({"context":context(c),"entry":entry_value(c,&entry)?,"replayed":false});
+    if queued {
+        answer["queued"] = true.into();
+    }
+    Ok(answer)
 }
 
 /// G1b: resposta do dono ao cartão de escolha. Mesma audiência do envio (guard comum, permissão

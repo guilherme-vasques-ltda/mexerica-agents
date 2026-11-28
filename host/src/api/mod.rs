@@ -7,7 +7,7 @@ mod bots;
 pub mod devices;
 mod events;
 pub(crate) mod files;
-mod fork_web_chat;
+pub(crate) mod fork_web_chat;
 mod host;
 mod http;
 mod marketplace;
