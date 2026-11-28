@@ -1,7 +1,7 @@
 //! Manuais e notas do dono na Mexerica Open: o texto que ele escreveu na aba Memória do bot entra nas instruções do
 //! turno só texto. É orientação para a conversa: não concede ferramenta, conta, permissão nem acesso a dados.
 use crate::store::{BotConfig, Store};
-use codync_mem::{files as mf, store as mem};
+use codync_mem::{files as mf, nature::KindNature, store as mem};
 
 const MAX_TOTAL: usize = 48 * 1024;
 
@@ -15,12 +15,12 @@ pub(crate) fn texto_para_bot(store: &Store, cfg: &BotConfig) -> Option<String> {
     let proprio = Some(cfg.memory_id());
     let compartilhado = crate::chat::memory::shared(cfg).then_some(None::<&str>);
     let mut blocos = Vec::new();
-    let mut total = CABECALHO.len();
+    let total = std::cell::Cell::new(CABECALHO.len());
     let mut cabe = |bloco: String| {
-        if total + 2 + bloco.len() > MAX_TOTAL {
+        if total.get() + 2 + bloco.len() > MAX_TOTAL {
             return;
         }
-        total += 2 + bloco.len();
+        total.set(total.get() + 2 + bloco.len());
         blocos.push(bloco);
     };
     let lido = store.memory_read(|c| {
@@ -37,12 +37,16 @@ pub(crate) fn texto_para_bot(store: &Store, cfg: &BotConfig) -> Option<String> {
         }
         let mut lembrancas = Vec::new();
         for camada in std::iter::once(proprio).chain(compartilhado) {
-            lembrancas.extend(
-                mem::layer(c, camada)?
-                    .into_iter()
-                    .filter(|e| e.state == mem::State::Active)
-                    .map(|e| format!("- {}", e.text.trim())),
-            );
+            lembrancas.extend(mem::layer(c, camada)?.into_iter().filter(|e| e.state == mem::State::Active).map(|e| {
+                match (e.nature, e.conflict_text.as_deref()) {
+                    (KindNature::Conflict, Some(outra)) => {
+                        format!("- {} (conflita com outra versão: {})", e.text.trim(), outra.trim())
+                    }
+                    (KindNature::Conflict, None) => format!("- {} (versão em conflito)", e.text.trim()),
+                    (KindNature::Inferred, _) => format!("- {} (inferência, não confirmada pelo dono)", e.text.trim()),
+                    _ => format!("- {}", e.text.trim()),
+                }
+            }));
         }
         Ok((notas, lembrancas))
     });
@@ -53,8 +57,20 @@ pub(crate) fn texto_para_bot(store: &Store, cfg: &BotConfig) -> Option<String> {
             return None;
         }
     };
-    if !lembrancas.is_empty() {
-        cabe(format!("## Lembranças\n{}", lembrancas.join("\n")));
+    let titulo = "## Lembranças";
+    let mut usado = titulo.len();
+    let cabem: Vec<String> = lembrancas
+        .into_iter()
+        .filter(|linha| {
+            let cabe = total.get() + 2 + usado + 1 + linha.len() <= MAX_TOTAL;
+            if cabe {
+                usado += 1 + linha.len();
+            }
+            cabe
+        })
+        .collect();
+    if !cabem.is_empty() {
+        cabe(format!("{titulo}\n{}", cabem.join("\n")));
     }
     notas.into_iter().for_each(&mut cabe);
     (!blocos.is_empty()).then(|| format!("{CABECALHO}\n\n{}", blocos.join("\n\n")))
@@ -98,5 +114,23 @@ mod tests {
         let texto = texto_para_bot(&store, &cfg).unwrap();
         assert!(texto.contains("Atendo clientes em português") && texto.contains("Passo a passo do manual"));
         assert!(!texto.contains("outro bot") && !texto.contains("Segredo"));
+    }
+
+    #[test]
+    fn lembrancas_grandes_entram_uma_a_uma_dentro_do_limite() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("t.db")).unwrap();
+        let cfg = bot("bot-a");
+        {
+            let db = store.db.locked();
+            for n in 0..13 {
+                let texto = format!("{n}{}", "x".repeat(3999));
+                mem::add(&db, Writer::User, New { bot: Some("bot-a"), text: &texto, room: None, evidence: &[] }, 1, n)
+                    .unwrap();
+            }
+        }
+        let texto = texto_para_bot(&store, &cfg).unwrap();
+        assert!(texto.len() <= MAX_TOTAL, "{}", texto.len());
+        assert!(texto.matches("\n- ").count() >= 10);
     }
 }
