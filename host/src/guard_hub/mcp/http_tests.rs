@@ -383,14 +383,14 @@ async fn planetscale_recusa_recursos_e_prompts_antes_de_entregar_alvo() {
 async fn perfil_streamable_nao_envia_header_a_outro_caminho_na_mesma_origem() {
     struct StreamableOnly(Url);
     impl Mediation for StreamableOnly {
-        async fn target(&mut self, _method: &str, _stale: bool) -> Result<Target> {
+        fn target(&mut self, _method: &str, _stale: bool) -> impl Future<Output = Result<Target>> {
             let mut headers = HeaderMap::new();
             headers.insert("authorization", "Bearer fixture-service".parse().unwrap());
-            Ok(Target { url: self.0.clone(), headers, streamable_only: true })
+            std::future::ready(Ok(Target { url: self.0.clone(), headers, streamable_only: true }))
         }
 
-        async fn observe(&mut self, _frame: Value, _method: &str) -> Result<Option<Value>> {
-            Ok(None)
+        fn observe(&mut self, _frame: Value, _method: &str) -> impl Future<Output = Result<Option<Value>>> {
+            std::future::ready(Ok(None))
         }
     }
     for status in [StatusCode::NOT_FOUND, StatusCode::METHOD_NOT_ALLOWED, StatusCode::TEMPORARY_REDIRECT] {
