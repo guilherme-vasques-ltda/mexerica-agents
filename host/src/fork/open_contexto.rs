@@ -175,7 +175,7 @@ fn compact(hub: &Arc<Hub>, chat: &Chat, state: &State, context: Option<&str>) ->
     ensure!(chat.thread.is_some(), "context_unavailable");
     ensure!(state.usage.as_ref().is_some_and(|u| u.size > 0 && u.epoch == state.epoch), "context_unavailable");
     ensure!(context == Some(context_id(hub, chat, state.epoch)?.as_str()), "context_engine_changed");
-    open_chat::precheck(hub, &chat.cfg)?;
+    open_chat::precheck(hub, &chat.cfg, "")?;
     let ticket = open_chat::admit_locked(&mut RUNNING.locked(), hub, &chat.cfg).map_err(|error| {
         if error.to_string().starts_with("open_chat_busy") { anyhow!("context_busy") } else { error }
     })?;
@@ -207,7 +207,7 @@ pub(crate) async fn clear(hub: &Arc<Hub>, caller: &Caller, body: Value) -> Resul
         hub_id: None,
     };
     let chat = resolve(hub, &read)?;
-    open_chat::precheck(hub, &chat.cfg)?;
+    open_chat::precheck(hub, &chat.cfg, "")?;
     let mut ticket = open_chat::admit_locked(&mut RUNNING.locked(), hub, &chat.cfg)?;
     let result = clear_chat(hub, &mut ticket, &chat).await;
     open_chat::release(hub, ticket);
