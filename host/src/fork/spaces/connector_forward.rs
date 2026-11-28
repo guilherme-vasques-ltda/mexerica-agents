@@ -30,12 +30,7 @@ where
     G: FnMut(String, String, Phase, Value) -> Guard,
     Guard: Future<Output = Result<()>>,
 {
-    let mut bytes = serde_json::to_vec(frame)?;
-    bytes.push(b'\n');
-    ensure!(bytes.ends_with(b"}\n"), "mcp_request_frame_invalid");
-    let (prefix, commit) = bytes.split_at(bytes.len() - 2);
-    tokio::time::timeout(Duration::from_secs(30), async {
-        writer.write_all(prefix).await?;
+    write_with(writer, frame, async |writer, commit| {
         let mut admission = None;
         poll_fn(|cx| {
             let check = admission.get_or_insert_with(|| {
@@ -43,13 +38,37 @@ where
             });
             ready!(check.as_mut().poll(cx))?;
             admission = None;
-            let written = ready!(Pin::new(&mut *writer).poll_write(cx, commit))?;
-            if written != commit.len() {
-                return Poll::Ready(Err(anyhow::anyhow!("mcp_request_non_atomic_commit")));
-            }
-            Poll::Ready(Ok::<(), anyhow::Error>(()))
+            poll_commit(writer, cx, commit)
         })
-        .await?;
+        .await
+    })
+    .await
+}
+
+pub(crate) fn poll_commit<W: AsyncWrite + Unpin>(
+    writer: &mut W,
+    cx: &mut std::task::Context<'_>,
+    commit: &[u8],
+) -> Poll<Result<()>> {
+    let written = ready!(Pin::new(writer).poll_write(cx, commit))?;
+    if written != commit.len() {
+        return Poll::Ready(Err(anyhow::anyhow!("mcp_request_non_atomic_commit")));
+    }
+    Poll::Ready(Ok(()))
+}
+
+pub(crate) async fn write_with<W: AsyncWrite + Unpin>(
+    writer: &mut W,
+    frame: &Value,
+    commit_frame: impl AsyncFnOnce(&mut W, &[u8]) -> Result<()>,
+) -> Result<()> {
+    let mut bytes = serde_json::to_vec(frame)?;
+    bytes.push(b'\n');
+    ensure!(bytes.ends_with(b"}\n"), "mcp_request_frame_invalid");
+    let (prefix, commit) = bytes.split_at(bytes.len() - 2);
+    tokio::time::timeout(Duration::from_secs(30), async {
+        writer.write_all(prefix).await?;
+        commit_frame(writer, commit).await?;
         writer.flush().await?;
         Ok::<(), anyhow::Error>(())
     })

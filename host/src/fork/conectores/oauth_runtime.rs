@@ -114,6 +114,12 @@ impl RuntimeIntent {
     fn validate_open_account(saved: &Connector, bot: &crate::store::BotConfig) -> Result<()> {
         market::contas::exigir_mesmo_space(saved, &bot.space_id)?;
         let tipo = market::contas::tipo_da_conta(saved)?.ok_or_else(denied)?;
+        if tipo.tipo == super::catalogo_servicos::Tipo::Local {
+            ensure!(
+                cfg!(target_os = "linux") && super::catalogo_local::da_conta(saved).is_some(),
+                "Artefato MCP local indisponível"
+            );
+        }
         let connected = match &tipo.auth {
             Auth::Oauth { .. } | Auth::AppProprio { .. } => {
                 saved.oauth.as_ref().is_some_and(market::oauth::OAuth::signed_in)
@@ -131,7 +137,7 @@ impl RuntimeIntent {
                 && saved.headers.values().all(|value| !value.starts_with("op://"))
                 && !saved.oauth_binding.as_ref().is_some_and(oauth_binding::Binding::scopes_retained)
                 && market::ferramentas::politica(saved)?.is_some(),
-            "Conector remoto indisponível"
+            "Conector MCP indisponível"
         );
         Ok(())
     }

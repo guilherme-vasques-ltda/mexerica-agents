@@ -208,7 +208,7 @@ pub(super) fn observe(
 pub(crate) enum Observation<'a> {
     Legacy { intent: &'a RuntimeIntent, transport: &'a str },
     Curated(&'a contexto::Context),
-    Open(&'a crate::fork::open_turn::LocalTurn),
+    Open { turn: &'a crate::fork::open_turn::LocalTurn, catalog_local: bool },
 }
 
 /// Inspetor e recibo comuns; cada produtor mantém autoridade e gravação transacional próprias.
@@ -222,7 +222,9 @@ pub(crate) fn observe_checked(
     let (context, native, transport, late) = match origin {
         Observation::Legacy { intent, transport } => (intent.context(), None, transport, intent.late_notification()),
         Observation::Curated(context) => (Some(context), None, "http", false),
-        Observation::Open(turn) => (None, Some(turn), "http", false),
+        Observation::Open { turn, catalog_local } => {
+            (None, Some(turn), if catalog_local { "catalog-local" } else { "http" }, false)
+        }
     };
     let frame = body.get("frame").ok_or_else(|| anyhow!("Mensagem obrigatória"))?;
     let method = body["method"].as_str().unwrap_or("unknown");

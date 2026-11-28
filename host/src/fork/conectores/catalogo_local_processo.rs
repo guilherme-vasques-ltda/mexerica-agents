@@ -1,6 +1,7 @@
 use super::Artefato;
+use crate::{fork::conectores::oauth_runtime::RuntimeIntent, hub::Hub, market::Connector};
 use anyhow::{Context, Result};
-use std::{io, process::Stdio};
+use std::{io, process::Stdio, sync::Arc};
 use tempfile::TempDir;
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 
@@ -11,13 +12,37 @@ pub(crate) struct Processo {
 }
 
 impl Processo {
-    pub(crate) async fn iniciar(artefato: &Artefato) -> Result<Self> {
+    pub(crate) async fn iniciar(
+        hub: Arc<Hub>,
+        intent: Arc<RuntimeIntent>,
+        conta: Connector,
+        #[cfg(test)] raiz: Option<&std::path::Path>,
+    ) -> Result<Self> {
         crate::fork::motor_exec::refuse("MCP local do catálogo")?;
-        let (dir, command) = Artefato::preparar(artefato.id()).await?;
-        Self::lancar(dir, command).await
+        let artefato = super::da_conta(&conta).context("Artefato MCP não fixado")?;
+        let (dir, command) = {
+            #[cfg(test)]
+            if let Some(raiz) = raiz {
+                artefato.preparar_em(raiz).await?
+            } else {
+                Artefato::preparar(artefato.id()).await?
+            }
+            #[cfg(not(test))]
+            Artefato::preparar(artefato.id()).await?
+        };
+        Self::lancar(dir, command, move |command| {
+            intent.with_open_current(&hub, &conta, |_, _| {
+                command.spawn().context("Não foi possível iniciar o MCP do catálogo")
+            })
+        })
+        .await
     }
 
-    async fn lancar(dir: TempDir, mut command: Command) -> Result<Self> {
+    async fn lancar(
+        dir: TempDir,
+        mut command: Command,
+        spawn: impl FnOnce(&mut Command) -> Result<Child> + Send + 'static,
+    ) -> Result<Self> {
         let pai = std::process::id();
         command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).process_group(0).kill_on_drop(true);
         // SAFETY: entre fork e exec só há syscalls sem alocação; a thread criadora vive enquanto o Hub vive.
@@ -34,7 +59,7 @@ impl Processo {
         }
         crate::fork::motor_exec::criador::criar(
             move || {
-                let child = command.spawn().context("Não foi possível iniciar o MCP do catálogo")?;
+                let child = spawn(&mut command)?;
                 let grupo = child.id().and_then(|id| i32::try_from(id).ok()).context("MCP do catálogo sem PID")?;
                 Ok(Self { child, grupo, _dir: dir })
             },
@@ -47,6 +72,10 @@ impl Processo {
         let entrada = self.child.stdin.take().context("Entrada MCP indisponível")?;
         let saida = self.child.stdout.take().context("Saída MCP indisponível")?;
         Ok((entrada, saida))
+    }
+
+    pub(crate) fn home(&self) -> &std::path::Path {
+        self._dir.path()
     }
 }
 
@@ -61,11 +90,81 @@ impl Drop for Processo {
 mod tests {
     use super::*;
     use tokio::{
-        io::{AsyncBufReadExt, BufReader},
+        io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
         time::{Duration, timeout},
     };
 
     const FIXTURE: &[u8] = include_bytes!("../../../tests/fixtures/catalogo-stdio.sh");
+
+    #[tokio::test]
+    #[ignore = "executado como subprocesso pelo teste de morte do Hub"]
+    async fn processo_catalogo_hub_fixture() -> Result<()> {
+        let root = std::env::var_os("MEXERICA_FIXTURE_ROOT").context("diretório de teste ausente")?;
+        let root = std::path::Path::new(&root);
+        let artifact = super::super::da_ficha("fixture-stdio", "fixture-stdio.local").context("fixture")?;
+        let (dir, command) = artifact.preparar_em(root).await?;
+        let mut process = Processo::lancar(dir, command, |command| Ok(command.spawn()?)).await?;
+        let (mut input, output) = process.pipes()?;
+        input.write_all(b"fixture-home\n").await?;
+        let mut ready = String::new();
+        timeout(Duration::from_secs(2), BufReader::new(output).read_line(&mut ready)).await??;
+        anyhow::ensure!(ready.trim_end() == process.home().to_string_lossy(), "processo de teste não respondeu");
+        let record = format!("{}\n{}", process.grupo, ready);
+        tokio::fs::write(root.join("starting"), record).await?;
+        tokio::fs::rename(root.join("starting"), root.join("ready")).await?;
+        std::future::pending::<()>().await;
+        drop((process, input));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn processo_catalogo_termina_quando_hub_morre_sem_drop() -> Result<()> {
+        let root = tempfile::tempdir_in("/tmp")?;
+        let artifacts = root.path().join("mcp-artifacts");
+        tokio::fs::create_dir(&artifacts).await?;
+        tokio::fs::write(artifacts.join("fixture-stdio"), FIXTURE).await?;
+        let test = concat!(module_path!(), "::processo_catalogo_hub_fixture");
+        let (_, test) = test.split_once("::").context("nome de teste inválido")?;
+        let mut hub = Command::new(std::env::current_exe()?)
+            .env_clear()
+            .env("MEXERICA_FIXTURE_ROOT", root.path())
+            .args(["--ignored", "--exact", test])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .spawn()?;
+        let record = timeout(Duration::from_secs(5), async {
+            loop {
+                match tokio::fs::read_to_string(root.path().join("ready")).await {
+                    Ok(record) => break Ok(record),
+                    Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                        tokio::time::sleep(Duration::from_millis(20)).await;
+                    }
+                    Err(e) => break Err(e),
+                }
+            }
+        })
+        .await??;
+        let (pid, home) = record.trim_end().split_once('\n').context("processo de teste sem identificação")?;
+        let pid: u32 = pid.parse()?;
+        let status = format!("/proc/{pid}/stat");
+        anyhow::ensure!(tokio::fs::try_exists(&status).await?, "processo de teste morreu antes do Hub");
+        hub.kill().await?;
+        let stopped = timeout(Duration::from_secs(5), async {
+            loop {
+                match tokio::fs::read_to_string(&status).await {
+                    Ok(stat) if stat.rsplit_once(") ").is_some_and(|(_, tail)| tail.starts_with("Z ")) => break Ok(()),
+                    Ok(_) => tokio::time::sleep(Duration::from_millis(20)).await,
+                    Err(e) if e.kind() == io::ErrorKind::NotFound => break Ok(()),
+                    Err(e) => break Err(e),
+                }
+            }
+        })
+        .await;
+        tokio::fs::remove_dir_all(home).await?;
+        stopped??;
+        Ok(())
+    }
 
     #[tokio::test]
     async fn processo_do_catalogo_recebe_ambiente_privado_e_termina_no_drop() -> Result<()> {
@@ -77,8 +176,9 @@ mod tests {
         let artifact = super::super::da_ficha("fixture-stdio", "fixture-stdio.local").context("fixture")?;
         let (dir, command) = artifact.preparar_em(root.path()).await?;
         let home = dir.path().to_string_lossy().into_owned();
-        let mut process = Processo::lancar(dir, command).await?;
-        let (input, output) = process.pipes()?;
+        let mut process = Processo::lancar(dir, command, |command| Ok(command.spawn()?)).await?;
+        let (mut input, output) = process.pipes()?;
+        input.write_all(b"fixture-home\n").await?;
         let mut output = BufReader::new(output);
         let mut ready = String::new();
         timeout(Duration::from_secs(2), output.read_line(&mut ready)).await??;
