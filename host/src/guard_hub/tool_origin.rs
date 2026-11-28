@@ -17,13 +17,22 @@ pub(crate) fn internal_servers(
     definitions: &Value,
     exe: &Path,
     bot: &str,
-    port: u16,
+    destination: (u16, Option<&Path>),
     space: &str,
     slot: Option<&str>,
     tool_binding: Option<&str>,
     binding: Option<&str>,
 ) -> HashSet<String> {
     let Some(definitions) = definitions.as_array() else { return HashSet::new() };
+    let (port, socket) = destination;
+    let socket = match (port, socket) {
+        (crate::fork::bridge_http::SOCKET_PORT, Some(socket)) => {
+            let Some(socket) = socket.to_str() else { return HashSet::new() };
+            Some(socket)
+        }
+        (port, None) if port != crate::fork::bridge_http::SOCKET_PORT => None,
+        _ => return HashSet::new(),
+    };
     crate::agent::engine_permissions::HUB_SERVERS
         .iter()
         .filter(|name| {
@@ -51,6 +60,11 @@ pub(crate) fn internal_servers(
                 && let Some(env) = expected["env"].as_array_mut()
             {
                 env.push(serde_json::json!({"name":crate::fork::sessoes::bindings::ENV,"value":binding}));
+            }
+            if let Some(socket) = socket
+                && let Some(env) = expected["env"].as_array_mut()
+            {
+                env.push(serde_json::json!({"name":crate::fork::bridge_http::SOCKET_ENV,"value":socket}));
             }
             let first = first.cloned().map(|mut definition| {
                 if let Some(env) = definition["env"].as_array_mut() {
@@ -310,6 +324,31 @@ mod tests {
     }
 
     #[test]
+    fn private_hub_requires_its_exact_socket_in_internal_definitions() {
+        let socket = "/private/fixture/s";
+        let env = crate::fork::bridge_http::SOCKET_ENV;
+        let definition = json!({"name":"manage","command":"/hub",
+            "args":["mcp","manage","--bot","bot","--port","0"],
+            "env":[{"name":"DONNABOT_SPACE_ID","value":"space"},
+                {"name":SESSION_SLOT_ENV,"value":MAIN_SLOT},{"name":env,"value":socket}]});
+        let known = |definition: Value, destination| {
+            internal_servers(&json!([definition]), Path::new("/hub"), "bot", destination, "space", None, None, None)
+                .contains("manage")
+        };
+        let private = (0, Some(Path::new(socket)));
+        assert!(known(definition.clone(), private));
+        assert!(!known(definition.clone(), (0, None)));
+        assert!(!known(definition.clone(), (0, Some(Path::new("/private/other/s")))));
+        assert!(!known(definition.clone(), (123, None)));
+        let mut duplicate = definition.clone();
+        duplicate["env"].as_array_mut().unwrap().push(json!({"name":env,"value":socket}));
+        assert!(!known(duplicate, private));
+        let mut absent = definition;
+        absent["env"].as_array_mut().unwrap().pop();
+        assert!(!known(absent, private));
+    }
+
+    #[test]
     fn only_adapter_identity_bound_to_unique_hub_definition_is_internal() {
         let definition = json!({"name":"manage","command":"/hub",
             "args":["mcp","manage","--bot","donna","--port","123"],"env":[{"name":"DONNABOT_SPACE_ID","value":"personal-fixture"},
@@ -318,7 +357,7 @@ mod tests {
             &json!([definition]),
             Path::new("/hub"),
             "donna",
-            123,
+            (123, None),
             "personal-fixture",
             None,
             None,
@@ -336,7 +375,7 @@ mod tests {
                 &json!([contextual]),
                 Path::new("/hub"),
                 "donna",
-                123,
+                (123, None),
                 "personal-fixture",
                 Some("conversation:adicional"),
                 Some("vinculo-emitido"),
@@ -349,7 +388,7 @@ mod tests {
                 &json!([contextual]),
                 Path::new("/hub"),
                 "donna",
-                123,
+                (123, None),
                 "personal-fixture",
                 Some("conversation:adicional"),
                 Some("outro-vinculo"),
@@ -363,7 +402,7 @@ mod tests {
                 &json!([definition]),
                 Path::new("/hub"),
                 "donna",
-                123,
+                (123, None),
                 "different-space",
                 None,
                 None,
@@ -377,7 +416,7 @@ mod tests {
                 &json!([definition]),
                 Path::new("/hub"),
                 "donna",
-                123,
+                (123, None),
                 "personal-fixture",
                 in_group,
                 None,
@@ -388,8 +427,17 @@ mod tests {
         );
         for definitions in [json!([definition, definition]), json!([{"name":"manage","command":"third-party"}])] {
             assert!(
-                internal_servers(&definitions, Path::new("/hub"), "donna", 123, "personal-fixture", None, None, None)
-                    .is_empty()
+                internal_servers(
+                    &definitions,
+                    Path::new("/hub"),
+                    "donna",
+                    (123, None),
+                    "personal-fixture",
+                    None,
+                    None,
+                    None
+                )
+                .is_empty()
             );
         }
         // Codex só tem identidade no envelope MCP marcado por `_meta.is_mcp_tool_call`.
@@ -746,7 +794,7 @@ mod tests {
             &definitions,
             Path::new("/hub"),
             "donna",
-            123,
+            (123, None),
             "personal-fixture",
             None,
             None,
@@ -754,8 +802,17 @@ mod tests {
         );
         assert!(known.contains("routines"));
         assert!(
-            !internal_servers(&definitions, Path::new("/hub"), "donna", 123, "personal-fixture", None, None, None)
-                .contains("routines")
+            !internal_servers(
+                &definitions,
+                Path::new("/hub"),
+                "donna",
+                (123, None),
+                "personal-fixture",
+                None,
+                None,
+                None
+            )
+            .contains("routines")
         );
         let mut forged = definitions.clone();
         forged[0]["command"] = "/not-the-hub".into();
@@ -764,7 +821,7 @@ mod tests {
                 &forged,
                 Path::new("/hub"),
                 "donna",
-                123,
+                (123, None),
                 "personal-fixture",
                 None,
                 None,
@@ -822,12 +879,21 @@ mod binding_tests {
                 {"name":crate::fork::sessoes::bindings::ENV,"value":"binding-a"}]});
         let definitions = json!([definition]);
         assert!(
-            internal_servers(&definitions, Path::new("/hub"), "bot", 123, "personal", None, None, Some("binding-a"))
-                .contains("memory")
+            internal_servers(
+                &definitions,
+                Path::new("/hub"),
+                "bot",
+                (123, None),
+                "personal",
+                None,
+                None,
+                Some("binding-a")
+            )
+            .contains("memory")
         );
         for binding in [None, Some("binding-b")] {
             assert!(
-                internal_servers(&definitions, Path::new("/hub"), "bot", 123, "personal", None, None, binding)
+                internal_servers(&definitions, Path::new("/hub"), "bot", (123, None), "personal", None, None, binding)
                     .is_empty()
             );
         }
@@ -844,8 +910,17 @@ mod binding_tests {
         invalid[0]["env"][2]["value"] = json!("not-a-capability");
         for malformed in [swapped, duplicate, extra, invalid] {
             assert!(
-                internal_servers(&malformed, Path::new("/hub"), "bot", 123, "personal", None, None, Some("binding-a"))
-                    .is_empty()
+                internal_servers(
+                    &malformed,
+                    Path::new("/hub"),
+                    "bot",
+                    (123, None),
+                    "personal",
+                    None,
+                    None,
+                    Some("binding-a")
+                )
+                .is_empty()
             );
         }
     }
@@ -862,7 +937,7 @@ mod memory_transport_tests {
             "env":[{"name":"DONNABOT_SPACE_ID","value":"space"},{"name":SESSION_SLOT_ENV,"value":"main"},
                 {"name":crate::fork::memory_auto::transport::ENV,"value":uuid::Uuid::new_v4().to_string()}]});
         let recognized = |definition: Value| {
-            internal_servers(&json!([definition]), Path::new("/hub"), "bot", 123, "space", None, None, None)
+            internal_servers(&json!([definition]), Path::new("/hub"), "bot", (123, None), "space", None, None, None)
                 .contains("memory")
         };
         assert!(recognized(memory.clone()));
@@ -888,7 +963,7 @@ mod memory_transport_tests {
                 &json!([definition]),
                 Path::new("/hub"),
                 "bot",
-                123,
+                (123, None),
                 "space",
                 Some("conversation:chat"),
                 Some("binding"),
@@ -926,7 +1001,7 @@ mod dual_binding_tests {
                 &json!([value]),
                 Path::new("/hub"),
                 "bot",
-                123,
+                (123, None),
                 "space",
                 Some("conversation:chat"),
                 Some("tool-original"),

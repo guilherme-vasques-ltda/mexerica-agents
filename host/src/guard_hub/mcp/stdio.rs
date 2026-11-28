@@ -558,7 +558,7 @@ pub async fn serve(connector: String, port: u16, context: String, catalog_local:
         },
     );
     let token = token.trim();
-    let url = format!("http://127.0.0.1:{port}/api/");
+    let bridge = crate::fork::bridge_http::BridgeHttp::new(port)?;
     let call = |method: &str, extra: Value| {
         let mut body = json!({"connector":connector,"context":context});
         if catalog_local {
@@ -569,7 +569,7 @@ pub async fn serve(connector: String, port: u16, context: String, catalog_local:
         {
             body.extend(obj.clone());
         }
-        crate::http().post(format!("{url}{method}")).bearer_auth(token).json(&body).timeout(Duration::from_secs(30))
+        bridge.post(method).bearer_auth(token).json(&body).timeout(Duration::from_secs(30))
     };
     let mut bridge_id = uuid::Uuid::new_v4().to_string();
     // Uma única saída garante a liberação inclusive se a resposta ao Runtime

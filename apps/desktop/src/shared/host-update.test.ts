@@ -17,6 +17,17 @@ test('denied session cannot start, restart, install or call the local host', asy
   assert.equal(f.host.local, null)
 })
 
+test('private Hub ignores a legacy port override and stays off for a remote choice', async () => {
+  const f = hostUpdateFixture({ bundledMacLocalHub: true, macLocalHub: true, localHost: false,
+    installed: false, hubLocation: 'remote', devPort: '19433', devPortVar: 'MEXERICA_PORT' })
+  await f.host.refresh()
+  assert.equal(f.devPort, null)
+  assert.equal(f.host.state.kind, 'disabled')
+  assert.equal(f.host.local, null)
+  assert.deepEqual(f.calls, [])
+  assert.deepEqual(f.fetched, [])
+})
+
 for (const platform of ['darwin', 'win32']) {
   test(`${platform}: updating stops the bundled host after unregistering screen and persists restart`, async () => {
     const f = hostUpdateFixture({ platform })

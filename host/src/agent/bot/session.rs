@@ -143,13 +143,14 @@ impl Actor {
             tracing::warn!("can't locate donnabot-host for MCP servers");
             return Ok((json!([]), crate::fork::conectores::Definitions::default()));
         };
-        let port = self.hub.port;
+        let port = self.hub.bridge_port();
         let tool_binding = self.cfg.context.as_ref().map(|_| uuid::Uuid::new_v4().to_string());
         let mut servers: Vec<Value> =
             (if offered.connectors.is_empty() { Vec::new() } else { crate::market::connectors(&self.hub.store)? })
                 .iter()
                 // Marketplace: conta de outro Space nunca vira servidor MCP deste bot, mesmo que a lista a cite.
                 .filter(|c| offered.connectors.contains(&c.id) && c.space == self.cfg.space_id)
+                .filter(|c| self.hub.desktop_socket.get().is_none() || crate::market::contas::desktop_catalog(c))
                 .map(|c| {
                     crate::fork::spaces::connector_context::definition(
                         &self.hub,
@@ -758,7 +759,7 @@ impl Actor {
                         servers,
                         &exe,
                         &self.cfg.id,
-                        self.hub.port,
+                        (self.hub.bridge_port(), self.hub.desktop_socket.get().map(std::path::PathBuf::as_path)),
                         &self.cfg.space_id,
                         slot,
                         crate::fork::spaces::tool_context::definition_binding(servers),

@@ -3,7 +3,10 @@ pub(crate) mod anthropic_automation;
 pub(crate) mod antigravity;
 pub mod autoridade;
 pub mod bootstrap;
+pub(crate) mod bridge_http;
 pub(crate) mod cadeias;
+#[cfg(unix)]
+pub(crate) mod desktop_socket;
 pub(crate) mod open_canal;
 pub(crate) mod open_chat;
 pub(crate) mod open_chat_anexos;

@@ -15,7 +15,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard};
+use std::sync::{Arc, Mutex, OnceLock, RwLock, RwLockReadGuard};
 use std::time::Duration;
 use tokio::sync::{broadcast, watch};
 
@@ -123,6 +123,7 @@ pub struct Hub {
     /// Repasse local dos planos de código (iniciado sob demanda).
     pub(crate) planos: tokio::sync::OnceCell<Arc<crate::fork::planos_codigo::Repasse>>,
     pub port: u16,
+    pub(crate) desktop_socket: OnceLock<std::path::PathBuf>,
     pub events: broadcast::Sender<Value>,
     /// Held across "mutate store + broadcast" so events leave in rev order.
     pub(crate) emit_lock: Mutex<()>,
@@ -169,6 +170,10 @@ pub struct Hub {
 }
 
 impl Hub {
+    pub(crate) fn bridge_port(&self) -> u16 {
+        if self.desktop_socket.get().is_some() { crate::fork::bridge_http::SOCKET_PORT } else { self.port }
+    }
+
     pub fn busy(&self) -> bool {
         self.runtime.locked().values().any(|r| matches!(r.status, BotStatus::Working | BotStatus::NeedsInput))
             || self.terms.busy()
@@ -196,6 +201,7 @@ impl Hub {
             consumidos: Mutex::new(crate::fork::prova_health::Consumidos::new()),
             planos: tokio::sync::OnceCell::new(),
             port,
+            desktop_socket: OnceLock::new(),
             events,
             emit_lock: Mutex::new(()),
             bots: Mutex::default(),

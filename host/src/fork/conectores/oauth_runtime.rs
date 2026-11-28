@@ -243,6 +243,10 @@ impl RuntimeIntent {
                 .iter()
                 .find(|c| c.id == self.connector() && c.command.is_none() && c.configured())
                 .ok_or_else(|| anyhow!("Conector remoto indisponível"))?;
+            ensure!(
+                hub.desktop_socket.get().is_none() || market::contas::desktop_catalog(saved),
+                "Conector fora do catálogo do app"
+            );
             if let Some(expected) = expected {
                 ensure!(oauth_binding::same_target(saved, expected), "Login antigo: o vínculo do conector mudou");
             }

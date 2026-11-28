@@ -8,7 +8,7 @@ import { rcIdentity } from '../fork-rc-profile.ts'
 import { THROTTLE_SECONDS, expectedProgramArguments, launchdServiceAbsent, localHostOff, macPlistValid, uninstallArgs } from '../fork-mac-local-hub.ts'
 import { loadMainModule, settle } from './main-module.ts'
 
-export function hostUpdateFixture(options: { environment?: 'main' | 'dev'; rc?: boolean; platform?: string; devPort?: string; devPortVar?: string; env?: Record<string, string>; existing?: string[]; installed?: boolean; missingBinary?: boolean; restartMarker?: boolean; localHost?: boolean; macLocalHub?: boolean; hubLocation?: string; canUseHost?: boolean } = {}) {
+export function hostUpdateFixture(options: { environment?: 'main' | 'dev'; rc?: boolean; platform?: string; devPort?: string; devPortVar?: string; env?: Record<string, string>; existing?: string[]; installed?: boolean; missingBinary?: boolean; restartMarker?: boolean; localHost?: boolean; macLocalHub?: boolean; bundledMacLocalHub?: boolean; hubLocation?: string; canUseHost?: boolean } = {}) {
   const identity = environmentProfile(options.environment ?? 'main')
   const platform = options.platform ?? 'darwin'
   const binary = platform === 'win32' ? '/bundle/donnabot-host.exe' : platform === 'linux' ? '/home/usuario/.local/bin/donnabot-host' : '/bundle/donnabot-host'
@@ -101,7 +101,7 @@ export function hostUpdateFixture(options: { environment?: 'main' | 'dev'; rc?: 
       hostDataDir: path.join('/home/usuario', options.rc ? rcIdentity.dataFolder : identity.dataFolder) },
     '../shared/environment': { hostEnvironmentError, isCodyncDataDir, isCodyncPort },
     // O fluxo herdado do host local, por padrão; `localHost: false` é o corte do Donnabot (D76).
-    '../shared/fork-features': { officialDesktop: options.rc ?? false, forkFeatures: { ...forkFeatures, localHost: options.localHost ?? true, macLocalHub: options.macLocalHub ?? false } },
+    '../shared/fork-features': { officialDesktop: options.rc ?? false, bundledMacLocalHub: options.bundledMacLocalHub ?? false, forkFeatures: { ...forkFeatures, localHost: options.localHost ?? true, macLocalHub: options.macLocalHub ?? false } },
     '../shared/fork-mac-local-hub': { THROTTLE_SECONDS, launchdServiceAbsent, localHostOff, macPlistValid, uninstallArgs },
     './screen': { unregisterScreenAgent: () => { order.push('unregisterScreen') } },
   }, {

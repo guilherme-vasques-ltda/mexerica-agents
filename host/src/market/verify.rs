@@ -15,6 +15,9 @@ pub async fn verify(store: &Store, id: &str, port: u16) -> Result<Value> {
 
 async fn verify_timeout(store: &Store, id: &str, port: u16, timeout: Duration) -> Result<Value> {
     let c = super::connectors(store)?.into_iter().find(|c| c.id == id).ok_or_else(|| anyhow!("Unknown connector"))?;
+    if port == crate::fork::bridge_http::SOCKET_PORT && !super::contas::desktop_catalog(&c) {
+        bail!("O Hub local só conecta contas do catálogo");
+    }
     if !c.configured() {
         bail!("mcp_manual_required: configuração MCP incompleta; informe o alvo manualmente, sem MCP Registry.");
     }

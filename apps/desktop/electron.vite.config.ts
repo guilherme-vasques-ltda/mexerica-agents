@@ -36,6 +36,7 @@ export default defineConfig(({ mode }) => {
   const releaseDefines = {
     __DONNA_DEV_CLOUD_ACCESS__: JSON.stringify(!open && !official && admitsCloudBuild(accountConfig)),
     __MEXERICA_OFFICIAL__: JSON.stringify(official),
+    __MEXERICA_MAC_LOCAL_HUB__: JSON.stringify(mode === 'mac-local-hub' && process.platform === 'darwin'),
   }
   return {
     main: {

@@ -90,6 +90,9 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
     if !matches!(method, "donnaGuardRuntime" | "donnaGuardObserve") {
         bail!("Método do gateway desconhecido");
     }
+    if hub.desktop_socket.get().is_some() && body["transport"] != "http" && !catalog_local(&body) {
+        bail!("O Hub local só conecta contas do catálogo");
+    }
     if body["validateOnly"] == true {
         // Guarda03b antes de encaminhar: a execução vem do RuntimeIntent da Sessões3.
         let mcp_method = body["method"].as_str().ok_or_else(|| anyhow!("Método MCP obrigatório"))?;

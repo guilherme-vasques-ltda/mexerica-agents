@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import { once } from 'node:events'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import test from 'node:test'
 import { deferred, loadMainModule } from './test-support/main-module.ts'
 
@@ -84,6 +87,17 @@ function hubOf(token: string, options: { mataAposProva?: boolean; recusaProva?: 
       assert.ok(address && typeof address === 'object')
       return `http://${host === '::1' ? '[::1]' : host}:${address.port}`
     },
+    listenUnix: async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'mx-test-'))
+      const socketPath = join(dir, 's')
+      try {
+        await once(server.listen(socketPath), 'listening')
+        servidores.add(server)
+      } finally {
+        server.once('close', () => rmSync(dir, { recursive: true, force: true }))
+      }
+      return { socketPath }
+    },
     close: () => Promise.all([...servidores].map((open) => new Promise<void>((resolve) => open.close(() => resolve())))),
   }
 }
@@ -92,6 +106,32 @@ const load = () =>
   loadMainModule<typeof import('../main/fork-proved-loopback.ts')>('fork-proved-loopback', {
     'node:crypto': { createHmac, randomBytes, timingSafeEqual },
   }, { Buffer, AbortSignal, URL })
+
+test('Unix socket: the request carries the bearer only on the connection that proved it', async (t) => {
+  if (process.platform === 'win32') return t.skip('Unix socket required')
+  const { postProvado, provarSocket, fecharProvedLoopback } = load()
+  const hub = hubOf(TOKEN)
+  t.after(async () => { await fecharProvedLoopback(); await hub.close() })
+  const target = await hub.listenUnix()
+  assert.equal((await provarSocket(target.socketPath, TOKEN, AbortSignal.timeout(2_000))).computerId, IDENTIDADE.computerId)
+  const response = await postProvado(target, '/api/snapshot', TOKEN, '{}', 2_000)
+  const end = once(response, 'end')
+  response.resume()
+  await end
+  assert.equal(response.statusCode, 200)
+  assert.deepEqual(hub.seen.map((entry) => entry.authorization), [undefined, undefined, `Bearer ${TOKEN}`])
+  assert.equal(hub.seen[1]?.socketId, hub.seen[2]?.socketId)
+})
+
+test('Unix socket: loss of the proved connection does not send the bearer to a new one', async (t) => {
+  if (process.platform === 'win32') return t.skip('Unix socket required')
+  const { postProvado, fecharProvedLoopback } = load()
+  const hub = hubOf(TOKEN, { mataAposProva: true })
+  t.after(async () => { await fecharProvedLoopback(); await hub.close() })
+  await assert.rejects(postProvado(await hub.listenUnix(), '/api/snapshot', TOKEN, '{}', 2_000))
+  assert.equal(hub.seen.length, 1)
+  assert.equal(hub.seen[0]?.authorization, undefined)
+})
 
 test('the proof and credential share a connection and the full response survives delayed chunks', async (t) => {
   const { postProvado, fecharProvedLoopback } = load()

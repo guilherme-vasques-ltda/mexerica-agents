@@ -62,7 +62,7 @@ async fn mx106_leitura_de_rotina_marca_sessao_memoria_e_gestao_antes_da_criacao(
         &definitions,
         &exe,
         &bot,
-        f.hub.port,
+        (f.hub.port, None),
         &a.cfg.space_id,
         None,
         tool_context::definition_binding(&definitions),

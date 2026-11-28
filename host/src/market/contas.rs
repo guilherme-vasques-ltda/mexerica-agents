@@ -287,6 +287,10 @@ pub(crate) fn tipo_da_conta(c: &Connector) -> Result<Option<&'static TipoConexao
     Ok(Some(tipo))
 }
 
+pub(crate) fn desktop_catalog(c: &Connector) -> bool {
+    c.command.is_none() && tipo_da_conta(c).is_ok_and(|tipo| tipo.is_some())
+}
+
 /// O servidor de login que a ficha fixa, quando a conta entra com o app OAuth da própria pessoa. `None`: o caminho
 /// comum (descoberta + cadastro automático) ou conta sem ficha.
 pub(crate) fn auth_proprio(c: &Connector) -> Result<Option<&'static Auth>> {

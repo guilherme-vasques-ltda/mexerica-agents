@@ -5,7 +5,7 @@ use crate::{
     hub::Hub,
     remote::crypto,
 };
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use axum::http::HeaderMap;
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
@@ -120,8 +120,13 @@ pub(crate) fn provisionar(
             server["env"] = json!([]);
         }
         let env = server["env"].as_array_mut().ok_or_else(|| anyhow::anyhow!("Ambiente MCP inválido"))?;
-        env.retain(|item| item["name"] != ENV && item["name"] != SETUP_ENV);
+        use crate::fork::bridge_http::SOCKET_ENV;
+        env.retain(|item| item["name"] != ENV && item["name"] != SETUP_ENV && item["name"] != SOCKET_ENV);
         env.push(json!({"name":ENV,"value":token.as_str()}));
+        if let Some(socket) = hub.desktop_socket.get() {
+            let path = socket.to_str().context("invalid desktop socket encoding")?;
+            env.push(json!({"name":SOCKET_ENV,"value":path}));
+        }
     }
     let mut saved = hub.pontes.0.locked();
     let slot = crate::guard_hub::tool_origin::slot_value(slot);
