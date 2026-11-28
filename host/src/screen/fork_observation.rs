@@ -27,6 +27,8 @@ pub(crate) struct Attempt {
     pub(super) runtime: Runtime,
     pub(super) execution: ExecutionRef,
     pub(super) generation: i64,
+    #[cfg(target_os = "macos")]
+    pub(super) private_consent: Option<super::fork_mac_consent::Consent>,
     read_only: bool,
     refused: std::sync::atomic::AtomicBool,
     helper: Option<Arc<super::helper::Link>>,
@@ -44,6 +46,21 @@ impl Attempt {
         execution: &ExecutionRef,
         read_only: bool,
     ) -> Result<Self> {
+        let (generation, private_consent) = {
+            let db = hub.store.db.locked();
+            let generation = crate::fork::spaces::config_generation_on(&db, bot)?;
+            #[cfg(target_os = "macos")]
+            let consent = if super::fork_mac_local::is_private(hub) {
+                Some(super::fork_mac_consent::Consent::read(&db, bot)?.ok_or_else(|| anyhow!(DENIED))?)
+            } else {
+                None
+            };
+            #[cfg(not(target_os = "macos"))]
+            let consent = ();
+            (generation, consent)
+        };
+        #[cfg(not(target_os = "macos"))]
+        let () = private_consent;
         Ok(Self {
             hub: Arc::downgrade(hub),
             origin: match caller {
@@ -61,7 +78,9 @@ impl Attempt {
             bot: bot.into(),
             runtime: hub.runtime(bot),
             execution: execution.clone(),
-            generation: crate::fork::spaces::config_generation_on(&hub.store.db.locked(), bot)?,
+            generation,
+            #[cfg(target_os = "macos")]
+            private_consent,
             read_only,
             refused: std::sync::atomic::AtomicBool::new(false),
             helper: hub.screen.link.locked().clone(),
@@ -94,24 +113,44 @@ impl Attempt {
         super::fork_permission::authorize(self, reason).await
     }
     pub(super) fn check_waiting(&self) -> Result<()> {
-        self.checked(None, false, |_| ()).map_err(|_| anyhow!(DENIED))
+        self.checked(None, false, |_| Ok(()), |_| ()).map_err(|_| anyhow!(DENIED))
     }
     /// O claim nasce sob a MESMA Tx/predicado da observação, antes de qualquer efeito.
     pub(super) fn claim(&self) -> Result<bool> {
-        self.checked(None, true, |control| {
-            let fresh = control.active_agent().is_none();
-            control.permissions.claimed(&self.bot);
-            control.agent = Some((self.bot.clone(), std::time::Instant::now()));
-            fresh
-        })
+        self.checked(
+            None,
+            true,
+            |_| Ok(()),
+            |control| {
+                let fresh = control.active_agent().is_none();
+                control.permissions.claimed(&self.bot);
+                control.agent = Some((self.bot.clone(), std::time::Instant::now()));
+                fresh
+            },
+        )
     }
 
     /// Validação Connection-only seguida do poll/envio síncrono. Não chama `with_db`,
     /// Store nem Cloud no callback; libera todas as guardas antes de Pending/await.
     pub(super) fn with_send<T>(&self, link: Option<u64>, send: impl FnOnce() -> T) -> Result<T> {
-        self.checked(link, true, |_| send()).map_err(|_| anyhow!(DENIED))
+        self.checked(link, true, |_| Ok(()), |_| send()).map_err(|_| anyhow!(DENIED))
     }
-    fn checked<T>(&self, link: Option<u64>, admitted: bool, send: impl FnOnce(&mut super::Control) -> T) -> Result<T> {
+    #[cfg(target_os = "macos")]
+    pub(super) fn with_private_screen_send<T>(
+        &self,
+        check: impl FnOnce(&rusqlite::Connection) -> Result<()>,
+        send: impl FnOnce() -> Result<T>,
+    ) -> Result<T> {
+        self.checked(None, false, check, |_| send())?
+    }
+
+    fn checked<T>(
+        &self,
+        link: Option<u64>,
+        admitted: bool,
+        check: impl FnOnce(&rusqlite::Connection) -> Result<()>,
+        send: impl FnOnce(&mut super::Control) -> T,
+    ) -> Result<T> {
         ensure!(!self.refused.load(std::sync::atomic::Ordering::Acquire), DENIED);
         let hub = self.hub.upgrade().ok_or_else(|| anyhow!(DENIED))?;
         let default_enabled = hub.screen.enabled();
@@ -165,8 +204,16 @@ impl Attempt {
                     bindings::assert_execution_live(db, &self.execution)?;
                     ensure!(crate::fork::spaces::config_generation_on(db, &self.bot)? == self.generation, DENIED);
                     let row = Store::bot_on(db, &self.bot)?.ok_or_else(|| anyhow!(DENIED))?;
-                    ensure!(!row.deleted && row.config.computer, DENIED);
-                    Ok(())
+                    #[cfg(target_os = "macos")]
+                    let computer = if let Some(consent) = self.private_consent {
+                        !admitted && super::fork_mac_consent::Consent::read(db, &self.bot)? == Some(consent)
+                    } else {
+                        row.config.computer
+                    };
+                    #[cfg(not(target_os = "macos"))]
+                    let computer = row.config.computer;
+                    ensure!(!row.deleted && computer, DENIED);
+                    check(db)
                 },
                 || {
                     let mut held = held.borrow_mut();

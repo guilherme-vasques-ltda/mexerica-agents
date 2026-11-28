@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 import { tradutor } from '../../lib/fork-i18n/index.ts'
-import { actionLabel, memoryPermissionNote, permissionDetail, permissionHeadline, permissionTitle } from './permission-copy.ts'
+import { actionLabel, capturePermissionNote, memoryPermissionNote, permissionDetail, permissionHeadline, permissionTitle } from './permission-copy.ts'
 
 const t = tradutor('pt-BR')
 const en = tradutor('en')
@@ -41,4 +41,12 @@ test('em inglês, a frase com o autor vem inteira do catálogo', () => {
   assert.equal(permissionTitle(en, 'execute', 'Lia'), 'Lia wants to run a command')
   assert.equal(permissionHeadline(en, 'fetch'), 'Wants to access the web')
   assert.equal(actionLabel(en, 'unknown'), 'Tool')
+})
+
+test('a captura informa a tela inteira, o motor e o possível envio ao provedor', () => {
+  assert.equal(permissionTitle(t, 'mac_local_screen_action', 'Berga'), 'Berga quer capturar a tela principal')
+  assert.equal(actionLabel(t, 'mac_local_screen_action'), 'Captura de tela')
+  assert.match(capturePermissionNote(t, 'mac_local_screen_action'), /tela principal inteira.*motor do bot.*provedor do modelo/)
+  assert.match(capturePermissionNote(en, 'mac_local_screen_action'), /entire main display.*bot’s engine.*model provider/)
+  assert.equal(capturePermissionNote(t, 'screen_access'), '')
 })

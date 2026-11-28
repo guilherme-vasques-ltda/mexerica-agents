@@ -108,6 +108,18 @@ const htmlPt = (el: unknown) => {
   try { return html(el) } finally { m.idiomaPref.set('ar-AE') }
 }
 
+test('o aviso de compartilhamento da captura fica visível antes de permitir, sem abrir detalhes', () => {
+  const entry = { id: 'capture', kind: 'permission', data: {
+    status: 'pending', toolKind: 'mac_local_screen_action', title: 'screenshot(display=1)', author: 'b',
+    options: [{ optionId: 'allow', kind: 'allow_once' }, { optionId: 'deny', kind: 'reject_once' }],
+  } }
+  const store = { bots: new Map([['b', { name: 'Berga' }]]), connection: { kind: 'online' } }
+  const card = htmlPt(h(m.StoreContext.Provider, { value: store }, h(m.PermissionCard, { entry, hostName: 'Mac', answering: null, respond() {} })))
+  assert.match(card, /Berga quer capturar a tela principal/)
+  assert.match(card, /<p class="approval-note">[^<]*tela principal inteira[^<]*motor do bot[^<]*provedor do modelo[^<]*<\/p>.*<div class="approval-actions">/)
+  assert.match(card, /Permitir uma vez/)
+})
+
 test('D511: três escolhas fixas, Agora em destaque e motivo do bot nunca aparece', () => {
   const entry = { id: 'screen', seq: 1, botId: 'b', rev: 1, kind: 'permission', turn: 1, createdAt: 0, updatedAt: 0, data: {
     status: 'pending', toolKind: 'screen_access', title: 'Pode ver a tela deste computador?', voiceApproval: 'app_only',

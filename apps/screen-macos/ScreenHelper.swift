@@ -112,7 +112,7 @@ final class ScreenHelper {
     }
 
     /// Runs this binary with `--probe-capture`: a new process reads the current grant.
-    private static func captureGrantedNow() async -> Bool {
+    static func captureGrantedNow() async -> Bool {
         guard let exe = Bundle.main.executableURL else { return false }
         let p = Process()
         p.executableURL = exe
@@ -155,12 +155,20 @@ final class ScreenHelper {
 @main
 enum ScreenHelperMain {
     @MainActor static var helper: ScreenHelper?
+    @MainActor static var localXPC: ForkLocalScreenXPC?
 
     @MainActor
     static func main() {
         if CommandLine.arguments.contains("--probe-capture") { exit(CGPreflightScreenCaptureAccess() ? 0 : 1) }
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
+        if Bundle.main.object(forInfoDictionaryKey: "MexericaScreenService") != nil {
+            let listener = ForkLocalScreenXPC()
+            localXPC = listener
+            listener.start()
+            app.run()
+            return
+        }
         let helper = ScreenHelper()
         Self.helper = helper
         helper.start()

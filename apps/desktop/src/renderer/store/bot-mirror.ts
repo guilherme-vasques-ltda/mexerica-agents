@@ -94,6 +94,7 @@ export class BotMirror extends Observable {
     readonly contextId = 'local',
     readonly spaceId?: string,
     readonly expectedHostId?: string,
+    readonly privateMacScreen = false,
   ) {
     super()
     this.versionGate = new VersionGate(appVersion, error => this.recusarAcao(error))

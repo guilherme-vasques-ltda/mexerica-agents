@@ -51,6 +51,26 @@ test('o editor envia só {computer} ao updateBot', async () => {
   assert.deepEqual(calls, [{ method: 'updateBot', body: { id: 'a', computer: false } }])
 })
 
+test('só o Hub privado recebe o opt-in local; SSH preserva o patch inteiro', async () => {
+  const calls: unknown[] = []
+  const store = (privateMacScreen: boolean) => ({
+    isLoopback: true,
+    privateMacScreen,
+    ready: async () => ({ call: async (method: string, body: unknown) => {
+      calls.push({ method, body })
+      return {}
+    } }),
+  }) as unknown as BotStore
+
+  await saveBotSettingsIntent(store(true), 'a', { computer: true })
+  await saveBotSettingsIntent(store(false), 'a', { computer: false, notify: true })
+  await assert.rejects(saveBotSettingsIntent(store(true), 'a', { computer: false, notify: true }), /dedicated update/)
+  assert.deepEqual(calls, [
+    { method: 'updateBot', body: { id: 'a', macLocalScreenEnabled: true } },
+    { method: 'updateBot', body: { id: 'a', computer: false, notify: true } },
+  ])
+})
+
 test('só online e sem versão divergente libera o controle; conectando ou sem par fica em leitura', () => {
   const kinds = ['unpaired', 'connecting', 'online', 'computerOffline', 'offline', 'unauthorized'] as const
   for (const kind of kinds) {

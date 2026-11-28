@@ -45,6 +45,9 @@ path = "src/bin/codync-hostw.rs"
 [workspace]
 members = ["crates/memory", "crates/mail-read"]
 
+[target.'cfg(target_os = "macos")'.build-dependencies]
+cc = "1"
+
 [dependencies]
 aho-corasick = "1.1"
 anyhow = "1.0.104"

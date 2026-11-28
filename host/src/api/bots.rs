@@ -233,6 +233,10 @@ pub(super) async fn call(
             .await??})
         }
         "updateBot" => {
+            #[cfg(target_os = "macos")]
+            if b.get(crate::screen::fork_mac_local::FIELD).is_some() {
+                return crate::screen::fork_mac_local::update_consent(hub, caller, b).map(ControlFlow::Break);
+            }
             if b.get(crate::fork::open_command_settings::FIELD).is_some() {
                 return crate::fork::open_command_settings::update(hub, caller, b).map(ControlFlow::Break);
             }

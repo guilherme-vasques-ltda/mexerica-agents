@@ -14,6 +14,23 @@ use std::ops::ControlFlow;
 use std::sync::Arc;
 
 pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -> Result<ControlFlow<Value, Value>> {
+    #[cfg(target_os = "macos")]
+    if crate::screen::fork_mac_local::is_private(hub) {
+        anyhow::ensure!(!crate::screen::fork_mac_local::legacy_remote_method(method), "remote screen unavailable here");
+        if method == "computerTools" {
+            return Ok(ControlFlow::Break(crate::screen::fork_mac_actions::catalog(hub, caller).await));
+        }
+        if method == "setScreenEnabled" {
+            anyhow::ensure!(matches!(caller, Caller::Local), "screen settings require the local app");
+            crate::screen::fork_mac_local::set_enabled(hub, b["enabled"].as_bool().context("enabled is required")?)?;
+            return Ok(ControlFlow::Break(screen_projection::state(hub, crate::fork::spaces::PERSONAL)));
+        }
+        if method == "requestScreenPermission" {
+            anyhow::ensure!(matches!(caller, Caller::Local), "screen permissions require the local app");
+            crate::screen::fork_mac_local::request_permission(&hub.screen, str_arg(&b, "permission")?).await?;
+            return Ok(ControlFlow::Break(screen_projection::state(hub, crate::fork::spaces::PERSONAL)));
+        }
+    }
     let space = b["spaceId"].as_str().unwrap_or(crate::fork::spaces::PERSONAL);
     Ok(ControlFlow::Break(match method {
         "hostUpdateStatus" => crate::update::status()?,
