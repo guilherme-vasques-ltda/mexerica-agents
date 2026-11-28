@@ -154,7 +154,12 @@ pub(super) async fn call(
             let before = b["beforeSeq"].as_i64().unwrap_or(i64::MAX);
             let limit = b["limit"].as_i64().unwrap_or(100).clamp(1, 500);
             let session = crate::fork::sessoes::api::history_session(hub, bot, &b)?;
-            json!({"entries": hub.store.history_in_session(bot, session, before, limit)?})
+            let entries = if caller.is_web_chat() {
+                hub.store.web_history(bot, session, before, limit)?
+            } else {
+                hub.store.history_in_session(bot, session, before, limit)?
+            };
+            json!({"entries": entries})
         }
         // Notices between a bot and one peer (the newest 200), for the read-only bot conversation sheet.
         "botConversation" => {

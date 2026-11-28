@@ -126,6 +126,9 @@ pub async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, body: Value) ->
         "donnaEngineAccounts" => super::engine_accounts::call(hub, caller, body).await.map(ControlFlow::Break),
         "donnaSkillsDoutor" => super::skills_doutor::call(hub, caller, &body).map(ControlFlow::Break),
         "sessions" | "sessionCreate" | "sessionRename" => {
+            if method == "sessions" && caller.is_web_chat() {
+                return super::sessoes::api::web_list(hub, &body).map(ControlFlow::Break);
+            }
             super::sessoes::api::call(hub, method, &body).map(ControlFlow::Break)
         }
         "sessionEngineSet" => super::sessoes::api::engine_set(hub, caller, body).await.map(ControlFlow::Break),

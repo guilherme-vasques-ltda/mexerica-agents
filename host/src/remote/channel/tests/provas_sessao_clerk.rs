@@ -7,6 +7,8 @@ use super::*;
 use crate::fork::sessao_clerk::{self as sessao, prova::*};
 use crate::fork::workspace::{EPOCH_FIELD, METHOD as CONTEXTO};
 
+mod web_chat;
+
 #[derive(Clone, Copy, Debug)]
 enum Via {
     Direto,
