@@ -5,7 +5,7 @@ use crate::fork::engine_accounts::{LaunchReference, Registry, State};
 use crate::fork::engine_setup::process::Rpc;
 use crate::hub::{BotStatus, Hub};
 use crate::store::{BotConfig, EntryKind, Lane};
-use anyhow::{Result, anyhow, bail, ensure};
+use anyhow::{Context, Result, anyhow, bail, ensure};
 use serde_json::{Value, json};
 use std::{
     collections::{BTreeMap, HashMap},
@@ -142,15 +142,15 @@ type Options = BTreeMap<String, Pick>;
 /// As escolhas do bot que o `model/list` da conta comprovou para o modelo dele; o que não consta no catálogo é
 /// descartado. Sem escolha, o turno volta ao padrão que o catálogo informa, porque o override de um turno vale para os
 /// seguintes da conversa retomada.
-fn proven_options(hub: &Hub, cfg: &BotConfig, account: &str, model: Option<&str>) -> Options {
-    let Some(model) = model else { return BTreeMap::new() };
-    let Ok(registry) = Registry::load(&hub.store) else { return BTreeMap::new() };
+fn proven_options(hub: &Hub, cfg: &BotConfig, account: &str, model: Option<&str>) -> Result<Options> {
+    let Some(model) = model else { return Ok(BTreeMap::new()) };
+    let registry = Registry::load(&hub.store).context("open_chat_failed")?;
     let Some(known) =
         registry.accounts.iter().find(|a| a.id == account).and_then(|a| a.models.iter().find(|m| m.id == model))
     else {
-        return BTreeMap::new();
+        return Ok(BTreeMap::new());
     };
-    known
+    Ok(known
         .options
         .iter()
         .map(|option| {
@@ -161,7 +161,7 @@ fn proven_options(hub: &Hub, cfg: &BotConfig, account: &str, model: Option<&str>
             };
             (option.id.clone(), pick)
         })
-        .collect()
+        .collect())
 }
 
 /// Cerca das mutações de conta: recusa enquanto um turno da Open usa a conta e impede um turno novo até o fim do efeito.
@@ -206,7 +206,7 @@ pub(crate) fn admit_locked(
     cfg: &BotConfig,
 ) -> Result<Ticket> {
     let (account, directory, model) = account_profile(hub, cfg)?;
-    let options = proven_options(hub, cfg, &account, model.as_deref());
+    let options = proven_options(hub, cfg, &account, model.as_deref())?;
     admit(guard, hub, &cfg.id, (account, directory, model, options))
 }
 
