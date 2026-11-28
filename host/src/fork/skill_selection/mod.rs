@@ -78,19 +78,53 @@ impl Selection {
                     apply(c, &self.bot, &self.cell)
                 })
             })?;
-        let row = hub.store.bot(&self.bot)?.filter(|r| !r.deleted).ok_or_else(|| anyhow!("unknown bot"))?;
-        if changed {
-            if !row.config.is_group()
-                && let Err(error) =
-                    hub.send_cmd(&self.bot, crate::agent::bot::Cmd::Reconfigure(Box::new(row.config.clone())))
-            {
-                tracing::warn!(%error, bot = %self.bot, "seleção de skill salva; reconfiguração do ator pendente");
-            }
-            hub.emit_bot(&self.bot);
-        }
-        let row = hub.store.bot(&self.bot)?.ok_or_else(|| anyhow!("unknown bot"))?;
-        Ok(hub.bot_json(&row))
+        publish(hub, &self.bot, changed)
     }
+}
+
+pub(crate) fn enable_open<T>(
+    hub: &Hub,
+    bot: &str,
+    skill: &str,
+    version: String,
+    installation: String,
+    reserve: impl FnOnce() -> Result<T>,
+    in_transaction: impl FnOnce(&Connection) -> Result<()>,
+) -> Result<()> {
+    let cell = Cell {
+        protocol: 1,
+        expected_version: version,
+        skill_id: skill.into(),
+        enabled: true,
+        expected_installation_id: installation,
+    };
+    let expected = [(cell.skill_id.clone(), cell.expected_installation_id.clone())];
+    let changed = crate::fork::skill_catalog::with_installations(&hub.store, &expected, true, |vista| {
+        let _reservation = reserve()?;
+        let _boundary = hub.store.memory_boundary.locked();
+        let _emit = hub.emit_lock.locked();
+        crate::fork::donna_fixa::pedido::gravar_com(&hub.store, None, |c| {
+            in_transaction(c)?;
+            vista.conferir(c)?;
+            apply(c, bot, &cell)
+        })
+    })?;
+    publish(hub, bot, changed)?;
+    Ok(())
+}
+
+fn publish(hub: &Hub, bot: &str, changed: bool) -> Result<Value> {
+    let row = hub.store.bot(bot)?.filter(|r| !r.deleted).ok_or_else(|| anyhow!("unknown bot"))?;
+    if changed {
+        if !row.config.is_group()
+            && let Err(error) = hub.send_cmd(bot, crate::agent::bot::Cmd::Reconfigure(Box::new(row.config.clone())))
+        {
+            tracing::warn!(%error, bot, "seleção de skill salva; reconfiguração do ator pendente");
+        }
+        hub.emit_bot(bot);
+    }
+    let row = hub.store.bot(bot)?.ok_or_else(|| anyhow!("unknown bot"))?;
+    Ok(hub.bot_json(&row))
 }
 
 /// Lista canônica de um campo-array do perfil; entradas inválidas são recusadas

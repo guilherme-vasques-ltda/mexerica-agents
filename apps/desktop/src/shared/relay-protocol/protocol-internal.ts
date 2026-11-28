@@ -253,11 +253,13 @@ export function createProtocolInternals(backend: CryptoBackend) {
         invalidate?.()
         let phase: 'new' | 'signing' | 'upgraded' | 'waiting' | 'ready' | 'closed' = 'new'
         let finish: ReturnType<typeof prepareHello>['finish'] | undefined
+        let helloSent: HelloMessage | undefined
         let context: TranscriptContext | undefined
         const transcripts = new WeakMap<TranscriptContext, Uint8Array>()
         const cancel = () => {
           phase = 'closed'
           finish = undefined
+          helloSent = undefined
           if (context) transcripts.delete(context)
           context = undefined
           if (invalidate === cancel) invalidate = undefined
@@ -268,7 +270,7 @@ export function createProtocolInternals(backend: CryptoBackend) {
         const deviceKey = new Uint8Array(signer.publicKey)
         const live = () => {
           if (invalidate !== cancel) return false
-          if (Number.isFinite(deadline) && now() < deadline) return invalidate === cancel
+          if (phase === 'ready' || (Number.isFinite(deadline) && now() < deadline)) return invalidate === cancel
           cancel()
           return false
         }
@@ -304,6 +306,7 @@ export function createProtocolInternals(backend: CryptoBackend) {
               const signed = hello.signed(await sign(hello.input))
               if (!live()) return false
               finish = hello.finish
+              helloSent = { ...signed }
               phase = 'waiting'
               send(signed)
               return true
@@ -316,6 +319,7 @@ export function createProtocolInternals(backend: CryptoBackend) {
             if (!live() || phase !== 'waiting' || !finish || welcome.t !== 'welcome') return false
             const verifyWelcome = finish
             finish = undefined
+            helloSent = undefined
             try {
               const verified = verifyWelcome(welcome)
               if (!live()) return false
@@ -332,6 +336,47 @@ export function createProtocolInternals(backend: CryptoBackend) {
           ownsContext(candidate: TranscriptContext): boolean {
             return live() && transcripts.has(candidate)
           },
+          async possession(candidate: TranscriptContext, hubId: string, method: string): Promise<PossessionProof> {
+            const th = transcripts.get(candidate)
+            if (!live() || !th || !hubId || !method || hubId.includes('\0') || method.includes('\0')) {
+              throw new HandshakeError('handshakeInvalid')
+            }
+            const ts = wallTime()
+            const nonce = b64url(random(24))
+            const input = enc.encode(['mexerica-pop-v1', hubId, b64url(th), method, String(ts), nonce].join('\0'))
+            const sig = b64url(await sign(input))
+            if (Math.abs(wallTime() - ts) > 30_000) throw new HandshakeError('handshakeInvalid')
+            return { v: 1, ts, nonce, sig }
+          },
+          verifyCut(candidate: TranscriptContext, epoch: number, frame: TerminalFrame): { code: CutCode; epoch: number } | null {
+            const th = transcripts.get(candidate)
+            const proof = frame.prova
+            const next = proof?.workspaceEpoch
+            const code = frame.stableCode
+            if (!live() || !th || frame.t !== 'reject' || frame.code !== 'revoked' || proof?.v !== 1 || proof.tipo !== 'corte'
+              || !Number.isSafeInteger(epoch) || epoch < 0 || typeof next !== 'number' || !Number.isSafeInteger(next)
+              || next <= epoch || proof.abertoEm !== epoch
+              || (code !== 'device_revoked' && code !== 'workspace_revoked' && code !== 'role_changed')) return null
+            const sig = unb64url(proof.sig, 64)
+            const marker = code === 'device_revoked' ? 1 : code === 'workspace_revoked' ? 2 : 3
+            const bytes = concat(enc.encode('codync/corte/v1'), th, Uint8Array.of(marker), u64be(next), u64be(epoch))
+            return sig && verify(pin, sig, bytes) ? { code, epoch: next } : null
+          },
+          verifyRefusal(frame: TerminalFrame): 'device_revoked' | 'device_unpaired' | null {
+            const hello = helloSent
+            const proof = frame.prova
+            const code = frame.stableCode
+            if (!live() || phase !== 'waiting' || !hello || frame.t !== 'reject' || proof?.v !== 1 || proof.tipo !== 'recusa'
+              || (code !== 'device_revoked' && code !== 'device_unpaired')
+              || frame.code !== (code === 'device_revoked' ? 'revoked' : 'unauthorized')) return null
+            const ek = unb64url(hello.ek, 32)
+            const n = unb64url(hello.n, 32)
+            const sig = unb64url(proof.sig, 64)
+            if (!ek || !n || !sig) return null
+            const marker = code === 'device_revoked' ? 1 : 4
+            const bytes = concat(enc.encode('codync/recusa/v1'), cidRaw(pin), deviceKey, ek, n, Uint8Array.of(marker))
+            return verify(pin, sig, bytes) ? code : null
+          },
         }
       },
     }
@@ -340,6 +385,11 @@ export function createProtocolInternals(backend: CryptoBackend) {
   return { protocol, createSigningSlot }
 }
 
-type AsyncSigner = { readonly publicKey: Uint8Array; sign(input: Uint8Array): Promise<Uint8Array> }
+export type AsyncSigner = { readonly publicKey: Uint8Array; sign(input: Uint8Array): Promise<Uint8Array> }
+export type PossessionProof = { v: 1; ts: number; nonce: string; sig: string }
+type CutCode = 'device_revoked' | 'workspace_revoked' | 'role_changed'
+type TerminalFrame = { t?: unknown; code?: unknown; stableCode?: unknown; prova?: {
+  v?: unknown; tipo?: unknown; workspaceEpoch?: unknown; abertoEm?: unknown; sig?: unknown
+} }
 declare const transcriptContext: unique symbol
-type TranscriptContext = { readonly [transcriptContext]: true }
+export type TranscriptContext = { readonly [transcriptContext]: true }

@@ -18,6 +18,8 @@ import { TimesRoster } from './fork-times-roster'
 import { ChatSessionsModel } from './fork-sessions'
 import { acompanharIdioma, enviarIdioma } from './fork-idioma-hub'
 
+declare const __REMOTE_WEB_RENDERER__: boolean | undefined
+
 const DROP_GRACE = 5000
 const INITIAL_GRACE = 1000
 const ACTION_PATIENCE = 20_000
@@ -58,7 +60,16 @@ export class BotSync extends BotMirror {
   /** Capacidade transitória SAAS-04; nunca gravada no mirror/cache. */
   canManageEngineAccounts = false
   readonly principal = new PrincipalModel(this, {
-    read: async () => (await this.ready()).call<{ primaryBotId: string | null }>('teamSettings', {}),
+    read: async () => {
+      const client = await this.ready()
+      if (typeof __REMOTE_WEB_RENDERER__ === 'undefined' || !__REMOTE_WEB_RENDERER__) {
+        return client.call<{ primaryBotId: string | null }>('teamSettings', {})
+      }
+      const hubId = this.hostId
+      const spaceId = this.spaceId ?? this.spaces?.personalSpaceId
+      if (!hubId || !spaceId) throw new Error('space_context_unavailable')
+      return client.readSpacePrincipal({ hubId, spaceId })
+    },
     hostId: () => this.hostId,
     storage: localStorage,
   })

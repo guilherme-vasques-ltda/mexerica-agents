@@ -1,6 +1,6 @@
 // Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
 import { sessionDeletedOf, type SessionDeleted } from '../../shared/fork-session-delete'
-import type { SpaceEvent, SpacesSnapshot } from '../../shared/fork-spaces'
+import type { SpaceEvent, SpaceScope, SpacesSnapshot } from '../../shared/fork-spaces'
 import type { OriginReport } from '@shared/guard-hub'
 import type { CallError } from '@shared/ipc'
 import {
@@ -184,6 +184,15 @@ export function parseEvent(line: string): HostEvent | null {
 
 /** Typed host calls (host/src/api/); anything else goes through `call`. */
 export class HostClient {
+  async readSpacePrincipal(scope: SpaceScope): Promise<{ primaryBotId: string | null }> {
+    const result = await this.call<{ hubId: string; spaceId: string; principal: { id: string } | null }>('donnaConversations', scope)
+    if (result.hubId !== scope.hubId || result.spaceId !== scope.spaceId) throw new HostError(409, 'space_context_unavailable')
+    const principal = result.principal
+    if (principal === null) return { primaryBotId: null }
+    if (typeof principal?.id !== 'string' || !principal.id) throw new HostError(409, 'space_context_unavailable')
+    return { primaryBotId: principal.id }
+  }
+
   readFile(entryId: string, fileId: string, offset: number): Promise<{ data: string; size: number }> {
     return this.call('readFile', { entryId, fileId, offset })
   }

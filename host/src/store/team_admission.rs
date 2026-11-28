@@ -2,13 +2,20 @@
 use super::{Entry, EntryKind, Lane, Store, bots, entries, turn_alloc};
 use crate::LockExt;
 use crate::fork::cadeias::{equipe, modelo::Recibo};
+use crate::fork::open_tool_delegation::ApprovedAsk;
 use crate::fork::retornos;
 use crate::fork::sessoes::{ExecutionRef, bindings};
 use anyhow::{Result, anyhow, ensure};
 use rusqlite::Connection;
 use serde_json::Value;
 
-fn check(db: &Connection, lane: &Lane, notices: &[Value; 2], execution: Option<&ExecutionRef>) -> Result<String> {
+#[derive(Clone, Copy)]
+pub(crate) enum TeamOrigin<'a> {
+    Actor(Option<&'a ExecutionRef>),
+    Open(&'a ApprovedAsk<'a>),
+}
+
+fn check(db: &Connection, lane: &Lane, notices: &[Value; 2], origin: TeamOrigin<'_>) -> Result<String> {
     let from = notices[0]["sourceBotId"].as_str().ok_or_else(|| anyhow!("team_origin_required"))?;
     let to = notices[0]["targetBotId"].as_str().ok_or_else(|| anyhow!("team_target_changed"))?;
     ensure!(from != to && notices[0]["delegationId"].is_string(), "team_target_changed");
@@ -28,12 +35,16 @@ fn check(db: &Connection, lane: &Lane, notices: &[Value; 2], execution: Option<&
     let source = visible(from)?;
     let target = visible(to)?;
     ensure!(source.config.space_id == target.config.space_id, "cross_space_reference");
-    if let Some(execution) = execution {
-        super::check_execution_on(db, lane, Some(execution))?;
-        bindings::resolve(db, execution.acp_binding().ok_or_else(|| anyhow!("chamada vencida"))?, from)?;
-    } else {
-        // Produtor interno legado; nenhuma falha de `ExecutionRef` tenta este ramo.
-        ensure!(lane == &Lane::main(from), "team_origin_required");
+    match origin {
+        TeamOrigin::Actor(Some(execution)) => {
+            super::check_execution_on(db, lane, Some(execution))?;
+            bindings::resolve(db, execution.acp_binding().ok_or_else(|| anyhow!("chamada vencida"))?, from)?;
+        }
+        TeamOrigin::Actor(None) => {
+            // Produtor interno legado; nenhuma falha de `ExecutionRef` tenta este ramo.
+            ensure!(lane == &Lane::main(from), "team_origin_required");
+        }
+        TeamOrigin::Open(approval) => approval.check_admission(db, lane, notices, &source.config.space_id)?,
     }
     Ok(source.config.space_id)
 }
@@ -47,12 +58,12 @@ impl Store {
         source: &Lane,
         turn: Option<i64>,
         notices: &[Value; 2],
-        execution: Option<&ExecutionRef>,
+        origin: TeamOrigin<'_>,
         chain: &equipe::Entrada,
     ) -> Result<AdmittedNotices> {
         let mut db = self.db.locked();
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        let space = check(&tx, source, notices, execution)?;
+        let space = check(&tx, source, notices, origin)?;
         ensure!(
             notices[0]["sourceBotId"] == chain.de()
                 && notices[0]["targetBotId"] == chain.para()
@@ -60,7 +71,17 @@ impl Store {
             "team_target_changed"
         );
         // D220 antes de qualquer aviso/turno; recusa ou falha posterior desfaz a reserva.
-        let receipt = equipe::admitir_na(&tx, chain, Some(space.as_str()), execution)?;
+        let open = match origin {
+            TeamOrigin::Open(a) => Some((a.session_on(&tx)?, a.reference())),
+            TeamOrigin::Actor(_) => None,
+        };
+        let receipt = match origin {
+            TeamOrigin::Actor(execution) => equipe::admitir_na(&tx, chain, Some(space.as_str()), execution)?,
+            TeamOrigin::Open(_) => {
+                let (session, reference) = open.as_ref().ok_or_else(|| anyhow!("team_origin_required"))?;
+                Some(equipe::admitir_open_na(&tx, chain, &space, session, reference)?)
+            }
+        };
         let target = Lane::main(notices[0]["targetBotId"].as_str().ok_or_else(|| anyhow!("team_target_changed"))?);
         let source_turn = match turn {
             Some(turn) => turn,
@@ -88,21 +109,29 @@ impl Store {
             &notices[1],
         )?;
         // R1: pedido durável no mesmo commit; só metadados e IDs dos avisos acima.
-        if let Some(execution) = execution {
-            let recibo = receipt.as_ref().ok_or_else(|| anyhow!("retorno_cadeia_invalida"))?;
-            let pedido = retornos::NovoPedido {
-                id: chain.pedido(),
-                modo: if chain.espera() { retornos::Modo::Espera } else { retornos::Modo::Assincrono },
-                de: chain.de(),
-                para: chain.para(),
-                execucao: execution,
-                recibo,
-                aviso_origem: &first.1.id,
-                aviso_destino: &second.1.id,
-            };
-            retornos::aceitar_na(&tx, &pedido)?;
+        let pedido = |recibo| retornos::NovoPedido {
+            id: chain.pedido(),
+            modo: if chain.espera() { retornos::Modo::Espera } else { retornos::Modo::Assincrono },
+            de: chain.de(),
+            para: chain.para(),
+            execucao: (),
+            recibo,
+            aviso_origem: &first.1.id,
+            aviso_destino: &second.1.id,
+        };
+        match origin {
+            TeamOrigin::Actor(None) => {}
+            TeamOrigin::Actor(Some(execucao)) => {
+                let base = pedido(receipt.as_ref().ok_or_else(|| anyhow!("retorno_cadeia_invalida"))?);
+                retornos::aceitar_na(&tx, &base.com_execucao(execucao))?;
+            }
+            TeamOrigin::Open(_) => {
+                let (session, reference) = open.as_ref().ok_or_else(|| anyhow!("team_origin_required"))?;
+                let base = pedido(receipt.as_ref().ok_or_else(|| anyhow!("retorno_cadeia_invalida"))?);
+                retornos::aceitar_open_na(&tx, &base.com_execucao((session, reference)))?;
+            }
         }
-        check(&tx, source, notices, execution)?;
+        check(&tx, source, notices, origin)?;
         tx.commit()?;
         Ok(([first, second], receipt))
     }

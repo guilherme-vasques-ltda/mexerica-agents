@@ -20,7 +20,7 @@ fn install(store: &Store, id: &str) -> Value {
 
 #[test]
 fn open_so_entra_skill_de_texto_da_lista_fechada() {
-    for id in ["grilling", "copywriting", "stop-slop"] {
+    for id in ["grilling", "copywriting", "stop-slop", SEED] {
         assert!(open::permitida(id), "{id}");
         open::conferir(id).unwrap();
     }
@@ -30,7 +30,6 @@ fn open_so_entra_skill_de_texto_da_lista_fechada() {
         "hyperframes",
         "research",
         "security-audit",
-        "find-skills",
         "criador-de-skills",
         "exa-pesquisar-na-web",
         "linear-triar-issues-novas",
@@ -77,4 +76,25 @@ fn open_entrega_so_skill_permitida_instalada_do_catalogo_e_conferida() {
     // Corpo alterado fora do app sai da entrega em vez de ser entregue pela metade.
     fs::write(f.0.skills_root.join("grilling/SKILL.md"), "ALTERADO").unwrap();
     assert!(open::texto_para_bot(&f.0, &["grilling".into()]).is_none());
+}
+
+#[test]
+fn find_skills_vem_instalada_e_usa_o_catalogo_do_hub_quando_ligada() {
+    let f = Fixture::new();
+    seed(&f.0).unwrap();
+    seed(&f.0).unwrap();
+    let installed = open::installed(&f.0, &[]).unwrap();
+    let items = installed["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["id"], SEED);
+    assert_eq!(items[0]["enabled"], false);
+    assert!(open::texto_para_bot(&f.0, &[]).is_none());
+    let selection = [SEED.into()];
+    let text = open::texto_para_bot(&f.0, &selection).unwrap();
+    for tool in ["list_catalog_skills", "install_skill", "enable_skill"] {
+        assert!(text.contains(tool));
+    }
+    assert!(!text.contains("npx"));
+    fs::write(f.0.skills_root.join(SEED).join("SKILL.md"), "ALTERADO").unwrap();
+    assert!(open::texto_para_bot(&f.0, &selection).is_none());
 }

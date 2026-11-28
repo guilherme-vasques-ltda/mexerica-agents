@@ -12,6 +12,7 @@ export type RemoteViewStatus =
   | 'hub_offline'
   | 'revoked'
   | 'device_revoked'
+  | 'device_unpaired'
 
 export type RemoteWorkspace =
   | { readonly id: string; readonly kind: 'personal'; readonly name?: string }
@@ -29,6 +30,7 @@ export interface RemoteViewActions {
   signOut(): void
   select(id: string): void
   retry(): void
+  pair(code: string): void
 }
 
 const CHAVE_STATUS = {
@@ -42,6 +44,7 @@ const CHAVE_STATUS = {
   hub_offline: 'botCreate.erroCriacao.offline',
   revoked: 'conversa.arquivar.falha.notAllowed',
   device_revoked: 'conta.revogada.titulo',
+  device_unpaired: null,
 } as const satisfies Record<RemoteViewStatus, ChaveTexto | null>
 
 const CHAVE_TIPO = {
@@ -107,7 +110,28 @@ export function mountRemoteView(root: HTMLElement, actions: RemoteViewActions): 
   actionsBox.className = 'rv-actions'
   actionsBox.append(signInButton, retryButton, signOutButton)
 
-  root.replaceChildren(title, statusRow, workspaceBox, actionsBox)
+  const pair = document.createElement('form')
+  pair.className = 'rv-pair'
+  const pairCode = document.createElement('input')
+  pairCode.type = 'password'
+  pairCode.autocomplete = 'off'
+  pairCode.required = true
+  pairCode.spellcheck = false
+  pairCode.maxLength = 22
+  pairCode.pattern = '[A-Za-z0-9_\\-]{22}'
+  const pairLabel = texto('navegacao.parear.qr', { computador: texto('navegacao.parear.esteComputador') })
+  pairCode.setAttribute('aria-label', pairLabel)
+  const submitPair = button(texto('contas.continuar'), () => {}, 'rv-primary')
+  submitPair.type = 'submit'
+  pair.append(pairCode, submitPair)
+  pair.addEventListener('submit', (event) => {
+    event.preventDefault()
+    const code = pairCode.value.trim()
+    pairCode.value = ''
+    if (/^[A-Za-z0-9_-]{22}$/.test(code)) actions.pair(code)
+  })
+
+  root.replaceChildren(title, statusRow, workspaceBox, pair, actionsBox)
 
   let selectedId: string | null = null
   let optionsKey = ''
@@ -123,7 +147,7 @@ export function mountRemoteView(root: HTMLElement, actions: RemoteViewActions): 
     root.setAttribute('aria-busy', String(busy))
     spinner.hidden = !busy
     const chave = CHAVE_STATUS[status]
-    statusText.textContent = chave === null ? '' : texto(chave)
+    statusText.textContent = status === 'device_unpaired' ? pairLabel : chave === null ? '' : texto(chave)
 
     workspaceBox.hidden = !showWorkspaces
     if (showWorkspaces) {
@@ -145,6 +169,7 @@ export function mountRemoteView(root: HTMLElement, actions: RemoteViewActions): 
     }
 
     signInButton.hidden = status !== 'signed_out'
+    pair.hidden = status !== 'device_unpaired'
     retryButton.hidden = status !== 'hub_offline'
     signOutButton.hidden = signedIn !== true
     actionsBox.hidden = signInButton.hidden && retryButton.hidden && signOutButton.hidden
