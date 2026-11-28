@@ -146,3 +146,24 @@ pub(in crate::fork) async fn macos_executa_o_pedido_e_recusa_troca_de_executavel
     assert!(!dir.path().join("pasta-original/prova").exists());
     Ok(())
 }
+
+#[tokio::test]
+#[cfg(target_os = "linux")]
+async fn script_executa_pelo_descritor_aprovado() -> Result<()> {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let dir = tempfile::tempdir()?;
+    let tool = dir.path().join("script");
+    fs::write(&tool, "#!/bin/sh\nprintf original > prova\n")?;
+    fs::set_permissions(&tool, fs::Permissions::from_mode(0o700))?;
+    let gate = gate()?;
+    let cmd = gate.prepare(vec![tool.to_string_lossy().into_owned()], dir.path().to_path_buf())?;
+    gate.approve(cmd.request())?;
+    fs::rename(&tool, dir.path().join("script-original"))?;
+    fs::write(&tool, "#!/bin/sh\nprintf trocado > prova\n")?;
+    fs::set_permissions(&tool, fs::Permissions::from_mode(0o700))?;
+
+    assert!(matches!(cmd.execute().await?.fim, Fim::Saiu(0)));
+    assert_eq!(fs::read_to_string(dir.path().join("prova"))?, "original");
+    Ok(())
+}

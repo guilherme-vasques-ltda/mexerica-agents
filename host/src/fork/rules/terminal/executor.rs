@@ -77,9 +77,17 @@ impl Gate {
         );
         let program = Path::new(&argv[0]);
         ensure!(program.is_absolute() && cwd.is_absolute(), "executável e pasta devem ter caminhos absolutos");
-        let executable = OpenOptions::new().read(true).custom_flags(OPEN_FLAGS).open(program)?;
-        ensure!(executable.metadata()?.is_file(), "executável não é arquivo regular");
-        let directory = OpenOptions::new().read(true).custom_flags(OPEN_FLAGS | libc::O_DIRECTORY).open(&cwd)?;
+        let executable =
+            OpenOptions::new().read(true).custom_flags(OPEN_FLAGS).open(program).context("abrir executável")?;
+        ensure!(
+            executable.metadata().context("ler metadados do executável")?.is_file(),
+            "executável não é arquivo regular"
+        );
+        let directory = OpenOptions::new()
+            .read(true)
+            .custom_flags(OPEN_FLAGS | libc::O_DIRECTORY)
+            .open(&cwd)
+            .context("abrir pasta de trabalho")?;
         let mut state = self.state.locked();
         ensure!(
             match &*state {
@@ -178,7 +186,19 @@ impl Prepared<'_> {
                 }
                 let env = [c"PATH=/usr/bin:/bin".as_ptr(), std::ptr::null()];
                 #[cfg(target_os = "linux")]
-                libc::fexecve(executable, argv.as_ptr(), env.as_ptr());
+                {
+                    libc::fexecve(executable, argv.as_ptr(), env.as_ptr());
+                    let error = std::io::Error::last_os_error();
+                    // No Linux, fexecve devolve ENOENT se um script precisar passar
+                    // seu descritor ao interpretador e ele estiver marcado CLOEXEC.
+                    if error.raw_os_error() != Some(libc::ENOENT) {
+                        return Err(error);
+                    }
+                    if libc::fcntl(executable, libc::F_SETFD, 0) == -1 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    libc::fexecve(executable, argv.as_ptr(), env.as_ptr());
+                }
                 #[cfg(target_os = "macos")]
                 {
                     child_identity.recheck()?;
