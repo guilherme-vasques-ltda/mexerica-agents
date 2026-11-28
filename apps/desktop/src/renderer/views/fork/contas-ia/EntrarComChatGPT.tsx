@@ -9,8 +9,8 @@ import { superficieIdioma, useIdioma, useT } from '../../../lib/fork-i18n/estado
 import { isolado } from '../../../../shared/bidi.ts'
 import { MarketBadge } from '../../marketplace/pieces'
 import type { ChaveTexto } from '../../../lib/fork-i18n/index.ts'
-import { mostrarApiDireta } from './api-direta'
-import { entrarComChatGPT, fraseDaFalha, FalhaChatGPT, lerEstadoChatGPT, sairDoChatGPT, type EstadoChatGPT } from './chatgpt-login'
+import { ehOpen } from './conexoes'
+import { chatgptDisponivel, entrarComChatGPT, fraseDaFalha, FalhaChatGPT, lerEstadoChatGPT, sairDoChatGPT, type EstadoChatGPT } from './chatgpt-login'
 import '../../settings/settings.css'
 
 /**
@@ -24,7 +24,7 @@ export function EntrarComChatGPT() {
   const idioma = useIdioma()
   const online = store.connection.kind === 'online' && !store.mismatch
   // O login abre o navegador do dono pelo retorno do loopback do desktop; na web não há retorno, sem card.
-  const visivel = window.codync?.web !== true && mostrarApiDireta(store.hello?.backends ?? [], store.isLoopback)
+  const visivel = chatgptDisponivel(window.codync?.web === true, ehOpen(window.codync), store.isLoopback)
   const [estado, setEstado] = useState<EstadoChatGPT | null>(null)
   const [falhou, setFalhou] = useState(false)
   const [erro, setErro] = useState<ChaveTexto | null>(null)
@@ -43,18 +43,20 @@ export function EntrarComChatGPT() {
     if (!client) return
     const minha = ++geracao.current
     try {
-      const lido = await lerEstadoChatGPT(client)
+      const aberto = store.spaceId ?? store.spaces?.personalSpaceId
+      const lido = await lerEstadoChatGPT(client, aberto !== undefined && aberto === store.spaces?.personalSpaceId ? aberto : undefined)
       if (minha !== geracao.current) return
       setEstado(lido)
       setFalhou(false)
     } catch {
       if (minha !== geracao.current) return
       setFalhou(true)
+      setEstado((atual) => (atual ? { ...atual, inconclusivo: true } : atual))
     }
   }
   useEffect(() => {
     if (visivel && online) void reler()
-  }, [visivel, online, store.hello?.hostId])
+  }, [visivel, online, store.hello?.hostId, store.spaces?.personalSpaceId, store.spaceId])
   // Trocar de aba desiste do login em espera: sem o botão de Cancelar, o ouvinte não fica aberto.
   useEffect(() => () => cancelarRef.current?.(), [])
 
@@ -122,7 +124,7 @@ export function EntrarComChatGPT() {
     <div className="idioma-superficie" style={{ display: 'contents' }} {...superficieIdioma(idioma)}>
       <CardSection title={t('contas.chatgpt.titulo')} footer={t('contas.chatgpt.rodape')}>
         {!online ? <Text tone="secondary">{t('contas.apiDireta.semConexao')}</Text> : null}
-        {online && falhou && !estado ? (
+        {online && (falhou || estado?.inconclusivo) ? (
           <HStack gap={12}>
             <Text size="caption" tone="secondary" role="status">{t('contas.chatgpt.erro.estado')}</Text>
             <button className="settings-quiet-button" onClick={() => void reler()}>{t('ajustes.atualizacoes.tentar')}</button>
@@ -197,9 +199,9 @@ export function PlanoDoChatGPT({ estado, ocupado, concluindo, erro, avisoDeSair,
             <>
               <HStack gap={6}>
                 <Text tone="text" dir="auto">{isolado(estado?.rotulo ?? '')}</Text>
-                {estado?.planoHabilitado ? <MarketBadge label={t('contas.chatgpt.planoHabilitado')} tone="added" icon="checkmark" /> : null}
+                {estado?.planoHabilitado && !estado.inconclusivo ? <MarketBadge label={t('contas.chatgpt.planoHabilitado')} tone="added" icon="checkmark" /> : null}
               </HStack>
-              {!estado?.planoHabilitado ? <Text size="caption" tone="secondary">{t('contas.chatgpt.planoNaoHabilitado')}</Text> : null}
+              {!estado?.planoHabilitado && !estado?.inconclusivo ? <Text size="caption" tone="secondary">{t('contas.chatgpt.planoNaoHabilitado')}</Text> : null}
             </>
           ) : estado?.precisaEntrar ? <Text size="caption" tone="secondary">{t('contas.chatgpt.precisaEntrar')}</Text> : null}
         </VStack>
@@ -207,7 +209,7 @@ export function PlanoDoChatGPT({ estado, ocupado, concluindo, erro, avisoDeSair,
           // O «Sair» fica sempre ao alcance (o Hub não exige o Space pessoal para encerrar a sessão);
           // entrar, ativar e trocar de conta é que valem só com o Pessoal aberto.
           <HStack gap={12}>
-            {!estado?.planoHabilitado && !foraDoPessoal ? <button className="settings-quiet-button" onClick={ativar}>{t('contas.chatgpt.ativar')}</button> : null}
+            {!estado?.planoHabilitado && !estado?.inconclusivo && !foraDoPessoal ? <button className="settings-quiet-button" onClick={ativar}>{t('contas.chatgpt.ativar')}</button> : null}
             {!foraDoPessoal && outraConta ? <button className="settings-quiet-button" onClick={outraConta}>{t('contas.chatgpt.outraConta')}</button> : null}
             <button className="settings-quiet-button" onClick={sair}>{t('contas.chatgpt.sair')}</button>
           </HStack>

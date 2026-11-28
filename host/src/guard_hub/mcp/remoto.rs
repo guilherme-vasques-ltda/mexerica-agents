@@ -2,7 +2,9 @@
 //! DONNA Bot, 2026-11-04: prazo privado do Bearer real na última entrega Hub,
 //! depois da guarda completa; sem mudar autoridade, cache ou contrato público.
 use super::runtime;
-use crate::fork::conectores::{catalogo_local, oauth_binding, oauth_runtime::RuntimeIntent};
+use crate::fork::conectores::{
+    catalogo_local, catalogo_servicos::TipoConexao, oauth_binding, oauth_runtime::RuntimeIntent,
+};
 use crate::{LockExt, hub::Hub};
 use anyhow::{Result, anyhow, bail, ensure};
 use serde_json::{Value, json};
@@ -153,8 +155,10 @@ pub(super) async fn call(
         crate::fork::spaces::connector_context::check(hub, id, body, intent.execution())?;
         let saved = intent.snapshot(hub)?;
         ensure!(!catalogo_local::reservado(&saved), "Conta MCP local não usa transporte HTTP");
-        if !matches!(method, "initialize" | "ping" | "tools/list" | "tools/call" | "notifications/initialized")
-            && crate::market::contas::tipo_da_conta(&saved)?.is_some_and(|tipo| tipo.exige_filtro(&saved.liberacoes))
+        let tipo = crate::market::contas::tipo_da_conta(&saved)?;
+        let streamable_only = tipo.is_some_and(TipoConexao::somente_endpoint_streamable);
+        if !super::http::tools_only(method)
+            && (streamable_only || tipo.is_some_and(|tipo| tipo.exige_filtro(&saved.liberacoes)))
         {
             return Ok(json!({"ruleDenied": true}));
         }
@@ -226,9 +230,11 @@ pub(super) async fn call(
             crate::market::ferramentas::iniciar_descoberta(&hub.store, bridge, connector)?;
         }
         let response = oauth_binding::check_runtime(hub, &current, &intent, || {
-            Ok(
-                json!({"url":target_payload["url"],"headers":target_payload["headers"],"bridgeId":bridge,"setup":context.is_none()}),
-            )
+            let mut response = json!({"url":target_payload["url"],"headers":target_payload["headers"],"bridgeId":bridge,"setup":context.is_none()});
+            if streamable_only {
+                response["streamableOnly"] = json!(true);
+            }
+            Ok(response)
         })?;
         #[cfg(test)]
         crate::market::oauth::upstream02_tests::runtime_window(

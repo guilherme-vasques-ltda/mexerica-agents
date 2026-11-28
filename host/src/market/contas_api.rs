@@ -115,6 +115,17 @@ fn open_mostra_app_proprio_com_escopo_de_leitura_para_o_dono() {
     assert_eq!(ficha(servico, hoje, None, "", true), completa);
 }
 
+#[cfg(test)]
+#[test]
+fn planetscale_aparece_nos_dois_fluxos() {
+    let servico = catalogo::servico("planetscale").unwrap();
+    let hoje = servico.conferida_em.parse().unwrap();
+    assert!(sem_filtro(servico, servico.tipos[0].id));
+    let completa = ficha(servico, hoje, None, "", false);
+    assert_eq!(completa["conectavel"], true);
+    assert_eq!(ficha(servico, hoje, None, "", true), completa);
+}
+
 pub(crate) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: &Value) -> Result<Option<Value>> {
     if !METHODS.contains(&method) {
         return Ok(None);
