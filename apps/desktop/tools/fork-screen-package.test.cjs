@@ -25,7 +25,7 @@ test('o helper só aceita o alvo verificado uma vez e dentro do prazo', { skip: 
     const main = join(temp, 'main.swift')
     writeFileSync(main, 'import Foundation\n' + readFileSync(join(__dirname, 'fork-local-click-fixture.swift'), 'utf8'))
     const code = join(temp, 'click')
-    execFileSync('xcrun', ['swiftc', join(__dirname, '../../screen-macos/AXTree.swift'), main, '-o', code], { stdio: 'inherit' })
+    execFileSync('xcrun', ['swiftc', join(__dirname, '../../screen-macos/fork-local-click.swift'), main, '-o', code], { stdio: 'inherit' })
     execFileSync(code, { stdio: 'inherit' })
   } finally {
     rmSync(temp, { recursive: true, force: true })
