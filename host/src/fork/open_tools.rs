@@ -1,18 +1,12 @@
 use super::{open_mcp, open_tool_delegation as team, open_turn::LocalTurn};
-use crate::hub::Hub;
 use crate::store::Lane;
+use crate::{LockExt, hub::Hub};
 use anyhow::{Result, ensure};
 use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio::sync::watch;
 
 pub(super) const LOCAL_COMMAND: &str = "run_local_command";
-
-pub(super) fn local_commands_enabled() -> bool {
-    cfg!(any(target_os = "linux", target_os = "macos"))
-        && crate::environment::Environment::is_open()
-        && std::env::var_os("MEXERICA_LOCAL_COMMANDS").is_some_and(|value| value == "1")
-}
 
 pub(super) const GUIDANCE: &str = concat!(
     "Neste turno do dono local, use as ferramentas do Hub anunciadas para consultar os outros bots do seu espaço, ",
@@ -54,7 +48,7 @@ impl<'a> Turn<'a> {
         self.proof.check(self.hub)
     }
 
-    pub(super) fn catalog() -> Value {
+    pub(super) fn catalog(&self) -> Value {
         let mut catalog: Vec<_> = TOOLS
             .iter()
             .map(|(name, description)| {
@@ -68,18 +62,20 @@ impl<'a> Turn<'a> {
         catalog.extend(team::catalog());
         catalog.extend(open_mcp::catalog());
         #[cfg(any(target_os = "linux", target_os = "macos"))]
-        if local_commands_enabled() {
+        if self.offered(LOCAL_COMMAND) {
             catalog.push(super::open_terminal::catalog());
         }
         Value::Array(catalog)
     }
 
-    pub(super) fn offered(name: &str) -> bool {
+    pub(super) fn offered(&self, name: &str) -> bool {
         TOOLS.iter().any(|(tool, _)| *tool == name)
             || super::open_tool_actions::offered(name)
             || matches!(name, team::ASK | team::STATUS)
             || open_mcp::offered(name)
-            || (name == LOCAL_COMMAND && local_commands_enabled())
+            || (name == LOCAL_COMMAND
+                && super::open_command_settings::revision(&self.hub.store.db.locked(), &self.proof.lane().chat)
+                    .is_ok_and(|r| r.is_some()))
     }
 
     fn delegation_turn(&self) -> Result<team::LocalTurn> {

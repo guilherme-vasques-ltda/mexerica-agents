@@ -1,6 +1,7 @@
 use super::{
+    open_command_settings,
     open_tool_actions::{approve_command, check_card},
-    open_tools::{LOCAL_COMMAND, local_commands_enabled},
+    open_tools::LOCAL_COMMAND,
     open_turn::LocalTurn,
     rules::{
         avaliacao::{Decisao, Origem, Validade},
@@ -14,7 +15,7 @@ use super::{
     sandbox::contrato::Fim,
 };
 use crate::{LockExt, hub::Hub};
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use rusqlite::TransactionBehavior;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -43,8 +44,9 @@ struct Arguments {
 }
 
 pub(super) async fn call(hub: &Arc<Hub>, proof: &LocalTurn, args: &Value) -> Result<Value> {
-    ensure!(local_commands_enabled(), "open_tools_command_disabled");
     let cfg = proof.check(hub)?;
+    let activation =
+        open_command_settings::revision(&hub.store.db.locked(), &cfg.id)?.context("open_tools_command_disabled")?;
     let Arguments { argv, cwd } = serde_json::from_value(args.clone())?;
     ensure!(
         argv.first().is_some_and(|program| std::path::Path::new(program).is_absolute())
@@ -74,7 +76,7 @@ pub(super) async fn call(hub: &Arc<Hub>, proof: &LocalTurn, args: &Value) -> Res
     }
     ensure!(detail.encode_utf16().count() <= 2000, "open_tools_invalid_approval");
     let consent = approve_command(
-        hub, proof.lane(), proof.turn(), "Pedir aprovação para comando local",
+        hub, proof.lane(), proof.turn(), activation, "Pedir aprovação para comando local",
         "Se você aprovar o próximo cartão, o comando vai rodar com as suas permissões, sem isolamento. Ele pode ler ou modificar seus arquivos e usar a rede. Este cartão só autoriza mostrar o pedido; não roda nada.",
     ).await?;
     proof.check(hub)?;
@@ -90,7 +92,8 @@ pub(super) async fn call(hub: &Arc<Hub>, proof: &LocalTurn, args: &Value) -> Res
     }
     let gate = Gate::opaque(cfg.id, proof.turn(), decision, Consent::OwnerAcceptedExecutionWithoutIsolation)?;
     let prepared = gate.prepare(argv, PathBuf::from(cwd))?;
-    let card = approve_command(hub, proof.lane(), proof.turn(), "Executar este comando uma vez", &detail).await?;
+    let card =
+        approve_command(hub, proof.lane(), proof.turn(), activation, "Executar este comando uma vez", &detail).await?;
     gate.approve(prepared.request())?;
     let mut started = false;
     let result = prepared
@@ -102,7 +105,7 @@ pub(super) async fn call(hub: &Arc<Hub>, proof: &LocalTurn, args: &Value) -> Res
             check_card(&tx, &consent)?;
             check_card(&tx, &card)?;
             ensure!(store::revision(&tx)? == snapshot.revision, "open_tools_command_policy_changed");
-            ensure!(local_commands_enabled(), "open_tools_command_disabled");
+            open_command_settings::require(&tx, &proof.lane().chat, activation)?;
             let child = spawn()?;
             started = true;
             Ok(child)

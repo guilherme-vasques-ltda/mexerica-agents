@@ -240,6 +240,7 @@ struct Pending {
     card: Entry,
     answer: oneshot::Sender<Entry>,
     deadline: Instant,
+    command_revision: Option<i64>,
 }
 
 static PENDING: LazyLock<Mutex<HashMap<String, Pending>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -265,9 +266,6 @@ pub(super) fn respond(
             && (entry.data["toolKind"] != COMMAND_KIND || body["source"] == "app"),
         "open_tools_local_app_required"
     );
-    if entry.data["toolKind"] == COMMAND_KIND {
-        ensure!(super::open_tools::local_commands_enabled(), "open_tools_command_disabled");
-    }
     let mut pending = PENDING.locked();
     let current = pending.get(&entry.id).context("open_tools_approval_not_pending")?;
     ensure!(
@@ -281,6 +279,9 @@ pub(super) fn respond(
     data["selected"] = json!(option);
     let confirmed = permission_card::commit_checked(hub, &entry.id, &data, None, origin, |db| {
         ensure!(Instant::now() < current.deadline, "open_tools_approval_expired");
+        if let Some(expected) = current.command_revision {
+            super::open_command_settings::require(db, &current.card.bot_id, expected)?;
+        }
         check_card(db, &current.card)
     })?
     .context("open_tools_approval_stale")?;
@@ -317,7 +318,7 @@ impl Drop for Waiting<'_> {
 }
 
 pub(super) async fn approve(hub: &Arc<Hub>, lane: &Lane, turn: i64, title: &str, detail: &str) -> Result<Entry> {
-    approve_card(hub, lane, turn, CARD_KIND, title, detail).await
+    approve_card(hub, lane, turn, None, title, detail).await
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -325,14 +326,21 @@ pub(super) async fn approve_command(
     hub: &Arc<Hub>,
     lane: &Lane,
     turn: i64,
+    activation: i64,
     title: &str,
     detail: &str,
 ) -> Result<Entry> {
-    ensure!(super::open_tools::local_commands_enabled(), "open_tools_command_disabled");
-    approve_card(hub, lane, turn, COMMAND_KIND, title, detail).await
+    approve_card(hub, lane, turn, Some(activation), title, detail).await
 }
 
-async fn approve_card(hub: &Arc<Hub>, lane: &Lane, turn: i64, kind: &str, title: &str, detail: &str) -> Result<Entry> {
+async fn approve_card(
+    hub: &Arc<Hub>,
+    lane: &Lane,
+    turn: i64,
+    command_revision: Option<i64>,
+    title: &str,
+    detail: &str,
+) -> Result<Entry> {
     ensure!(
         lane.session.is_none()
             && detail.encode_utf16().count() <= 2000
@@ -346,6 +354,10 @@ async fn approve_card(hub: &Arc<Hub>, lane: &Lane, turn: i64, kind: &str, title:
     let deadline = Instant::now() + WAIT;
     let card = {
         let mut pending = PENDING.locked();
+        if let Some(expected) = command_revision {
+            super::open_command_settings::require(&hub.store.db.locked(), &lane.chat, expected)?;
+        }
+        let kind = if command_revision.is_some() { COMMAND_KIND } else { CARD_KIND };
         let (card, _) = hub.add_entry_once(
             &uuid::Uuid::new_v4().to_string(),
             lane,
@@ -359,7 +371,10 @@ async fn approve_card(hub: &Arc<Hub>, lane: &Lane, turn: i64, kind: &str, title:
                 ]
             }),
         )?;
-        pending.insert(card.id.clone(), Pending { hub: Arc::downgrade(hub), card: card.clone(), answer, deadline });
+        pending.insert(
+            card.id.clone(),
+            Pending { hub: Arc::downgrade(hub), card: card.clone(), answer, deadline, command_revision },
+        );
         card
     };
     let waiting = Waiting { hub, card };

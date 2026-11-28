@@ -926,35 +926,17 @@ async fn comando_local_so_inicia_com_cartao_exato_e_turno_vivo() {
     };
     use serde_json::json;
 
-    const FLAG: &str = "MEXERICA_LOCAL_COMMANDS";
     if !crate::environment::Environment::is_open() {
         return;
     }
-    let enabled = match std::env::var("MEXERICA_TEST_LOCAL_COMMANDS_CHILD").as_deref() {
-        Ok("on") => true,
-        Ok("off") => false,
-        _ => {
-            for value in [None, Some("true"), Some("1")] {
-                let mut child = std::process::Command::new(std::env::current_exe().unwrap());
-                child
-                    .args(["--exact", "fork::open_chat::tests::comando_local_so_inicia_com_cartao_exato_e_turno_vivo"])
-                    .env("MEXERICA_TEST_LOCAL_COMMANDS_CHILD", if value == Some("1") { "on" } else { "off" });
-                if let Some(value) = value {
-                    child.env(FLAG, value);
-                } else {
-                    child.env_remove(FLAG);
-                }
-                let output = child.output().unwrap();
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                assert!(output.status.success() && stdout.contains("1 passed"), "{stdout}");
-            }
-            return;
-        }
-    };
-    let scenarios: &[_] = if enabled { &["allow", "shell", "deny", "cancel", "policy"] } else { &["disabled"] };
-    for &scenario in scenarios {
+    'scenarios: for scenario in
+        ["disabled", "allow", "shell", "deny", "cancel", "policy", "revoke_card", "revoke_spawn"]
+    {
         let bot = format!("bot-comando-{scenario}");
         let (hub, dir) = hub_de_teste(&bot);
+        let mut config = hub.store.bot(&bot).unwrap().unwrap().config;
+        config.backend = "codex".into();
+        hub.store.save_bot(&config).unwrap();
         let cwd = dir.canonicalize().unwrap();
         let effect = cwd.join("feito");
         let lane = Lane::main(&bot);
@@ -977,6 +959,16 @@ async fn comando_local_so_inicia_com_cartao_exato_e_turno_vivo() {
         let ticket = admit_for_test(&hub, &bot, "fixture").unwrap();
         let turn =
             super::super::open_tools::Turn::capture(&hub, &lane, &entry.id, number, ticket_cancel(&ticket)).unwrap();
+        let set_enabled = async |enabled| {
+            crate::api::dispatch(&hub, &Caller::Local, "updateBot", json!({"id":bot,"localCommandsEnabled":enabled}))
+                .await
+                .unwrap()
+        };
+        let enabled = scenario != "disabled";
+        assert!(!turn.offered("run_local_command"));
+        if enabled {
+            assert_eq!(set_enabled(true).await["bot"]["localCommandsEnabled"], true);
+        }
         let mut events = hub.events.subscribe();
         let shell = std::fs::canonicalize("/bin/sh").unwrap();
         let argv = if scenario == "shell" {
@@ -986,25 +978,13 @@ async fn comando_local_so_inicia_com_cartao_exato_e_turno_vivo() {
         };
         let payload = json!({"argv":argv,"cwd":cwd});
         let mut call = Box::pin(turn.call("run_local_command", &payload));
-        let catalog = super::super::open_tools::Turn::catalog();
+        let catalog = turn.catalog();
         assert_eq!(catalog.as_array().unwrap().iter().any(|tool| tool["name"] == "run_local_command"), enabled);
-        assert_eq!(super::super::open_tools::Turn::offered("run_local_command"), enabled);
+        assert_eq!(turn.offered("run_local_command"), enabled);
         if !enabled {
             assert_eq!(call.await.unwrap_err().to_string(), "open_tools_command_disabled");
             assert!(!effect.exists());
             assert!(matches!(events.try_recv(), Err(tokio::sync::broadcast::error::TryRecvError::Empty)));
-            let card = hub
-                .add_entry(
-                    &lane,
-                    EntryKind::Permission,
-                    number,
-                    &json!({"toolKind":"open_local_command","status":"pending"}),
-                )
-                .unwrap();
-            let answer = json!({"source":"app","botId":bot,"entryId":card.id,"entryRev":card.rev,"optionId":"allow"});
-            let result = crate::api::dispatch(&hub, &Caller::Local, "respondPermission", answer).await;
-            assert!(format!("{result:?}").contains("open_tools_command_disabled"));
-            assert_eq!(hub.store.entry(&card.id).unwrap().data["status"], "pending");
             drop(ticket);
             std::fs::remove_dir_all(dir).unwrap();
             continue;
@@ -1032,6 +1012,17 @@ async fn comando_local_so_inicia_com_cartao_exato_e_turno_vivo() {
             assert!(options.iter().all(|o| matches!(o["kind"].as_str(), Some("allow_once" | "reject_once"))));
             let option = options.iter().find(|o| o["kind"] == kind).unwrap()["optionId"].as_str().unwrap();
             let body = json!({"source":"app","botId":bot,"entryId":card.id,"entryRev":card.rev,"optionId":option});
+            if !consent && scenario == "revoke_card" {
+                assert_eq!(set_enabled(false).await["bot"]["localCommandsEnabled"], false);
+                assert_eq!(set_enabled(true).await["bot"]["localCommandsEnabled"], true);
+                let answer = crate::api::dispatch(&hub, &Caller::Local, "respondPermission", body).await;
+                assert!(format!("{answer:?}").contains("open_tools_command_disabled"));
+                drop(call);
+                assert!(!effect.exists());
+                drop(ticket);
+                std::fs::remove_dir_all(dir).unwrap();
+                continue 'scenarios;
+            }
             let mut stale = body.clone();
             stale["entryRev"] = (card.rev + 1).into();
             assert!(crate::api::dispatch(&hub, &Caller::Local, "respondPermission", stale).await.is_err());
@@ -1048,6 +1039,10 @@ async fn comando_local_so_inicia_com_cartao_exato_e_turno_vivo() {
         if scenario == "policy" {
             hub.store.db.locked().execute("UPDATE donna_policy_meta SET revision=revision+1 WHERE id=1", []).unwrap();
         }
+        if scenario == "revoke_spawn" {
+            assert_eq!(set_enabled(false).await["bot"]["localCommandsEnabled"], false);
+            assert_eq!(set_enabled(true).await["bot"]["localCommandsEnabled"], true);
+        }
         let result = call.await;
         let allowed = matches!(scenario, "allow" | "shell");
         if allowed {
@@ -1059,6 +1054,43 @@ async fn comando_local_so_inicia_com_cartao_exato_e_turno_vivo() {
         drop(ticket);
         std::fs::remove_dir_all(dir).unwrap();
     }
+}
+
+#[tokio::test]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+async fn ajuste_de_comandos_e_local_por_bot_e_persiste() {
+    use crate::{
+        LockExt,
+        api::devices::Caller,
+        store::{Scope, Store},
+    };
+    use serde_json::json;
+    if !crate::environment::Environment::is_open() {
+        return;
+    }
+    let (hub, dir) = hub_de_teste("fixture-comandos");
+    let mut cfg = hub.store.bot("fixture-comandos").unwrap().unwrap().config;
+    cfg.backend = "codex".into();
+    hub.store.save_bot(&cfg).unwrap();
+    cfg.id = "outro-bot".into();
+    hub.store.save_bot(&cfg).unwrap();
+    let patch = json!({"id":"fixture-comandos","localCommandsEnabled":true});
+    let remote = Caller::Device { key: "fixture".into(), scopes: vec![Scope::Control], autoridade: None };
+    let mut invalid = patch.clone();
+    invalid["localCommandsEnabled"] = json!("true");
+    let mut combined = patch.clone();
+    combined["name"] = json!("Outro nome");
+    assert!(crate::api::dispatch(&hub, &remote, "updateBot", patch.clone()).await.is_err());
+    assert!(crate::api::dispatch(&hub, &Caller::Local, "updateBot", invalid).await.is_err());
+    assert!(crate::api::dispatch(&hub, &Caller::Local, "updateBot", combined).await.is_err());
+    assert_eq!(hub.bot_value_for_test("fixture-comandos")["localCommandsEnabled"], false);
+    crate::api::dispatch(&hub, &Caller::Local, "updateBot", patch).await.unwrap();
+    assert_eq!(hub.bot_value_for_test("outro-bot")["localCommandsEnabled"], false);
+    drop(hub);
+    let store = Store::open(&dir.join("hub.db")).unwrap();
+    assert!(super::super::open_command_settings::revision(&store.db.locked(), "fixture-comandos").unwrap().is_some());
+    drop(store);
+    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[tokio::test]

@@ -10,6 +10,7 @@ pub(crate) mod open_chat_anexos;
 pub(crate) mod open_chat_fila;
 #[cfg(unix)]
 pub(crate) mod open_codex;
+pub(crate) mod open_command_settings;
 pub(crate) mod open_manuais;
 mod open_mcp;
 pub(crate) mod open_modelo;
@@ -205,6 +206,7 @@ pub(crate) fn migrate(store: &crate::store::Store) -> anyhow::Result<()> {
 
 /// Invocado dentro da transação de exclusão, inclusive nos caminhos de gestão.
 pub fn on_bot_deleted(c: &rusqlite::Connection, id: &str) -> anyhow::Result<()> {
+    open_command_settings::on_bot_deleted(c, id)?;
     routine_creation::external_grant::delete_bot(c, id)?;
     nunca_fazer::on_bot_deleted(c, id)?;
     usage_limits::on_bot_deleted(c, id)?;
