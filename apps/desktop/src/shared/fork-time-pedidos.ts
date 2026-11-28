@@ -25,7 +25,7 @@ export type TeamRequestTone = 'active' | 'done' | InterBotTone
 const ESTADOS: readonly string[] = ['queued', 'running', 'finished', 'cancelled', 'interrupted']
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 const str = (v: unknown) => (typeof v === 'string' && v ? v : null)
-const opt = (v: unknown) => (v === null || v === undefined ? null : str(v))
+const ausente = (v: unknown) => v === null || v === undefined
 
 /** Como está, em código de rótulo; null para combinação que o app não conhece (a linha não aparece). */
 export function teamRequestLabel(item: Pick<TeamRequest, 'state' | 'reason' | 'outcome'>): { rotulo: TeamRequestLabel; tone: TeamRequestTone } | null {
@@ -42,7 +42,10 @@ function item(v: unknown): TeamRequest | null {
   if (!key || !targetBotId || updatedAt === null || typeof v.state !== 'string' || !ESTADOS.includes(v.state)) return null
   if (v.mode !== 'wait' && v.mode !== 'async') return null
   if (v.text !== null && typeof v.text !== 'string') return null
-  const pedido: TeamRequest = { key, targetBotId, text: str(v.text), state: v.state as TeamRequestState, outcome: opt(v.outcome), reason: opt(v.reason), mode: v.mode, updatedAt }
+  const outcome = str(v.outcome)
+  const reason = str(v.reason)
+  if ((outcome === null && !ausente(v.outcome)) || (reason === null && !ausente(v.reason))) return null
+  const pedido: TeamRequest = { key, targetBotId, text: str(v.text), state: v.state as TeamRequestState, outcome, reason, mode: v.mode, updatedAt }
   return teamRequestLabel(pedido) ? pedido : null
 }
 

@@ -25,7 +25,7 @@ test('time: rótulos de aberto, concluído e terminado sem sucesso', () => {
 })
 
 test('time: combinação desconhecida some, nunca vira outro estado', () => {
-  for (const extra of [{ state: 'running', outcome: 'completed' }, { state: 'queued', reason: 'timeout' }, { state: 'finished', reason: 'timeout' }, { state: 'novo' }, { mode: 'outro' }, { key: '' }, { text: 7 }, { updatedAt: 'ontem' }]) {
+  for (const extra of [{ state: 'running', outcome: 'completed' }, { state: 'queued', reason: 'timeout' }, { state: 'finished', reason: 'timeout' }, { state: 'novo' }, { mode: 'outro' }, { key: '' }, { text: 7 }, { updatedAt: 'ontem' }, { reason: 7 }, { outcome: {} }, { state: 'finished', outcome: 'completed', reason: '' }]) {
     assert.deepEqual(parseTeamRequests(resposta([item(extra)]), 'berga')?.items, [], JSON.stringify(extra))
   }
 })

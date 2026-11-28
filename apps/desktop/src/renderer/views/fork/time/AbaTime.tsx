@@ -41,9 +41,14 @@ function useTeamRequests(store: BotStore, botId: string, active: boolean): Leitu
         if (minha === geracao.current) setLeitura((antes) => ({ dados: antes.dados, erro: true }))
       }
     }
-    void ler()
-    const timer = setInterval(() => { void ler() }, RELER_MS)
-    return () => { clearInterval(timer); geracao.current++ }
+    let ativo = true
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const ciclo = async () => {
+      await ler()
+      if (ativo) timer = setTimeout(() => { void ciclo() }, RELER_MS)
+    }
+    void ciclo()
+    return () => { ativo = false; clearTimeout(timer); geracao.current++ }
   }, [store, botId, active])
   return leitura
 }
