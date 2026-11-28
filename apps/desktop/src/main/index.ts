@@ -340,6 +340,7 @@ function registerIPC(tray: Tray) {
   ipcMain.handle('app:resetAllData', async (event) => {
     const janela = pedidoDoChat(event)
     if (!janela || apagando) return
+    if (bundledMacLocalHub) throw new Error('reset_unavailable_with_private_hub')
     const frame = event.senderFrame
     apagando = true
     try {

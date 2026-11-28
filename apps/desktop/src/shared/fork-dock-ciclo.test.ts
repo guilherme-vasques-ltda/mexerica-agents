@@ -44,7 +44,7 @@ function loadAuthModule(app: unknown, ipcMain: unknown, browserOpens: string[]) 
  * abertura (R10/R11). O primeiro plano é modelado (o app ativo, oculto, quem está à frente) só com os fatos medidos nas
  * fixtures e lidos no Electron fixado (`browser_mac.mm`/`native_window_mac.mm` 44.5.1), indicados em cada ponto.
  */
-async function appRig({ saved = musgo as unknown, raw = null as string | null, showInDock = false, agent = false, showIsland = false, appIcon = undefined as string | undefined, env = {} as Record<string, string>, dialogo = {} as { showMessageBox?: (janela: unknown, opcoes: Electron.MessageBoxOptions) => Promise<{ response: number }> }, hostInstall = undefined as { platform: NodeJS.Platform; rc?: boolean; tray?: boolean } | undefined } = {}) {
+async function appRig({ saved = musgo as unknown, raw = null as string | null, showInDock = false, agent = false, showIsland = false, appIcon = undefined as string | undefined, env = {} as Record<string, string>, dialogo = {} as { showMessageBox?: (janela: unknown, opcoes: Electron.MessageBoxOptions) => Promise<{ response: number }> }, hostInstall = undefined as { platform: NodeJS.Platform; rc?: boolean; tray?: boolean } | undefined, bundledMacLocalHub = false } = {}) {
   const dir = await fs.mkdtemp(path.join(tmpdir(), 'd169-r10-'))
   const file = path.join(dir, 'app-icon-v1.json')
   // D457: a preferência antiga do seletor (uma variante do "d", um arquivo inválido ou nenhum) fica no disco, intocada.
@@ -235,7 +235,7 @@ async function appRig({ saved = musgo as unknown, raw = null as string | null, s
     './fork-keychain/generation': { prepareKeychain: () => { startup.push('keychain') } },
     './environment': { identity: { port: 0, scheme: 'donnabot' }, isRc: hostInstall?.rc ?? false },
     './fork-voz/registrar': { registerVozIPC: () => { startup.push('voice') } },
-    '../shared/fork-features': { officialDesktop: !!hostInstall, forkFeatures: { cloud: false, cloudAccess: false, localHost: !!hostInstall } }, '../shared/fork-surfaces': surfaces,
+    '../shared/fork-features': { officialDesktop: !!hostInstall, bundledMacLocalHub, forkFeatures: { cloud: false, cloudAccess: false, localHost: !!hostInstall } }, '../shared/fork-surfaces': surfaces,
     './fork-cloud/register': { registerForkCloud: () => assert.fail('cloud fixture is disabled') },
     './fork-cloud/service': { registerForkCloudService: () => assert.fail('cloud fixture is disabled') },
     'node:child_process': { execFileSync: () => '' }, 'node:os': { hostname: () => 'teste' }, 'node:path': path, 'node:url': nodeURL,
@@ -1123,6 +1123,23 @@ test('apagar dados exige diálogo nativo e continua restrito ao frame enquanto a
     senderFrame.url = 'https://example.test/'
     resposta.resolve({ response: 1 })
     await navegou
+  } finally { await app.done() }
+})
+
+test('modo Hub privado recusa apagar dados mesmo do chat autorizado', async () => {
+  let confirmacoes = 0
+  const app = await appRig({ bundledMacLocalHub: true, dialogo: { showMessageBox: async () => {
+    confirmacoes++
+    return { response: 1 }
+  } } })
+  try {
+    await app.boot()
+    const sender = app.chat().webContents
+    await assert.rejects(
+      app.handle('app:resetAllData')!({ sender, senderFrame: sender.mainFrame }),
+      /reset_unavailable_with_private_hub/,
+    )
+    assert.equal(confirmacoes, 0)
   } finally { await app.done() }
 })
 
