@@ -32,7 +32,7 @@ const be = (n: number) => {
 
 type Envelope = { id: number; m?: string; sub?: string; cancel?: boolean; b: Record<string, unknown>; pop: { v: number; ts: number; nonce: string; sig: string } }
 
-function fixture(options: { enrolled?: boolean; fresh?: boolean; renew?: boolean; mismatch?: boolean; holdSend?: boolean; noToken?: boolean; failMarkPaired?: boolean; relay?: boolean } = {}) {
+function fixture(options: { enrolled?: boolean; fresh?: boolean; renew?: boolean; mismatch?: boolean; holdSend?: boolean; noToken?: boolean; failMarkPaired?: boolean; relay?: boolean; receipt?: 'match' | 'wrong' | 'absent'; streamError?: boolean } = {}) {
   let joined = options.enrolled ?? true
   let now = Date.now()
   let epoch = context.workspaceEpoch
@@ -142,7 +142,20 @@ function fixture(options: { enrolled?: boolean; fresh?: boolean; renew?: boolean
       }
       if (m.sub === 'events') {
         assert.equal(m.b.since, 12)
+        if (options.streamError) return this.answer({ id: m.id, err: { status: 500, code: 'private-code', message: '/internal/fixture' } })
         return this.answer({ id: m.id, ev: { type: 'entry', value: 'fixture', extension: true } })
+      }
+      if (options.receipt && (m.m === 'send' || m.m === 'donnaConversationSend')) {
+        if (options.receipt === 'match') return
+        return this.answer({ id: m.id, err: { status: 400, code: 'private-code', message: '/internal/fixture' } })
+      }
+      if (options.receipt && (m.m === 'history' || m.m === 'donnaConversationHistory') && m.b.sendReceipt) {
+        const { nonce } = m.b.sendReceipt as { nonce: string }
+        const chat = m.b.conversationId ?? m.b.botId
+        const entry = { id: 'stored-entry', kind: 'user', botId: chat, sessionId: m.b.sessionId ?? chat, spaceId: m.b.spaceId,
+          data: { clientNonce: options.receipt === 'wrong' ? 'other-nonce' : nonce, status: 'sent', text: 'fixture-text' } }
+        return this.answer({ id: m.id, ok: { entries: options.receipt === 'absent' ? [] : [entry], hubId: m.b.hubId,
+          context: { spaceId: m.b.spaceId, conversationId: chat } } })
       }
       if (m.m === 'send' && options.holdSend) return
       if (m.m === 'send' && options.mismatch) return this.answer({ id: m.id, err: { status: 409, code: 'workspace_epoch_mismatch' } })
@@ -239,6 +252,46 @@ test('renews before the authenticated expiry on the same channel; no mutation is
   assert.deepEqual(await f.remote.host.call(origin, local.token, 'history', {}, 1000), { value: 7, extra: true })
   assert.equal(f.last(), 'active')
   assert.equal(f.sockets.length, 1)
+})
+
+test('a lost send response reads the stored receipt without repeating the send', async (t) => {
+  const f = fixture({ receipt: 'match' })
+  t.after(f.close)
+  await f.open()
+  const local = (await f.remote.host.snapshot()).local!
+  for (const [method, history, target] of [
+    ['send', 'history', { botId: 'chat', sessionId: 'extra' }],
+    ['donnaConversationSend', 'donnaConversationHistory', { hubId: context.hubId, spaceId: 'space', conversationId: 'chat', expectedRevision: 4 }],
+  ] as const) {
+    const before = f.messages.length
+    const value = await f.remote.host.call(origin, local.token, method, { ...target, text: 'fixture-text', clientNonce: 'fixture-nonce' }, 20) as { entry: { id: string } }
+    assert.equal(value.entry.id, 'stored-entry')
+    const calls = f.messages.slice(before)
+    assert.deepEqual(calls.map((call) => call.m), [method, history])
+    assert.deepEqual(calls[1]!.b.sendReceipt, { nonce: 'fixture-nonce', text: 'fixture-text',
+      ...('expectedRevision' in target ? { revision: target.expectedRevision } : {}) })
+  }
+})
+
+test('a missing or mismatched receipt does not hide a failure; wire details are not displayed', async (t) => {
+  for (const receipt of ['wrong', 'absent'] as const) {
+    const f = fixture({ receipt, streamError: true })
+    t.after(f.close)
+    await f.open()
+    const local = (await f.remote.host.snapshot()).local!
+    const safe = (error: unknown, status: number) => {
+      assert.equal((error as { status: number }).status, status)
+      assert.equal((error as { code: string }).code, 'request_failed')
+      assert.doesNotMatch(JSON.stringify(error), /internal|private-code/)
+      return true
+    }
+    await assert.rejects(f.remote.host.call(origin, local.token, 'send',
+      { botId: 'chat', text: 'fixture-text', clientNonce: 'fixture-nonce' }, 200), (error) => safe(error, 400))
+    const streamError = await new Promise((resolve) => f.remote.host.stream(origin + '/events?since=12',
+      local.token, () => assert.fail('unexpected event'), resolve))
+    safe(streamError, 500)
+    assert.equal(f.messages.filter((call) => call.m === 'send').length, 1)
+  }
 })
 
 test('confirms an already paired key even if the local paired marker could not be written', async (t) => {

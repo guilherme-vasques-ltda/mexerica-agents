@@ -79,9 +79,12 @@ export class SpaceContext extends Observable {
     const trimmed = text.trim()
     if (!origin || !client || !conversation || !this.canSend || !trimmed) throw new Error('stale_message_context')
     const current = () => this.current(origin) && this.conversation === client && this.conversationId === conversation.id
+    const wasSaved = () => this.history.entries.some((entry) =>
+      entry.kind === 'user' && entry.data.clientNonce === nonce && entry.data.text === trimmed)
     let busy = false
     return { text: trimmed, send: async () => {
       if (!current() || !this.canSend || busy) throw new Error('stale_message_context')
+      if (wasSaved()) return
       busy = true
       try {
         // A fixa usa o caminho canônico do próprio bot; adicionais usam o binding/revisão da conversa.
@@ -95,6 +98,8 @@ export class SpaceContext extends Observable {
         const incoming = { ...e, spaceId: origin.spaceId, conversationId: conversation.id }
         this.history = { ...this.history, entries: mergeHistory(this.history.entries, [incoming]) }
         this.changed()
+      } catch (error) {
+        if (!current() || !wasSaved()) throw error
       } finally { busy = false }
     } }
   }

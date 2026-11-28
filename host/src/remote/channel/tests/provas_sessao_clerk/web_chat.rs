@@ -3,6 +3,54 @@ use crate::fork::spaces::PERSONAL;
 use crate::store::{BotConfig, EntryKind, Lane, bot_groups::Edit};
 
 #[tokio::test]
+async fn navegador_confirma_envio_gravado_quando_ator_nao_esta_disponivel() {
+    let hub = temp_hub();
+    let bot: BotConfig = serde_json::from_value(json!({"id":"chat","name":"Chat"})).unwrap();
+    hub.store.save_bot(&bot).unwrap();
+    let actor = hub.test_bot_commands("chat");
+    drop(actor);
+
+    vincular(&hub, &vinculo_pessoal());
+    let key = parear_em(&hub, &afirmacoes(DONO), "web").await.unwrap();
+    let mut p = conectado_via(&hub, key, Via::Relay).await;
+    assert_eq!(autenticar(&mut p, &hub, 1, &token(&afirmacoes(DONO))).await["ok"]["userId"], DONO);
+
+    let send = json!({"botId":"chat","text":"mensagem fictícia","clientNonce":"nonce-teste"});
+    let first = com_posse(&mut p, &hub, 2, "send", send.clone()).await;
+    let id = first["ok"]["entry"]["id"].as_str().expect("mensagem gravada tem recibo");
+    assert_eq!(first["ok"]["entry"]["data"]["status"], "sent");
+    assert_eq!(hub.store.entry(id).unwrap().data["status"], "failed");
+    let replay = com_posse(&mut p, &hub, 3, "send", send).await;
+    assert_eq!(replay["ok"]["entry"]["id"], id);
+    assert_eq!(hub.store.history("chat", i64::MAX, 10).unwrap().len(), 1);
+
+    for (request, text, expected) in [(4, "mensagem fictícia", 1), (5, "outra mensagem", 0)] {
+        let read = com_posse(
+            &mut p,
+            &hub,
+            request,
+            "history",
+            json!({
+                "botId":"chat","sendReceipt":{"nonce":"nonce-teste","text":text}
+            }),
+        )
+        .await;
+        let entries = read["ok"]["entries"].as_array().unwrap();
+        assert_eq!(entries.len(), expected);
+        if let Some(entry) = entries.first() {
+            assert_eq!(entry["id"], id);
+        }
+    }
+
+    let refused = com_posse(&mut p, &hub, 6, "history", json!({"botId":"chat","sessionId":"outra-sessao"})).await;
+    assert_eq!(refused["err"], json!({"status":400,"message":"request_failed","code":"request_failed"}));
+    let b = com_epoch(&hub, "sub:events", json!({"spaceId":"nao-existe"}));
+    let pop = pop(&p.key, &hub.host_id, &p.th, "sub:events");
+    let stream = pedir(&mut p, 7, json!({"sub":"events","b":b,"pop":pop})).await;
+    assert_eq!(stream["err"], json!({"status":500,"message":"request_failed","code":"request_failed"}));
+}
+
+#[tokio::test]
 async fn navegador_recebe_so_dados_de_chat_por_rpc_e_eventos() {
     let hub = temp_hub();
     let mut spaces = hub.store.spaces().unwrap();

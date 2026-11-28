@@ -183,6 +183,8 @@ enum ToDevice {
     Terminal(Terminal),
 }
 
+mod fork_erros_web;
+
 /// Owns the host → device counter: seals inner messages in order, stops at the first close.
 /// With a workspace barrier, each frame is checked against the epoch only after its transport
 /// slot is reserved: once the epoch moves, only the terminal goes out.
@@ -191,6 +193,7 @@ async fn write_frames(
     mut rx: mpsc::Receiver<ToDevice>,
     out: mpsc::Sender<Out>,
     mut barreira: Option<Barreira>,
+    web: bool,
 ) {
     loop {
         let msg = tokio::select! {
@@ -218,7 +221,12 @@ async fn write_frames(
                 return;
             }
             ToDevice::InnerBytes(bytes) => sealed(&mut sealer, &bytes),
-            ToDevice::Inner(v) => sealed(&mut sealer, v.to_string().as_bytes()),
+            ToDevice::Inner(mut v) => {
+                if web {
+                    fork_erros_web::sanitizar(&mut v);
+                }
+                sealed(&mut sealer, v.to_string().as_bytes())
+            }
         };
         for frame in frames {
             let Ok(slot) = out.reserve().await else { return };
@@ -326,7 +334,9 @@ pub async fn run(hub: Arc<Hub>, t: Transport, kind: ChannelKind) {
         porta.armar(barreira.clone());
     }
     let (tx, rx) = mpsc::channel(256);
-    let mut writer = tokio::spawn(write_frames(Sealer::new(hs.keys.h2d), rx, outgoing, barreira));
+    let web = matches!(kind, ChannelKind::DirectBrowser { .. })
+        || hs.device.as_ref().is_some_and(|(_, caller)| caller.is_web_chat());
+    let mut writer = tokio::spawn(write_frames(Sealer::new(hs.keys.h2d), rx, outgoing, barreira, web));
     let caller = if let Some(ref b) = hs.bootstrap {
         Caller::Bootstrap { key: hs.key.clone(), bootstrap_id: b.id.clone() }
     } else if let Some((_, caller)) = hs.device.as_ref() {
