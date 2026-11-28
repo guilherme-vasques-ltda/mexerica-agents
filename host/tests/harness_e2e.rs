@@ -273,17 +273,18 @@ async fn answer(host: &Host, bot: &str, card: &Value, option: &str) {
 }
 
 #[tokio::test]
-async fn cartao_codex_chega_ao_app_sem_liberacoes_persistentes() {
+async fn cartao_codex_so_autoriza_a_chamada_atual() {
     let mut host = Host::start().await;
     for variant in ["COMMAND", "NETWORK", "MCP"] {
         let bot = host.fixture_bot(variant, "hub_approval_agent.py", "").await;
         let card = pending_card(&host, &bot, &format!("OPTIONS_{variant}")).await;
         let options = card["data"]["options"].as_array().unwrap();
-        let session = if variant == "MCP" { "allow_session" } else { "allow_for_session" };
         let ids: Vec<_> = options.iter().map(|o| o["optionId"].as_str().unwrap()).collect();
-        assert_eq!(ids, ["deny", "allow", session]);
-        assert_eq!(options[2]["name"], "Permitir nesta sessão");
+        assert_eq!(ids, ["deny", "allow"]);
         for option in [
+            "allow_for_session",
+            "allow_session",
+            "allow_permissions_session",
             "accept_execpolicy_amendment",
             "apply_network_policy_amendment:0",
             "apply_network_policy_amendment:1",
@@ -309,12 +310,12 @@ async fn cartao_codex_chega_ao_app_sem_liberacoes_persistentes() {
             )
             .await;
         assert!(error.contains("Opção inválida"), "{error}");
-        answer(&host, &bot, &card, session).await;
+        answer(&host, &bot, &card, "allow").await;
         assert_eq!(host.log(&bot, "permission-responses.jsonl").len(), 1);
         assert_eq!(
             host.call(
                 "respondPermission",
-                json!({"botId":card["botId"], "entryRev":card["rev"], "entryId":card["id"], "optionId":session})
+                json!({"botId":card["botId"], "entryRev":card["rev"], "entryId":card["id"], "optionId":"allow"})
             )
             .await,
             json!({})
@@ -334,7 +335,7 @@ async fn cartao_codex_chega_ao_app_sem_liberacoes_persistentes() {
             assert_eq!(
                 host.call(
                     "respondPermission",
-                    json!({"botId":card["botId"], "entryRev":card["rev"], "entryId":card["id"], "optionId":session})
+                    json!({"botId":card["botId"], "entryRev":card["rev"], "entryId":card["id"], "optionId":"allow"})
                 )
                 .await,
                 json!({})
