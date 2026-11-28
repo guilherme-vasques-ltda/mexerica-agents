@@ -10,7 +10,7 @@ use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use zeroize::Zeroizing;
 
 struct Bridge {
-    port: u16,
+    http: crate::fork::bridge_http::BridgeHttp,
     token: Zeroizing<String>,
     connector: String,
     context: String,
@@ -29,8 +29,9 @@ impl Bridge {
         body.as_object_mut()
             .ok_or_else(|| anyhow!("Corpo Guard inválido"))?
             .extend(extra.as_object().ok_or_else(|| anyhow!("Parâmetros Guard inválidos"))?.clone());
-        let response = crate::http()
-            .post(format!("http://127.0.0.1:{}/api/{action}", self.port))
+        let response = self
+            .http
+            .post(action)
             .bearer_auth(self.token.as_str())
             .json(&body)
             .timeout(Duration::from_secs(30))
@@ -233,7 +234,7 @@ pub async fn serve(connector: String, port: u16, context: String) -> Result<()> 
         crate::fork::ponte_credencial::ler_token()?
     });
     let bridge = Bridge {
-        port,
+        http: crate::fork::bridge_http::BridgeHttp::new(port)?,
         token: Zeroizing::new(token.trim().to_owned()),
         connector,
         context,
@@ -246,7 +247,7 @@ pub async fn serve(connector: String, port: u16, context: String) -> Result<()> 
     };
     // Clone só dos identificadores: liberar mesmo se EOF cancelar uma aquisição em voo.
     let release = Bridge {
-        port,
+        http: bridge.http.clone(),
         token: bridge.token.clone(),
         connector: bridge.connector.clone(),
         context: bridge.context.clone(),
