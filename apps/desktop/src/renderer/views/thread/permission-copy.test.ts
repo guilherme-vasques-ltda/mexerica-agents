@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 import { tradutor } from '../../lib/fork-i18n/index.ts'
-import { accessNote, actionLabel, memoryPermissionNote, permissionDetail, permissionHeadline, permissionTitle } from './permission-copy.ts'
+import { accessNote, actionLabel, capturePermissionNote, memoryPermissionNote, permissionDetail, permissionHeadline, permissionTitle } from './permission-copy.ts'
 
 const t = tradutor('pt-BR')
 const en = tradutor('en')
@@ -50,4 +50,12 @@ test('o cartão de acesso diz o que muda e avisa que o computador roda como o us
   assert.equal(accessNote(en, { kind: 'computer' }), 'Commands run as you on this computer, with your permissions.')
   assert.equal(accessNote(t, { kind: 'outro' }), '')
   assert.equal(accessNote(t, undefined), '')
+})
+
+test('a captura informa a tela inteira, o motor e o possível envio ao provedor', () => {
+  assert.equal(permissionTitle(t, 'mac_local_screen_action', 'Berga'), 'Berga quer capturar a tela principal')
+  assert.equal(actionLabel(t, 'mac_local_screen_action'), 'Captura de tela')
+  assert.match(capturePermissionNote(t, 'mac_local_screen_action'), /tela principal inteira.*motor do bot.*provedor do modelo/)
+  assert.match(capturePermissionNote(en, 'mac_local_screen_action'), /entire main display.*bot’s engine.*model provider/)
+  assert.equal(capturePermissionNote(t, 'screen_access'), '')
 })

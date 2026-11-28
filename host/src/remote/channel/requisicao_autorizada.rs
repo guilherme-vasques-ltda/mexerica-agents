@@ -42,6 +42,8 @@ pub(super) async fn executar(
             let mut response = err(id, status.as_u16(), &message);
             if let Some(code) = api::error_code(&erro) {
                 response["err"]["code"] = code.into();
+            } else if caller.is_web_chat() && crate::fork::workspace::is_mismatch(&erro) {
+                response["err"]["code"] = crate::fork::workspace::EPOCH_MISMATCH.into();
             }
             response
         }

@@ -154,7 +154,11 @@ pub(super) async fn call(
             let before = b["beforeSeq"].as_i64().unwrap_or(i64::MAX);
             let limit = b["limit"].as_i64().unwrap_or(100).clamp(1, 500);
             let session = crate::fork::sessoes::api::history_session(hub, bot, &b)?;
-            let entries = if caller.is_web_chat() {
+            let entries = if caller.is_web_chat()
+                && let Some(proof) = b.get("sendReceipt")
+            {
+                super::fork_web_chat::receipt(hub, bot, session.unwrap_or(bot), proof)?
+            } else if caller.is_web_chat() {
                 hub.store.web_history(bot, session, before, limit)?
             } else {
                 hub.store.history_in_session(bot, session, before, limit)?
@@ -229,6 +233,10 @@ pub(super) async fn call(
             .await??})
         }
         "updateBot" => {
+            #[cfg(target_os = "macos")]
+            if b.get(crate::screen::fork_mac_local::FIELD).is_some() {
+                return crate::screen::fork_mac_local::update_consent(hub, caller, b).map(ControlFlow::Break);
+            }
             if b.get(crate::fork::open_command_settings::FIELD).is_some() {
                 return crate::fork::open_command_settings::update(hub, caller, b).map(ControlFlow::Break);
             }
@@ -513,15 +521,18 @@ pub(super) async fn call(
                     }
                     Err(error) => {
                         tracing::warn!(%error, "remote send admission check unavailable");
-                        return Err(error);
+                        if !caller.is_web_chat() {
+                            return Err(error);
+                        }
+                        Err(error)
                     }
                 };
                 if let Err(error) = result {
                     if effect_authority.is_some() {
                         hub.fail_remote_turn(&e.id, "queued");
-                        if mailbox.is_some() {
-                            return Ok(ControlFlow::Break(json!({"entry": e})));
-                        }
+                    }
+                    if caller.is_web_chat() || (effect_authority.is_some() && mailbox.is_some()) {
+                        return Ok(ControlFlow::Break(json!({"entry": e})));
                     }
                     return Err(error);
                 }

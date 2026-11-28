@@ -170,7 +170,7 @@ pub(crate) struct Frames<R> {
     client_id: IdTracker,
 }
 impl<R: AsyncRead + Unpin> Frames<R> {
-    fn new(reader: R) -> Self {
+    pub(crate) fn new(reader: R) -> Self {
         Self::with_limit(reader, MAX_FRAME)
     }
     pub(crate) fn with_limit(reader: R, limit: usize) -> Self {

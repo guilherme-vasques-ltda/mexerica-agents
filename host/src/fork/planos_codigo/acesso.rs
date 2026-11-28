@@ -10,6 +10,46 @@ const PRAZO: Duration = Duration::from_secs(20);
 const MAX_CORPO: usize = 1 << 20;
 const MAX_MODELOS: usize = 500;
 
+/// Onde o fornecedor espera a chave: cabeçalho `Authorization: Bearer`, `x-api-key` (com a versão da API da Anthropic)
+/// ou `x-goog-api-key`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Autenticacao {
+    Bearer,
+    XApiKey,
+    XGoogApiKey,
+}
+
+/// O formato da lista de modelos do fornecedor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Formato {
+    /// `{"data":[{"id","name"?,"type"?}]}`; o id não tem barra.
+    Dados,
+    /// Como `Dados`, só com os modelos de conversa da `OpenAI` (a lista traz também voz, imagem e vetores).
+    DadosOpenai,
+    /// Como `Dados`, com o nome em `display_name`.
+    DadosAnthropic,
+    /// Como `Dados`, mas o id é `<fornecedor>/<modelo>` (`OpenRouter`).
+    DadosAninhados,
+    /// `{"models":[{"name":"models/<id>","displayName","supportedGenerationMethods"}]}`.
+    Google,
+}
+
+const NAO_E_CONVERSA_OPENAI: [&str; 13] = [
+    "embedding",
+    "whisper",
+    "tts",
+    "dall-e",
+    "moderation",
+    "image",
+    "audio",
+    "realtime",
+    "transcribe",
+    "davinci",
+    "babbage",
+    "sora",
+    "search-preview",
+];
+
 #[derive(Debug, PartialEq, Eq, Serialize)]
 pub(crate) struct Modelo {
     pub(crate) id: String,
@@ -58,8 +98,14 @@ fn por_status(status: reqwest::StatusCode) -> Falha {
 }
 
 /// `GET <url>` com a chave; os modelos de conversa, como `<provedor>/<modelo>`.
-pub(crate) async fn listar_modelos(provedor: &str, url: &str, chave: &str) -> Result<Vec<Modelo>, Falha> {
-    listar_modelos_com_prazo(provedor, url, chave, PRAZO).await
+pub(crate) async fn listar_modelos(
+    provedor: &str,
+    url: &str,
+    chave: &str,
+    autenticacao: Autenticacao,
+    formato: Formato,
+) -> Result<Vec<Modelo>, Falha> {
+    listar_modelos_com_prazo(provedor, url, chave, PRAZO, autenticacao, formato).await
 }
 
 async fn listar_modelos_com_prazo(
@@ -67,6 +113,8 @@ async fn listar_modelos_com_prazo(
     url: &str,
     chave: &str,
     prazo: Duration,
+    autenticacao: Autenticacao,
+    formato: Formato,
 ) -> Result<Vec<Modelo>, Falha> {
     let cliente = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
@@ -74,9 +122,13 @@ async fn listar_modelos_com_prazo(
         .user_agent(concat!("Mexerica/", env!("CARGO_PKG_VERSION")))
         .build()
         .map_err(|_| Falha::FornecedorFalhou)?;
-    let mut resposta = cliente
-        .get(url)
-        .bearer_auth(chave)
+    let mut pedido = cliente.get(url);
+    pedido = match autenticacao {
+        Autenticacao::Bearer => pedido.bearer_auth(chave),
+        Autenticacao::XApiKey => pedido.header("x-api-key", chave).header("anthropic-version", "2023-06-01"),
+        Autenticacao::XGoogApiKey => pedido.header("x-goog-api-key", chave),
+    };
+    let mut resposta = pedido
         .send()
         .await
         .map_err(|erro| if erro.is_timeout() { Falha::SemResposta } else { Falha::FornecedorFalhou })?;
@@ -104,25 +156,49 @@ async fn listar_modelos_com_prazo(
         return Err(Falha::RespostaInvalida);
     }
     let lista: serde_json::Value = serde_json::from_slice(&corpo).map_err(|_| Falha::RespostaInvalida)?;
-    let dados = lista["data"].as_array().ok_or(Falha::RespostaInvalida)?;
+    let (dados, campo_id, campo_nome) = match formato {
+        Formato::Google => (lista["models"].as_array(), "name", "displayName"),
+        Formato::DadosAnthropic => (lista["data"].as_array(), "id", "display_name"),
+        _ => (lista["data"].as_array(), "id", "name"),
+    };
+    let dados = dados.ok_or(Falha::RespostaInvalida)?;
     let mut modelos: Vec<Modelo> = Vec::new();
     for dado in dados {
-        let Some(id) = dado["id"].as_str().filter(|id| {
-            !id.is_empty() && id.len() <= 200 && !id.contains('/') && id.chars().all(|c| c.is_ascii_graphic())
-        }) else {
-            continue;
-        };
-        if dado["type"].as_str().is_some_and(|tipo| tipo != "chat") {
+        let Some(bruto) = dado[campo_id].as_str() else { continue };
+        let bruto = if formato == Formato::Google { bruto.strip_prefix("models/").unwrap_or_default() } else { bruto };
+        let sem_barra = !bruto.contains('/') || formato == Formato::DadosAninhados;
+        if bruto.is_empty() || bruto.len() > 200 || !sem_barra || !bruto.chars().all(|c| c.is_ascii_graphic()) {
             continue;
         }
-        let id = format!("{provedor}/{id}");
+        if dado["type"].as_str().is_some_and(|tipo| !matches!(tipo, "chat" | "model")) {
+            continue;
+        }
+        if formato == Formato::Google
+            && (!dado["supportedGenerationMethods"]
+                .as_array()
+                .is_some_and(|metodos| metodos.iter().any(|metodo| metodo == "generateContent"))
+                || bruto.to_ascii_lowercase().contains("tts"))
+        {
+            continue;
+        }
+        if formato == Formato::DadosOpenai {
+            let minusculo = bruto.to_ascii_lowercase();
+            let familia = minusculo
+                .strip_prefix("ft:")
+                .map_or(minusculo.as_str(), |ajustado| ajustado.split(':').next().unwrap_or_default());
+            if NAO_E_CONVERSA_OPENAI.iter().any(|marca| familia.contains(marca)) {
+                continue;
+            }
+        }
+        let id = format!("{provedor}/{bruto}");
         if cerca.contem(id.as_bytes()) {
             return Err(Falha::RespostaInvalida);
         }
         if modelos.iter().any(|modelo| modelo.id == id) {
             continue;
         }
-        let name: String = dado["name"].as_str().unwrap_or(&id).chars().filter(|c| !c.is_control()).take(120).collect();
+        let name: String =
+            dado[campo_nome].as_str().unwrap_or(&id).chars().filter(|c| !c.is_control()).take(120).collect();
         if cerca.contem(name.as_bytes()) {
             return Err(Falha::RespostaInvalida);
         }
@@ -141,5 +217,16 @@ pub(super) async fn listar_modelos_de_prova(
     chave: &str,
     prazo: Duration,
 ) -> Result<Vec<Modelo>, Falha> {
-    listar_modelos_com_prazo(provedor, url, chave, prazo).await
+    listar_modelos_com_prazo(provedor, url, chave, prazo, Autenticacao::Bearer, Formato::Dados).await
+}
+
+#[cfg(test)]
+pub(super) async fn listar_modelos_de_prova_com(
+    provedor: &str,
+    url: &str,
+    chave: &str,
+    autenticacao: Autenticacao,
+    formato: Formato,
+) -> Result<Vec<Modelo>, Falha> {
+    listar_modelos_com_prazo(provedor, url, chave, Duration::from_secs(5), autenticacao, formato).await
 }

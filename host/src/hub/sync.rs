@@ -10,6 +10,14 @@ impl Hub {
     pub fn bot_json(&self, row: &BotRow) -> Value {
         let cfg = &row.config;
         let mut v = serde_json::to_value(cfg).expect("BotConfig is plain data and always serializes");
+        #[cfg(target_os = "macos")]
+        if crate::screen::fork_mac_local::is_private(self) {
+            v["computer"] = (!row.deleted
+                && !cfg.hidden
+                && !cfg.is_group()
+                && crate::screen::fork_mac_local::bot_enabled(self, &cfg.id))
+            .into();
+        }
         v["spaceId"] = cfg.space_id.clone().into();
         v["conversationId"] = cfg.id.clone().into();
         v["managedWorkspace"] = crate::agent::workspace::is_managed(cfg).into();

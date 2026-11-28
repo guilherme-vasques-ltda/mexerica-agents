@@ -13,7 +13,7 @@ import { useJanelaBaixa } from '../../lib/janela-baixa'
 import { useStoreRef } from '../../store/context'
 import { useSelector } from '../../lib/observable'
 import { emQueda } from '../../store/fork-queda-curta'
-import { accessNote, actionLabel, memoryPermissionNote, permissionDetail, permissionTitle } from './permission-copy'
+import { accessNote, actionLabel, capturePermissionNote, memoryPermissionNote, permissionDetail, permissionTitle } from './permission-copy'
 import { superficieIdioma, useIdioma, tradutor, type Tradutor } from '../../lib/fork-i18n/estado'
 export { permissionHeadline, permissionTitle } from './permission-copy'
 
@@ -85,6 +85,7 @@ export function PermissionCard({ entry, hostName, answering, respond }: { entry:
   const allowed = (!screen || d.screenAccess?.effect === true) && !pending && d.status === 'answered' && !!d.options?.find((o) => o.optionId === d.selected)?.kind.startsWith('allow')
   const refused = !pending && d.status === 'answered' && !allowed
   const title = screen ? t('conversa.aprovacao.tela.titulo') : permissionTitle(t, d.toolKind, d.author ? store.bots.get(d.author)?.name : null)
+  const captureNote = capturePermissionNote(t, d.toolKind)
   const memoryNote = memoryPermissionNote(t, d.toolKind)
   const acesso = d.access
   const notaAcesso = accessNote(t, acesso)
@@ -121,6 +122,7 @@ export function PermissionCard({ entry, hostName, answering, respond }: { entry:
           <p className="approval-note">{t('conversa.aprovacao.tela.celular')}</p>
           {!pending && d.screenAccess?.effect === false ? <p className="approval-note">{t('conversa.aprovacao.tela.semEfeito')}</p> : null}
         </> : null}
+        {captureNote && pending ? <p className="approval-note">{captureNote}</p> : null}
         {memoryNote ? <p className="approval-note">{memoryNote}</p> : null}
         {notaAcesso ? <p className="approval-note">{notaAcesso}</p> : null}
         {acesso?.kind === 'folder' && acesso.path ? <CodeBox text={acesso.path} /> : null}

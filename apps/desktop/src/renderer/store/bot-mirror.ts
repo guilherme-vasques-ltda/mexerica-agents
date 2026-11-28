@@ -94,6 +94,7 @@ export class BotMirror extends Observable {
     readonly contextId = 'local',
     readonly spaceId?: string,
     readonly expectedHostId?: string,
+    readonly privateMacScreen = false,
   ) {
     super()
     this.versionGate = new VersionGate(appVersion, error => this.recusarAcao(error))
@@ -230,25 +231,20 @@ export class BotMirror extends Observable {
   }
 
   protected upsert(e: Entry) {
-    const list = [...(this.entries.get(e.botId) ?? [])]
+    const nonce = e.kind === 'user' && !e.id.startsWith('local-') ? e.data.clientNonce : undefined
+    const list = (this.entries.get(e.botId) ?? []).filter((x) => !nonce || x.id !== `local-${nonce}`)
     const i = list.findIndex((x) => x.id === e.id)
     if (i >= 0) {
       // A late API response mustn't undo a newer SSE update.
-      if (e.rev < list[i]!.rev) return
-      list[i] = e
+      if (e.rev >= list[i]!.rev) list[i] = e
     } else {
-      // Replace the optimistic copy of a message we sent.
-      const nonce = e.kind === 'user' ? e.data.clientNonce : undefined
-      const filtered = nonce ? list.filter((x) => x.id !== `local-${nonce}`) : list
-      const last = filtered[filtered.length - 1]
+      const last = list[list.length - 1]
       if (last && last.seq > e.seq && e.seq > 0) {
-        const at = filtered.findIndex((x) => x.seq > e.seq)
-        filtered.splice(at < 0 ? filtered.length : at, 0, e)
+        const at = list.findIndex((x) => x.seq > e.seq)
+        list.splice(at < 0 ? list.length : at, 0, e)
       } else {
-        filtered.push(e)
+        list.push(e)
       }
-      this.entries.set(e.botId, filtered)
-      return
     }
     this.entries.set(e.botId, list)
   }

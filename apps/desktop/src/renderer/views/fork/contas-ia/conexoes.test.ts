@@ -40,3 +40,10 @@ test('busca ignora acento e caixa, aceita pedaços e vazia devolve tudo', () => 
   assert.deepEqual(buscar(todos, 'zzz'), [])
   assert.deepEqual(agrupar(buscar(todos, 'xai')).map((g) => g.grupo), ['chaves'])
 })
+
+test('no Mac o Motor não roda: o OpenCode basta para as chaves, mas só no Hub local e fora da Open', () => {
+  const mac: ContextoDaTela = { open: false, isLoopback: true, backends: [{ id: 'codex' }, { id: 'opencode' }] }
+  assert.deepEqual(chavesDaTela(mac, fornecedores).map((i) => i.id), ['chave:anthropic', 'chave:openai', 'chave:xai'])
+  assert.deepEqual(chavesDaTela({ ...mac, isLoopback: false }, fornecedores), [])
+  assert.deepEqual(chavesDaTela({ ...mac, open: true }, fornecedores), [])
+})

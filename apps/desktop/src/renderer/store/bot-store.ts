@@ -32,6 +32,8 @@ export { builtInBackendName, type Connection } from './bot-mirror'
 
 /** A file picked in the composer, sent with the next message. */
 /** O Hub recusou a mensagem nova porque a fila da conversa está cheia; nada foi criado. */
+declare const __REMOTE_WEB_RENDERER__: boolean | undefined
+
 const filaCheia = (error: unknown) => {
   const message = (error as { message?: unknown } | null)?.message
   return typeof message === 'string' && message.startsWith('queue_full')
@@ -74,7 +76,7 @@ export const QUICK_REACTIONS = ['👍', '❤️', '😂', '🎉', '👀', '✅']
 export class BotStore extends BotSync {
   /** E2: mesma rota capturada, com espelho e rascunhos próprios do Space. */
   mirrorInSpace(spaceId: string) {
-    return new BotStore(this.computer, this.isLoopback, this.makeTransport, this.appVersion, this.contextId, spaceId, this.hello?.hostId)
+    return new BotStore(this.computer, this.isLoopback, this.makeTransport, this.appVersion, this.contextId, spaceId, this.hello?.hostId, this.privateMacScreen)
   }
 
   /** Recibo confirmado da criação: a seleção não espera o stream nem volta para o Berga por uma corrida de rede. */
@@ -172,7 +174,7 @@ export class BotStore extends BotSync {
           // Depois do `send` o efeito já ocorreu: as conferências abaixo só decidem o que mostrar, nunca desfazem.
           if (session && !this.sessions.current(session, client)) throw this.sessions.error('linkChanged')
           return sent
-        }, !voz)
+        }, !voz && (typeof __REMOTE_WEB_RENDERER__ === 'undefined' || !__REMOTE_WEB_RENDERER__))
         this.outgoingFiles.delete(nonce)
         if (session && e.sessionId !== session.id) {
           // O Hub gravou fora da extra (trocado por um que ignora `sessionId` depois da releitura): mostra a entrada
@@ -209,6 +211,8 @@ export class BotStore extends BotSync {
   }
 
   retry(entry: Entry): ResultadoEnvio {
+    if (entry.data.clientNonce && this.allEntries(entry.botId).some((e) =>
+      !e.id.startsWith('local-') && e.kind === 'user' && e.data.clientNonce === entry.data.clientNonce)) return 'aceito'
     const files = (entry.data.clientNonce && this.outgoingFiles.get(entry.data.clientNonce)) || []
     const text = entry.data.text ?? ''
     if (!text && !files.length) return 'aceito'
@@ -342,7 +346,8 @@ export class BotStore extends BotSync {
       try {
         await this.withLink((c) => {
           voz?.validar()
-          return c.call('respondPermission', { botId: entry.botId, entryId: entry.id, entryRev: entry.rev, optionId: option, ...(source ? { source } : {}) })
+          const answerSource = source ?? (entry.data.toolKind === 'mac_local_screen_action' ? 'app' : undefined)
+          return c.call('respondPermission', { botId: entry.botId, entryId: entry.id, entryRev: entry.rev, optionId: option, ...(answerSource ? { source: answerSource } : {}) })
         }, !voz)
         voz?.concluir(true)
         // The card's own update follows on the events stream; hold the spinner until then.

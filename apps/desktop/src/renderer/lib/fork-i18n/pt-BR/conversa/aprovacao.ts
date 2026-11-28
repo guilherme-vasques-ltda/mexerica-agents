@@ -1,5 +1,9 @@
 // Fatia 2 (D454): conversa/aprovacao (registro.ts), cartão de aprovação, menu do escudo e o botão de segurar (views/thread). Chaves completas; docs/guides/idiomas.md.
 export const textos = {
+  "conversa.aprovacao.pedido.captura": "Quer capturar a tela principal",
+  "conversa.aprovacao.pedidoDe.captura": "{autor} quer capturar a tela principal",
+  "conversa.aprovacao.acao.captura": "Captura de tela",
+  "conversa.aprovacao.notaCaptura": "A imagem da tela principal inteira será enviada ao motor do bot e pode chegar ao provedor do modelo. Feche conteúdo sensível antes de permitir.",
   "conversa.aprovacao.pedido.memoria": "Quer usar uma ferramenta de memória",
   "conversa.aprovacao.pedido.comando": "Quer rodar um comando",
   "conversa.aprovacao.pedido.arquivos": "Quer mudar arquivos",

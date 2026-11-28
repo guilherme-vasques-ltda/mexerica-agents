@@ -6,10 +6,12 @@ const { parse } = require('yaml')
 const root = join(__dirname, '..')
 const base = parse(readFileSync(join(root, 'electron-builder.yml'), 'utf8'))
 const dev = parse(readFileSync(join(root, 'electron-builder.dev.yml'), 'utf8'))
+const pinnedScreen = process.env.MEXERICA_PIN_SCREEN_HELPER === '1' ? require('./fork-screen-package.cjs') : null
 module.exports = {
   ...base,
   ...dev,
-  mac: { ...base.mac, ...dev.mac },
+  mac: { ...base.mac, ...dev.mac, ...(pinnedScreen ? { signIgnore: [...dev.mac.signIgnore, ...pinnedScreen.signIgnore] } : {}) },
+  ...(pinnedScreen ? { afterPack: pinnedScreen.afterPack, afterSign: pinnedScreen.afterSign } : {}),
   dmg: { ...base.dmg, ...dev.dmg },
   linux: { ...base.linux, ...dev.linux },
   win: { ...base.win, ...dev.win },

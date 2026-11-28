@@ -343,7 +343,7 @@ function BotSettingsForm({ draft, onChange, error, plugins, part = 'all' }: {
         <CardSection title={t('bots.editor.atividade')}>
           <SwitchRow title={t('bots.editor.notificacoes')} detail={t('bots.editor.notificacoesDetalhe')} on={draft.notify ?? true} onChange={(on) => set('notify', on)} />
           {/* Fork: o computador do bot é o Hub, sem tela; sem host local (D76) o interruptor e a dica ficam escondidos (showsComputerAccess). */}
-          {store.screen && part === 'all' && showsComputerAccess() ? (
+          {store.screen && part === 'all' && showsComputerAccess() && !store.privateMacScreen ? (
             <SwitchRow
               title={t('bots.editor.usarComputador')}
               detail={
