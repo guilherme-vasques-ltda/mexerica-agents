@@ -16,9 +16,19 @@ use crate::{
 use anyhow::{Context, Result, anyhow, ensure};
 use reqwest::{Url, header::HeaderMap};
 use serde_json::{Value, json};
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
 use tokio::time::Instant;
 use zeroize::Zeroizing;
+
+#[cfg(target_os = "linux")]
+#[path = "open_mcp_stdio.rs"]
+mod stdio;
 
 const LIST: &str = "list_mcp_tools";
 const CALL: &str = "call_mcp_tool";
@@ -70,6 +80,8 @@ pub(super) async fn call(hub: &Arc<Hub>, turn: &LocalTurn, name: &str, args: &Va
         args,
         #[cfg(test)]
         None,
+        #[cfg(all(test, target_os = "linux"))]
+        None,
     )
     .await
 }
@@ -80,6 +92,34 @@ async fn run(
     name: &str,
     args: &Value,
     #[cfg(test)] endpoint: Option<Url>,
+    #[cfg(all(test, target_os = "linux"))] artifact_root: Option<&std::path::Path>,
+) -> Result<Value> {
+    let mut cancel = turn.delegation_parts().2.clone();
+    let admitted = AtomicBool::new(false);
+    tokio::select! {
+        biased;
+        _ = cancel.wait_for(|stop| *stop) => {
+            if admitted.load(Ordering::Relaxed) { Err(EffectUnknown.into()) }
+            else { Err(anyhow!("Turno MCP encerrado")) }
+        }
+        result = Box::pin(run_live(
+            hub, turn, name, args, &admitted,
+            #[cfg(test)]
+            endpoint,
+            #[cfg(all(test, target_os = "linux"))]
+            artifact_root,
+        )) => result,
+    }
+}
+
+async fn run_live(
+    hub: &Arc<Hub>,
+    turn: &LocalTurn,
+    name: &str,
+    args: &Value,
+    admitted: &AtomicBool,
+    #[cfg(test)] endpoint: Option<Url>,
+    #[cfg(all(test, target_os = "linux"))] artifact_root: Option<&std::path::Path>,
 ) -> Result<Value> {
     let props = args.as_object().context("Argumentos MCP inválidos")?;
     let account = args["account"].as_str().filter(|s| !s.is_empty() && s.len() <= 128).context("Conta MCP inválida")?;
@@ -92,9 +132,10 @@ async fn run(
         }
         _ => return Err(anyhow!("Argumentos MCP inválidos")),
     };
-    let intent = RuntimeIntent::capture_open(hub, turn, account)?;
+    let intent = Arc::new(RuntimeIntent::capture_open(hub, turn, account)?);
     let saved = intent.snapshot(hub)?;
-    let mut session = Session::new(OpenMediation {
+    let transport = if super::conectores::catalogo_local::da_conta(&saved).is_some() { "stdio" } else { "http" };
+    let mediation = OpenMediation {
         hub,
         turn,
         intent,
@@ -103,14 +144,29 @@ async fn run(
         secrets: Zeroizing::new(Vec::new()),
         generation: None,
         invocation: None,
+        local_start: None,
+        admitted,
         delivers_list: params.is_none(),
         #[cfg(test)]
         endpoint,
-    })?;
+        #[cfg(all(test, target_os = "linux"))]
+        artifact_root,
+    };
     if let Some(params) = &params {
-        session.mediation_mut().policy(params)?;
+        mediation.policy(params)?;
         ensure!(params.to_string().encode_utf16().count() <= 1600, "Pedido MCP grande demais para autorização");
     }
+    let mut session = match transport {
+        #[cfg(target_os = "linux")]
+        "stdio" => {
+            let mut mediation = mediation;
+            mediation.account_secrets(&mediation.saved.clone());
+            let approval = mediation.approve_local_start(hub, params.as_ref()).await?;
+            OpenSession::Stdio(stdio::Session::new(hub, mediation, approval).await?)
+        }
+        "http" => OpenSession::Http(Session::new(mediation)?),
+        _ => return Err(anyhow!("Transporte MCP indisponível")),
+    };
     let initialized = exchange(
         &mut session,
         rpc(
@@ -134,7 +190,7 @@ async fn run(
             }
         }
         turn.check_live(hub)?;
-        return Ok(json!({"account":account,"origin":"external","transport":"http","tools":tools,
+        return Ok(json!({"account":account,"origin":"external","transport":transport,"tools":tools,
             "provenance":listed["result"]["_meta"]["donnabot/guard"]}));
     };
     let mediation = session.mediation_mut();
@@ -152,27 +208,35 @@ async fn run(
     mediation.policy(&params)?;
     let detail = json!({"account":account,"tool":tool,"arguments":params["arguments"]});
     ensure!(mcp::redigir_json(&detail, &mediation.secrets) == detail, "Pedido contém material privado");
-    let card = if crate::agent::engine_permissions::mcp_released(account, tool) {
-        None
+    let local = mediation
+        .local_start
+        .as_ref()
+        .map(|start| {
+            let (approved_params, approved_digest) = start.call.as_ref().context("Chamada MCP não autorizada")?;
+            ensure!(*approved_params == params && *approved_digest == digest, "Ferramenta MCP alterada");
+            Ok::<_, anyhow::Error>((Some(start.card.clone()), start.deadline))
+        })
+        .transpose()?;
+    let (card, deadline) = if let Some(local) = local {
+        local
     } else {
-        Some(
-            open_tool_actions::approve(hub, turn.lane(), turn.turn(), "Chamar ferramenta MCP", &detail.to_string())
-                .await?,
-        )
+        let card = if crate::agent::engine_permissions::mcp_released(account, tool) {
+            None
+        } else {
+            Some(
+                open_tool_actions::approve(hub, turn.lane(), turn.turn(), "Chamar ferramenta MCP", &detail.to_string())
+                    .await?,
+            )
+        };
+        (card, Instant::now() + Duration::from_secs(60))
     };
-    mediation.invocation = Some(Invocation {
-        params: params.clone(),
-        digest,
-        card,
-        deadline: Instant::now() + Duration::from_secs(60),
-        sent: false,
-    });
+    mediation.invocation = Some(Invocation { params: params.clone(), digest, card, deadline, sent: false });
     let response = exchange(&mut session, rpc(3, "tools/call", params)).await;
     let mediation = session.mediation_mut();
     let confirmed = response.and_then(|frame| {
         mediation.check_call()?;
         ensure!(frame.get("result").is_some(), "Retorno MCP não confirmado");
-        Ok(json!({"origin":"external","transport":"http","result":frame["result"]}))
+        Ok(json!({"origin":"external","transport":transport,"result":frame["result"]}))
     });
     if confirmed.is_err() && mediation.invocation.as_ref().is_some_and(|i| i.sent) {
         return Err(EffectUnknown.into());
@@ -180,8 +244,29 @@ async fn run(
     confirmed
 }
 
-async fn exchange(session: &mut Session<OpenMediation<'_>>, frame: Value) -> Result<Value> {
-    session.exchange(frame).await.map(Option::unwrap_or_default).map_err(|_| anyhow!("Sessão MCP indisponível"))
+enum OpenSession<'a> {
+    Http(Session<OpenMediation<'a>>),
+    #[cfg(target_os = "linux")]
+    Stdio(stdio::Session<'a>),
+}
+
+impl<'a> OpenSession<'a> {
+    fn mediation_mut(&mut self) -> &mut OpenMediation<'a> {
+        match self {
+            Self::Http(session) => session.mediation_mut(),
+            #[cfg(target_os = "linux")]
+            Self::Stdio(session) => &mut session.mediation,
+        }
+    }
+}
+
+async fn exchange(session: &mut OpenSession<'_>, frame: Value) -> Result<Value> {
+    let result = match session {
+        OpenSession::Http(session) => session.exchange(frame).await.map_err(|_| ()),
+        #[cfg(target_os = "linux")]
+        OpenSession::Stdio(session) => session.exchange(frame).await.map_err(|_| ()),
+    };
+    result.map(Option::unwrap_or_default).map_err(|()| anyhow!("Sessão MCP indisponível"))
 }
 
 struct Invocation {
@@ -192,21 +277,75 @@ struct Invocation {
     sent: bool,
 }
 
+#[derive(Clone)]
+struct LocalStart {
+    card: Entry,
+    call: Option<(Value, String)>,
+    deadline: Instant,
+}
+
+impl LocalStart {
+    fn check(&self, db: &rusqlite::Connection, current: &Connector) -> Result<()> {
+        ensure!(Instant::now() < self.deadline, "Autorização de início MCP vencida");
+        open_tool_actions::check_card(db, &self.card)?;
+        if let Some((params, digest)) = &self.call {
+            let tool = params["name"].as_str().context("Ferramenta MCP inválida")?;
+            ensure!(
+                ferramentas::digest_autorizado(db, &self.card.bot_id, current, tool)? == *digest,
+                "Ferramenta MCP alterada"
+            );
+        }
+        Ok(())
+    }
+}
+
 struct OpenMediation<'a> {
     hub: &'a Hub,
     turn: &'a LocalTurn,
-    intent: RuntimeIntent,
+    intent: Arc<RuntimeIntent>,
     saved: Connector,
     target: Option<oauth_refresh::Target>,
     secrets: Zeroizing<Vec<String>>,
     generation: Option<i64>,
     invocation: Option<Invocation>,
+    local_start: Option<LocalStart>,
+    admitted: &'a AtomicBool,
     delivers_list: bool,
     #[cfg(test)]
     endpoint: Option<Url>,
+    #[cfg(all(test, target_os = "linux"))]
+    artifact_root: Option<&'a std::path::Path>,
 }
 
 impl OpenMediation<'_> {
+    #[cfg(target_os = "linux")]
+    async fn approve_local_start(&self, hub: &Arc<Hub>, params: Option<&Value>) -> Result<LocalStart> {
+        let detail = if let Some(params) = params {
+            stdio::validate_call_size(rpc(3, "tools/call", params.clone()))?;
+            json!({"account":self.saved.id,"startCatalogProcess":true,"tool":params["name"],"arguments":params["arguments"]})
+        } else {
+            json!({"account":self.saved.id,"startCatalogProcess":true})
+        };
+        ensure!(mcp::redigir_json(&detail, &self.secrets) == detail, "Pedido contém material privado");
+        let call = params
+            .map(|params| {
+                let tool = params["name"].as_str().context("Ferramenta MCP inválida")?;
+                let digest = self.intent.with_open_current(hub, &self.saved, |db, current| {
+                    ferramentas::digest_autorizado(db, &self.turn.lane().chat, current, tool)
+                })?;
+                Ok::<_, anyhow::Error>((params.clone(), digest))
+            })
+            .transpose()?;
+        let title = if params.is_some() {
+            "Iniciar conector e chamar ferramenta MCP"
+        } else {
+            "Iniciar conector e listar ferramentas MCP"
+        };
+        let card =
+            open_tool_actions::approve(hub, self.turn.lane(), self.turn.turn(), title, &detail.to_string()).await?;
+        Ok(LocalStart { card, call, deadline: Instant::now() + Duration::from_secs(60) })
+    }
+
     fn secret(&mut self, secret: &str) {
         if !secret.is_empty() && !self.secrets.iter().any(|s| s == secret) {
             self.secrets.push(secret.to_owned());
@@ -229,10 +368,7 @@ impl OpenMediation<'_> {
     }
 
     fn policy(&self, params: &Value) -> Result<()> {
-        match super::rules::mcp::check(&self.hub.store, &self.turn.lane().chat, &self.saved.id, "tools/call", params) {
-            Ok(false) => Ok(()),
-            _ => Err(PolicyDenied.into()),
-        }
+        rule(self.hub, &self.turn.lane().chat, &self.saved.id, params)
     }
 
     fn check_invocation(&self, db: &rusqlite::Connection, current: &Connector, invocation: &Invocation) -> Result<()> {
@@ -263,10 +399,63 @@ impl OpenMediation<'_> {
 
     fn policy_boundary(&self, params: Option<&Value>) -> Result<std::sync::MutexGuard<'_, ()>> {
         let boundary = self.hub.store.memory_boundary.locked();
-        if let Some(params) = params {
+        if let Some(params) =
+            params.or_else(|| self.local_start.as_ref().and_then(|start| start.call.as_ref().map(|(params, _)| params)))
+        {
             self.policy(params)?;
         }
         Ok(boundary)
+    }
+
+    fn authorize_send<T>(&self, frame: &Value, method: &str, commit: impl FnOnce() -> T) -> Result<(Option<i64>, T)> {
+        let params = (method == "tools/call").then_some(&frame["params"]);
+        self.intent.with_open_preflight(
+            self.hub,
+            &self.saved,
+            || self.policy_boundary(params),
+            |db, current| {
+                if let Some(start) = &self.local_start {
+                    start.check(db, current)?;
+                }
+                if method == "tools/call" {
+                    let invocation = self.invocation.as_ref().context("Autorização MCP ausente")?;
+                    ensure!(
+                        !invocation.sent
+                            && Instant::now() < invocation.deadline
+                            && frame["params"] == invocation.params,
+                        "Autorização MCP vencida, usada ou divergente"
+                    );
+                    self.check_invocation(db, current, invocation)?;
+                    ensure!(
+                        mcp::redigir_json(&frame["params"]["arguments"], &self.secrets) == frame["params"]["arguments"],
+                        "Pedido contém material privado"
+                    );
+                }
+                let generation = (method == "tools/list")
+                    .then(|| ferramentas::iniciar_descoberta_open(db, &current.id))
+                    .transpose()?;
+                Ok((generation, commit()))
+            },
+        )
+    }
+
+    fn record_send(&mut self, method: &str, generation: Option<i64>) {
+        if let Some(generation) = generation {
+            self.generation = Some(generation);
+        }
+        if method == "tools/call"
+            && let Some(invocation) = &mut self.invocation
+        {
+            invocation.sent = true;
+            self.admitted.store(true, Ordering::Relaxed);
+        }
+    }
+}
+
+fn rule(hub: &Hub, bot: &str, account: &str, params: &Value) -> Result<()> {
+    match super::rules::mcp::check(&hub.store, bot, account, "tools/call", params) {
+        Ok(false) => Ok(()),
+        _ => Err(PolicyDenied.into()),
     }
 }
 
@@ -317,41 +506,10 @@ impl Mediation for OpenMediation<'_> {
     }
 
     fn before_send(&mut self, frame: &Value, method: &str) -> Result<()> {
-        let generation = self.intent.with_open_preflight(
-            self.hub,
-            &self.saved,
-            || self.policy_boundary((method == "tools/call").then_some(&frame["params"])),
-            |db, current| {
-                if method == "tools/call" {
-                    let invocation = self.invocation.as_ref().context("Autorização MCP ausente")?;
-                    ensure!(
-                        !invocation.sent
-                            && Instant::now() < invocation.deadline
-                            && frame["params"] == invocation.params,
-                        "Autorização MCP vencida, usada ou divergente"
-                    );
-                    self.check_invocation(db, current, invocation)?;
-                    ensure!(
-                        mcp::redigir_json(&frame["params"]["arguments"], &self.secrets) == frame["params"]["arguments"],
-                        "Pedido contém material privado"
-                    );
-                }
-                if method == "tools/list" {
-                    return Ok(Some(ferramentas::iniciar_descoberta_open(db, &current.id)?));
-                }
-                Ok(None)
-            },
-        )?;
+        let (generation, ()) = self.authorize_send(frame, method, || ())?;
         self.intent.validate_live(self.hub)?;
         self.target.as_ref().context("Alvo MCP indisponível")?.validate_delivery()?;
-        if let Some(generation) = generation {
-            self.generation = Some(generation);
-        }
-        if method == "tools/call"
-            && let Some(invocation) = &mut self.invocation
-        {
-            invocation.sent = true;
-        }
+        self.record_send(method, generation);
         Ok(())
     }
 
@@ -361,14 +519,22 @@ impl Mediation for OpenMediation<'_> {
         let mut body = json!({"method":method,"connector":self.saved.id});
         body["frame"] = frame;
         let mut observed = mcp::observe_checked(
-            Observation::Open(self.turn),
+            Observation::Open {
+                turn: self.turn,
+                catalog_local: super::conectores::catalogo_local::da_conta(&self.saved).is_some(),
+            },
             &body,
             Some(&self.secrets),
             || {
                 if method == "tools/call" {
                     self.check_call()
                 } else {
-                    self.intent.with_open_current(self.hub, &self.saved, |_, _| Ok(()))
+                    self.intent.with_open_preflight(
+                        self.hub,
+                        &self.saved,
+                        || self.policy_boundary(None),
+                        |db, current| self.local_start.as_ref().map_or(Ok(()), |start| start.check(db, current)),
+                    )
                 }
             },
             |event| {
@@ -382,6 +548,9 @@ impl Mediation for OpenMediation<'_> {
                     &self.saved,
                     || self.policy_boundary(params),
                     |db, current| {
+                        if let Some(start) = &self.local_start {
+                            start.check(db, current)?;
+                        }
                         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
                         Store::guard_record_on(&tx, None, event, false, |db| {
                             self.intent.validate_db(db)?;
@@ -405,17 +574,25 @@ impl Mediation for OpenMediation<'_> {
         )?;
         if method == "tools/list" {
             let generation = self.generation.take().context("Descoberta MCP ausente")?;
-            self.intent.with_open_current(self.hub, &self.saved, |db, current| {
-                ferramentas::filtrar_lista_open(
-                    db,
-                    &self.turn.lane().chat,
-                    current,
-                    &body["frame"],
-                    &mut observed,
-                    generation,
-                    |db| self.intent.validate_db(db).map(|_| ()),
-                )
-            })?;
+            self.intent.with_open_preflight(
+                self.hub,
+                &self.saved,
+                || self.policy_boundary(None),
+                |db, current| {
+                    if let Some(start) = &self.local_start {
+                        start.check(db, current)?;
+                    }
+                    ferramentas::filtrar_lista_open(
+                        db,
+                        &self.turn.lane().chat,
+                        current,
+                        &body["frame"],
+                        &mut observed,
+                        generation,
+                        |db| self.intent.validate_db(db).map(|_| ()),
+                    )
+                },
+            )?;
         }
         Ok(observed.get_mut("message").filter(|value| !value.is_null()).map(Value::take))
     }

@@ -12,7 +12,7 @@
 //!
 //! O que não garante: uma ferramenta que roube o código de sessão pode usar o plano enquanto a sessão durar. Ela não
 //! leva a chave.
-use super::{Plano, cerca::Cerca};
+use super::{Autenticacao, Plano, cerca::Cerca};
 use crate::LockExt;
 use anyhow::{Result, ensure};
 use axum::{
@@ -385,10 +385,14 @@ impl Repasse {
             }
         }
         cabecalhos.insert(header::ACCEPT_ENCODING, HeaderValue::from_static("identity"));
-        let mut autorizacao = HeaderValue::from_str(&format!("Bearer {}", sessao.chave.as_str()))
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let (nome_da_chave, valor_da_chave) = match sessao.plano.autenticacao {
+            Autenticacao::Bearer => (header::AUTHORIZATION, format!("Bearer {}", sessao.chave.as_str())),
+            Autenticacao::XApiKey => (HeaderName::from_static("x-api-key"), sessao.chave.as_str().to_owned()),
+            Autenticacao::XGoogApiKey => (HeaderName::from_static("x-goog-api-key"), sessao.chave.as_str().to_owned()),
+        };
+        let mut autorizacao = HeaderValue::from_str(&valor_da_chave).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         autorizacao.set_sensitive(true);
-        cabecalhos.insert(header::AUTHORIZATION, autorizacao);
+        cabecalhos.insert(nome_da_chave, autorizacao);
 
         let envio = self.cliente.post(url).headers(cabecalhos).body(corpo).send();
         let resposta = tokio::select! {

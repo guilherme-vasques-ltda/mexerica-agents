@@ -522,6 +522,27 @@ test('D543: retry explícito conserva nonce; atualização do próprio envio nã
   assert.equal(ctx.history.entries.some((e) => e.id === 'replay-confirmado'), true)
 })
 
+test('evento com o nonce do rascunho confirma o envio mesmo sem a resposta da chamada', async () => {
+  const link = new FakeLink('hub-a')
+  const ctx = new SpaceContext()
+  link.answer = async (method, body) => {
+    if (method === 'donnaConversationSend') {
+      link.emit({ type: 'entry', spaceId: 'A', entry: {
+        ...entry('gravada', 6, 'A', 'A-fixa'), kind: 'user',
+        data: { clientNonce: 'nonce-gravado', text: 'Já gravada', status: 'sent' },
+      } })
+      throw Object.assign(new Error('lost_ack'), { status: 0 })
+    }
+    return standard('hub-a', method, body)
+  }
+  ctx.open(new FakeSource(link), 'A'); await settle()
+  const intent = ctx.prepareMessage('Já gravada', 'nonce-gravado')
+  await intent.send()
+  await intent.send()
+  assert.equal(link.calls.filter((c) => c.method === 'donnaConversationSend').length, 1)
+  assert.equal(ctx.history.entries.filter((e) => e.id === 'gravada').length, 1)
+})
+
 test('D543 E1: ativação relê principal e conversa com o Space já aberto', async () => {
   let active = false
   const link = new FakeLink('hub-a', async (method, body) => {

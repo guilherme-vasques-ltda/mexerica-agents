@@ -54,7 +54,7 @@ export class LoopbackTransport implements HostTransport {
       return await window.codync.host.call(this.baseURL, this.token, method, body, timeoutMs)
     } catch (e) {
       const error = e as CallError
-      throw new HostError(error.status ?? 0, error.status === 401 ? "This device isn't allowed on that computer anymore." : error.message, error.code)
+      throw new HostError(error.status ?? 0, error.status === 401 && !error.code ? "This device isn't allowed on that computer anymore." : error.message, error.code)
     }
   }
 

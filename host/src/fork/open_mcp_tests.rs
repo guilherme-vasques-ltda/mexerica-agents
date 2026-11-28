@@ -88,10 +88,10 @@ fn fixture(endpoint: &Url, ingress: &str, same_space: bool) -> (Arc<Hub>, open_c
         "space":if same_space { crate::fork::spaces::PERSONAL } else { "00000000-0000-4000-8000-000000000099" },
         "oauth":{"clientId":"fixture-client","tokenEndpoint":token.as_str(),"accessToken":OLD,"refreshToken":"fixture-old-refresh"}
     })).unwrap();
-    fixture_with_account(account, ingress)
+    turn_for_account(account, ingress)
 }
 
-fn fixture_with_account(account: Connector, ingress: &str) -> (Arc<Hub>, open_chat::Ticket, Option<LocalTurn>) {
+fn turn_for_account(account: Connector, ingress: &str) -> (Arc<Hub>, open_chat::Ticket, Option<LocalTurn>) {
     let hub = oauth_binding::tests::hub();
     let bot = uuid::Uuid::new_v4().to_string();
     let lane = Lane::main(&bot);
@@ -142,6 +142,23 @@ fn answer(hub: &Arc<Hub>, card: &Entry, option: &str) {
         .unwrap();
 }
 
+#[cfg(target_os = "linux")]
+async fn catalog_list(
+    hub: &Arc<Hub>,
+    proof: &LocalTurn,
+    root: Option<&std::path::Path>,
+    option: &str,
+) -> Result<Value> {
+    let args = json!({"account":ACCOUNT});
+    let mut events = hub.events.subscribe();
+    let (result, ()) = tokio::join!(run(hub, proof, LIST, &args, None, root), async {
+        let card = next_card(hub, &mut events).await;
+        assert_eq!(card.data["title"], "Iniciar conector e listar ferramentas MCP");
+        answer(hub, &card, option);
+    });
+    result
+}
+
 fn link_fixture_tool(hub: &Hub, proof: &LocalTurn) {
     let bot = &proof.lane().chat;
     let list = ferramentas::listar(&hub.store, bot, ACCOUNT).unwrap();
@@ -189,10 +206,19 @@ async fn mcp_open_planetscale_nao_tenta_sse_legado() {
         "headers":{"Authorization":"Bearer fixture-service"}
     }))
     .unwrap();
-    let (hub, _ticket, proof) = fixture_with_account(account, "local");
+    let (hub, _ticket, proof) = turn_for_account(account, "local");
     let proof = proof.unwrap();
     RuntimeIntent::capture_open(&hub, &proof, ACCOUNT).unwrap().snapshot(&hub).unwrap();
-    let result = Box::pin(run(&hub, &proof, LIST, &json!({"account":ACCOUNT}), Some(endpoint))).await;
+    let result = run(
+        &hub,
+        &proof,
+        LIST,
+        &json!({"account":ACCOUNT}),
+        Some(endpoint),
+        #[cfg(target_os = "linux")]
+        None,
+    )
+    .await;
     task.abort();
     assert!(result.is_err());
     assert_eq!(calls.load(Ordering::SeqCst), 1);
@@ -232,6 +258,102 @@ async fn mcp_open_stale_discovery_cannot_replace_or_invalidate_newer_inventory()
     assert_eq!(list["ferramentas"][0]["digest"], expected);
 }
 
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn mcp_open_catalog_stdio_requires_owner_approval_and_records_receipt() {
+    use crate::fork::conectores::catalogo_local::da_conta;
+
+    if !Environment::is_open() {
+        return;
+    }
+    let account: Connector = serde_json::from_value(json!({
+        "id":ACCOUNT,"name":"Fixture account","servico":"fixture-stdio","tipo":"fixture-stdio.local","liberacoes":["ler"],
+        "space":crate::fork::spaces::PERSONAL,
+        "oauth":{"clientId":"fixture-client","tokenEndpoint":"https://mcp.example.invalid/token","accessToken":OLD}
+    })).unwrap();
+    let (hub, _ticket, proof) = turn_for_account(account.clone(), "local");
+    let proof = proof.unwrap();
+    let temp = tempfile::tempdir_in("/tmp").unwrap();
+    let artifacts = temp.path().join("mcp-artifacts");
+    std::fs::create_dir(&artifacts).unwrap();
+    let file = artifacts.join("fixture-stdio");
+    let artifact = include_bytes!("../../tests/fixtures/catalogo-stdio.sh");
+    let root = Some(temp.path());
+    let list_args = json!({"account":ACCOUNT});
+    assert!(catalog_list(&hub, &proof, root, "deny").await.is_err());
+    assert_eq!(hub.store.guard_test_snapshot().unwrap().0, Vec::<String>::new());
+    std::fs::write(&file, artifact).unwrap();
+    let first = catalog_list(&hub, &proof, root, "allow").await.unwrap();
+    assert_eq!(first["tools"], json!([]));
+    link_fixture_tool(&hub, &proof);
+    let list = catalog_list(&hub, &proof, root, "allow").await.unwrap();
+    assert_eq!(list["transport"], "stdio");
+    assert_eq!(list["tools"].as_array().unwrap().len(), 1);
+    assert_eq!(list["tools"][0]["name"], "list_issues");
+    assert!(list["tools"][0].get("digest").is_none());
+
+    let args = json!({"account":ACCOUNT,"tool":"list_issues","arguments":{}});
+    let mut events = hub.events.subscribe();
+    let (result, ()) = tokio::join!(run(&hub, &proof, CALL, &args, None, root), async {
+        let card = next_card(&hub, &mut events).await;
+        assert_eq!(card.data["title"], "Iniciar conector e chamar ferramenta MCP");
+        answer(&hub, &card, "allow");
+    });
+    let result = result.unwrap();
+    let out = result["result"]["content"][0]["text"].as_str().unwrap();
+    assert_eq!(mcp::sem_envelope(out), Some("fixture-stdio-result [removido]"));
+    let receipt = &result["result"]["_meta"]["donnabot/guard"]["receipt"];
+    let (receipts, _) = hub.store.guard_test_snapshot().unwrap();
+    assert!(receipts.into_iter().any(|line| {
+        let event: Value = serde_json::from_str(&line).unwrap();
+        event["receipt"] == *receipt
+            && event["transport"] == "catalog-local"
+            && event["session"] == proof.lane().session_id()
+            && event["turn"] == proof.turn()
+    }));
+
+    let mut events = hub.events.subscribe();
+    let (result, ()) = tokio::join!(run(&hub, &proof, CALL, &args, None, root), async {
+        let card = next_card(&hub, &mut events).await;
+        answer(&hub, &card, "deny");
+    });
+    assert!(result.is_err());
+    let oversize = json!({"account":ACCOUNT,"tool":"list_issues","arguments":{"query":"界".repeat(1500)}});
+    let result = tokio::time::timeout(Duration::from_secs(2), run(&hub, &proof, CALL, &oversize, None, root))
+        .await
+        .unwrap()
+        .unwrap_err();
+    assert!(result.to_string().contains("limite atômico"));
+    for query in ["fixture-unmatched", "fixture-reverse", "fixture-malformed"] {
+        let mut events = hub.events.subscribe();
+        let args = json!({"account":ACCOUNT,"tool":"list_issues","arguments":{"query":query}});
+        let (result, ()) = tokio::join!(run(&hub, &proof, CALL, &args, None, root), async {
+            let card = next_card(&hub, &mut events).await;
+            answer(&hub, &card, "allow");
+        });
+        assert!(result.unwrap_err().is::<EffectUnknown>());
+    }
+    let (receipts, _) = hub.store.guard_test_snapshot().unwrap();
+    let refused: Vec<Value> = receipts
+        .into_iter()
+        .map(|line| serde_json::from_str(&line).unwrap())
+        .filter(|event: &Value| event["method"] == "invalid" && event["transport"] == "catalog-local")
+        .collect();
+    assert_eq!(refused.len(), 3);
+    assert!(refused.iter().all(|event| event["decision"] == "retained" && event["bytes"] == 2));
+
+    std::fs::write(&file, b"modified").unwrap();
+    assert!(catalog_list(&hub, &proof, root, "allow").await.is_err());
+    std::fs::write(&file, artifact).unwrap();
+    assert!(catalog_list(&hub, &proof, root, "allow").await.is_ok());
+    assert!(da_conta(&account).is_some());
+    let mut modified = account;
+    modified.command = Some("not-a-catalog-executable".into());
+    assert!(da_conta(&modified).is_none());
+    market::save_connectors(&hub.store, &[modified]).unwrap();
+    assert!(run(&hub, &proof, LIST, &list_args, None, root).await.is_err());
+}
+
 #[tokio::test]
 async fn mcp_open_refreshes_and_sends_approved_call_once_with_mediated_return() {
     if !Environment::is_open() {
@@ -241,10 +363,30 @@ async fn mcp_open_refreshes_and_sends_approved_call_once_with_mediated_return() 
     let (hub, _ticket, proof) = fixture(&remote.url, "local", true);
     let proof = proof.unwrap();
     let args_list = json!({"account":ACCOUNT});
-    let list = run(&hub, &proof, LIST, &args_list, Some(remote.url.clone())).await.unwrap();
+    let list = run(
+        &hub,
+        &proof,
+        LIST,
+        &args_list,
+        Some(remote.url.clone()),
+        #[cfg(target_os = "linux")]
+        None,
+    )
+    .await
+    .unwrap();
     assert_eq!(list["tools"].as_array().unwrap().as_slice(), [] as [Value; 0]);
     link_fixture_tool(&hub, &proof);
-    let list = run(&hub, &proof, LIST, &args_list, Some(remote.url.clone())).await.unwrap();
+    let list = run(
+        &hub,
+        &proof,
+        LIST,
+        &args_list,
+        Some(remote.url.clone()),
+        #[cfg(target_os = "linux")]
+        None,
+    )
+    .await
+    .unwrap();
     assert_eq!(list["tools"].as_array().unwrap().len(), 1);
     assert_eq!(list["tools"][0]["name"], "list_issues");
     assert_eq!(list["provenance"]["origin"], "external");
@@ -255,12 +397,23 @@ async fn mcp_open_refreshes_and_sends_approved_call_once_with_mediated_return() 
     saved.oauth.as_mut().unwrap().refresh_token = Some("fixture-old-refresh".into());
     market::save_connectors(&hub.store, &[saved]).unwrap();
     let args = json!({"account":ACCOUNT,"tool":"list_issues","arguments":{"query":"sample"}});
-    let (result, ()) = tokio::join!(run(&hub, &proof, CALL, &args, Some(remote.url.clone())), async {
-        let card = next_card(&hub, &mut events).await;
-        assert_eq!(remote.sent.load(Ordering::SeqCst), 0);
-        assert!(card.data["detail"].as_str().unwrap().contains("sample"));
-        answer(&hub, &card, "allow");
-    });
+    let (result, ()) = tokio::join!(
+        run(
+            &hub,
+            &proof,
+            CALL,
+            &args,
+            Some(remote.url.clone()),
+            #[cfg(target_os = "linux")]
+            None
+        ),
+        async {
+            let card = next_card(&hub, &mut events).await;
+            assert_eq!(remote.sent.load(Ordering::SeqCst), 0);
+            assert!(card.data["detail"].as_str().unwrap().contains("sample"));
+            answer(&hub, &card, "allow");
+        }
+    );
     let value = result.unwrap();
     let out = value.to_string();
     assert!(out.contains("fixture-result") && out.contains("fixture-structured"));
@@ -291,36 +444,71 @@ async fn mcp_open_denies_wrong_origin_space_grant_and_revoked_card() {
     let (_hub, _ticket, proof) = fixture(&remote.url, "device", true);
     assert!(proof.is_none());
     let (hub, _ticket, proof) = fixture(&remote.url, "local", false);
-    assert!(run(&hub, &proof.unwrap(), LIST, &json!({"account":ACCOUNT}), Some(remote.url.clone())).await.is_err());
+    assert!(
+        run(
+            &hub,
+            &proof.unwrap(),
+            LIST,
+            &json!({"account":ACCOUNT}),
+            Some(remote.url.clone()),
+            #[cfg(target_os = "linux")]
+            None
+        )
+        .await
+        .is_err()
+    );
     assert_eq!(remote.refreshed.load(Ordering::SeqCst), 0);
     let (hub, _ticket, proof) = fixture(&remote.url, "local", true);
     let proof = proof.unwrap();
     let mut denied = json!({"account":ACCOUNT,"tool":"delete_issue","arguments":{}});
-    assert!(run(&hub, &proof, CALL, &denied, Some(remote.url.clone())).await.is_err());
+    assert!(
+        run(
+            &hub,
+            &proof,
+            CALL,
+            &denied,
+            Some(remote.url.clone()),
+            #[cfg(target_os = "linux")]
+            None
+        )
+        .await
+        .is_err()
+    );
     denied["tool"] = json!("list_issues");
     link_fixture_tool(&hub, &proof);
     for rejection in ["deny", "revoke", "cancel"] {
         let mut events = hub.events.subscribe();
-        let (result, ()) = tokio::join!(run(&hub, &proof, CALL, &denied, Some(remote.url.clone())), async {
-            let card = next_card(&hub, &mut events).await;
-            match rejection {
-                "deny" => answer(&hub, &card, "deny"),
-                "revoke" => {
-                    answer(&hub, &card, "allow");
-                    ferramentas::gravar_desligamento(
-                        &hub.store.db.locked(),
-                        &proof.lane().chat,
-                        ACCOUNT,
-                        "list_issues",
-                    )
-                    .unwrap();
-                }
-                _ => {
-                    answer(&hub, &card, "allow");
-                    open_chat::stop(&proof.lane().chat);
+        let (result, ()) = tokio::join!(
+            run(
+                &hub,
+                &proof,
+                CALL,
+                &denied,
+                Some(remote.url.clone()),
+                #[cfg(target_os = "linux")]
+                None
+            ),
+            async {
+                let card = next_card(&hub, &mut events).await;
+                match rejection {
+                    "deny" => answer(&hub, &card, "deny"),
+                    "revoke" => {
+                        answer(&hub, &card, "allow");
+                        ferramentas::gravar_desligamento(
+                            &hub.store.db.locked(),
+                            &proof.lane().chat,
+                            ACCOUNT,
+                            "list_issues",
+                        )
+                        .unwrap();
+                    }
+                    _ => {
+                        answer(&hub, &card, "allow");
+                        open_chat::stop(&proof.lane().chat);
+                    }
                 }
             }
-        });
+        );
         assert!(result.is_err());
         if rejection == "revoke" {
             link_fixture_tool(&hub, &proof);

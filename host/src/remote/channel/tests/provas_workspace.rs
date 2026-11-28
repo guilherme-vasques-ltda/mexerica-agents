@@ -282,7 +282,7 @@ async fn escritor_com_fila_ocupada_substitui_o_fechamento_antigo() {
     let (_, caller) = autoridade::autenticar(&hub, &fica).unwrap();
     let barreira =
         Barreira::nova(hub.clone(), caller, hub.workspace.assinar(), hub.workspace.atual(), sem_prazo, None, [0; 32]);
-    let escritor = tokio::spawn(write_frames(Sealer::new([7; 32]), rx, out, Some(barreira)));
+    let escritor = tokio::spawn(write_frames(Sealer::new([7; 32]), rx, out, Some(barreira), false));
     // Eventos que já passaram pelo filtro de autoridade, e o transporte parado.
     for n in 0..64 {
         tx.send(ToDevice::Inner(json!({"id": 1, "ev": {"marca": MARCA, "n": n}}))).await.unwrap();
