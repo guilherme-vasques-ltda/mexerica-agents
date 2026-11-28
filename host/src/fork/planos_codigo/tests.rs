@@ -1027,3 +1027,22 @@ async fn testar_a_chave_guardada_nao_aceita_texto_claro_no_slot() {
         .to_string();
     assert!(!erro.contains(CHAVE), "{erro}");
 }
+
+#[tokio::test]
+async fn catalogo_do_opencode_so_leva_os_modelos_dos_planos_ao_dono_local() {
+    let hub = hub_de_prova();
+    let (url, _) = servidor(http("200 OK", "", CORPO_OK)).await;
+    salvar(&hub, &PLANOS[0], Some(&url), Zeroizing::new(CHAVE.into())).await.unwrap();
+    let corpo = json!({"backend": "opencode"});
+
+    let dono = crate::api::dispatch(&hub, &Caller::Local, "agentModels", corpo.clone()).await.unwrap();
+    assert!(dono.to_string().contains("opencode-go/glm-5.3"), "{dono}");
+    assert!(!dono.to_string().contains(CHAVE));
+
+    use crate::store::Scope;
+    let aparelho = Caller::Device { key: "k".into(), scopes: vec![Scope::Control], autoridade: None };
+    let visto =
+        crate::api::dispatch(&hub, &aparelho, "agentModels", corpo).await.map(|v| v.to_string()).unwrap_or_default();
+    assert!(!visto.contains("opencode-go/"), "{visto}");
+    assert!(!visto.contains(CHAVE));
+}
