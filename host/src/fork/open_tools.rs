@@ -44,7 +44,7 @@ impl<'a> Turn<'a> {
         Some(Self { hub, proof: LocalTurn::capture(hub, lane, entry_id, turn, cancel).ok()? })
     }
 
-    fn check(&self) -> Result<crate::store::BotConfig> {
+    pub(super) fn check(&self) -> Result<crate::store::BotConfig> {
         self.proof.check(self.hub)
     }
 
