@@ -35,6 +35,8 @@ export const textos: Traducao<typeof fonte> = {
   'sessions.new.title': "جلسة جديدة مع {nome}",
   'sessions.new.label': "جلسة جديدة",
   'sessions.new.busy': "جارٍ إنشاء الجلسة…",
+  'sessions.newTab.title': "علامة تبويب جديدة",
+  'sessions.newTab.detail': "يفتح محادثة موازية مع الروبوت نفسه. اكتب ‎/nova-aba‎ متبوعًا بنص لبدء المحادثة فيها.",
   'sessions.untitled': "بلا عنوان",
   'sessions.state.running': "قيد التشغيل",
   'sessions.state.needsYou': "تحتاج إليك",

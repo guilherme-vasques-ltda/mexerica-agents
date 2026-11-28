@@ -25,6 +25,15 @@ pub(crate) const METHODS: &[&str] = &[
     "donnaTaskComments",
     "donnaTaskComment",
 ];
+pub(crate) const LOCAL_MANUAL_METHODS: &[&str] = &[
+    "donnaProjects",
+    "donnaProject",
+    "donnaProjectCreate",
+    "donnaProjectSave",
+    "donnaProjectEnsureDefault",
+    "donnaTasks",
+    "donnaTaskMetaSave",
+];
 pub(crate) const EVENT: &str = "donnaProjectsChanged";
 
 pub(crate) fn migrate(c: &rusqlite::Connection) -> Result<()> {

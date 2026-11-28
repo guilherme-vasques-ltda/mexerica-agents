@@ -250,3 +250,121 @@ async fn sem_escolha_a_conta_que_comprovou_o_modelo_legado_vence_a_mais_recente(
     let (account, _, model) = crate::fork::open_chat::account_profile(&env.hub, &cfg).unwrap();
     assert_eq!((account.as_str(), model.as_deref()), (CONTA, Some("gpt-legado")));
 }
+
+#[tokio::test]
+async fn aba_usa_a_conta_gravada_na_criacao_e_nao_a_atual_do_bot() {
+    use crate::fork::sessoes::{admissao, origin::SessionOrigin, store as sessoes};
+    let env = env(vec![conta(CONTA, State::Connected), conta(OUTRA, State::Connected)]);
+    let principal = berga(&env.hub).id;
+    run(&env.hub, &set(CONTA, "gpt-padrao", Some(&principal))).unwrap();
+    let aba = sessoes::create(
+        &env.hub.store.db.locked(),
+        &sessoes::NewSession {
+            chat: principal.clone(),
+            origin: SessionOrigin::Owner,
+            source_session: None,
+            parent_session: None,
+            title: "Aba".into(),
+            runs_on: None,
+        },
+    )
+    .unwrap()
+    .id;
+    run(&env.hub, &set(OUTRA, "gpt-outro", Some(&principal))).unwrap();
+    let lane = crate::store::Lane { chat: principal.clone(), session: Some(aba) };
+
+    let mut efetiva = berga(&env.hub);
+    admissao::apply_configured(&env.hub.store.db.locked(), &lane, &mut efetiva).unwrap();
+    assert_eq!(crate::fork::open_chat::account_profile(&env.hub, &berga(&env.hub)).unwrap().0, OUTRA);
+    assert_eq!(crate::fork::open_chat::account_profile(&env.hub, &efetiva).unwrap().0, CONTA);
+
+    let mut registry = Registry::load(&env.hub.store).unwrap();
+    registry.accounts.retain(|a| a.id != CONTA);
+    env.hub.store.kv_set(ACCOUNTS_SLOT, &serde_json::to_string(&registry).unwrap()).unwrap();
+    let error = crate::fork::open_chat::account_profile(&env.hub, &efetiva).unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "open_chat_account_required",
+        "conta da aba indisponível recusa em vez de cair na do bot"
+    );
+}
+
+#[tokio::test]
+async fn principal_usa_a_conta_atual_do_bot_e_a_aba_a_gravada() {
+    use crate::fork::sessoes::{admissao, origin::SessionOrigin, store as sessoes};
+    let env = env(vec![conta(CONTA, State::Connected), conta(OUTRA, State::Connected)]);
+    let principal = berga(&env.hub).id;
+    run(&env.hub, &set(CONTA, "gpt-padrao", Some(&principal))).unwrap();
+    let aba = sessoes::create(
+        &env.hub.store.db.locked(),
+        &sessoes::NewSession {
+            chat: principal.clone(),
+            origin: SessionOrigin::Owner,
+            source_session: None,
+            parent_session: None,
+            title: "Aba".into(),
+            runs_on: None,
+        },
+    )
+    .unwrap()
+    .id;
+    run(&env.hub, &set(OUTRA, "gpt-outro", Some(&principal))).unwrap();
+    let atual = berga(&env.hub);
+    let da_aba = crate::store::Lane { chat: principal.clone(), session: Some(aba) };
+    let da_principal = crate::store::Lane::main(&principal);
+    assert!(da_principal.session.is_none());
+    let mut aba_cfg = atual.clone();
+    admissao::apply_configured(&env.hub.store.db.locked(), &da_aba, &mut aba_cfg).unwrap();
+    assert_eq!(crate::fork::open_chat::account_profile(&env.hub, &atual).unwrap().0, OUTRA, "principal: conta atual");
+    assert_eq!(crate::fork::open_chat::account_profile(&env.hub, &aba_cfg).unwrap().0, CONTA, "aba: conta gravada");
+}
+
+#[tokio::test]
+async fn aba_sem_conta_explicita_fica_na_conta_resolvida_na_criacao() {
+    use crate::fork::sessoes::engine_choice::{SessionEngine, bind_account};
+    let env = env(vec![conta(CONTA, State::Connected)]);
+    let cfg = berga(&env.hub);
+    assert!(cfg.fork_editor.engine_account_id.is_none());
+    let mut engine = SessionEngine::snapshot(&cfg);
+    bind_account(&env.hub.store.db.locked(), &cfg, &mut engine, &[]).unwrap();
+    assert_eq!(engine.account_id.as_deref(), Some(CONTA));
+
+    let mut registry = Registry::load(&env.hub.store).unwrap();
+    registry.accounts.push(conta(OUTRA, State::Connected));
+    registry.accounts.last_mut().unwrap().verified_at = Some(crate::store::now_ms() + 10_000);
+    env.hub.store.kv_set(ACCOUNTS_SLOT, &serde_json::to_string(&registry).unwrap()).unwrap();
+    assert_eq!(crate::fork::open_chat::account_profile(&env.hub, &cfg).unwrap().0, OUTRA, "a escolha automática mudou");
+    let mut aba = cfg.clone();
+    engine.apply(&mut aba);
+    assert_eq!(
+        crate::fork::open_chat::account_profile(&env.hub, &aba).unwrap().0,
+        CONTA,
+        "a aba segue a conta gravada"
+    );
+}
+
+#[tokio::test]
+async fn aba_sem_conta_resolvivel_e_recusada_na_criacao() {
+    use crate::fork::sessoes::engine_choice::{SessionEngine, bind_account};
+    let env = env(vec![conta(CONTA, State::Disconnected)]);
+    let cfg = berga(&env.hub);
+    let mut engine = SessionEngine::snapshot(&cfg);
+    let error = bind_account(&env.hub.store.db.locked(), &cfg, &mut engine, &[]).unwrap_err();
+    assert_eq!(error.to_string(), "open_chat_account_required");
+    assert!(engine.account_id.is_none());
+}
+
+#[tokio::test]
+async fn aba_nao_fixa_conta_em_reconexao_quando_ha_outra_conectada() {
+    use crate::fork::sessoes::engine_choice::{SessionEngine, bind_account};
+    let mut recente = conta(OUTRA, State::Connected);
+    recente.verified_at = Some(crate::store::now_ms() + 10_000);
+    let env = env(vec![conta(CONTA, State::Connected), recente]);
+    let cfg = berga(&env.hub);
+    let mut livre = SessionEngine::snapshot(&cfg);
+    bind_account(&env.hub.store.db.locked(), &cfg, &mut livre, &[]).unwrap();
+    assert_eq!(livre.account_id.as_deref(), Some(OUTRA));
+    let mut engine = SessionEngine::snapshot(&cfg);
+    bind_account(&env.hub.store.db.locked(), &cfg, &mut engine, &[OUTRA.to_owned()]).unwrap();
+    assert_eq!(engine.account_id.as_deref(), Some(CONTA));
+}

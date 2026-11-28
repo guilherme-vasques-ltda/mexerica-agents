@@ -55,7 +55,7 @@ import { PainelDireito, useRightPanel } from '../fork/painel-direito/PainelDirei
 import { PANEL_WIDTH } from '../fork/painel-direito/prefs'
 import { useChatSessions, type ChatSessions } from '../fork/sessoes/useChatSessions'
 import { ConversaEncerrada, useEncerrar } from '../fork/conversa/arquivar/Encerrada'
-import { extrasAllowed, SessionComposerNotice, SessionFailureBanner, useConsumeNewRequest, useConsumePanelRequest, useNewSession, useOpenFocused } from '../fork/sessoes/ganchos'
+import { extrasAllowed, SessionComposerNotice, SessionFailureBanner, useConsumeNewRequest, useConsumePanelRequest, useNewSession, useNewTab, useOpenFocused } from '../fork/sessoes/ganchos'
 import { RotuloModelo } from '../fork/sessoes/RotuloModelo'
 import { listEqual, useModel, useSelector } from '../../lib/observable'
 import { bloqueioSenha, destinoSenha } from '../../store/fork-senha-bloqueio'
@@ -273,6 +273,7 @@ export const ThreadView = memo(function ThreadView({ botId, panelScope }: { botI
     abrirSessaoCriada(sessionId)
   }, [abrirSessaoCriada, openTab])
   const newSession = useNewSession(store, bot, abrirSessaoCriadaSeAtiva)
+  const newTab = useNewTab(store, bot, abrirSessaoCriadaSeAtiva)
   useConsumeNewRequest(store, panelActive ? botId : '', panelActive ? (newSession?.run ?? null) : null)
   const extras = extrasAllowed(store, bot)
   const openRow = openSession === null ? null : store.sessions.of(botId)?.find((s) => s.id === openSession) ?? null
@@ -392,6 +393,7 @@ export const ThreadView = memo(function ThreadView({ botId, panelScope }: { botI
                 cancelReply={cancelReply}
                 onCall={openSession === null && voiceAvailable && !calling && !vozBloqueada && bot ? () => setCalling(true) : null}
                 onInterrupt={openSession === null && callSpeaking ? () => interruptCall.current?.() : null}
+                onNewTab={newTab}
               />
             </>
           )}

@@ -1,8 +1,9 @@
 //! Autoridade transitória do proxy: a mesma linha Context/Setup emitida pelo Hub.
 //! Não é Caller/Origin de Control, Source do04, DTO ou registro de credenciais.
-use super::oauth_binding;
+use super::{catalogo_servicos::Auth, oauth_binding};
 use crate::{
     LockExt,
+    fork::open_turn::LocalTurn,
     fork::sessoes::{
         bindings::{self, ExecutionRef},
         gateway::{self, Preparation},
@@ -26,6 +27,7 @@ pub(crate) struct RuntimeIntent {
 enum Original {
     Context(Context),
     Setup { id: String, connector: String, expires: i64 },
+    Open { turn: LocalTurn, connector: String, vinculo: i64 },
 }
 
 fn denied() -> anyhow::Error {
@@ -64,6 +66,86 @@ fn same_context(a: &Context, b: &Context) -> bool {
 }
 
 impl RuntimeIntent {
+    pub(crate) fn capture_open(hub: &Hub, turn: &LocalTurn, connector: &str) -> Result<Self> {
+        turn.check_live(hub)?;
+        let db = hub.store.db.locked();
+        let vinculo = market::ferramentas::epoca_em(&db, &turn.lane().chat, connector)?;
+        let intent = Self {
+            original: Original::Open { turn: turn.clone(), connector: connector.into(), vinculo },
+            method: String::new(),
+            execution: None,
+            preparation: None,
+            late_notification: false,
+        };
+        intent.validate_db(&db)?;
+        Ok(intent)
+    }
+
+    pub(crate) fn with_open_current<T>(
+        &self,
+        hub: &Hub,
+        expected: &Connector,
+        action: impl FnOnce(&mut Connection, &Connector) -> Result<T>,
+    ) -> Result<T> {
+        self.with_open_preflight(hub, expected, || Ok(()), action)
+    }
+
+    pub(crate) fn with_open_preflight<T, G>(
+        &self,
+        hub: &Hub,
+        expected: &Connector,
+        preflight: impl FnOnce() -> Result<G>,
+        action: impl FnOnce(&mut Connection, &Connector) -> Result<T>,
+    ) -> Result<T> {
+        let Original::Open { turn, .. } = &self.original else { return Err(denied()) };
+        self.validate_connector(expected)?;
+        let _reservation = turn.reserve(hub)?;
+        let _policy = preflight()?;
+        let _guard = hub.store.connector_lock.locked();
+        let (all, _) = market::load_connectors(&hub.store)?;
+        let current = all.iter().find(|c| self.matches_target(c, expected)).ok_or_else(denied)?;
+        let mut db = hub.store.db.locked();
+        let bot = turn.check_db(&db)?;
+        Self::validate_open_account(current, &bot)?;
+        self.validate_db(&db)?;
+        action(&mut db, current)
+    }
+
+    fn validate_open_account(saved: &Connector, bot: &crate::store::BotConfig) -> Result<()> {
+        market::contas::exigir_mesmo_space(saved, &bot.space_id)?;
+        let tipo = market::contas::tipo_da_conta(saved)?.ok_or_else(denied)?;
+        let connected = match &tipo.auth {
+            Auth::Oauth { .. } | Auth::AppProprio { .. } => {
+                saved.oauth.as_ref().is_some_and(market::oauth::OAuth::signed_in)
+            }
+            Auth::Chave { destino: "header", nome, .. } => {
+                saved.oauth.is_none() && saved.headers.get(*nome).is_some_and(|value| !value.trim().is_empty())
+            }
+            Auth::Chave { .. } => false,
+        };
+        ensure!(
+            connected
+                && saved.command.is_none()
+                && saved.configured()
+                && !saved.missing_catalog_header()
+                && saved.headers.values().all(|value| !value.starts_with("op://"))
+                && !saved.oauth_binding.as_ref().is_some_and(oauth_binding::Binding::scopes_retained)
+                && market::ferramentas::politica(saved)?.is_some(),
+            "Conector remoto indisponível"
+        );
+        Ok(())
+    }
+
+    pub(super) fn matches_target(&self, current: &Connector, expected: &Connector) -> bool {
+        oauth_binding::same_target(current, expected)
+            && (!matches!(self.original, Original::Open { .. })
+                || (current.space == expected.space
+                    && current.servico == expected.servico
+                    && current.tipo == expected.tipo
+                    && current.liberacoes == expected.liberacoes
+                    && current.identidade == expected.identidade))
+    }
+
     /// Captura antes do primeiro await; os campos vêm da linha Hub, não do JSON do cliente.
     pub(crate) fn capture(hub: &Hub, id: &str, connector: &str, method: &str) -> Result<Self> {
         Self::capture_mode(hub, id, connector, method, false)
@@ -115,7 +197,7 @@ impl RuntimeIntent {
     pub(crate) fn context(&self) -> Option<&Context> {
         match &self.original {
             Original::Context(context) => Some(context),
-            Original::Setup { .. } => None,
+            Original::Setup { .. } | Original::Open { .. } => None,
         }
     }
 
@@ -137,7 +219,7 @@ impl RuntimeIntent {
     fn connector(&self) -> &str {
         match &self.original {
             Original::Context(context) => &context.connector,
-            Original::Setup { connector, .. } => connector,
+            Original::Setup { connector, .. } | Original::Open { connector, .. } => connector,
         }
     }
 
@@ -187,11 +269,20 @@ impl RuntimeIntent {
                 ensure!(deadline > now_ms(), "Contexto de setup indisponível");
                 Ok(Some(deadline))
             }
+            Original::Open { turn, connector, vinculo } => {
+                let bot = turn.check_db(db)?;
+                ensure!(bot.connectors.contains(connector), "{}", denied());
+                market::ferramentas::conferir_vinculo(db, &bot.id, connector, *vinculo)?;
+                Ok(None)
+            }
         }
     }
 
     /// Revalida a execução original sem cleanup; nunca chamar segurando DB ou `connector_lock`.
     pub(crate) fn validate_live(&self, hub: &Hub) -> Result<()> {
+        if let Original::Open { turn, .. } = &self.original {
+            return turn.check_live(hub);
+        }
         bindings::recheck_optional(hub, self.execution.as_ref())?;
         if let Some(context) = self.context() {
             if self.late_notification() {
@@ -244,12 +335,15 @@ impl RuntimeIntent {
                 .find(|c| c.id == self.connector() && c.command.is_none() && c.configured())
                 .ok_or_else(|| anyhow!("Conector remoto indisponível"))?;
             if let Some(expected) = expected {
-                ensure!(oauth_binding::same_target(saved, expected), "Login antigo: o vínculo do conector mudou");
+                ensure!(self.matches_target(saved, expected), "Login antigo: o vínculo do conector mudou");
             }
             // Marketplace: a credencial de uma conta só é entregue a bot do Space dela (execução, não só seleção).
             if let Some(context) = self.context() {
                 let bot = store.bot(&context.bot)?.filter(|b| !b.deleted).ok_or_else(denied)?;
                 market::contas::exigir_mesmo_space(saved, &bot.config.space_id)?;
+            }
+            if let Original::Open { turn, .. } = &self.original {
+                Self::validate_open_account(saved, &turn.check_db(&store.db.locked())?)?;
             }
             let saved = saved.clone();
             if migrated {

@@ -1,5 +1,6 @@
 import { traduzir } from '../../renderer/lib/fork-i18n/index.ts'
 import { concat, type ChannelKeys, type DeviceSigner, type Protocol } from './protocol.ts'
+import type { PossessionProof } from './protocol-internal.ts'
 import { decodeFrame, FRAME_MAGIC, FRAME_MAX_WIRE, FRAMES_CAPABILITY, FrameCodecError, isFrameBytes, type BrowserFrame } from './browser-frames.ts'
 
 /**
@@ -201,14 +202,14 @@ export function createChannel(proto: Protocol) {
       return true
     }
 
-    call(method: string, body: unknown = null, timeoutMs = 20_000, authorize?: () => boolean): Promise<CallResult> {
+    call(method: string, body: unknown = null, timeoutMs = 20_000, authorize?: () => boolean, pop?: PossessionProof): Promise<CallResult> {
       if (this.closed) return Promise.resolve({ kind: 'notSent', reason: 'notReady' })
       // O Hub só inscreve e controla o navegador ao vivo com `browserFramesV1` aceito neste canal.
       if (method.startsWith('browserStream') && !this.framesNegotiated) return Promise.resolve({ kind: 'notSent', reason: 'notReady' })
       if (this.pending.size >= MAX_REQUESTS) return Promise.resolve({ kind: 'notSent', reason: 'busy' })
       const id = this.nextId++
       return new Promise<CallResult>((resolve) => {
-        const sent = this.send({ id, m: method, b: body }, authorize)
+        const sent = this.send({ id, m: method, b: body, pop }, authorize)
         if (sent === 'refused') return resolve({ kind: 'notSent', reason: 'notReady' })
         if (!sent) return resolve({ kind: 'notSent', reason: 'tooLarge' })
         const timer = setTimeout(() => {
@@ -222,11 +223,11 @@ export function createChannel(proto: Protocol) {
     }
 
     /** `null` quando o canal não está aberto ou já tem 4 assinaturas. */
-    subscribe(kind: 'events' | 'term', body: unknown, onEvent: (ev: unknown) => void, onEnd: Sub['onEnd'] = () => {}): Subscription | null {
+    subscribe(kind: 'events' | 'term', body: unknown, onEvent: (ev: unknown) => void, onEnd: Sub['onEnd'] = () => {}, pop?: PossessionProof): Subscription | null {
       if (this.closed || this.subs.size >= MAX_SUBSCRIPTIONS) return null
       const id = this.nextId++
       this.subs.set(id, { onEvent, onEnd })
-      if (!this.send({ id, sub: kind, b: body })) {
+      if (!this.send({ id, sub: kind, b: body, pop })) {
         this.subs.delete(id)
         return null
       }

@@ -1254,9 +1254,11 @@ impl Channel {
             return (code, "executor enrollment");
         }
         let name = b["name"].as_str().map(str::trim).filter(|n| !n.is_empty() && n.chars().count() <= 100);
-        let platform = b["platform"].as_str().filter(|p| matches!(*p, "ios" | "macos" | "android"));
+        let platform = b["platform"]
+            .as_str()
+            .filter(|p| matches!(*p, "ios" | "macos" | "android") || (*p == "web" && usuario.is_some()));
         let (Some(name), Some(platform)) = (name, platform) else {
-            self.send(err(id, 400, "`name` and `platform` (ios, macos or android) are required")).await;
+            self.send(err(id, 400, "a name and a valid platform are required")).await;
             return protocol;
         };
         if !self.hub.pairing.locked().attempt(source) {

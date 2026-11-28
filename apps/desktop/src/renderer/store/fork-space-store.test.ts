@@ -16,7 +16,7 @@ const code = buildSync({
   loader: { '.css': 'empty' }, define: { 'process.env.NODE_ENV': '"production"' },
 }).outputFiles[0].text
 const settle = async () => { for (let i = 0; i < 16; i++) await tick() }
-function fixture() {
+function fixture(remoteWeb = false) {
   const timers = new Map<number, { fn: () => void; ms: number }>()
   let timerId = 0
   const clock = (fn: () => void, ms = 0) => { timers.set(++timerId, { fn, ms }); return timerId }
@@ -25,6 +25,7 @@ function fixture() {
   const storage = new Map<string, string>()
   const location = { search: '?spaces=e1' }
   runInNewContext(code, {
+    __REMOTE_WEB_RENDERER__: remoteWeb,
     module, queueMicrotask, URL, URLSearchParams, Date, crypto: webcrypto, Uint8Array, btoa, atob, structuredClone,
     setTimeout: clock, clearTimeout: (id: number) => timers.delete(id), setInterval: clock, clearInterval: (id: number) => timers.delete(id),
     localStorage: { getItem: (k: string) => storage.get(k) ?? null, setItem: (k: string, v: string) => storage.set(k, v), removeItem: (k: string) => storage.delete(k) }, location,
@@ -36,8 +37,18 @@ function fixture() {
   const calls: { method: string; body: Record<string, unknown> }[] = []
   const streams: string[] = []
   let muteBots = false
+  let foreignPrincipal = false
   const transport: HostTransport = {
-    async call(method, raw) { const body = (raw ?? {}) as Record<string, unknown>; calls.push({ method, body }); return host.call(method, body) },
+    async call(method, raw) {
+      const body = (raw ?? {}) as Record<string, unknown>
+      calls.push({ method, body })
+      if (remoteWeb && method === 'teamSettings') throw new Error('remote_setup_unavailable')
+      if (remoteWeb && method === 'donnaConversations' && body.spaceId === PERSONAL) {
+        const result = await host.call(method, body) as Record<string, unknown>
+        return { ...result, spaceId: foreignPrincipal ? 'space-estudio' : result.spaceId, principal: { id: 'sprint' } }
+      }
+      return host.call(method, body)
+    },
     stream(path, onData) { streams.push(path); const query = new URL(path, 'http://fake.invalid').searchParams; return host.subscribe(Number(query.get('since')), line => { if (!muteBots || JSON.parse(line).type !== 'bot') onData(line) }, query.get('spaceId') ?? undefined) },
   }
   const stores: InstanceType<Bundle['BotStore']>[] = []
@@ -51,10 +62,27 @@ function fixture() {
     for (const [id, task] of pending) { if (timers.delete(id)) task.fn() }
     await settle()
   }
-  return { host, open, calls, streams, storage, SpaceMirrors, SpaceBotCreation, muteBots: (value: boolean) => { muteBots = value }, refKey, parseRef, client: (space: string) => new HostClient(transport, space), flush, close() { for (const s of stores) s.retire(); timers.clear() } }
+  return { host, open, calls, streams, storage, SpaceMirrors, SpaceBotCreation, muteBots: (value: boolean) => { muteBots = value }, setForeignPrincipal: () => { foreignPrincipal = true }, refKey, parseRef, client: (space: string) => new HostClient(transport, space), flush, close() { for (const s of stores) s.retire(); timers.clear() } }
 }
 
 const PERSONAL = '00000000-0000-4000-8000-000000000001'
+
+test('Web remota lê o principal do Space sem pedir acesso à gestão de contas', async () => {
+  const f = fixture(true)
+  try {
+    const personal = f.open(PERSONAL)
+    await f.flush()
+    assert.equal(personal.principal.phase, 'ready')
+    assert.equal(personal.principal.id, 'sprint')
+    assert.ok(f.calls.some(c => c.method === 'donnaConversations' && c.body.spaceId === PERSONAL))
+    assert.ok(!f.calls.some(c => c.method === 'teamSettings'))
+
+    f.setForeignPrincipal()
+    personal.principal.refresh()
+    await f.flush()
+    assert.equal(personal.principal.phase, 'error')
+  } finally { f.close() }
+})
 
 test('E2 Passo 1: duas lojas reais recebem apenas roster e eventos do próprio Space', async () => {
   const f = fixture()

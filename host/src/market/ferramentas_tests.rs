@@ -1234,3 +1234,104 @@ fn registrar_descoberta_recusa_conta_sem_servico() {
     assert!(erro.to_string().contains("conta sem serviço"), "{erro}");
     assert!(!inventario_completo(&hub.store.db.locked(), &conta.id).unwrap(), "nada foi instalado");
 }
+
+const PROVAS: [(&str, &str); 3] = [
+    ("context7", include_str!("../fork/conectores/curadoria/context7-tools-list-2026-11-18.json")),
+    ("gmail", include_str!("../fork/conectores/curadoria/gmail-tools-list-2026-11-18.json")),
+    ("google-agenda", include_str!("../fork/conectores/curadoria/google-agenda-tools-list-2026-11-18.json")),
+];
+
+fn tools_da_prova(prova: &str) -> Vec<Value> {
+    let prova: Value = serde_json::from_str(prova).unwrap();
+    prova["tools"].as_array().unwrap().clone()
+}
+
+/// Toda ferramenta curada de toda ficha tem de bater, no digest, com o que uma prova arquivada em
+/// `fork/conectores/curadoria/` registrou para o mesmo serviço: nenhum digest vem de exemplo, mock ou memória. Hoje
+/// nenhuma ficha cura leitura (ver o teste abaixo); o teste vale para a primeira que curar.
+#[test]
+fn toda_curadoria_da_ficha_tem_prova_arquivada_com_o_mesmo_digest() {
+    let pasta = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/fork/conectores/curadoria");
+    for servico in catalogo_servicos::publico().servicos {
+        for grupo in servico.tipos.iter().flat_map(|t| t.grupos.iter()).filter(|g| !g.curadas.is_empty()) {
+            let prefixo = format!("{}-tools-list-", servico.id);
+            let arquivos: Vec<_> = std::fs::read_dir(&pasta)
+                .unwrap()
+                .filter_map(Result::ok)
+                .filter(|f| f.file_name().to_string_lossy().starts_with(&prefixo))
+                .collect();
+            assert!(!arquivos.is_empty(), "{}: curadoria sem prova arquivada", servico.id);
+            let provadas: Vec<Value> =
+                arquivos.iter().flat_map(|f| tools_da_prova(&std::fs::read_to_string(f.path()).unwrap())).collect();
+            for curada in grupo.curadas {
+                assert!(
+                    provadas.iter().any(|t| t["name"] == curada.ferramenta
+                        && t["digest"] == curada.digest
+                        && t["readOnlyHint"] == true),
+                    "{}: {} sem prova só de leitura com o mesmo digest",
+                    servico.id,
+                    curada.ferramenta
+                );
+            }
+        }
+    }
+}
+
+/// A prova guarda só nome, digest e `readOnlyHint` de cada ferramenta, nunca o texto do fornecedor.
+#[test]
+fn prova_arquivada_guarda_so_nome_digest_e_dica_de_leitura() {
+    for (servico, prova) in PROVAS {
+        let tools = tools_da_prova(prova);
+        assert!(!tools.is_empty(), "{servico}");
+        let nomes: BTreeSet<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
+        assert_eq!(nomes.len(), tools.len(), "{servico}: nome repetido");
+        for tool in &tools {
+            let campos: BTreeSet<&str> = tool.as_object().unwrap().keys().map(String::as_str).collect();
+            assert_eq!(campos, BTreeSet::from(["digest", "name", "readOnlyHint"]), "{servico}");
+            let digest = tool["digest"].as_str().unwrap();
+            assert!(digest.len() == 64 && digest.bytes().all(|b| b.is_ascii_hexdigit()), "{servico}: {digest}");
+        }
+    }
+}
+
+/// A política que `politica()` monta a partir da ficha real, sem conta nem cofre: mesma expressão da produção.
+fn politica_da_ficha(tipo: &'static TipoConexao, grupo: &str) -> Politica {
+    let ligados = vec![grupo.to_owned()];
+    let curadas = tipo.ferramentas_curadas(&ligados).into_iter().map(|(n, d)| (n.to_owned(), d.to_owned())).collect();
+    Politica { permitidas: tipo.ferramentas_permitidas(&ligados), curadas, tipo }
+}
+
+/// Gmail, Agenda e Context7 (fichas reais, nomes das provas arquivadas, ferramentas que se dizem só de leitura), em
+/// todos os jeitos de conectar: tudo fica desligado até a pessoa ligar. A prova pública mostra a definição, mas não dá
+/// garantia de custo (a franquia do Google é por projeto, e o Hub não limita chamadas) nem de exposição (Context7
+/// manda o texto do bot a um terceiro e cobra chamada adicional na conta paga).
+#[test]
+fn nenhuma_ficha_libera_leitura_sozinha_mesmo_com_a_definicao_publica_arquivada() {
+    for (servico, prova) in PROVAS {
+        let tools: Vec<Value> = tools_da_prova(prova)
+            .iter()
+            .map(|t| {
+                let mut tool = ferramenta(t["name"].as_str().unwrap(), "a");
+                tool["annotations"] = json!({"readOnlyHint": true, "destructiveHint": false});
+                tool
+            })
+            .collect();
+        for tipo in catalogo_servicos::servico(servico).unwrap().tipos {
+            let id = tipo.id;
+            let store = store();
+            let pol = politica_da_ficha(tipo, "ler");
+            assert!(pol.curadas.is_empty(), "{id}");
+            registrar_lista(&store, &tools);
+            for tool in &tools {
+                let nome = tool["name"].as_str().unwrap();
+                assert_eq!(estado_de(&store, "b", &pol, nome), Estado::Desligada(Motivo::Perigosa), "{id}/{nome}");
+                assert_eq!(estado_de(&store, "outro", &pol, nome), Estado::Desligada(Motivo::Perigosa), "{id}/{nome}");
+            }
+            // Conta já vinculada, inventário já gravado: a escolha manual de um bot vale só para ele.
+            let nome = tools[0]["name"].as_str().unwrap();
+            liberar(&store, "b", nome, &digest_de(&tools[0]));
+            assert_eq!(estado_de(&store, "b", &pol, nome), Estado::Ligada, "{id}/{nome}");
+            assert_eq!(estado_de(&store, "outro", &pol, nome), Estado::Desligada(Motivo::Perigosa), "{id}/{nome}");
+        }
+    }
+}

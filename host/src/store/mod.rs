@@ -36,6 +36,7 @@ pub(crate) mod personal_session;
 mod schema;
 mod team;
 mod team_admission;
+pub(crate) use team_admission::TeamOrigin;
 mod turn_alloc;
 pub(crate) use team::read as team_settings_on;
 pub use team::{TeamSettings, restrictive};
