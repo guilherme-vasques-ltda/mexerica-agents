@@ -91,7 +91,7 @@ impl Fixture {
                 params![chat, crate::fork::spaces::PERSONAL, bot, rev, account, i64::try_from(account_revision).unwrap(), account_stamp]).unwrap();
         }
         let cfg = crate::fork::spaces::execution_config(&store, &original, &chat).unwrap();
-        let hub = Hub::new(store, "test".into(), Identity::load_or_create(&dir).unwrap(), "test".into(), 0);
+        let hub = Hub::new(store, "test".into(), Identity::load_or_create(&dir).unwrap(), "test".into(), 1);
         let stamp = crate::fork::spaces::execution_stamp(&hub.store, &cfg).unwrap();
         let entry = hub.add_entry(&Lane::main(&chat), EntryKind::User, 1,
             &json!({"text":"Lembre que gosto de café.","executionBinding":stamp,"attachments":[],"contentOrigin":{"status":"appReported","segments":[{"kind":"typed","start":0,"end":24}],"attachments":[]}})).unwrap();

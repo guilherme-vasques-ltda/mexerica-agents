@@ -1,5 +1,8 @@
 // Modified from Codync v2.20.3 (Apache-2.0, github.com/leepokai/Codync); see MODIFICACOES.md.
-import type { HostClient } from '../../client/host-client'
+import { privateHubOrigin } from '../../../shared/fork-mac-local-hub'
+import { LoopbackTransport, type HostClient } from '../../client/host-client'
+import { traduzir } from '../../lib/fork-i18n'
+import { idiomaAtual } from '../../lib/fork-i18n/estado'
 import { Observable, useModel } from '../../lib/observable'
 import type { BotStore } from '../../store/bot-store'
 import type { InstalledSkillV2 } from '../../store/fork-skills'
@@ -146,11 +149,14 @@ export class Plugins extends Observable {
    */
   async signIn(id: string, cliente?: () => Promise<HostClient>) {
     const retorno = window.codync.app.loginRetorno
-    // O ouvinte do app só abre para o login que o Hub preparou para ele; sem porta livre, segue pelo caminho de antes.
     const ouvinte = await retorno.abrir().catch(() => null)
     let plan: Awaited<ReturnType<typeof market.connectorSignIn>>
     try {
-      plan = await market.connectorSignIn(await (cliente ? cliente() : this.store.ready()), id, ouvinte?.porta)
+      const c = await (cliente ? cliente() : this.store.ready())
+      if (!ouvinte && c.transport instanceof LoopbackTransport && c.transport.baseURL === privateHubOrigin) {
+        throw new Error(traduzir(idiomaAtual(), 'mercado.retorno.erro.texto'))
+      }
+      plan = await market.connectorSignIn(c, id, ouvinte?.porta)
       if (cliente) await cliente()
     } catch (e) {
       if (ouvinte) retorno.fechar(ouvinte.tentativa)

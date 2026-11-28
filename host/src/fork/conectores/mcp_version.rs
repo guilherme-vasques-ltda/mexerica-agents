@@ -218,7 +218,7 @@ for line in sys.stdin:
                 "args":["-c",SCRIPT,log.to_string_lossy(),version]}))
             .unwrap();
             crate::market::save_connectors(&store, &[connector]).unwrap();
-            let result = crate::market::verify::verify(&store, "versao", 1).await;
+            let result = crate::market::verify::verify(&store, "versao", (1, None)).await;
             let seen = std::fs::read_to_string(&log).unwrap();
             assert!(seen.starts_with("initialize\npong:{}\n"), "{seen}");
             match outcome {

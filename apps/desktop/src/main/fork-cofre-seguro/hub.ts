@@ -12,6 +12,8 @@ import { postProvado } from '../fork-proved-loopback'
 export interface CapturaHub {
   baseURL: string
   token: string
+  socketPath?: string
+  signal?: AbortSignal
   /** A mesma conexão continua viva (processo local, túnel, perfil e a janela que a pediu). */
   current(): boolean
   /** O listener da porta ainda pertence ao processo esperado; no Hub local é sempre true. */
@@ -19,7 +21,7 @@ export interface CapturaHub {
 }
 
 export interface FontesDeHub {
-  local: () => LocalHost | null
+  local: () => (LocalHost & { socketPath?: string; signal?: AbortSignal }) | null
   /** Captura viva do túnel SSH do computador (guardas do ssh.ts), ou null se não houver. */
   ssh: (computerId: string, current: () => boolean) => CapturaHub | null
 }
@@ -37,7 +39,7 @@ const loopback = (url: string) => {
 const vivaLocal = (local: LocalHost, fontes: FontesDeHub, consumidora: () => boolean): boolean => {
   try {
     const agora = fontes.local()
-    return consumidora() === true && agora === local && loopback(agora.baseURL)
+    return consumidora() === true && agora === local && (agora.socketPath ? agora.signal?.aborted === false : loopback(agora.baseURL))
   } catch {
     return false
   }
@@ -50,9 +52,9 @@ const vivaLocal = (local: LocalHost, fontes: FontesDeHub, consumidora: () => boo
 export function resolverHub(computerId: string, fontes: FontesDeHub, consumidora: () => boolean): CapturaHub | null {
   const local = fontes.local()
   if (local && local.computerId === computerId) {
-    if (!loopback(local.baseURL) || !vivaLocal(local, fontes, consumidora)) return null
+    if (!vivaLocal(local, fontes, consumidora)) return null
     return {
-      baseURL: local.baseURL, token: local.token,
+      baseURL: local.baseURL, token: local.token, socketPath: local.socketPath, signal: local.signal,
       current: () => vivaLocal(local, fontes, consumidora),
       listener: async () => true,
     }
@@ -83,11 +85,11 @@ export async function chamarHub(captura: CapturaHub, metodo: string, corpo: obje
       return false
     }
   }
-  if (!loopback(captura.baseURL) || !(await guarda()) || !corrente()) throw { status: 0 } satisfies FalhaHub
+  if ((!captura.socketPath && !loopback(captura.baseURL)) || !(await guarda()) || !corrente()) throw { status: 0 } satisfies FalhaHub
   let resposta: Awaited<ReturnType<typeof postProvado>>
   try {
-    resposta = await postProvado(captura.baseURL, `/api/${metodo}`, captura.token, JSON.stringify(corpo), timeoutMs, {
-      signal: AbortSignal.timeout(timeoutMs),
+    resposta = await postProvado(captura.socketPath ? { socketPath: captura.socketPath } : captura.baseURL, `/api/${metodo}`, captura.token, JSON.stringify(corpo), timeoutMs, {
+      signal: captura.signal ?? AbortSignal.timeout(timeoutMs),
       atual: corrente,
     })
   } catch {
