@@ -133,6 +133,11 @@ async fn run_live(
         _ => return Err(anyhow!("Argumentos MCP inválidos")),
     };
     let intent = Arc::new(RuntimeIntent::capture_open(hub, turn, account)?);
+    if let Some(params) = &params
+        && market::catalogo_preflight::nome_recusado(&hub.store, account, params["name"].as_str())?
+    {
+        return Err(PolicyDenied.into());
+    }
     let saved = intent.snapshot(hub)?;
     let transport = if super::conectores::catalogo_local::da_conta(&saved).is_some() { "stdio" } else { "http" };
     let mediation = OpenMediation {

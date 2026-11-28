@@ -13,6 +13,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 /// Decisão do dono (16/11/2026): ficha conferida há mais de 90 dias não conecta e o teste do catálogo reprova.
 pub(crate) const PRAZO_CONFERENCIA_DIAS: i64 = 90;
+pub(crate) const PLANETSCALE_CHAVE: &str = "planetscale.oficial_chave";
 
 /// Jeitos de conectar do desenho. `OficialApp` e `Local` entram nas fatias 7 e seguintes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -362,7 +363,7 @@ impl TipoConexao {
     }
 
     pub(crate) fn somente_endpoint_streamable(&self) -> bool {
-        self.id == "planetscale.oficial_chave"
+        self.id == PLANETSCALE_CHAVE
     }
 
     /// Endereço do MCP para os grupos ligados: o do último grupo que declara um, senão o da ficha.

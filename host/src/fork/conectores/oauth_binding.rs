@@ -329,6 +329,7 @@ pub(crate) fn persist_locked(
     // D368: num pedido do app pareado, grava sob a autoridade original reconferida na transação.
     crate::fork::donna_fixa::pedido::gravar(store, |tx| {
         market::vault::write_sealed(tx, "connectors", &sealed)?;
+        market::catalogo_preflight::gravar(tx, after)?;
         invalidate_runtime(tx, before, after)?;
         extra(tx)
     })

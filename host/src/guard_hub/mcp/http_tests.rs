@@ -380,6 +380,32 @@ async fn planetscale_recusa_recursos_e_prompts_antes_de_entregar_alvo() {
 }
 
 #[tokio::test]
+async fn planetscale_recusa_nome_fora_da_ficha_antes_do_cofre_e_sem_alvo() {
+    if crate::environment::Environment::is_open() {
+        return;
+    }
+    let fixture = Fixture::with_account("https://mcp.pscale.dev/mcp/planetscale-insights-only", false, true);
+    let before = fixture.hub.store.vault_unlock_attempts.load(Ordering::SeqCst);
+    for validate_only in [false, true] {
+        let denied = fixture
+            .call(
+                "donnaGuardRuntime",
+                json!({
+                    "method":"tools/call",
+                    "params":{"name":"planetscale_run_sql"},
+                    "validateOnly":validate_only,
+                }),
+            )
+            .await
+            .unwrap();
+        let expected =
+            if validate_only { json!({"valid":false,"ruleDenied":true}) } else { json!({"ruleDenied":true}) };
+        assert_eq!(denied, expected);
+    }
+    assert_eq!(fixture.hub.store.vault_unlock_attempts.load(Ordering::SeqCst), before);
+}
+
+#[tokio::test]
 async fn perfil_streamable_nao_envia_header_a_outro_caminho_na_mesma_origem() {
     struct StreamableOnly(Url);
     impl Mediation for StreamableOnly {
