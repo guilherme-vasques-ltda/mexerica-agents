@@ -121,15 +121,16 @@ export class Plugins extends Observable {
   }
 
   /** Waits while the user signs in in the computer's browser (the host catches the return). */
-  async waitForSignIn(id: string, cliente?: () => Promise<HostClient>) {
+  async waitForSignIn(id: string, cliente?: () => Promise<HostClient>): Promise<boolean> {
     for (let i = 0; i < 150; i++) {
       await sleep(2000)
       if (cliente) await cliente()
       await this.refresh()
       if (cliente) await cliente()
       const c = this.installedConnectors.find((c) => c.id === id)
-      if (c && !needsSignIn(c)) return
+      if (c && !needsSignIn(c)) return true
     }
+    return false
   }
 
   async removeConnector(id: string) {
@@ -142,9 +143,9 @@ export class Plugins extends Observable {
    * returns to the host directly and we wait for the connector to flip to signed in; with `desktop`
    * (a Hub on another computer, reached through a tunnel) the browser returns to this app's own loopback
    * listener (main/fork-oauth-loopback.ts) and the code goes to the Hub over the authenticated channel.
-   * Returns quietly when the user cancels.
+   * Volta true só quando o Hub confirmou o login; cancelar ou desistir volta false, sem erro.
    */
-  async signIn(id: string, cliente?: () => Promise<HostClient>) {
+  async signIn(id: string, cliente?: () => Promise<HostClient>): Promise<boolean> {
     const retorno = window.codync.app.loginRetorno
     // O ouvinte do app só abre para o login que o Hub preparou para ele; sem porta livre, segue pelo caminho de antes.
     const ouvinte = await retorno.abrir().catch(() => null)
@@ -159,36 +160,37 @@ export class Plugins extends Observable {
     const usaOuvinte = ouvinte !== null && plan.callback === 'desktop'
     // Hub antigo (não conhece a porta e responde pelo caminho de antes) ou endereço inválido: o ouvinte não serve.
     if (ouvinte && (!usaOuvinte || !URL.canParse(plan.url))) retorno.fechar(ouvinte.tentativa)
-    if (!URL.canParse(plan.url)) return
+    if (!URL.canParse(plan.url)) return false
     if (usaOuvinte) return this.finishWithAppListener(ouvinte.tentativa, plan.url, cliente)
     if (plan.callback !== 'app') {
       window.codync.app.openExternal(plan.url)
-      await this.waitForSignIn(id, cliente)
-      return
+      return this.waitForSignIn(id, cliente)
     }
     let back: string
     try {
       back = await window.codync.app.authenticate(plan.url, window.codync.appScheme)
     } catch {
-      return
+      return false
     }
     // M3-B: o Hub confere o emissor; aqui só se recusa retorno ambíguo.
     await this.finishConnectorSignIn(lerRetornoLogin(back), cliente)
+    return true
   }
 
   /** O navegador volta ao ouvinte do app; o Hub confere state, PKCE e emissor, e o navegador vê o desfecho. */
-  private async finishWithAppListener(tentativa: number, url: string, cliente?: () => Promise<HostClient>) {
+  private async finishWithAppListener(tentativa: number, url: string, cliente?: () => Promise<HostClient>): Promise<boolean> {
     const retorno = window.codync.app.loginRetorno
     let back: string
     try {
       back = await retorno.esperar(tentativa, url)
     } catch {
       retorno.fechar(tentativa)
-      return
+      return false
     }
     try {
       const conector = await this.finishConnectorSignIn(lerRetornoLogin(back), cliente)
       retorno.responder(tentativa, { ok: true, nome: conector?.name ?? '' })
+      return true
     } catch (e) {
       retorno.responder(tentativa, { ok: false, detalhe: errorText(e) })
       throw e

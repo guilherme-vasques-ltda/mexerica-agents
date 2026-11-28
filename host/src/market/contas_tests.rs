@@ -1159,7 +1159,7 @@ async fn open_guarda_a_chave_sem_verificar_e_recusa_1password_e_login_sem_ouvint
     )
     .await
     .unwrap();
-    assert_eq!(resposta, json!({"saved": true, "verified": false, "status": "saved"}));
+    assert_eq!(resposta, json!({"saved": true, "verified": false, "status": "saved", "aviso": null}));
     assert_eq!(connectors(&hub.store).unwrap()[0].headers["Authorization"], "Bearer fixture-only");
 
     let err = crate::api::dispatch(&hub, &Caller::Local, "credentialSetOnePassword", json!({"token": "fixture-only"}))

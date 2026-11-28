@@ -16,7 +16,7 @@ import { SkillsSugeridas } from './SkillsSugeridas'
 import { Aviso, Erro, frasesDaRecusa, LogoServico, Titulo } from './pecas'
 
 
-const NUMERO: Record<Passo, 1 | 2 | 3> = { configurar: 1, entrando: 2, chave: 2, conferindo: 2, pronto: 3 }
+const NUMERO: Record<Passo, 1 | 2 | 3> = { configurar: 1, entrando: 2, chave: 2, conferindo: 2, pronto: 3, salva: 3 }
 
 export function Conectar({ fluxo, contaViva, usarNosBots, aoVoltar, aoConcluir }: {
   fluxo: FluxoConectar
@@ -32,8 +32,8 @@ export function Conectar({ fluxo, contaViva, usarNosBots, aoVoltar, aoConcluir }
   return (
     <div className="mercado">
       <div className="mercado-topo">
-        <button className="mercado-voltar" onClick={fluxo.passo === 'pronto' ? aoConcluir : cancelar}>
-          <Icon name="arrow.left" size={12} /><Text size="callout">{fluxo.passo === 'pronto' ? t('mercado.ficha.voltar') : t('mercado.conectar.voltar', { servico: fluxo.servico.nome })}</Text>
+        <button className="mercado-voltar" onClick={fluxo.passo === 'pronto' || fluxo.passo === 'salva' ? aoConcluir : cancelar}>
+          <Icon name="arrow.left" size={12} /><Text size="callout">{fluxo.passo === 'pronto' || fluxo.passo === 'salva' ? t('mercado.ficha.voltar') : t('mercado.conectar.voltar', { servico: fluxo.servico.nome })}</Text>
         </button>
         <Passos passo={fluxo.passo} />
       </div>
@@ -41,8 +41,32 @@ export function Conectar({ fluxo, contaViva, usarNosBots, aoVoltar, aoConcluir }
       {fluxo.passo === 'entrando' ? <Entrando fluxo={fluxo} aoCancelar={cancelar} /> : null}
       {fluxo.passo === 'chave' ? <Chave fluxo={fluxo} aoCancelar={cancelar} /> : null}
       {fluxo.passo === 'conferindo' ? <Conferindo fluxo={fluxo} /> : null}
+      {fluxo.passo === 'salva' ? <Salva fluxo={fluxo} aoConcluir={aoConcluir} /> : null}
       {fluxo.passo === 'pronto' ? <Pronto fluxo={fluxo} conta={contaViva} usarNosBots={usarNosBots} aoConcluir={aoConcluir} /> : null}
     </div>
+  )
+}
+
+function Salva({ fluxo, aoConcluir }: { fluxo: FluxoConectar; aoConcluir: () => void }) {
+  const t = useT()
+  return (
+    <>
+      <div className="mercado-conectar">
+        <div className="mercado-ficha-principal">
+          <div className="mercado-pronta" role="status">
+            <Icon name="info.circle" size={30} />
+            <VStack gap={2} shrink>
+              <Text as="h2" size="title3" weight="semibold" tone="text">{t('mercado.salva.titulo', { conta: fluxo.conta?.name ?? fluxo.servico.nome })}</Text>
+              <Text size="callout" tone="secondary">{t('mercado.salva.sub')}</Text>
+            </VStack>
+          </div>
+        </div>
+      </div>
+      <div className="mercado-rodape">
+        <span />
+        <Button onClick={aoConcluir}>{t('mercado.salva.concluir')}</Button>
+      </div>
+    </>
   )
 }
 

@@ -17,7 +17,7 @@ const mensagem = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
 // ───────────────────────────── O Marketplace de um computador/Space ─────────────────────────────
 
-// A Open não tem o executor isolado que a conferência do Hub usa; ali o login ou a chave aceita é a prova que existe.
+// A Open não tem o executor isolado da conferência do Hub: o login só chega aqui com o fim confirmado pelo Hub, e a chave guardada fica "salva, não verificada" no fluxo.
 const conferirConta = (c: HostClient, id: string) =>
   isOpenDesktop(globalThis.window?.codync) ? Promise.resolve({ status: 'ready' }) : market.verifyConnector(c, id)
 
@@ -148,7 +148,7 @@ export class Mercado extends Observable {
       cliente,
       entrar: (id) => pluginsFor(this.store).signIn(id, cadastro ? cliente : undefined),
       verificar: (id) => cliente().then((c) => conferirConta(c, id)),
-      guardarChave: (id, campos) => cliente().then((c) => market.updateConnectorCredentials(c, id, campos)),
+      guardarChave: (id, campos) => cliente().then((c) => market.updateConnectorCredentials(c, id, campos) as Promise<{ verified?: boolean } | null>),
       reler: () => this.ler(),
     }, cadastro)
   }

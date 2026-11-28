@@ -318,6 +318,12 @@ async fn route(
     if matches!(method, "connectorCall" | "routineCall" | "teamCall") {
         crate::fork::sessoes::call_tests::before_effect(&hub.store, "api_origin");
     }
+    if method == "connectorSignIn"
+        && crate::environment::Environment::is_open()
+        && crate::fork::conectores::oauth_desktop::do_pedido(&b)?.is_none()
+    {
+        anyhow::bail!("login_sem_ouvinte: o retorno do login só chega pelo ouvinte do app neste computador.");
+    }
     let oauth_intent = if method == "connectorSignIn" {
         Some(crate::fork::conectores::oauth_binding::StartIntent::capture(hub, caller, str_arg(&b, "id")?)?)
     } else {

@@ -44,17 +44,27 @@ pub(super) async fn call(
                 }
                 Ok(())
             })?;
+            // A chave já está gravada: falha ao avisar um bot é aviso, nunca erro de gravação.
+            let mut aviso = None;
             for row in hub.store.bots()? {
-                if !row.deleted && !row.config.is_group() && row.config.connectors.iter().any(|c| c == id) {
-                    hub.send_cmd(&row.config.id, Cmd::RefreshTools)?;
+                if !row.deleted
+                    && !row.config.is_group()
+                    && row.config.connectors.iter().any(|c| c == id)
+                    && let Err(error) = hub.send_cmd(&row.config.id, Cmd::RefreshTools)
+                {
+                    tracing::warn!(%error, bot = %row.config.id, "chave salva; atualização das ferramentas do bot pendente");
+                    aviso = Some("bot_nao_atualizado");
                 }
             }
             if crate::environment::Environment::is_open() {
-                return Ok(ControlFlow::Break(json!({"saved": true, "verified": false, "status": "saved"})));
+                return Ok(ControlFlow::Break(
+                    json!({"saved": true, "verified": false, "status": "saved", "aviso": aviso}),
+                ));
             }
             let mut ready = market::verify::verify(&hub.store, id, hub.port).await?;
             ready["saved"] = json!(true);
             ready["verified"] = json!(true);
+            ready["aviso"] = json!(aviso);
             ready
         }
         "credentialStatus" => market::passwords::status(&hub.store)?,

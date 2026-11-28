@@ -12,7 +12,7 @@ function montar(responder: (c: Chamada) => unknown, extra: Partial<Dependencias>
   const eventos: string[] = []
   const deps: Dependencias = {
     cliente: async () => cliente as never,
-    entrar: async (id) => { eventos.push(`entrar:${id}`) },
+    entrar: async (id) => { eventos.push(`entrar:${id}`); return true },
     verificar: async (id) => { eventos.push(`verificar:${id}`); return { status: 'ready' } },
     guardarChave: async (id, campos) => { eventos.push(`chave:${id}:${Object.keys(campos)[0]}`) },
     reler: async () => { eventos.push('reler') },
@@ -159,7 +159,7 @@ test('login que falha volta ao passo de entrar com o motivo, e Tentar de novo re
   let tentativas = 0
   const { chamadas, eventos, deps } = montar(
     (c) => (c.metodo === 'marketConectar' ? { connector: conta('stripe-1', 'Stripe', 'stripe', { auth: 'signedOut' }), proximoPasso: 'entrar' } : { removed: true, bots: [], revogadoNoFornecedor: false }),
-    { entrar: async () => { tentativas++; if (tentativas === 1) throw new Error('login recusado') } },
+    { entrar: async () => { tentativas++; if (tentativas === 1) throw new Error('login recusado'); return true } },
   )
   const f = new FluxoConectar(s, s.tipos[0], deps)
   await f.confirmar()
@@ -229,4 +229,33 @@ test('o valor do cabeçalho leva o prefixo da ficha, sem repeti-lo e sem mexer e
   assert.equal(valorDoCabecalho('Bearer ', 'bearer ghp_abc'), 'bearer ghp_abc')
   assert.equal(valorDoCabecalho(null, ' sk_abc '), 'sk_abc')
   assert.equal(valorDoCabecalho(undefined, 'sk_abc'), 'sk_abc')
+})
+
+test('login cancelado nunca vira pronto: fica em entrar, sem conferir nem apagar a conta', async () => {
+  const s = ficha([])
+  const { eventos, deps } = montar(
+    (c) => (c.metodo === 'marketConectar' ? { connector: conta('stripe-3', 'Stripe', 'stripe', { auth: 'signedOut' }), proximoPasso: 'entrar' } : { removed: true, bots: [], revogadoNoFornecedor: false }),
+    { entrar: async () => false },
+  )
+  const f = new FluxoConectar(s, s.tipos[0], deps)
+  await f.confirmar()
+  assert.equal(f.passo, 'entrando')
+  assert.equal(eventos.some((e) => e.startsWith('verificar')), false)
+})
+
+test('chave salva sem verificação (verified: false) vai a "salva", nunca a "pronto" nem à conferência', async () => {
+  const s = ficha([])
+  const { chamadas, eventos, deps } = montar(
+    (c) => (c.metodo === 'marketConectar' ? { connector: conta('stripe-4', 'Stripe', 'stripe', { auth: 'signedOut' }), proximoPasso: 'chave' } : { removed: true, bots: [], revogadoNoFornecedor: false }),
+    { guardarChave: async () => ({ saved: true, verified: false, status: 'saved' }) },
+  )
+  const tipo = { ...s.tipos[0], auth: { modo: 'chave', nome: 'Authorization', prefixo: 'Bearer ' } } as unknown as typeof s.tipos[0]
+  const f = new FluxoConectar(s, tipo, deps)
+  await f.confirmar()
+  assert.equal(f.passo, 'chave')
+  await f.enviarChave('segredo-de-teste')
+  assert.equal(f.passo, 'salva')
+  assert.equal(eventos.some((e) => e.startsWith('verificar')), false)
+  await f.cancelar()
+  assert.equal(chamadas.some((c) => c.metodo === 'marketContaDesconectar'), false)
 })
