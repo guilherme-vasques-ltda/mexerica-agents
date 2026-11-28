@@ -1367,7 +1367,7 @@ async fn estado_sem_registro_pede_entrada() {
 /// Os métodos são só deste computador: o app pareado e o pareamento não passam, e o motor
 /// desligado recusa antes de tocar qualquer estado.
 #[tokio::test]
-async fn metodos_de_entrar_com_chatgpt_sao_so_deste_computador_e_do_motor_ligado() {
+async fn metodos_de_entrar_com_chatgpt_sao_so_deste_computador_e_nao_dependem_do_motor() {
     use crate::store::Scope;
     let _serie = SERIE.lock().await;
     *login::BASE_EM_TESTE.locked() = None;
@@ -1391,22 +1391,11 @@ async fn metodos_de_entrar_com_chatgpt_sao_so_deste_computador_e_do_motor_ligado
         .to_string();
         assert!(erro.starts_with("remote_setup_unavailable"), "{metodo}: {erro}");
     }
-    // No processo de provas a flag do motor fica desligada; recusa com o motor desligado.
-    if enabled() {
-        return;
-    }
-    for metodo in CHATGPT_METHODS {
-        let erro = login::call(
-            &hub,
-            &Caller::Local,
-            metodo,
-            json!({"loopbackPort": 19424, "spaceId": crate::fork::spaces::PERSONAL}),
-        )
-        .await
-        .unwrap_err()
-        .to_string();
-        assert!(erro.starts_with("motor_desligado"), "{metodo}: {erro}");
-    }
+    // Com o Motor Mexerica desligado o dono local usa o estado normalmente; a conta nunca mostra token.
+    let estado = login::call(&hub, &Caller::Local, "chatgptEstado", json!({})).await.unwrap();
+    assert_eq!(estado["conectado"], false, "{estado}");
+    let verificado = login::call(&hub, &Caller::Local, "chatgptEstado", json!({"verificar": true})).await.unwrap();
+    assert_eq!(verificado["conectado"], false, "{verificado}");
 }
 
 /// Controle positivo da validação: um ID token bem assinado, com as afirmações certas, passa.

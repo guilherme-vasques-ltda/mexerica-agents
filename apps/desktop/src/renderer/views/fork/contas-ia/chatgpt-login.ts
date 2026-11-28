@@ -48,7 +48,7 @@ const ESPERA_MAX_MS = 10 * 60_000 - 2_000
 /** Lê o estado da conta no Hub; a renovação que faltar por pouco o Hub mesmo resolve antes de responder. */
 export const lerEstadoChatGPT = (client: HostClient) =>
   // A leitura pode renovar o access no caminho (um pedido ao emissor de até 15 s): o prazo cobre isso com folga.
-  client.call<EstadoChatGPT>('chatgptEstado', {}, 30_000)
+  client.call<EstadoChatGPT>('chatgptEstado', { verificar: true }, 30_000)
 
 /** Sai: o Hub revoga o que der e apaga os tokens deste computador de qualquer jeito. */
 export const sairDoChatGPT = (client: HostClient) =>

@@ -229,7 +229,7 @@ test('ler estado e sair chamam os métodos do Hub com o corpo esperado', async (
   assert.deepEqual(await lerEstadoChatGPT(client), estado)
   assert.deepEqual(await sairDoChatGPT(client), { ok: true, revogado: false })
   assert.deepEqual(corpos, [
-    { metodo: 'chatgptEstado', corpo: {} },
+    { metodo: 'chatgptEstado', corpo: { verificar: true } },
     { metodo: 'chatgptSair', corpo: {} },
   ])
 })
