@@ -51,6 +51,13 @@ O app só abre depois do login confirmado. Uma preferência antiga de boas-vinda
 - No Mac, use o app empacotado conectado ao Hub remoto. `npm run dev` compila o Hub
   localmente e não faz parte deste fluxo; as checagens do Hub rodam no servidor.
 
+## Acesso à tela pelo Hub local de teste
+
+O comando comum `dist:mac:dev` não produz o par XPC pinado. O pacote de teste com Hub
+embutido usa o modo `mac-local-hub` e o builder Dev com `MEXERICA_PIN_SCREEN_HELPER=1`.
+Sem o helper e os pinos válidos, esse modo não oferece acesso à tela nem volta ao socket
+legado. O pino vincula Hub e helper ao mesmo pacote ad hoc; não comprova quem o publicou.
+
 ## Antes de gerar
 
 As instruções SSH abaixo atendem à conexão direta da variante principal. Elas não

@@ -74,7 +74,7 @@ export const QUICK_REACTIONS = ['👍', '❤️', '😂', '🎉', '👀', '✅']
 export class BotStore extends BotSync {
   /** E2: mesma rota capturada, com espelho e rascunhos próprios do Space. */
   mirrorInSpace(spaceId: string) {
-    return new BotStore(this.computer, this.isLoopback, this.makeTransport, this.appVersion, this.contextId, spaceId, this.hello?.hostId)
+    return new BotStore(this.computer, this.isLoopback, this.makeTransport, this.appVersion, this.contextId, spaceId, this.hello?.hostId, this.privateMacScreen)
   }
 
   /** Recibo confirmado da criação: a seleção não espera o stream nem volta para o Berga por uma corrida de rede. */

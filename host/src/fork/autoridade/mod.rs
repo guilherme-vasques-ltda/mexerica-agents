@@ -181,11 +181,6 @@ fn dispositivo(db: &Connection, chave: &str) -> Result<Device> {
 }
 
 impl Autoridade {
-    #[cfg(target_os = "macos")]
-    pub(crate) fn is_local(&self) -> bool {
-        matches!(self.original, Original::Local)
-    }
-
     pub(crate) fn para_requisicao(&self, epoch: u64, geracao_admitida: i64) -> Result<Self> {
         let mut autoridade = self.clone();
         let Original::Dispositivo { geracao, epoch_da_requisicao, .. } = &mut autoridade.original else {

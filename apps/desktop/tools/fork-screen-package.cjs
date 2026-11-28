@@ -19,12 +19,15 @@ function codesign(...args) {
   return execFileSync('/usr/bin/codesign', args, { timeout: 15_000, stdio: 'pipe' })
 }
 
-function displayHash(path) {
+function displayHash(path, { requireRuntime = false } = {}) {
   const { spawnSync } = require('node:child_process')
   const result = spawnSync('/usr/bin/codesign', ['--display', '--verbose=4', path], {
     encoding: 'utf8', timeout: 15_000, stdio: ['ignore', 'pipe', 'pipe'],
   })
   if (result.status !== 0 || result.error) throw new Error('Não foi possível ler o CDHash do executável.')
+  if (requireRuntime && !/^CodeDirectory .*flags=0x[0-9a-f]+\([^)]*\bruntime\b/m.test(result.stderr)) {
+    throw new Error('O Hub precisa manter a proteção Hardened Runtime.')
+  }
   return cdhash(result.stderr)
 }
 
@@ -43,7 +46,7 @@ function readVerifiedPins({ helper, hub }) {
   codesign('--verify', '--deep', '--strict', helper)
   codesign('--verify', '--strict', hub)
   const screenHash = displayHash(join(helper, 'Contents/MacOS', helperName))
-  const hubHash = displayHash(hub)
+  const hubHash = displayHash(hub, { requireRuntime: true })
   if (screenHash === hubHash) throw new Error('O helper e o Hub precisam ter identidades distintas.')
   return `${screenHash}\n${hubHash}\n`
 }
@@ -60,7 +63,7 @@ function afterPack(context) {
     for (const entry of readdirSync(frameworks)) sign(join(frameworks, entry))
   }
   sign(bundle.helper)
-  sign(bundle.hub)
+  codesign('--force', '--sign', '-', '--options', 'runtime', '--timestamp=none', bundle.hub)
   writeFileSync(bundle.pin, readVerifiedPins(bundle), { flag: 'wx' })
 }
 

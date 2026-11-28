@@ -115,7 +115,8 @@ export class AppModel extends Observable {
       if (old && old.computerId !== local.computerId) this.detach(old.computerId)
       const cached = this.computers.find((c) => c.id === local.computerId)
       const computer: Computer = cached ?? { id: local.computerId, name: 'This computer', signKey: '', urls: [] }
-      const store = new BotStore(computer, true, () => new LoopbackTransport(local.baseURL, local.token))
+      const store = new BotStore(computer, true, () => new LoopbackTransport(local.baseURL, local.token),
+        undefined, undefined, undefined, undefined, bundledMacLocalHub)
       this.attach(computer, store)
       store.subscribe(() => this.syncScreen(store))
     } else if (!local && old) {

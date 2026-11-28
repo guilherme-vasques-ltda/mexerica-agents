@@ -1,8 +1,50 @@
 use super::{Screen, fork_mac_identity::macos::Xpc};
-use crate::{LockExt, hub::Hub};
+use crate::{LockExt, agent::bot::Cmd, api::devices::Caller, hub::Hub, store::Store};
 use anyhow::{Context, Result, ensure};
+use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{sync::Arc, time::Duration};
+
+pub(crate) const FIELD: &str = "macLocalScreenEnabled";
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct Change {
+    id: String,
+    mac_local_screen_enabled: bool,
+}
+
+pub(crate) fn update_consent(hub: &Hub, caller: &Caller, body: Value) -> Result<Value> {
+    ensure!(is_private(hub) && matches!(caller, Caller::Local), "screen settings require the local app");
+    let change: Change = serde_json::from_value(body).context("invalid screen setting")?;
+    let owner = crate::fork::autoridade::Autoridade::capturar(hub, caller)?;
+    let _emit = hub.emit_lock.locked();
+    let changed = owner.with_db(hub, None, |db| {
+        let row = Store::bot_on(db, &change.id)?.context("unknown bot")?;
+        ensure!(
+            !row.deleted && !row.config.is_group() && !row.config.hidden,
+            "screen settings unavailable for this bot"
+        );
+        if super::fork_mac_consent::consent_on(db, &change.id)
+            .is_ok_and(|current| current.is_some() == change.mac_local_screen_enabled)
+        {
+            return Ok(false);
+        }
+        super::fork_mac_consent::set_on(db, &change.id, change.mac_local_screen_enabled)?;
+        let rev = crate::store::next_rev(db)?;
+        db.execute("UPDATE bots SET rev=?2 WHERE id=?1", rusqlite::params![change.id, rev])?;
+        Ok(true)
+    })?;
+    if changed {
+        let _ = hub.send_cmd(&change.id, Cmd::RefreshTools);
+    }
+    let row = hub.store.bot(&change.id)?.context("unknown bot")?;
+    let bot = hub.bot_json(&row);
+    if changed {
+        let _ = hub.events.send(json!({"type":"bot","rev":bot["rev"],"bot":bot}));
+    }
+    Ok(json!({"bot":bot}))
+}
 
 pub(crate) fn is_private(hub: &Hub) -> bool {
     hub.desktop_socket.get().is_some()
@@ -75,6 +117,14 @@ pub(crate) fn legacy_remote_method(method: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn only_a_dedicated_change_can_set_screen_consent() {
+        let change = serde_json::json!({"id":"a","macLocalScreenEnabled":true});
+        assert!(serde_json::from_value::<super::Change>(change).is_ok());
+        let mixed = serde_json::json!({"id":"a","macLocalScreenEnabled":true,"notify":false});
+        assert!(serde_json::from_value::<super::Change>(mixed).is_err());
+    }
+
     #[test]
     fn private_screen_does_not_fall_back_to_remote_viewing() {
         for method in ["screenPrepare", "screenOffer", "screenClose", "screenTakeover"] {
