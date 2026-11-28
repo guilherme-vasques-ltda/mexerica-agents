@@ -37,7 +37,7 @@ pub struct Snapshot {
     pub revision: i64,
 }
 
-fn revision(c: &Connection) -> Result<i64> {
+pub(in crate::fork) fn revision(c: &Connection) -> Result<i64> {
     Ok(c.query_row("SELECT revision FROM donna_policy_meta WHERE id=1", [], |r| r.get(0))?)
 }
 

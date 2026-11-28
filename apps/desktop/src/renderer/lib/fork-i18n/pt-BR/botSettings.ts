@@ -1,5 +1,7 @@
 // DON-903: botSettings (registro.ts). Chaves completas; docs/guides/idiomas.md.
 export const textos = {
+  'botSettings.comandosLocais.titulo': 'Comandos locais',
+  'botSettings.comandosLocais.aviso': 'Ligue antes da primeira mensagem em um bot novo. Cada comando ainda pede aprovação. Se aprovado, roda sem isolamento com suas permissões: pode acessar arquivos e usar a rede.',
   // DON-865, fatia 4: Motor do criar bot e do editor (D372/D373/D375).
   'botSettings.motor.aviso': 'Vale para conversas novas. Cada conversa aberta mantém o modelo dela.',
   'botSettings.motor.usar': 'Usar também na conversa principal',

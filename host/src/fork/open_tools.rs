@@ -1,6 +1,6 @@
 use super::{open_mcp, open_tool_delegation as team, open_turn::LocalTurn};
-use crate::hub::Hub;
 use crate::store::Lane;
+use crate::{LockExt, hub::Hub};
 use anyhow::{Result, ensure};
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -8,6 +8,7 @@ use tokio::sync::watch;
 
 const CHAIN: &str = crate::fork::times::cadeia::FERRAMENTA;
 const WORKPLACE: &str = "choose_work_conversation";
+pub(super) const LOCAL_COMMAND: &str = "run_local_command";
 
 pub(super) const GUIDANCE: &str = concat!(
     "Neste turno do dono local, use as ferramentas do Hub anunciadas para consultar os outros bots do seu espaço, ",
@@ -49,7 +50,7 @@ impl<'a> Turn<'a> {
     }
 
     pub(super) fn allows(&self, name: &str) -> bool {
-        Self::offered(name)
+        self.offered(name)
             && self.check().is_ok_and(|cfg| {
                 let coordination = self.coordination_only(&cfg);
                 (name != WORKPLACE || coordination) && (!Self::executes(name) || !coordination)
@@ -70,7 +71,7 @@ impl<'a> Turn<'a> {
         self.proof.check(self.hub)
     }
 
-    pub(super) fn catalog() -> Value {
+    pub(super) fn offered_catalog(&self) -> Value {
         let mut catalog: Vec<_> = TOOLS
             .iter()
             .map(|(name, description)| {
@@ -83,26 +84,27 @@ impl<'a> Turn<'a> {
         catalog.extend(super::open_tool_actions::catalog());
         catalog.extend(team::catalog());
         catalog.extend(open_mcp::catalog());
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        catalog.push(super::open_terminal::catalog());
+        catalog.retain(|tool| tool["name"].as_str().is_some_and(|name| self.allows(name)));
         Value::Array(catalog)
     }
 
-    pub(super) fn offered_catalog(&self) -> Value {
-        let mut catalog = Self::catalog();
-        if let Some(tools) = catalog.as_array_mut() {
-            tools.retain(|tool| tool["name"].as_str().is_some_and(|name| self.allows(name)));
-        }
-        catalog
-    }
-
     fn executes(name: &str) -> bool {
-        super::open_tool_actions::offered(name) || (open_mcp::offered(name) && name != "list_mcp_tools")
+        name == LOCAL_COMMAND
+            || super::open_tool_actions::offered(name)
+            || (open_mcp::offered(name) && name != "list_mcp_tools")
     }
 
-    pub(super) fn offered(name: &str) -> bool {
+    fn offered(&self, name: &str) -> bool {
         TOOLS.iter().any(|(tool, _)| *tool == name)
             || super::open_tool_actions::offered(name)
             || matches!(name, team::ASK | team::MESSAGE | team::STATUS)
             || open_mcp::offered(name)
+            || (cfg!(any(target_os = "linux", target_os = "macos"))
+                && name == LOCAL_COMMAND
+                && super::open_command_settings::revision(&self.hub.store.db.locked(), &self.proof.lane().chat)
+                    .is_ok_and(|r| r.is_some()))
     }
 
     fn delegation_turn(&self) -> Result<team::LocalTurn> {
@@ -122,6 +124,10 @@ impl<'a> Turn<'a> {
     pub(super) async fn call(&self, name: &str, args: &Value) -> Result<Value> {
         let cfg = self.check()?;
         ensure!(!Self::executes(name) || !self.coordination_only(&cfg), "open_tools_use_separate_conversation");
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        if name == LOCAL_COMMAND {
+            return Box::pin(super::open_terminal::call(self.hub, &self.proof, args)).await;
+        }
         if name == team::ASK {
             return team::ask(self.delegation_turn()?, args).await;
         }

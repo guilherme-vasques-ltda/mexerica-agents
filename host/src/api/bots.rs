@@ -226,6 +226,9 @@ pub(super) async fn call(
             .await??})
         }
         "updateBot" => {
+            if b.get(crate::fork::open_command_settings::FIELD).is_some() {
+                return crate::fork::open_command_settings::update(hub, caller, b).map(ControlFlow::Break);
+            }
             // c1: intenção tipada de uma célula; captura antes de team_lock, sem recaptura.
             if let Some(selection) = crate::fork::skill_selection::Selection::capture(hub, caller, &b)? {
                 let guard = hub.store.team_lock.clone().lock_owned().await;

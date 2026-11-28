@@ -154,7 +154,15 @@ impl Prepared<'_> {
         &self.request
     }
 
+    #[cfg(test)]
     pub(crate) async fn execute(self) -> Result<Saida> {
+        self.execute_guarded(|spawn| spawn()).await
+    }
+
+    pub(crate) async fn execute_guarded(
+        self,
+        guard: impl FnOnce(&mut dyn FnMut() -> Result<tokio::process::Child>) -> Result<tokio::process::Child>,
+    ) -> Result<Saida> {
         let strings = self.request.argv.iter().map(|arg| CString::new(arg.as_str())).collect::<Result<Vec<_>, _>>()?;
         #[cfg(target_os = "macos")]
         let identity = macos::Identity::capture(&self)?;
@@ -208,10 +216,12 @@ impl Prepared<'_> {
             });
         }
         rodar_guardado(Lancamento { command, manter: Vec::new(), graca: Graca::Grupo }, LIMITS, |command| {
-            self.gate.start(&self.request, || {
-                #[cfg(target_os = "macos")]
-                identity.recheck()?;
-                command.spawn().context("não foi possível iniciar o comando")
+            guard(&mut || {
+                self.gate.start(&self.request, || {
+                    #[cfg(target_os = "macos")]
+                    identity.recheck()?;
+                    command.spawn().context("não foi possível iniciar o comando")
+                })
             })
         })
         .await

@@ -15,6 +15,11 @@ use tokio::{sync::oneshot, time::Instant};
 
 pub(crate) const CARD_KIND: &str = "open_hub_action";
 const ROUTE_KIND: &str = "open_work_route";
+const COMMAND_KIND: &str = "open_local_command";
+
+pub(super) fn hub_card(data: &Value) -> bool {
+    matches!(data["toolKind"].as_str(), Some(CARD_KIND | COMMAND_KIND | ROUTE_KIND))
+}
 const ALLOW: &str = "allow";
 const DENY: &str = "deny";
 const CONVERSATION: &str = "conversation";
@@ -238,6 +243,7 @@ struct Pending {
     card: Entry,
     answer: oneshot::Sender<Entry>,
     deadline: Instant,
+    command_revision: Option<i64>,
 }
 
 static PENDING: LazyLock<Mutex<HashMap<String, Pending>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -259,7 +265,8 @@ pub(super) fn respond(
             && matches!(origin, Some(Origem::Local))
             && app_response(body)
             && entry.kind == "permission"
-            && matches!(entry.data["toolKind"].as_str(), Some(CARD_KIND | ROUTE_KIND)),
+            && hub_card(&entry.data)
+            && (entry.data["toolKind"] != COMMAND_KIND || body["source"] == "app"),
         "open_tools_local_app_required"
     );
     let mut pending = PENDING.locked();
@@ -277,6 +284,9 @@ pub(super) fn respond(
     data["selected"] = json!(option);
     let confirmed = permission_card::commit_checked(hub, &entry.id, &data, None, origin, |db| {
         ensure!(Instant::now() < current.deadline, "open_tools_approval_expired");
+        if let Some(expected) = current.command_revision {
+            super::open_command_settings::require(db, &current.card.bot_id, expected)?;
+        }
         check_card(db, &current.card)
     })?
     .context("open_tools_approval_stale")?;
@@ -313,11 +323,35 @@ impl Drop for Waiting<'_> {
 }
 
 pub(super) async fn approve(hub: &Arc<Hub>, lane: &Lane, turn: i64, title: &str, detail: &str) -> Result<Entry> {
+    approve_card(hub, lane, turn, None, title, detail).await
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+pub(super) async fn approve_command(
+    hub: &Arc<Hub>,
+    lane: &Lane,
+    turn: i64,
+    activation: i64,
+    title: &str,
+    detail: &str,
+) -> Result<Entry> {
+    approve_card(hub, lane, turn, Some(activation), title, detail).await
+}
+
+async fn approve_card(
+    hub: &Arc<Hub>,
+    lane: &Lane,
+    turn: i64,
+    command_revision: Option<i64>,
+    title: &str,
+    detail: &str,
+) -> Result<Entry> {
     let options = json!([
         {"optionId": ALLOW, "kind": "allow_once", "name": "Allow once"},
         {"optionId": DENY, "kind": "reject_once", "name": "Deny"}
     ]);
-    let (pending, received) = show_card(hub, lane, turn, title, detail, CARD_KIND, options).await?;
+    let kind = if command_revision.is_some() { COMMAND_KIND } else { CARD_KIND };
+    let (pending, received) = show_card(hub, lane, turn, title, detail, (kind, command_revision), options).await?;
     if received.data["selected"] != ALLOW {
         bail!("open_tools_approval_denied");
     }
@@ -342,7 +376,7 @@ pub(super) async fn offer_separate_conversation(
         turn,
         "Onde rodar este trabalho?",
         "Nenhuma opção autoriza a execução nesta conversa.",
-        ROUTE_KIND,
+        (ROUTE_KIND, None),
         Value::Array(options),
     )
     .await?;
@@ -359,7 +393,7 @@ async fn show_card(
     turn: i64,
     title: &str,
     detail: &str,
-    kind: &str,
+    (kind, command_revision): (&str, Option<i64>),
     options: Value,
 ) -> Result<(Entry, Entry)> {
     ensure!(
@@ -375,6 +409,9 @@ async fn show_card(
     let deadline = Instant::now() + WAIT;
     let card = {
         let mut pending = PENDING.locked();
+        if let Some(expected) = command_revision {
+            super::open_command_settings::require(&hub.store.db.locked(), &lane.chat, expected)?;
+        }
         let (card, _) = hub.add_entry_once(
             &uuid::Uuid::new_v4().to_string(),
             lane,
@@ -385,7 +422,10 @@ async fn show_card(
                 "options": options
             }),
         )?;
-        pending.insert(card.id.clone(), Pending { hub: Arc::downgrade(hub), card: card.clone(), answer, deadline });
+        pending.insert(
+            card.id.clone(),
+            Pending { hub: Arc::downgrade(hub), card: card.clone(), answer, deadline, command_revision },
+        );
         card
     };
     let waiting = Waiting { hub, card };

@@ -260,6 +260,8 @@ enum Sub {
         /// do navegador. O diretório precisa conter `index.html`.
         #[arg(long, env = "MEXERICA_WEB_DIR")]
         web_dir: Option<std::path::PathBuf>,
+        #[arg(long, hide = true, requires = "only_this_mac", conflicts_with = "web_dir")]
+        desktop_socket: bool,
     },
     /// Show a one-time pairing QR code and link (the host must be running; the Mexerica iPhone app comes later).
     Pair {
@@ -330,6 +332,9 @@ enum Sub {
         /// nem toca em `~/.claude`. Sem `--nivel` vale o comportamento herdado.
         #[arg(long, value_parser = clap::value_parser!(u8).range(1..=2))]
         nivel: Option<u8>,
+        /// Mac: limpa apenas arquivos regeneráveis do Hub supervisionado pelo app, sem tocar em serviços.
+        #[arg(long, requires = "nivel", conflicts_with = "remover_usuario_motor")]
+        desktop_socket: bool,
     },
     /// Stop the background service, keeping its configuration and all data.
     Stop,
@@ -675,8 +680,13 @@ async fn main() -> Result<()> {
             fork::private_fs::inspect(&service::data_dir())?;
         }
     }
-    match cli.cmd.unwrap_or(Sub::Serve { port: service::DEFAULT_PORT, bind: None, only_this_mac: false, web_dir: None })
-    {
+    match cli.cmd.unwrap_or(Sub::Serve {
+        port: service::DEFAULT_PORT,
+        bind: None,
+        only_this_mac: false,
+        web_dir: None,
+        desktop_socket: false,
+    }) {
         Sub::AuditarCodex { home } => fork::motor_codex_audit::local(&home),
         Sub::MemoriaWorkspace { workspace, on } => agent::own_memory::configure_workspace("qwen", &workspace, on),
         #[cfg(target_os = "linux")]
@@ -720,7 +730,7 @@ async fn main() -> Result<()> {
             println!("Grant installed.");
             Ok(())
         }
-        Sub::Serve { port, bind, only_this_mac, web_dir } => {
+        Sub::Serve { port, bind, only_this_mac, web_dir, desktop_socket } => {
             if environment::Environment::is_open() {
                 #[cfg(unix)]
                 return open_hub::serve(port, bind.as_deref(), only_this_mac).await;
@@ -734,7 +744,7 @@ async fn main() -> Result<()> {
                 mac_service,
                 web_dir.is_some(),
             )?;
-            serve(&bind, port, scope, web_dir).await
+            serve(&bind, port, scope, web_dir, desktop_socket).await
         }
         Sub::Pair { port, json } => pair(port, json).await,
         Sub::Info { port, json } => info(port, json).await,
@@ -839,7 +849,17 @@ async fn main() -> Result<()> {
             println!("Mexerica host stopped.");
             Ok(())
         }
-        Sub::Uninstall { remover_usuario_motor, nivel } => {
+        Sub::Uninstall { remover_usuario_motor, nivel, desktop_socket } => {
+            if desktop_socket {
+                anyhow::ensure!(
+                    cfg!(target_os = "macos") && nivel == Some(2),
+                    "limpeza do Hub privado exige macOS e nível 2"
+                );
+                anyhow::ensure!(std::env::var_os("MEXERICA_HOME").is_some(), "diretório do Hub privado não informado");
+                let removed = service::mac_local::remove_regenerable(&service::data_dir())?;
+                tracing::info!(removed = removed.len(), "regenerable logs and caches removed");
+                return Ok(());
+            }
             if cfg!(target_os = "linux") {
                 return fork::linux_installer::uninstall(remover_usuario_motor);
             }
@@ -929,8 +949,24 @@ async fn serve(
     port: u16,
     scope: service::mac_local::Scope,
     web_dir: Option<std::path::PathBuf>,
+    desktop_socket: bool,
 ) -> Result<()> {
     scope.check_bind(bind)?;
+    anyhow::ensure!(
+        !desktop_socket || (scope == service::mac_local::Scope::ThisMacOnly && web_dir.is_none()),
+        "private desktop Hub requires this-computer-only mode"
+    );
+    #[cfg(not(unix))]
+    anyhow::ensure!(!desktop_socket, "private desktop Hub requires a Unix socket");
+    #[cfg(unix)]
+    let desktop = if desktop_socket {
+        let path = std::env::var_os(fork::bridge_http::SOCKET_ENV).context("missing private desktop Hub socket")?;
+        let eof = fork::desktop_socket::watch_stdin()?;
+        let (listener, socket) = fork::desktop_socket::SocketFile::bind(path.into())?;
+        Some((listener, socket, eof))
+    } else {
+        None
+    };
     let web_root = web_dir.map(|dir| fork::web_local::WebConfig::validate_dir(&dir)).transpose()?;
     environment::ensure_own_port(port)?;
     environment::ensure_own_data_dir(&service::home(), &service::data_dir())?;
@@ -950,22 +986,31 @@ async fn serve(
     #[cfg(target_os = "linux")]
     fork::guarda_atualizacao::verificar()?;
     if fork::personal_link::installation::selecionado(&service::data_dir())? {
+        anyhow::ensure!(!desktop_socket, "isolated installation cannot run as the desktop Hub");
         anyhow::ensure!(
             web_root.is_none(),
             "a interface Web local não se aplica à instalação isolada; inicie o Hub sem --web-dir"
         );
         return fork::personal_link::installation::servir(instance_lock, bind, port, shutdown_signal()).await;
     }
-    let personal = fork::personal_bootstrap::provisioning::prepare(&service::data_dir())?;
+    let personal =
+        if desktop_socket { None } else { fork::personal_bootstrap::provisioning::prepare(&service::data_dir())? };
     let personal_listener =
         personal.as_ref().map(fork::personal_bootstrap::provisioning::Prepared::listener).transpose()?;
     let _instance_lock = instance_lock;
     tokio::task::spawn_blocking(service::capture_binary_identity).await??;
-    let listener = tokio::net::TcpListener::bind((bind, port))
-        .await
-        .with_context(|| format!("binding the host to port {port}"))?;
-    let bound_port = listener.local_addr()?.port();
-    let external = service::mac_local::listens_beyond_loopback([listener.local_addr()?]);
+    let listener = if desktop_socket {
+        None
+    } else {
+        Some(
+            tokio::net::TcpListener::bind((bind, port))
+                .await
+                .with_context(|| format!("binding the host to port {port}"))?,
+        )
+    };
+    let address = listener.as_ref().map(tokio::net::TcpListener::local_addr).transpose()?;
+    let bound_port = address.map_or(port, |addr| addr.port());
+    let external = service::mac_local::listens_beyond_loopback(address);
     cap_log();
     configure_logging();
     if external {
@@ -978,6 +1023,11 @@ async fn serve(
             let (store, identity, installation) = prepared.open_store()?;
             (opened_store(store)?, Some(identity), Some(installation))
         }
+        None if desktop_socket => (
+            open_store().context("opening the local desktop Hub store; personal installations are not migrated")?,
+            None,
+            None,
+        ),
         None => (open_store()?, None, None),
     };
     let (store, host_id, token) = opened;
@@ -989,6 +1039,10 @@ async fn serve(
     };
     tokio::task::spawn_blocking(backends::hydrate_path).await?;
     let hub = hub::Hub::new(store, host_id, identity, token, port);
+    #[cfg(unix)]
+    if let Some((_, socket, _)) = &desktop {
+        hub.desktop_socket.set(socket.path().to_owned()).map_err(|_| anyhow::anyhow!("duplicate desktop socket"))?;
+    }
     if let Some(root) = web_root {
         hub.set_web_local(std::sync::Arc::new(fork::web_local::WebState::new(root, bound_port)))?;
         tracing::info!(url = %format!("http://127.0.0.1:{bound_port}/"), "local web UI enabled");
@@ -1009,19 +1063,31 @@ async fn serve(
     analytics::host_started(&hub, service::started_by_service());
     background::start(&hub, scope);
     tracing::info!(version = env!("CARGO_PKG_VERSION"), port, loopback = !external, "donnabot-host listening");
-    // Peer addresses: some settings may only be changed from this computer.
-    let app = api::router(hub.clone()).into_make_service_with_connect_info::<std::net::SocketAddr>();
-    // SSE/WebSocket clients can stay connected forever. Stop agents immediately
-    // on the signal instead of waiting for those connections to finish.
-    let server = axum::serve(listener, app).into_future();
-    tokio::pin!(server);
-    tokio::select! {
-        result = &mut server => result?,
-        () = shutdown_signal() => {},
+    let outcome = async {
+        if let Some(listener) = listener {
+            let app = api::router(hub.clone()).into_make_service_with_connect_info::<std::net::SocketAddr>();
+            tokio::select! {
+                result = axum::serve(listener, app).into_future() => result?,
+                () = shutdown_signal() => {},
+            }
+        }
+        #[cfg(unix)]
+        if let Some((listener, _socket, eof)) = desktop {
+            let app = api::desktop_socket_router(hub.clone())
+                .layer(axum::Extension(axum::extract::ConnectInfo(fork::desktop_socket::PEER)));
+            tokio::select! {
+                result = axum::serve(listener, app).into_future() => result?,
+                _ = eof => {},
+                () = shutdown_signal() => {},
+            }
+        }
+        Ok::<(), std::io::Error>(())
     }
+    .await;
     hub.shutdown().await;
     agent::acp::stopped().await;
     analytics::flush_before_exit(&hub).await;
+    outcome?;
     tracing::info!("donnabot-host stopped");
     // Uma leitura OS pode continuar no prompt; o drop do runtime esperaria por ela.
     std::process::exit(0)
@@ -1538,6 +1604,11 @@ mod mac_local_cli_tests {
         assert!(!touches_claude_settings(nivel(&["--nivel", "1"])));
         assert!(!touches_claude_settings(nivel(&["--nivel", "2"])));
         assert!(Cli::try_parse_from(["donnabot-host", "uninstall", "--nivel", "3"]).is_err());
+        assert!(Cli::try_parse_from(["donnabot-host", "uninstall", "--desktop-socket"]).is_err());
+        assert!(matches!(
+            Cli::try_parse_from(["donnabot-host", "uninstall", "--desktop-socket", "--nivel", "2"]).unwrap().cmd,
+            Some(Sub::Uninstall { desktop_socket: true, nivel: Some(2), .. })
+        ));
     }
 }
 

@@ -400,12 +400,13 @@ pub(crate) fn run(
     });
 }
 
-/// Instruções do turno só texto: descrição do bot, regras da conversa e o texto das skills selecionadas e dos manuais do dono.
+/// Instruções do turno só texto, iguais na conversa e na rotina: descrição do bot, regras da conversa, skills selecionadas, manuais e regras de "Nunca fazer" do dono.
 fn instructions(hub: &Hub, cfg: &BotConfig) -> String {
     let mut instructions = format!("{}\n\n{INSTRUCTIONS}", cfg.description.trim());
     for extra in [
         crate::fork::skill_catalog::open_texto_para_bot(&hub.store, &cfg.skills),
         crate::fork::open_manuais::texto_para_bot(&hub.store, cfg),
+        crate::fork::nunca_fazer::prompt_line(&hub.store, cfg),
     ]
     .into_iter()
     .flatten()
@@ -973,7 +974,7 @@ async fn drive_inner(
         let mut cotas = Vec::new();
         // Itens que já entregaram texto por deltas: o `item/completed` deles não repete o que já chegou.
         let mut streamed = std::collections::HashSet::new();
-        let mut called = std::collections::HashSet::new();
+        let mut called = HashMap::new();
         loop {
             let message = rpc.next().await?;
             let params = &message["params"];
@@ -985,8 +986,9 @@ async fn drive_inner(
                     && let Some(call) = params["callId"].as_str().filter(|id| valid_id(id))
                     && let Some(name) = params["tool"].as_str().filter(|name| offered(name))
                     && called.len() < 32
-                    && called.insert(call.to_owned())
+                    && !called.contains_key(call)
                 {
+                    called.insert(call.to_owned(), name.to_owned());
                     let result = if let Some(dispatch) = forward {
                         dispatch.forward(&params["arguments"]).await
                     } else if let Some(tools) = tools {
@@ -1053,7 +1055,17 @@ async fn drive_inner(
                                 && params["threadId"] == thread
                                 && params["turnId"] == turn_id
                                 && params["item"]["namespace"].is_null()
-                                && params["item"]["tool"].as_str().is_some_and(offered))) =>
+                                && params["item"]["tool"].as_str().is_some_and(|name| {
+                                    if message["method"] == "item/completed" && name == super::open_tools::LOCAL_COMMAND
+                                    {
+                                        params["item"]["id"]
+                                            .as_str()
+                                            .and_then(|id| called.get(id))
+                                            .is_some_and(|admitted| admitted == name)
+                                    } else {
+                                        offered(name)
+                                    }
+                                }))) =>
                 {
                     tracing::warn!("item não admitido do Codex encerrou a conversa");
                     interrupt(rpc, &thread, turn_id).await;
@@ -1113,3 +1125,39 @@ fn valid_id(id: &str) -> bool {
 #[cfg(all(test, unix))]
 #[path = "open_chat_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod instrucoes_tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+    use crate::{api::devices::Caller, api::dispatch, remote::identity::Identity, store::Store};
+    use std::path::Path;
+
+    #[tokio::test]
+    async fn regra_salva_de_nunca_fazer_chega_as_instrucoes_do_turno_e_da_rotina() {
+        let dir = std::env::temp_dir().join(format!("open-nunca-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = Store::open(Path::new(":memory:")).unwrap();
+        let cfg: BotConfig =
+            serde_json::from_value(json!({"id": "bot", "name": "Bot", "backend": "codex", "cwd": dir})).unwrap();
+        store.save_bot(&cfg).unwrap();
+        let hub = Hub::new(store, "test".into(), Identity::load_or_create(&dir).unwrap(), "test".into(), 0);
+
+        let sem_regra = instructions(&hub, &cfg);
+        assert!(!sem_regra.contains("Nunca fazer"));
+
+        let salvo = dispatch(
+            &hub,
+            &Caller::Local,
+            "nuncaFazerAdicionar",
+            json!({"spaceId": cfg.space_id, "botId": "bot", "texto": "Não apagar arquivos", "expectedRevision": 0}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(salvo["bot"][0]["texto"], "Não apagar arquivos");
+
+        let com_regra = instructions(&hub, &cfg);
+        assert!(com_regra.contains("Nunca fazer") && com_regra.contains("Não apagar arquivos"));
+        assert!(com_regra.starts_with(sem_regra.trim_end()));
+    }
+}

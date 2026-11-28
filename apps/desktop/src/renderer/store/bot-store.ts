@@ -334,7 +334,7 @@ export class BotStore extends BotSync {
     })
   }
 
-  respond(entry: Entry, option: string | null, source?: 'voice', voz?: AcompanhamentoEnvioVoz) {
+  respond(entry: Entry, option: string | null, source?: 'voice' | 'app', voz?: AcompanhamentoEnvioVoz) {
     if (this.answering.has(entry.id)) return voz?.concluir(false)
     this.answering.set(entry.id, option ?? '')
     this.changed()

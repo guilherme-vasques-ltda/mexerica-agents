@@ -4,17 +4,23 @@ pub(crate) mod antigravity;
 pub mod autoridade;
 pub(crate) mod berga_delegacao;
 pub mod bootstrap;
+pub(crate) mod bridge_http;
 pub(crate) mod cadeias;
+#[cfg(unix)]
+pub(crate) mod desktop_socket;
 pub(crate) mod open_canal;
 pub(crate) mod open_chat;
 pub(crate) mod open_chat_anexos;
 pub(crate) mod open_chat_fila;
 #[cfg(unix)]
 pub(crate) mod open_codex;
+pub(crate) mod open_command_settings;
 pub(crate) mod open_manuais;
 mod open_mcp;
 pub(crate) mod open_modelo;
 pub(crate) mod open_rotinas;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod open_terminal;
 pub(crate) mod open_tool_actions;
 pub(crate) mod open_tool_delegation;
 mod open_tools;
@@ -204,6 +210,7 @@ pub(crate) fn migrate(store: &crate::store::Store) -> anyhow::Result<()> {
 
 /// Invocado dentro da transação de exclusão, inclusive nos caminhos de gestão.
 pub fn on_bot_deleted(c: &rusqlite::Connection, id: &str) -> anyhow::Result<()> {
+    open_command_settings::on_bot_deleted(c, id)?;
     routine_creation::external_grant::delete_bot(c, id)?;
     nunca_fazer::on_bot_deleted(c, id)?;
     usage_limits::on_bot_deleted(c, id)?;
