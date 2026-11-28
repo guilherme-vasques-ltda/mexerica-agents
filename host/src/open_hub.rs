@@ -195,7 +195,8 @@ pub(crate) fn open_allows(caller: &Caller, method: &str, body: &Value) -> bool {
         "createBot" | "updateBot" => {
             body.get("cwd").is_none_or(|cwd| cwd.as_str() == Some(""))
                 && (matches!(caller, Caller::Local)
-                    || ["skills", "skillSelection"].iter().all(|key| body.get(key).is_none()))
+                    || ["skills", "skillSelection", crate::fork::open_command_settings::FIELD]
+                        .iter().all(|key| body.get(key).is_none()))
         }
         "upload" => matches!(caller, Caller::Local),
         // Anexos só do dono local (o Hub entrega o conteúdo no turno); a aba (sessão extra) é indicada por 'sessionId'

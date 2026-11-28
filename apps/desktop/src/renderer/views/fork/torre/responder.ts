@@ -9,7 +9,7 @@ import { bloqueioSenha, type ResultadoEnvio } from '../../../store/fork-senha-bl
 /** DON-917 (D507): as notas e rótulos são chaves do catálogo; a tela traduz ao desenhar. */
 type Nota = `torre.resp.${'mesmoCartao' | 'soPessoal' | 'semCartao' | 'jaRespondido' | 'naoEspera' | 'semConexao' | 'notaPergunta' | 'enviando' | 'enviandoConversa' | 'naoEnviada' | 'enviar' | 'registrada'}` | 'torre.tentarDeNovo'
 
-export type PendingEntry = Pick<Entry, 'id' | 'kind'> & { data: { status?: string } }
+export type PendingEntry = Pick<Entry, 'id' | 'kind'> & { data: { status?: string; toolKind?: string } }
 
 export type PendingView =
   /** O cartão original, com as próprias opções. */
@@ -17,7 +17,7 @@ export type PendingView =
   /** Já resolvido (aqui ou na conversa): o cartão mostra o resultado, sem botões. */
   | { kind: 'settled'; entry: PendingEntry; nota: Nota }
   /** Sem como responder aqui agora: só Abrir conversa, com o motivo. */
-  | { kind: 'openOnly'; nota: Nota }
+  | { kind: 'openOnly'; nota: Nota | null }
 
 export const SAME_CARD = 'torre.resp.mesmoCartao' satisfies Nota
 
@@ -27,6 +27,7 @@ export function pendingView(entry: PendingEntry | null, ctx: { live: boolean; pe
   const status = entry.data.status
   if (status === 'answered') return { kind: 'settled', entry, nota: 'torre.resp.jaRespondido' }
   if (status !== 'pending') return { kind: 'settled', entry, nota: 'torre.resp.naoEspera' }
+  if (entry.data.toolKind === 'open_local_command') return { kind: 'openOnly', nota: null }
   if (!ctx.live) return { kind: 'openOnly', nota: 'torre.resp.semConexao' }
   return { kind: 'card', entry, nota: SAME_CARD }
 }

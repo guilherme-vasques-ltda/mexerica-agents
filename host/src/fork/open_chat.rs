@@ -905,8 +905,8 @@ async fn drive_inner(
         let started = if let Some(value) = resumed {
             value
         } else {
-            if tools.is_some() {
-                session["dynamicTools"] = super::open_tools::Turn::catalog();
+            if let Some(tools) = tools {
+                session["dynamicTools"] = tools.catalog();
             }
             rpc.call(3, "thread/start", session).await?
         };
@@ -949,7 +949,7 @@ async fn drive_inner(
         let mut cotas = Vec::new();
         // Itens que já entregaram texto por deltas: o `item/completed` deles não repete o que já chegou.
         let mut streamed = std::collections::HashSet::new();
-        let mut called = std::collections::HashSet::new();
+        let mut called = HashMap::new();
         loop {
             let message = rpc.next().await?;
             let params = &message["params"];
@@ -960,10 +960,11 @@ async fn drive_inner(
                     && params["turnId"] == turn_id
                     && params["namespace"].is_null()
                     && let Some(call) = params["callId"].as_str().filter(|id| valid_id(id))
-                    && let Some(name) = params["tool"].as_str().filter(|name| super::open_tools::Turn::offered(name))
+                    && let Some(name) = params["tool"].as_str().filter(|name| tools.offered(name))
                     && called.len() < 32
-                    && called.insert(call.to_owned())
+                    && !called.contains_key(call)
                 {
+                    called.insert(call.to_owned(), name.to_owned());
                     let result = tools.call(name, &params["arguments"]).await;
                     let success = result.is_ok();
                     let text = result.map_or_else(
@@ -1015,8 +1016,20 @@ async fn drive_inner(
                                 && params["threadId"] == thread
                                 && params["turnId"] == turn_id
                                 && params["item"]["namespace"].is_null()
-                                && tools.is_some()
-                                && params["item"]["tool"].as_str().is_some_and(super::open_tools::Turn::offered))) =>
+                                && tools.is_some_and(|tools| {
+                                    params["item"]["tool"].as_str().is_some_and(|name| {
+                                        if message["method"] == "item/completed"
+                                            && name == super::open_tools::LOCAL_COMMAND
+                                        {
+                                            params["item"]["id"]
+                                                .as_str()
+                                                .and_then(|id| called.get(id))
+                                                .is_some_and(|admitted| admitted == name)
+                                        } else {
+                                            tools.offered(name)
+                                        }
+                                    })
+                                }))) =>
                 {
                     tracing::warn!("item não admitido do Codex encerrou a conversa");
                     interrupt(rpc, &thread, turn_id).await;

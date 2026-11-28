@@ -63,6 +63,24 @@ for line in sys.stdin:
                 send({"method": "item/completed", "params": {**params, "item": {
                     "type": "dynamicToolCall", "tool": tool, "id": f"call-{i}"}}})
             complete(message["params"]["threadId"])
+        elif mode in ("hub-command-completed", "hub-command-forged-completion"):
+            params = {"threadId": "thread-1", "turnId": "turn-1"}
+            item = {"type": "dynamicToolCall", "tool": "run_local_command", "id": "call-0"}
+            send({"method": "item/started", "params": {**params, "item": item}})
+            send({"id": 100, "method": "item/tool/call", "params": {
+                **params, "tool": item["tool"], "callId": item["id"], "arguments": {}}})
+            response = sys.stdin.readline()
+            log.write(response)
+            log.flush()
+            import time
+            with open(os.environ["FAKE_LOG"] + ".received", "w") as received:
+                received.write("1")
+            while not os.path.exists(os.environ["FAKE_LOG"] + ".disabled"):
+                time.sleep(0.01)
+            if mode == "hub-command-forged-completion":
+                item["id"] = "call-other"
+            send({"method": "item/completed", "params": {**params, "item": item}})
+            complete()
         elif mode == "tool":
             send({"method": "item/started", "params": {"item": {"type": "commandExecution", "id": "i1"}}})
         elif mode == "image":
@@ -913,6 +931,277 @@ async fn ferramentas_da_open_so_rodam_no_turno_local_e_na_thread_certa() {
         }
         std::fs::remove_dir_all(dir).unwrap();
     }
+}
+
+#[tokio::test]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+async fn desligar_comandos_aceita_apenas_a_conclusao_da_chamada_admitida() {
+    use crate::{
+        api::devices::Caller,
+        hub::BotStatus,
+        store::{EntryKind, Lane},
+    };
+    use serde_json::json;
+
+    if !crate::environment::Environment::is_open() {
+        return;
+    }
+    for mode in ["hub-command-completed", "hub-command-forged-completion"] {
+        let (hub, dir) = hub_de_teste(mode);
+        let mut cfg = hub.store.bot(mode).unwrap().unwrap().config;
+        cfg.backend = "codex".into();
+        hub.store.save_bot(&cfg).unwrap();
+        let lane = Lane::main(mode);
+        let number = hub.store.alloc_turn(mode).unwrap();
+        let msg = hub
+            .add_entry(
+                &lane,
+                EntryKind::User,
+                number,
+                &json!({"text":"Teste","contentOrigin":{"ingress":{"caller":"local"}}}),
+            )
+            .unwrap();
+        hub.set_runtime(mode, |r| {
+            r.status = BotStatus::Working;
+            r.lane = Some(lane.clone());
+            r.message = Some(msg.id.clone());
+        });
+        let ticket = admit_for_test(&hub, mode, "fixture").unwrap();
+        let mut cancel = ticket_cancel(&ticket);
+        let auth = super::super::open_tools::Turn::capture(&hub, &lane, &msg.id, number, cancel.clone()).unwrap();
+        let enable = |enabled| {
+            crate::api::dispatch(&hub, &Caller::Local, "updateBot", json!({"id":mode,"localCommandsEnabled":enabled}))
+        };
+        enable(true).await.unwrap();
+        let child = tokio::process::Command::new("python3")
+            .args(["-I", "-c", FAKE])
+            .env("FAKE_MODE", mode)
+            .env("FAKE_LOG", dir.join("log"))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        let mut rpc = Rpc::from_child(crate::fork::motor_exec::fixture(child)).unwrap();
+        let (result, ()) = tokio::join!(
+            drive(
+                &mut rpc,
+                None,
+                ("Fixture", None),
+                "Teste",
+                Duration::from_secs(15),
+                &mut cancel,
+                |_| Ok(()),
+                || {},
+                |_| true,
+                None,
+                Some(&auth)
+            ),
+            async {
+                esperar_pid(&dir.join("log.received")).await;
+                enable(false).await.unwrap();
+                std::fs::write(dir.join("log.disabled"), b"").unwrap();
+            }
+        );
+        if mode == "hub-command-completed" {
+            assert!(result.is_ok(), "{result:?}");
+        } else {
+            assert_eq!(result.unwrap_err().to_string(), "open_chat_tool_refused");
+        }
+        let _ = rpc.finish().await;
+        drop(ticket);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[tokio::test]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+async fn comando_local_so_inicia_com_cartao_exato_e_turno_vivo() {
+    use crate::{
+        LockExt,
+        api::devices::Caller,
+        hub::BotStatus,
+        store::{EntryKind, Lane},
+    };
+    use serde_json::json;
+
+    if !crate::environment::Environment::is_open() {
+        return;
+    }
+    'scenarios: for scenario in
+        ["disabled", "allow", "shell", "deny", "cancel", "policy", "revoke_card", "revoke_spawn", "revoke_after_spawn"]
+    {
+        let bot = format!("bot-comando-{scenario}");
+        let (hub, dir) = hub_de_teste(&bot);
+        let mut config = hub.store.bot(&bot).unwrap().unwrap().config;
+        config.backend = "codex".into();
+        hub.store.save_bot(&config).unwrap();
+        let cwd = dir.canonicalize().unwrap();
+        let effect = cwd.join("feito");
+        let lane = Lane::main(&bot);
+        let number = hub.store.alloc_turn(&bot).unwrap();
+        let entry = hub
+            .add_entry(
+                &lane,
+                EntryKind::User,
+                number,
+                &json!({
+                    "text":"Criar arquivo vazio", "contentOrigin":{"ingress":{"caller":"local"}}
+                }),
+            )
+            .unwrap();
+        hub.set_runtime(&bot, |r| {
+            r.status = BotStatus::Working;
+            r.lane = Some(lane.clone());
+            r.message = Some(entry.id.clone());
+        });
+        let ticket = admit_for_test(&hub, &bot, "fixture").unwrap();
+        let turn =
+            super::super::open_tools::Turn::capture(&hub, &lane, &entry.id, number, ticket_cancel(&ticket)).unwrap();
+        let set_enabled = async |enabled| {
+            crate::api::dispatch(&hub, &Caller::Local, "updateBot", json!({"id":bot,"localCommandsEnabled":enabled}))
+                .await
+                .unwrap()
+        };
+        let enabled = scenario != "disabled";
+        assert!(!turn.offered("run_local_command"));
+        if enabled {
+            assert_eq!(set_enabled(true).await["bot"]["localCommandsEnabled"], true);
+        }
+        let mut events = hub.events.subscribe();
+        let shell = std::fs::canonicalize("/bin/sh").unwrap();
+        let argv = match scenario {
+            "shell" => vec![shell.to_str().unwrap(), "-c", "printf 'texto do processo'; : > feito"],
+            "revoke_after_spawn" => {
+                vec![shell.to_str().unwrap(), "-c", "echo $$ > feito; while [ ! -f concluir ]; do sleep 0.01; done"]
+            }
+            _ => vec!["/usr/bin/touch", "feito"],
+        };
+        let payload = json!({"argv":argv,"cwd":cwd});
+        let mut call = Box::pin(turn.call("run_local_command", &payload));
+        let catalog = turn.catalog();
+        assert_eq!(catalog.as_array().unwrap().iter().any(|tool| tool["name"] == "run_local_command"), enabled);
+        assert_eq!(turn.offered("run_local_command"), enabled);
+        if !enabled {
+            assert_eq!(call.await.unwrap_err().to_string(), "open_tools_command_disabled");
+            assert!(!effect.exists());
+            assert!(matches!(events.try_recv(), Err(tokio::sync::broadcast::error::TryRecvError::Empty)));
+            drop(ticket);
+            std::fs::remove_dir_all(dir).unwrap();
+            continue;
+        }
+        for consent in [true, false] {
+            let card = tokio::select! {
+                result = &mut call => panic!("comando terminou sem cartão: {result:?}"),
+                card = tokio::time::timeout(Duration::from_secs(5), async {
+                    loop {
+                        let event = events.recv().await.unwrap();
+                        if event["entry"]["kind"] == "permission" && event["entry"]["data"]["status"] == "pending"
+                            && let Some(id) = event["entry"]["id"].as_str()
+                        {
+                            break hub.store.entry(id).unwrap();
+                        }
+                    }
+                }) => card.unwrap(),
+            };
+            assert!(!effect.exists());
+            assert_eq!(card.data["toolKind"], "open_local_command");
+            assert!(card.data["detail"].as_str().unwrap().contains(if consent { "sem isolamento" } else { argv[0] }));
+            let kind = if !consent && scenario == "deny" { "reject_once" } else { "allow_once" };
+            let options = card.data["options"].as_array().unwrap();
+            assert_eq!(options.len(), 2);
+            assert!(options.iter().all(|o| matches!(o["kind"].as_str(), Some("allow_once" | "reject_once"))));
+            let option = options.iter().find(|o| o["kind"] == kind).unwrap()["optionId"].as_str().unwrap();
+            let body = json!({"source":"app","botId":bot,"entryId":card.id,"entryRev":card.rev,"optionId":option});
+            if !consent && scenario == "revoke_card" {
+                assert_eq!(set_enabled(false).await["bot"]["localCommandsEnabled"], false);
+                assert_eq!(set_enabled(true).await["bot"]["localCommandsEnabled"], true);
+                let answer = crate::api::dispatch(&hub, &Caller::Local, "respondPermission", body).await;
+                assert!(format!("{answer:?}").contains("open_tools_command_disabled"));
+                drop(call);
+                assert!(!effect.exists());
+                drop(ticket);
+                std::fs::remove_dir_all(dir).unwrap();
+                continue 'scenarios;
+            }
+            let mut stale = body.clone();
+            stale["entryRev"] = (card.rev + 1).into();
+            assert!(crate::api::dispatch(&hub, &Caller::Local, "respondPermission", stale).await.is_err());
+            let mut missing_source = body.clone();
+            missing_source.as_object_mut().unwrap().remove("source");
+            assert!(crate::api::dispatch(&hub, &Caller::Local, "respondPermission", missing_source).await.is_err());
+            crate::api::dispatch(&hub, &Caller::Local, "respondPermission", body.clone()).await.unwrap();
+            assert!(crate::api::dispatch(&hub, &Caller::Local, "respondPermission", body).await.is_err());
+            assert!(!effect.exists());
+        }
+        if scenario == "cancel" {
+            super::cancel_turn(&bot);
+        }
+        if scenario == "policy" {
+            hub.store.db.locked().execute("UPDATE donna_policy_meta SET revision=revision+1 WHERE id=1", []).unwrap();
+        }
+        if scenario == "revoke_spawn" {
+            assert_eq!(set_enabled(false).await["bot"]["localCommandsEnabled"], false);
+            assert_eq!(set_enabled(true).await["bot"]["localCommandsEnabled"], true);
+        }
+        if scenario == "revoke_after_spawn" {
+            tokio::select! {
+                result = &mut call => panic!("comando terminou antes da perda de autoridade: {result:?}"),
+                _ = esperar_pid(&effect) => {}
+            }
+            hub.set_runtime(&bot, |r| r.lane = None);
+            std::fs::write(cwd.join("concluir"), b"").unwrap();
+        }
+        let result = call.await;
+        let allowed = matches!(scenario, "allow" | "shell");
+        if allowed {
+            assert_eq!(result.unwrap(), json!({"status":"exited","exitCode":0}));
+        } else if scenario == "revoke_after_spawn" {
+            assert_eq!(result.unwrap(), json!({"status":"unknown"}));
+        } else {
+            assert!(result.is_err(), "{scenario}");
+        }
+        assert_eq!(effect.exists(), allowed || scenario == "revoke_after_spawn", "{scenario}");
+        drop(ticket);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[tokio::test]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+async fn ajuste_de_comandos_e_local_por_bot_e_persiste() {
+    use crate::{
+        LockExt,
+        api::devices::Caller,
+        store::{Scope, Store},
+    };
+    use serde_json::json;
+    if !crate::environment::Environment::is_open() {
+        return;
+    }
+    let (hub, dir) = hub_de_teste("fixture-comandos");
+    let mut cfg = hub.store.bot("fixture-comandos").unwrap().unwrap().config;
+    cfg.backend = "codex".into();
+    hub.store.save_bot(&cfg).unwrap();
+    cfg.id = "outro-bot".into();
+    hub.store.save_bot(&cfg).unwrap();
+    let patch = json!({"id":"fixture-comandos","localCommandsEnabled":true});
+    let remote = Caller::Device { key: "fixture".into(), scopes: vec![Scope::Control], autoridade: None };
+    let mut invalid = patch.clone();
+    invalid["localCommandsEnabled"] = json!("true");
+    let mut combined = patch.clone();
+    combined["name"] = json!("Outro nome");
+    assert!(crate::api::dispatch(&hub, &remote, "updateBot", patch.clone()).await.is_err());
+    assert!(crate::api::dispatch(&hub, &Caller::Local, "updateBot", invalid).await.is_err());
+    assert!(crate::api::dispatch(&hub, &Caller::Local, "updateBot", combined).await.is_err());
+    assert_eq!(hub.bot_value_for_test("fixture-comandos")["localCommandsEnabled"], false);
+    crate::api::dispatch(&hub, &Caller::Local, "updateBot", patch).await.unwrap();
+    assert_eq!(hub.bot_value_for_test("outro-bot")["localCommandsEnabled"], false);
+    drop(hub);
+    let store = Store::open(&dir.join("hub.db")).unwrap();
+    assert!(super::super::open_command_settings::revision(&store.db.locked(), "fixture-comandos").unwrap().is_some());
+    drop(store);
+    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[tokio::test]

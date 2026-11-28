@@ -6,6 +6,12 @@ import { pendingView, responderOf } from './responder.ts'
 // MB-1 (D70): o Board responde pelo MESMO cartão e pela MESMA intenção da conversa; resolvido em qualquer lugar,
 // mostra o resultado sem botões; sem cartão carregado, conexão ou fora do Pessoal, só Abrir conversa.
 const card = (status: string, rev = 4) => ({ id: 'e1', kind: 'permission', botId: 'fin', rev, seq: 1, turn: 1, createdAt: 0, updatedAt: 0, data: { status, author: 'fin' } }) as unknown as Entry
+
+test('Torre abre a conversa para aprovar comando local', () => {
+  const entry = card('pending')
+  entry.data.toolKind = 'open_local_command'
+  assert.deepEqual(pendingView(entry, { live: true, personal: true }), { kind: 'openOnly', nota: null })
+})
 const ctx = { live: true, personal: true }
 
 test('estados do item: cartão, já respondido, não está mais esperando, só Abrir', () => {

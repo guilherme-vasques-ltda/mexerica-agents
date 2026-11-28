@@ -58,6 +58,17 @@ pub(crate) fn decide(
     level: ApprovalLevel,
     rules: &[Rule],
 ) -> Decisao {
+    if action == Action::Opaque
+        && rules.iter().any(|r| {
+            r.enabled
+                && r.effect == Effect::Deny
+                && r.bot_id.as_deref().is_none_or(|id| id == bot)
+                && r.tool.as_deref().is_none_or(|tool| tool == TOOL)
+                && r.interpretacao().is_some_and(|(field, _)| matches!(field, Campo::Acao | Campo::Alvo))
+        })
+    {
+        return Decisao::Recusar;
+    }
     let (acao, efeito) = action.policy();
     let applicable: Vec<_> = rules
         .iter()
@@ -130,6 +141,37 @@ mod tests {
             );
         }
         assert!(!Action::Opaque.allows_persistent_rule());
+    }
+
+    #[test]
+    fn comando_opaco_nao_contorna_recusa_de_acao_ou_alvo() {
+        for (campo, valor) in [("acao", "git_reset_hard"), ("alvo", "outro-alvo")] {
+            let rules = [Rule { effect: Effect::Deny, ..rule(campo, valor) }];
+            assert_eq!(
+                decide(
+                    "bot-teste",
+                    Action::Opaque,
+                    "executavel-ficticio",
+                    Origem::Derivada,
+                    Validade::Atual,
+                    ApprovalLevel::Ask,
+                    &rules
+                ),
+                Decisao::Recusar
+            );
+            assert_eq!(
+                decide(
+                    "outro-bot",
+                    Action::Opaque,
+                    "executavel-ficticio",
+                    Origem::Derivada,
+                    Validade::Atual,
+                    ApprovalLevel::Ask,
+                    &rules
+                ),
+                Decisao::Perguntar
+            );
+        }
     }
 
     #[test]

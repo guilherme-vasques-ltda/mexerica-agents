@@ -307,15 +307,21 @@ funcionando.
 
 ## Política de comandos locais mediados
 
-Os comandos locais continuam indisponíveis ao motor. Antes de expor essa
-capacidade, o app deve mantê-la desligada por padrão e avisar o dono na primeira
-ativação: um comando aprovado roda com as permissões do dono, sem ambiente
-isolado. O consentimento habilita apenas pedidos de aprovação; não autoriza
-nenhum comando. A mediação ocorre no Hub, e o shell nativo não é habilitado
-como alternativa.
+Em conversas Codex novas iniciadas pelo dono local, o bot pode pedir ao Hub
+para executar um comando. A opção começa desligada: o primeiro cartão avisa que
+o processo vai rodar com as permissões do dono, sem isolamento, e só libera a
+exibição do pedido. O segundo cartão mostra o caminho absoluto do executável,
+os argumentos e a pasta e exige uma nova aprovação. Não existe aprovação
+permanente. A mediação ocorre no Hub; o shell nativo do Codex continua desligado.
+Conversas anteriores preservam seu catálogo. O Hub devolve apenas o estado e
+o código de saída ou sinal, sem enviar stdout e stderr ao motor. Não use
+credenciais como argumentos.
 
 Cada aprovação vale para um pedido, bot, turno, executável, argumentos e pasta.
-É de uso único e perde a validade quando expira ou quando o Hub revoga o turno.
+É de uso único e perde a validade quando expira, quando a política muda ou
+quando o Hub revoga o turno. O Hub não tenta inferir os efeitos pelo nome do
+comando: se houver uma regra de recusa aplicável à ação ou ao alvo e o efeito
+não puder ser provado, o comando é recusado.
 No Linux, o executor usa os descritores abertos antes da aprovação para não
 seguir uma troca posterior de caminho. No macOS, a entrada na pasta usa o
 descritor aberto, e o Hub recusa se o dispositivo ou inode da pasta ou do
